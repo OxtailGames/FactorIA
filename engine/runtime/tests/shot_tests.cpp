@@ -11,6 +11,7 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
+#include "fa/scene/components.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -378,6 +379,119 @@ TEST_CASE("render.frame_graph: an engine without a renderer says so") {
     auto r = e.commands().call("render.frame_graph", Json::object());
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("render.probes: empty without probes, lists a ReflectionProbe with its tile, and says no renderer") {
+    TempProject p("probes-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto none = c.call("render.probes", Json::object());
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["probes"].empty());
+    CHECK(none.result["atlas"].is_null());
+    Entity probe = e.world().create("lobby");
+    auto& rp = e.world().add<ReflectionProbe>(probe);
+    rp.mode = ProbeMode::Realtime;
+    rp.update = ProbeUpdate::EveryFrame;
+    rp.resolution = 64;
+    e.step(3);
+    auto r = c.call("render.probes", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["probes"].size() == 1);
+    const Json& listed = r.result["probes"][0];
+    CHECK(listed["mode"] == "realtime");
+    CHECK(listed["resolution"] == 64);
+    CHECK(r.result["atlas"]["size"] == 1024);
+    // A GPU that can draw the probes' passes captured it and gave it a tile; one that cannot says "failed" and why.
+    if (listed["state"] == "failed") {
+        CHECK(listed["message"].is_string());
+    } else {
+        CHECK(listed["tile"]["resolution"] == 64);
+        CHECK(listed["captures"].get<int>() >= 1);
+    }
+    auto bad = c.call("render.probes", Json{{"entity", "lobby"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("entity") != std::string::npos);
+
+    TempProject q("probes-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.probes", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("render.probe_refresh: an on-demand probe captures again when asked, and the errors say what to do") {
+    TempProject p("probe-refresh-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    Entity probe = e.world().create("lobby");
+    const std::string id = e.world().id_of(probe);
+    auto& rp = e.world().add<ReflectionProbe>(probe);
+    rp.mode = ProbeMode::Realtime;
+    rp.update = ProbeUpdate::OnDemand;
+    rp.resolution = 64;
+    Entity plain = e.world().create("plain");
+    Entity baked = e.world().create("baked");
+    e.world().add<ReflectionProbe>(baked).mode = ProbeMode::Baked;
+    e.step(8);  // the face budget is 2 a frame: a capture takes three
+    auto before = c.call("render.probes", Json::object());
+    REQUIRE_MESSAGE(before.ok, before.error.dump());
+    const Json* listed = nullptr;
+    for (const Json& j : before.result["probes"])
+        if (j["entity"] == id) listed = &j;
+    REQUIRE(listed != nullptr);
+    const bool drawn = (*listed)["state"] != "failed";  // a GPU that cannot draw the probes' passes says "failed"
+    const int captures = (*listed)["captures"].get<int>();
+
+    auto one = c.call("render.probe_refresh", Json{{"entity", id}});
+    if (drawn) {
+        REQUIRE_MESSAGE(one.ok, one.error.dump());
+        REQUIRE(one.result["refreshed"].size() == 1);
+        CHECK(one.result["refreshed"][0] == id);
+        CHECK(one.result["skipped"].empty());
+        e.step(8);
+        auto after = c.call("render.probes", Json::object());
+        REQUIRE_MESSAGE(after.ok, after.error.dump());
+        for (const Json& j : after.result["probes"])
+            if (j["entity"] == id) CHECK(j["captures"].get<int>() == captures + 1);
+        auto all = c.call("render.probe_refresh", Json::object());  // every realtime probe: the baked one is not one
+        REQUIRE_MESSAGE(all.ok, all.error.dump());
+        CHECK(all.result["refreshed"].size() == 1);
+    }
+
+    // The errors name the argument and the fix.
+    auto notProbe = c.call("render.probe_refresh", Json{{"entity", "plain"}});
+    REQUIRE_FALSE(notProbe.ok);
+    CHECK(notProbe.error.dump().find("ReflectionProbe") != std::string::npos);
+    auto bakedProbe = c.call("render.probe_refresh", Json{{"entity", "baked"}});
+    REQUIRE_FALSE(bakedProbe.ok);
+    CHECK(bakedProbe.error.dump().find("probe.bake") != std::string::npos);
+    auto missing = c.call("render.probe_refresh", Json{{"entity", "nowhere"}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error.dump().find("nowhere") != std::string::npos);
+    auto notString = c.call("render.probe_refresh", Json{{"entity", 7}});
+    REQUIRE_FALSE(notString.ok);
+    CHECK(notString.error.dump().find("entity") != std::string::npos);
+    auto unknown = c.call("render.probe_refresh", Json{{"probe", "lobby"}});
+    REQUIRE_FALSE(unknown.ok);
+    CHECK(unknown.error.dump().find("probe") != std::string::npos);
+    (void)plain;
+
+    TempProject q("probe-refresh-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.probe_refresh", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
 }
 
 TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error with a did-you-mean hint") {

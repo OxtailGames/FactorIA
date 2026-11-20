@@ -346,6 +346,11 @@ Not packed: `clearcoatNormalTexture` (the coat follows the geometric normal), `s
 tangent turned by `anisotropyRotation`); a texture file that cannot be read (`its factor alone is used`), and a set whose packed size would pass
 4096 x 4096. An editable mesh (`mesh.*` commands, a model converted to a mesh) keeps only the factors: its textures are not carried.
 
+## Reflection probes (M73-P3b)
+
+A `ReflectionProbe` is captured into one atlas (realtime, or once with `probe.bake`); meshes read it from M73-P3c. Fields, commands and
+limits: [RENDERING_PROBES.md](RENDERING_PROBES.md) (`docs.read rendering-probes`).
+
 ## Lightmaps
 
 A lightmap is light computed once and stored in an image: the diffuse light of the sun, the lights of mode `baked` and the sky, with the
@@ -578,7 +583,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured, read by meshes from M73-P3c); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface` (M73.5, drawn: RGBA16F targets and the depth prepass), `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

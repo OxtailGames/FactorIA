@@ -7785,6 +7785,97 @@ declare module "factoria" {
     layers: number;
   }
   /**
+   * Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe lights; where boxes overlap the one with the larger importance wins. A baked probe is written once by the command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe is captured while the game runs, within a budget per frame (update). Nothing reads the atlas yet: the mesh shaders sample it from M73.3c on, until then the commands render.probes and probe.bake show and fill it. See docs/rendering/RENDERING_LIGHTING.md, "Reflection probes".
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface ReflectionProbeComponent {
+    /**
+     * baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; it costs no GPU time while the game runs). realtime: the scene is captured from this position while the game runs, as `update` says.
+     * @since unreleased
+     */
+    mode: "baked" | "realtime";
+    /**
+     * Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale multiplies it). Each side 0.01..100000. Default [10, 10, 10].
+     * @since unreleased
+     */
+    get boxSize(): Vec3;
+    set boxSize(value: Vec3Like);
+    /**
+     * Where the centre of the box is, in metres from the entity's origin along its local axes (the capture is taken from the origin). Default [0, 0, 0].
+     * @since unreleased
+     */
+    get boxOffset(): Vec3;
+    set boxOffset(value: Vec3Like);
+    /**
+     * Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. Default 1.
+     * @since unreleased
+     */
+    blendDistance: number;
+    /**
+     * -1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the atlas has no room the probe with the smallest importance is evicted first. Default 0.
+     * @since unreleased
+     */
+    importance: number;
+    /**
+     * Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions.
+     * @since unreleased
+     */
+    resolution: number;
+    /**
+     * Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.
+     * @since unreleased
+     */
+    nearPlane: number;
+    /**
+     * Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows `clear`. Default 100.
+     * @since unreleased
+     */
+    farPlane: number;
+    /**
+     * What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color (clearColor).
+     * @since unreleased
+     */
+    clear: "sky" | "color";
+    /**
+     * The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an HDR colour). Default black.
+     * @since unreleased
+     */
+    get clearColor(): Color;
+    set clearColor(value: ColorLike);
+    /**
+     * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty the capture draws only the entities that have one of these tags or a parent that does (as Camera.showTags). Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    showTags: any;
+    /**
+     * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the capture (as Camera.hideTags). Default []. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    hideTags: any;
+    /**
+     * Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes together draw at most the renderer's face budget a frame (2 by default), so a capture takes several frames. everyFrame: a new capture starts as soon as the last one is done, before the probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take turns, the more important and the longest ago captured first. onDemand: captured when the probe appears and then only when the command render.probe_refresh asks for it.
+     * @since unreleased
+     */
+    update: "everyFrame" | "timeSliced" | "onDemand";
+    /**
+     * Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr pages next to it). Empty = not baked. A baked probe whose file is missing or older than its format logs one warning and stays empty; the file is watched and reloaded when it changes. (asset path: any)
+     * @since unreleased
+     */
+    bakedMap: string;
+    /**
+     * 0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1.
+     * @since unreleased
+     */
+    intensity: number;
+    /**
+     * True (default): the reflection is corrected for the box (the room's walls are where the box edge is), which suits an interior. False: the reflection is the one of an infinitely far environment. Used by the mesh shaders from M73.3c.
+     * @since unreleased
+     */
+    boxProjection: boolean;
+  }
+  /**
    * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights".
    * 
    * Category: 3D
@@ -11790,6 +11881,7 @@ declare module "factoria" {
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
     Decal: DecalComponent;
+    ReflectionProbe: ReflectionProbeComponent;
     LightProbeGroup: LightProbeGroupComponent;
     Animator: AnimatorComponent;
     IK3D: IK3DComponent;
@@ -11846,6 +11938,7 @@ declare module "factoria" {
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
+    ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
     LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };

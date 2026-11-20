@@ -30,6 +30,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Light](components/3d.md#light): A light source for 3D meshes.
 - [LightProbeGroup](components/3d.md#lightprobegroup): Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). _Not released yet._
 - [MeshRenderer](components/3d.md#meshrenderer): Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read).
+- [ReflectionProbe](components/3d.md#reflectionprobe): Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. _Not released yet._
 
 ### [Audio](components/audio.md)
 
@@ -277,6 +278,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`music.preview`](commands/assets.md#musicpreview-modifies-state): Render a song to a stereo WAV or OGG next to it (offline, deterministic) and see its spectrogram. _Since 0.16.0._
 - [`music.render`](commands/assets.md#musicrender-modifies-state): Render a whole song (intro, loop, outro) to a game-ready WAV or OGG with sample-exact loop points, and optionally one stem per layer. _Since 0.16.0._
 - [`music.scale`](commands/assets.md#musicscale): Say which notes a scale or mode has and the chords built on its degrees (with Roman numerals). _Since 0.16.0._
+- [`probe.bake`](commands/assets.md#probebake-modifies-state): Capture a ReflectionProbe once and write its baked page and manifest into the project. _Not released yet._
 - [`rig.bake`](commands/assets.md#rigbake-modifies-state): Fit rig documents to their models and write the skinned .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
 - [`rig.create`](commands/assets.md#rigcreate-modifies-state): Write a rig document for a model: a skeleton template (humanoid, quadruped, bird, tail, chain, generic) fitted to the model by its parts and landmarks, and bake it to a skinned .glb. _Since 0.16.0._
 - [`rig.fit`](commands/assets.md#rigfit-modifies-state): Change what a rig document tells the fit (parts, landmarks, options, symmetry, strict), fit the template to the model again and show what it matched; then bake. _Since 0.16.0._
@@ -425,6 +427,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Not released yet._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
+- [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Not released yet._
+- [`render.probes`](commands/game.md#renderprobes): The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture. _Not released yet._
 - [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
