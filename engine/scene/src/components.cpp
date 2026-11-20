@@ -1967,15 +1967,79 @@ void register_builtin_components(TypeRegistry& r) {
             "entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's "
             "view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity "
             "that is off screen.")
-        .range(0, 1000000);
+        .range(0, 1000000)
+        .field("lightmapScale", &MeshRenderer::lightmapScale,
+               "Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the "
+               "scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps "
+               "(docs/rendering/RENDERING_LIGHTING.md).")
+        .range(0, 100)
+        .field("contributeGI", &MeshRenderer::contributeGI,
+               "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
+               "illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.")
+        .field("receiveGI", &MeshRenderer::receiveGI,
+               "Whether the surface is lit by the baked lightmap, the light probes and the realtime global "
+               "illumination. No effect yet: M73.4 brings it.")
+        .field("clearcoat", &MeshRenderer::clearcoat,
+               "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
+               "KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.")
+        .range(0, 1)
+        .field("clearcoatRoughness", &MeshRenderer::clearcoatRoughness,
+               "Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.")
+        .range(0, 1)
+        .field(
+            "sheenColor", &MeshRenderer::sheenColor,
+            "Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = "
+            "no sheen. No effect yet: M73.6 brings it.")
+        .field("sheenRoughness", &MeshRenderer::sheenRoughness,
+               "Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.")
+        .range(0, 1)
+        .field("anisotropy", &MeshRenderer::anisotropy,
+               "Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF "
+               "KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.")
+        .range(-1, 1)
+        .field("anisotropyRotation", &MeshRenderer::anisotropyRotation,
+               "Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 "
+               "brings it.")
+        .range(-360, 360)
+        .field("specular", &MeshRenderer::specular,
+               "Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the "
+               "usual look. No effect yet: M73.6 brings it.")
+        .range(0, 1)
+        .field("ior", &MeshRenderer::ior,
+               "Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 "
+               "diamond. No effect yet: M73.6 brings it.")
+        .range(1, 3)
+        .field("transmission", &MeshRenderer::transmission,
+               "How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF "
+               "KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it.")
+        .range(0, 1)
+        .field("thickness", &MeshRenderer::thickness,
+               "Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). "
+               "0 = a thin surface. No effect yet: M73.6 brings it.")
+        .range(0, 1000)
+        .field("attenuationColor", &MeshRenderer::attenuationColor,
+               "Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, "
+               "liquids). No effect yet: M73.6 brings it.")
+        .field("attenuationDistance", &MeshRenderer::attenuationDistance,
+               "Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = "
+               "the volume does not tint the light. No effect yet: M73.6 brings it.")
+        .range(0, 100000)
+        .field("subsurface", &MeshRenderer::subsurface,
+               "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the "
+               "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
+        .range(0, 1);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
-                 "rotated by the Transform), point and spot lights shine from the entity's position.",
+                 "rotated by the Transform), point and spot lights shine from the entity's position, an area light "
+                 "from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of "
+                 "M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).",
                  "3D")
         .enum_field(
-            "type", &Light::type, {"directional", "point", "spot"},
-            "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward.")
+            "type", &Light::type, {"directional", "point", "spot", "area"},
+            "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. "
+            "area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings "
+            "it, an area light shines like a point light of the same `range`.")
         .field("color", &Light::color, "Light color.")
         .field("intensity", &Light::intensity, "Brightness multiplier.")
         .range(0, 1000)
@@ -1983,7 +2047,61 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0.01f, 100000)
         .field("spotAngle", &Light::spotAngle, "Spot only: cone half-angle in degrees.")
         .range(1, 89)
-        .field("castShadows", &Light::castShadows, "Cast shadows. Only supported on directional lights for now.");
+        .field("castShadows", &Light::castShadows,
+               "Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come "
+               "with M73.2.")
+        .field("innerAngle", &Light::innerAngle,
+               "Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to "
+               "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
+               "does today. No effect yet: M73.1 brings it.")
+        .range(0, 89)
+        .enum_field("shape", &Light::shape, {"rectangle", "disc", "tube"},
+                    "Area lights only: the shape of the emitter. rectangle and disc face the entity's forward "
+                    "direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it.")
+        .field("size", &Light::size,
+               "Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, "
+               "thickness] of a tube. No effect yet: M73.1 brings it.")
+        .range(0.001f, 1000)
+        .asset_field("cookie", &Light::cookie, "texture",
+                     "A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights "
+                     "project it through the cone, point lights through a cube layout. Empty = none. No effect yet: "
+                     "M73.1 brings it.")
+        .asset_field("ies", &Light::ies, "any",
+                     "An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the "
+                     "plain distribution. No effect yet: M73.1 brings it.")
+        .field("shadowResolution", &Light::shadowResolution,
+               "Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of "
+               "two is used). 0 (default) = "
+               "the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.")
+        .range(0, 4096)
+        .field("shadowBias", &Light::shadowBias,
+               "Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No "
+               "effect yet: M73.2 brings it.")
+        .range(0, 1)
+        .field("shadowNormalBias", &Light::shadowNormalBias,
+               "Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the "
+               "engine's own. No effect yet: M73.2 brings it.")
+        .range(0, 1)
+        .enum_field("shadowFilter", &Light::shadowFilter, {"pcf", "hard", "pcss"},
+                    "How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, "
+                    "the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized "
+                    "by shadowSoftness. No effect yet: M73.2 brings it.")
+        .field("shadowSoftness", &Light::shadowSoftness,
+               "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: "
+               "M73.2 brings it.")
+        .range(0, 10)
+        .field("shadowDistance", &Light::shadowDistance,
+               "How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's "
+               "SceneSettings.shadowDistance. No effect yet: M73.2 brings it.")
+        .range(0, 100000)
+        .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
+                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps and "
+                    "the light probes and costs nothing at run time. mixed: baked indirect light plus realtime "
+                    "direct light and shadows. No effect yet: M73.4 brings it.")
+        .field("volumetric", &Light::volumetric,
+               "Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above "
+               "0). 0 (default) = no shafts. No effect yet: M73.5 brings it.")
+        .range(0, 10);
 
     r.add<Animator>(
          "Animator",
@@ -3902,7 +4020,46 @@ void register_builtin_components(TypeRegistry& r) {
                "comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.")
         .range(80, 1000)
         .asset_field("skyMaterial", &SceneSettings::skyMaterial, "material", sky_material_doc().c_str())
-        .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str());
+        .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str())
+        .field("shadowCascades", &SceneSettings::shadowCascades,
+               "Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so "
+               "shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it "
+               "(docs/rendering/RENDERING_LIGHTING.md).")
+        .range(1, 4)
+        .field("shadowCascadeSplit", &SceneSettings::shadowCascadeSplit,
+               "Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of "
+               "detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.")
+        .range(0, 1)
+        .field("shadowCascadeBlend", &SceneSettings::shadowCascadeBlend,
+               "Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: "
+               "M73.2 brings it.")
+        .range(0, 0.5f)
+        .field("shadowDistance", &SceneSettings::shadowDistance,
+               "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
+               "view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.")
+        .range(0, 100000)
+        .field("shadowAtlasSize", &SceneSettings::shadowAtlasSize,
+               "Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger "
+               "atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.")
+        .range(512, 8192)
+        .field("contactShadows", &SceneSettings::contactShadows,
+               "Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a "
+               "GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.")
+        .asset_field("environmentMap", &SceneSettings::environmentMap, "texture",
+                     "An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and "
+                     "reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: "
+                     "M73.3 brings it.")
+        .field("environmentIntensity", &SceneSettings::environmentIntensity,
+               "Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect "
+               "yet: M73.3 brings it.")
+        .range(0, 100)
+        .field("environmentRotation", &SceneSettings::environmentRotation,
+               "Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.")
+        .range(-360, 360)
+        .enum_field("skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
+                    "gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere "
+                    "computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the "
+                    "place of both. No effect yet: M73.3 brings it.");
 }
 
 void ensure_builtin_components() {

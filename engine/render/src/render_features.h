@@ -5,8 +5,9 @@
 //
 // Names: the capabilities of the GPU the M71 pipeline relies on (floatTargets, r11g11b10, sampledDepth, computeShaders), the engine
 // features built on them (linearColor, hdrOutput) and one entry per post effect (the names of kPostEffectOrder, fa/scene/postprocess.h).
-// An effect or feature the engine does not draw answers false with the status "planned (<milestone>)" (the `planned` field of its row; every
-// row is drawn today, so none does), so `supports` never claims what the renderer cannot do.
+// An effect or feature the engine does not draw answers false with the status "planned (<milestone>)" (the `planned` field of its row; the
+// effects are all drawn today, the lighting rows of M73 are planned "M73" until their package lands), so `supports` never claims what the
+// renderer cannot do.
 #pragma once
 
 #include <cstdint>
@@ -33,6 +34,7 @@ struct FeatureEnv {
     bool r11g11b10 = false;     // RG11B10F renders and filters
     bool sampledDepth = false;  // a depth buffer can be sampled as a texture by a later pass
     bool compute = false;       // storage buffers and compute shaders
+    bool float32 = false;  // R32F and RGBA32F render and can be sampled (the shadow atlas of M73.2 is an R32F target)
     // hdrOutput: whether the window can show HDR now (the display the window is on offers an encoding the renderer writes), and
     // why not. Renderer::supports fills both with set_hdr_env() from the display of the last frame; a FeatureEnv made by hand
     // without them answers "the display has not been asked yet".
@@ -62,7 +64,7 @@ struct FeatureDef {
     FeatureKind kind;
     unsigned backends;  // bit (1 << FeatureBackend) of every backend the feature can ever run on
     const char*
-        needs;  // "": nothing; "half", "r11g11b10", "depth", "compute", "half+depth": what the GPU must also report
+        needs;  // "": nothing; "half", "r11g11b10", "depth", "compute", "float32", "half+depth": what the GPU must also report
     const char*
         planned;  // nullptr: the engine draws/does it; else the milestone it is planned in ("M71"), and it answers false
     const char* doc;  // one sentence: what it is and what it costs

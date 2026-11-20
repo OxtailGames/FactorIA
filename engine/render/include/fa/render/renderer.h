@@ -507,9 +507,10 @@ public:
     Json frame_graph_report() const;
 
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
-    // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
+    // "r11g11b10", "sampledDepth", "computeShaders", "float32Targets"), an engine feature ("linearColor", "hdrOutput", and the
+    // lighting rows of M73 such as "cascadedShadows", all planned until their package lands) or a post effect (the
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
-    // headless (dummy) backend, and for what the engine does not draw (no effect is left out today;
+    // headless (dummy) backend, and for what the engine does not draw (the lighting rows of M73 today;
     // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
     // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on
     // D3D11), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.

@@ -37,7 +37,9 @@ twin has no `kind` key and a twin made before M72 still loads. The full mode is 
 blocks: `fa_full_vs_head` (the attributes, `fa_model`, `fa_world_position`, `fa_world_direction`, `fa_shadow_coord`),
 `fa_full_vs_tail` (the engine's `main`), `fa_full_fs_head` (the fragment resources, `fa_frag_color`, the light, shadow and fog
 helpers) and `fa_full_fs_tail`. The fragment resources are **copies**, not includes, of the ones in `mesh_common.glsl`
-(whose `fa_fs_surface` also declares the engine's own varyings); `shader_template_test.cpp` compares the uniform blocks so
+(whose `fa_fs_surface` also declares the engine's own varyings), except the lights and the shadow lookup, which both templates
+include from `light_data.glsl` and `shadow_common.glsl` (the full template keeps its own shadow texture names and the macros
+`FA_SHADOW_TEX` / `FA_SHADOW_SMP` point the shared function at them); `shader_template_test.cpp` compares the uniform blocks so
 the CPU structs that fill them cannot drift.
 
 The material's blocks (`fa_material_vs` at vertex binding 4, `fa_material` at fragment binding 5) and the texture slots
@@ -70,7 +72,7 @@ At most four passes: at most 12 programs (`kMaxMaterialPrograms` = `kProgCount` 
 `kProgCount + 2 * (p - 1)` (+ 1 skinned) of `MaterialAsset::programs`; pass 0 uses the usual mesh slots.
 
 The twin (`factoria.shader/1`) gets `full: true`, `shadow`, `prepass` and `passes: [{name, cull, depthTest, depthWrite, blend,
-program, programSkin}]`. Its `"template"` is `mesh_full_template_hash()` (the hash of `mesh_common.glsl` plus
+program, programSkin}]`. Its `"template"` is `mesh_full_template_hash()` (the hash of `mesh_common.glsl`, the shared light and shadow files plus
 `mesh_full_common.glsl`, `FA_TEMPLATE_HASH_MESH_FULL` in `engine/render/CMakeLists.txt`), so a twin of another template
 is refused with the usual message. The cache key of a compile includes `GeneratedShader::stateKey` (the passes as JSON): a pass's
 cull is in no source line, but it must still miss the cache.

@@ -555,9 +555,11 @@ TEST_CASE("resolve_post_stack: the same world resolves to the same stack every t
 // ------------------------------------------------------------------------------------------- the feature table
 
 namespace {
-FeatureEnv gpu(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false) {
+FeatureEnv gpu(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false,
+               bool float32 = true) {
     FeatureEnv e;
     e.backend = b;
+    e.float32 = float32;
     e.halfTargets = half;
     e.r11g11b10 = packed;
     e.sampledDepth = depth;
@@ -573,10 +575,11 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    CHECK(names.size() == 7 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
-    for (const char* n :
-         {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders", "postMaterials"})
+    for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
+                          "postMaterials", "float32Targets"})
         CHECK(find_feature(n) >= 0);
     for (const std::string_view e : kPostEffectOrder) CHECK(find_feature(e) >= 0);
     CHECK(find_feature("bloomm") == -1);
@@ -587,7 +590,8 @@ TEST_CASE("features: the table has the capabilities, the engine features and eve
         CHECK(std::string(f.doc).size() > 20);
     }
     // The effects come last, in the canonical order.
-    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[7 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
+    for (int i = 0; i < kPostEffectCount; ++i)
+        CHECK(names[names.size() - std::size_t(kPostEffectCount) + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
 }
 
 TEST_CASE("features: the capabilities follow what each backend's GPU reports") {
@@ -671,6 +675,32 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+TEST_CASE(
+    "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
+    const char* const rows[] = {
+        "clusteredLights", "areaLights",     "lightCookies",   "iesProfiles",      "cascadedShadows", "pointShadows",
+        "spotShadows",     "contactShadows", "environmentMap", "reflectionProbes", "physicalSky",     "lightmaps",
+        "lightProbes",     "volumetricFog",  "decals",         "subsurface",       "realtimeGI",      "clearCoat",
+        "sheen",           "anisotropy",     "transmission"};
+    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
+    for (const char* n : rows) {
+        CAPTURE(n);
+        REQUIRE(find_feature(n) >= 0);
+        std::string why;
+        CHECK_FALSE(supported(full, n, &why));
+        CHECK(why == "planned (M73)");
+        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+    }
+    // float32Targets follows the GPU: a GPU whose R32F cannot be sampled answers with what is missing, not with the plan.
+    std::string why;
+    CHECK(supported(full, "float32Targets", &why));
+    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
+    CHECK(why.find("R32F") != std::string::npos);
+    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "cascadedShadows", &why));
+    CHECK(why.find("R32F") != std::string::npos);
+    CHECK(why.find("planned") == std::string::npos);
 }
 
 TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {

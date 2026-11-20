@@ -62,8 +62,10 @@ list(APPEND FA_EMBED_LICENSES ${FA_EMBED_EXTRA_FONTS})
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The files the templates @include (the sprite template: the colour-space and 2D shadow helpers; keep in step with
 # template_file_names() in tools/common/src/shaders_generate.cpp and FA_TEMPLATE_FILES_* in engine/render/CMakeLists.txt).
+# The mesh template's lighting files (light_data.glsl, light_loop.glsl; shadow_common.glsl matches the glob above) too.
 list(APPEND FA_EMBED_SHADER_TEMPLATES ${FA_ROOT}/engine/render/shaders/color_space.glsl
-    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl)
+    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl ${FA_ROOT}/engine/render/shaders/light_data.glsl
+    ${FA_ROOT}/engine/render/shaders/light_loop.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
 # The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
 file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)

@@ -896,11 +896,12 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
                 if (!entity_active(world, le)) return;
                 const Mat4 lm = world.world_matrix(le);
                 const Vec3 d = normalize(lm.transform_dir(kForward));
-                textLights.push_back({int(l.type == LightType::Directional ? 0
-                                          : l.type == LightType::Point     ? 1
-                                                                           : 2),
-                                      lm.translation(), d, Vec3{l.color.r, l.color.g, l.color.b} * l.intensity, l.range,
-                                      std::cos(radians(l.spotAngle))});
+                textLights.push_back(
+                    {int(l.type == LightType::Directional ? 0
+                         : l.type == LightType::Spot      ? 2
+                                                          : 1),  // an area light counts as a point light until M73.1
+                     lm.translation(), d, Vec3{l.color.r, l.color.g, l.color.b} * l.intensity, l.range,
+                     std::cos(radians(l.spotAngle))});
             });
         }
         const Color amb = world.settings().ambientLight;
