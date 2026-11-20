@@ -7538,43 +7538,43 @@ declare module "factoria" {
      */
     receiveGI: boolean;
     /**
-     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.
+     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
      * @since unreleased
      */
     clearcoat: number;
     /**
-     * Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.
+     * Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value.
      * @since unreleased
      */
     clearcoatRoughness: number;
     /**
-     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. No effect yet: M73.6 brings it.
+     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).
      * @since unreleased
      */
     get sheenColor(): Color;
     set sheenColor(value: ColorLike);
     /**
-     * Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.
+     * Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value.
      * @since unreleased
      */
     sheenRoughness: number;
     /**
-     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.
+     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own.
      * @since unreleased
      */
     anisotropy: number;
     /**
-     * Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 brings it.
+     * Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation.
      * @since unreleased
      */
     anisotropyRotation: number;
     /**
-     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look. No effect yet: M73.6 brings it.
+     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own.
      * @since unreleased
      */
     specular: number;
     /**
-     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. No effect yet: M73.6 brings it.
+     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own.
      * @since unreleased
      */
     ior: number;
@@ -7606,7 +7606,7 @@ declare module "factoria" {
     subsurface: number;
   }
   /**
-   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
+   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
    * 
    * Category: 3D
    */
@@ -7633,11 +7633,11 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2.
+     * Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.
      */
     castShadows: boolean;
     /**
-     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today. No effect yet: M73.1 brings it.
+     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.
      * @since unreleased
      */
     innerAngle: number;
@@ -7663,32 +7663,32 @@ declare module "factoria" {
      */
     ies: string;
     /**
-     * Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.
+     * Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128.
      * @since unreleased
      */
     shadowResolution: number;
     /**
-     * Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it.
+     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowBias: number;
     /**
-     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it.
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowNormalBias: number;
     /**
-     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it.
+     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness.
      * @since unreleased
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
-     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it.
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
      * @since unreleased
      */
     shadowSoftness: number;
     /**
-     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance.
      * @since unreleased
      */
     shadowDistance: number;
@@ -11501,27 +11501,27 @@ declare module "factoria" {
      */
     skyMaterialParams: any;
     /**
-     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md).
+     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).
      * @since unreleased
      */
     shadowCascades: number;
     /**
-     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.
+     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between.
      * @since unreleased
      */
     shadowCascadeSplit: number;
     /**
-     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it.
+     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.
      * @since unreleased
      */
     shadowCascadeBlend: number;
     /**
-     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
      * @since unreleased
      */
     shadowDistance: number;
     /**
-     * Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.
+     * The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame.
      * @since unreleased
      */
     shadowAtlasSize: number;
@@ -11546,10 +11546,57 @@ declare module "factoria" {
      */
     environmentRotation: number;
     /**
-     * gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the place of both. No effect yet: M73.3 brings it.
+     * gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn.
      * @since unreleased
      */
     skyModel: "gradient" | "physical";
+    /**
+     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
+     * @since unreleased
+     */
+    skySunSize: number;
+    /**
+     * Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyTurbidity: number;
+    /**
+     * Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical.
+     * @since unreleased
+     */
+    get skyGroundAlbedo(): Color;
+    set skyGroundAlbedo(value: ColorLike);
+    /**
+     * Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyExposure: number;
+    /**
+     * Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical.
+     * @since unreleased
+     */
+    skyTintsSun: boolean;
+    /**
+     * Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudCoverage: number;
+    /**
+     * Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudDensity: number;
+    /**
+     * Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical.
+     * @since unreleased
+     */
+    cloudAltitude: number;
+    /**
+     * Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical.
+     * @since unreleased
+     */
+    get cloudWind(): Vec2;
+    set cloudWind(value: Vec2Like);
     /**
      * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps". (asset path: any)
      * @since unreleased
@@ -11662,7 +11709,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical"; lightmaps?: string };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -12266,10 +12313,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

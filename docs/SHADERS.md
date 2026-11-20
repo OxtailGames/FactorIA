@@ -33,7 +33,7 @@ The loop for an AI (or a person):
 | `doubleSided` | `true` draws back faces too. Default `false`. |
 | `params` | Typed parameters the snippet reads (below). |
 | `textures` | Textures the snippet samples (below). |
-| `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). On a lightmapped entity `uv1` is the lightmap UV (RENDERING_LIGHTING.md). Default none. |
+| `vertexAttributes` | Extra mesh channels `vertex()` reads: `["uv1"]` (glTF `TEXCOORD_1`), `["color1"]` (glTF `COLOR_1`) or both (see "Per-instance params and vertex channels" below). Default none. |
 | `mode` | `"snippet"` (default) or `"full"`: the file holds your own vertex and fragment stages and `passes`, `shadow` and `prepass` apply ([Full shaders and passes](#full-shaders-and-passes)). |
 | `graph` | Optional [node graph](#node-graphs) the snippet is generated from. |
 | `graphHash` | Written by `material.graph.generate`: the hash of the snippet it generated. Do not write it by hand. |
@@ -97,6 +97,7 @@ struct Surface {             // what the lighting reads
     float roughness;         // the engine clamps it to 0.05..1
     float occlusion;
     vec3 emission;
+    // + clearcoat, sheen_color, anisotropy...: SHADERS_LIGHTING.md
 };
 struct VertexData {          // vertex(): world space, after instancing and skinning
     vec3 world_pos;

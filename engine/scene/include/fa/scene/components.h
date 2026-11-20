@@ -1099,18 +1099,18 @@ struct Light {
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only until M73.2 brings point and spot shadows
-    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); no effect yet, the doc string of each
-    // names the package that brings it.
+    bool castShadows = false;  // directional only until M73.2b brings point and spot shadows
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); the doc string of each says whether it is drawn yet
+    // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =
-        0.0f;  // M73.1: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
+        0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
     LightShape shape = LightShape::Rectangle;  // M73.1: type area only
     Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
     std::string cookie;     // M73.1: texture projected by a spot or point light
     std::string ies;        // M73.1: IES profile (.ies) of the light's distribution
     std::int32_t shadowResolution =
         0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
-    float shadowBias = 0.0f;        // M73.2: depth offset; 0 = the engine's own
+    float shadowBias = 0.0f;        // M73.2a: depth offset in metres; 0 = the engine's own
     float shadowNormalBias = 0.0f;  // M73.2: offset along the normal; 0 = the engine's own
     ShadowFilter shadowFilter = ShadowFilter::Pcf;
     float shadowSoftness = 1.0f;  // M73.2: penumbra size with shadowFilter pcss
@@ -1521,6 +1521,7 @@ enum class ColorSpace : std::int32_t { Gamma, Linear };
 enum class HdrOutput : std::int32_t { Off, Auto };
 
 // SceneSettings.skyModel: how the sky behind the 3D scene is made when there is no sky material and no environment map.
+// (Physical: renderer_sky_phys.h, docs/rendering/RENDERING_LIGHTING.md, "The physical sky".)
 enum class SkyModel : std::int32_t { Gradient, Physical };
 
 // Scene-wide settings (stored in the scene file under "settings").
@@ -1540,8 +1541,8 @@ struct SceneSettings {
     ColorSpace colorSpace = ColorSpace::Gamma;  // gamma (every existing project) or linear lighting (M71)
     HdrOutput hdrOutput = HdrOutput::Off;       // off, or auto: an HDR display where the platform has one
     float paperWhiteNits = 200.0f;              // brightness of white (1.0) on an HDR display, in nits (80 .. 1000)
-    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): no effect yet, the doc string of each names
-    // the package that brings it. Their defaults keep the look of every scene made before M73.
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): the doc string of each says whether it is drawn
+    // yet (the shadow fields are, since M73.2a) or names the package that brings it. Their defaults keep the look of every scene made before M73.
     std::int32_t shadowCascades = 1;      // M73.2: cascades of the directional light's shadow map (1 .. 4)
     float shadowCascadeSplit = 0.5f;      // M73.2: 0 = linear splits, 1 = logarithmic
     float shadowCascadeBlend = 0.1f;      // M73.2: fraction of a cascade over which it blends into the next
@@ -1554,6 +1555,16 @@ struct SceneSettings {
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
     std::string
         lightmaps;  // M73.4: the lightmap manifest of the scene (*.lightmap.json, written by lightmap.bake); "" = none
+    // The physical sky (skyModel = physical, M73-P3d): read only then. Defaults are a clear mid-day sky.
+    float skySunSize = 0.53f;                       // angular diameter of the sun disc, degrees
+    float skyTurbidity = 2.0f;                      // aerosols: 1 = very clean air .. 10 = heavy haze
+    Color skyGroundAlbedo{0.3f, 0.3f, 0.3f, 1.0f};  // colour of the ground the atmosphere sees below the horizon
+    float skyExposure = 1.0f;                       // brightness of the sky and of the light it gives the meshes
+    bool skyTintsSun = true;                        // the directional light takes the colour of the sun through the air
+    float cloudCoverage = 0.25f;                    // 0 = a clear sky .. 1 = overcast
+    float cloudDensity = 0.6f;                      // how opaque and dark the clouds are, 0..1
+    float cloudAltitude = 2500.0f;                  // metres above the observer
+    Vec2 cloudWind{8.0f, 3.0f};                     // metres per second the clouds drift along world x and z
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

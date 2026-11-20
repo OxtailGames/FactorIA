@@ -389,7 +389,8 @@ TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error
     REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
     const CommandInfo* info = e.commands().info("render.debug_view");
     REQUIRE(info != nullptr);
-    CHECK(info->inputSchema.dump().find("\"enum\":[\"none\",\"depth\",\"normals\",\"ao\"]") != std::string::npos);
+    CHECK(info->inputSchema.dump().find("\"enum\":[\"none\",\"depth\",\"normals\",\"ao\",\"cascades\"]") !=
+          std::string::npos);
     auto r = e.commands().call("render.debug_view", Json::parse(R"({"view":"normal"})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "invalid_arguments");  // the schema's own error, not a check of the handler

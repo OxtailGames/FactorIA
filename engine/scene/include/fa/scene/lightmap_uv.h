@@ -29,11 +29,13 @@ inline constexpr int kLightmapUvReferenceSize = 128;
 inline constexpr int kLightmapUvPadding = 4;  // empty texels of that texture around each chart
 
 struct LightmapUvResult {
-    std::vector<Vec2> uv;                // one per output vertex, inside [0, 1]^2
-    std::vector<std::uint32_t> source;   // for each output vertex, the input vertex it was split from (copy position, normal, uv... from it)
-    std::vector<std::uint32_t> indices;  // three per triangle, the same triangles in the same order as the input, indexing the output vertices
-    double surfaceArea = 0;              // m^2 of the input triangles (a caller picks the texel density from it)
-    double utilization = 0;              // share of the square the charts cover, 0..1
+    std::vector<Vec2> uv;  // one per output vertex, inside [0, 1]^2
+    std::vector<std::uint32_t>
+        source;  // for each output vertex, the input vertex it was split from (copy position, normal, uv... from it)
+    std::vector<std::uint32_t>
+        indices;  // three per triangle, the same triangles in the same order as the input, indexing the output vertices
+    double surfaceArea = 0;  // m^2 of the input triangles (a caller picks the texel density from it)
+    double utilization = 0;  // share of the square the charts cover, 0..1
 };
 
 // Unwraps the triangles. `normals` may be empty (flat normals are made). Fails (with what to change) on an empty mesh, indices out of range,

@@ -1,6 +1,10 @@
 // The geometry a lightmap is baked onto and drawn with (include/fa/render/lightmap_geometry.h).
 #include <cmath>
+#include <cstdint>
 #include <format>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/render/lightmap_geometry.h"
@@ -13,8 +17,8 @@ namespace fa::render {
 
 namespace {
 
-// What the parts of the mesh give before the unwrap: every vertex of every part one after the other, the indices of each part raised by
-// the vertices before it.
+// What the parts of the mesh give before the unwrap: every vertex of every part one after the other, the indices of
+// each part raised by the vertices before it.
 struct Gathered {
     std::vector<MeshVertex> verts;
     std::vector<std::uint32_t> idx;
@@ -41,12 +45,16 @@ Result<Gathered> gather(const std::string& meshName) {
             const std::string ext = fs::extension(meshName);
             if (ext != ".gltf" && ext != ".glb")
                 return make_error(
-                    std::format("'{}' cannot be lightmapped: it is neither a built-in primitive nor a .gltf/.glb file", meshName),
-                    "Only MeshRenderer.mesh values that are primitives (cube, sphere, plane, cylinder, capsule, cone, quad) or "
+                    std::format("'{}' cannot be lightmapped: it is neither a built-in primitive nor a .gltf/.glb file",
+                                meshName),
+                    "Only MeshRenderer.mesh values that are primitives (cube, sphere, plane, cylinder, capsule, cone, "
+                    "quad) or "
                     "model files have lightmap UVs; a mesh made by a script (\"mesh:N\") does not.");
             const std::string path = fs::normalize(meshName);
             auto bytes = fs::read_bytes(path);
-            if (!bytes) return make_error(std::format("lightmap geometry of '{}': {}", meshName, bytes.error().message), bytes.error().hint);
+            if (!bytes)
+                return make_error(std::format("lightmap geometry of '{}': {}", meshName, bytes.error().message),
+                                  bytes.error().hint);
             PreparedMesh prepared;
             std::string error;
             if (!decode_gltf(path, bytes->data(), bytes->size(), prepared, error))
@@ -76,7 +84,8 @@ Result<Gathered> gather(const std::string& meshName) {
         if (g.allColor1) g.color1.insert(g.color1.end(), partColor1[i].begin(), partColor1[i].end());
     }
     if (g.idx.size() < 3)
-        return make_error(std::format("'{}' has no triangles to light", meshName), "Give the entity a mesh with triangles.");
+        return make_error(std::format("'{}' has no triangles to light", meshName),
+                          "Give the entity a mesh with triangles.");
     for (std::uint32_t k : g.idx)
         if (k >= g.verts.size())
             return make_error(std::format("'{}' has an index past its last vertex", meshName), "Re-export the model.");
@@ -120,7 +129,9 @@ Result<LightmapBuild> build_lightmap_mesh(const std::string& meshIn) {
     // Surface area from the file's triangles (the same as after the split).
     auto pos_of = [&](std::uint32_t i) { return Vec3{g->verts[i].px, g->verts[i].py, g->verts[i].pz}; };
     for (std::size_t t = 0; t + 2 < g->idx.size(); t += 3)
-        geo.surfaceArea += 0.5 * double(length(cross(pos_of(g->idx[t + 1]) - pos_of(g->idx[t]), pos_of(g->idx[t + 2]) - pos_of(g->idx[t]))));
+        geo.surfaceArea +=
+            0.5 *
+            double(length(cross(pos_of(g->idx[t + 1]) - pos_of(g->idx[t]), pos_of(g->idx[t + 2]) - pos_of(g->idx[t]))));
     if (g->allUv1) {
         geo.uvKind = "gltf";
         out.verts = g->verts;
@@ -138,7 +149,8 @@ Result<LightmapBuild> build_lightmap_mesh(const std::string& meshIn) {
             if (t.x < -1e-3f || t.x > 1.001f || t.y < -1e-3f || t.y > 1.001f)
                 return make_error(
                     std::format("TEXCOORD_1 of '{}' has a coordinate outside 0..1 ({}, {})", meshName, t.x, t.y),
-                    "A lightmap UV set must lie inside the unit square without overlap. Export the model with such a second UV set, or "
+                    "A lightmap UV set must lie inside the unit square without overlap. Export the model with such a "
+                    "second UV set, or "
                     "remove TEXCOORD_1 from it so the engine unwraps it.");
     } else {
         geo.uvKind = "generated";

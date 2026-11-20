@@ -1,8 +1,13 @@
 #include "fa/scene/lightmap_manifest.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -27,12 +32,13 @@ Result<void> check_keys(const Json& o, const std::vector<std::string>& known, co
         bool ok = false;
         for (const std::string& k : known) ok = ok || k == it.key();
         if (ok) continue;
-        return err(file, pointer + "/" + it.key(), "unknown key \"" + it.key() + "\"",
-                   did_you_mean(it.key(), known) + " The keys are: " + [&] {
-                       std::string s;
-                       for (const std::string& k : known) s += (s.empty() ? "" : ", ") + k;
-                       return s;
-                   }() + ".");
+        return err(
+            file, pointer + "/" + it.key(),
+            "unknown key \"" + it.key() + "\"", did_you_mean(it.key(), known) + " The keys are: " + [&] {
+                std::string s;
+                for (const std::string& k : known) s += (s.empty() ? "" : ", ") + k;
+                return s;
+            }() + ".");
     }
     return {};
 }
@@ -79,10 +85,10 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
         return err(file, "/version", "\"version\" is missing or not an integer",
                    "Write \"version\": " + std::to_string(kLightmapManifestVersion) + ".");
     if (version != kLightmapManifestVersion)
-        return err(file, "/version",
-                   std::format("the manifest has version {}, this engine reads version {}", version,
-                               kLightmapManifestVersion),
-                   "Bake the lightmaps again (lightmap.bake) with this engine.");
+        return err(
+            file, "/version",
+            std::format("the manifest has version {}, this engine reads version {}", version, kLightmapManifestVersion),
+            "Bake the lightmaps again (lightmap.bake) with this engine.");
     m.version = version;
     if (!read_int(json, "uvVersion", m.uvVersion))
         return err(file, "/uvVersion", "\"uvVersion\" is missing or not an integer",
@@ -107,7 +113,8 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
     for (std::size_t i = 0; i < pages->size(); ++i) {
         const Json& p = (*pages)[i];
         const std::string ptr = "/pages/" + std::to_string(i);
-        if (!p.is_object()) return err(file, ptr, "a page must be an object", "{\"file\": ..., \"width\": ..., \"height\": ...}");
+        if (!p.is_object())
+            return err(file, ptr, "a page must be an object", "{\"file\": ..., \"width\": ..., \"height\": ...}");
         if (auto r = check_keys(p, kPageKeys, file, ptr); !r) return r.error();
         LightmapPage page;
         const auto f = p.find("file");
@@ -120,7 +127,8 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
                        "Pages are Radiance .hdr images (lightmap.bake writes them).");
         if (!read_int(p, "width", page.width) || !read_int(p, "height", page.height) || page.width < 1 ||
             page.height < 1 || page.width > kLightmapMaxPageSize || page.height > kLightmapMaxPageSize)
-            return err(file, ptr, std::format("\"width\" and \"height\" must be integers from 1 to {}", kLightmapMaxPageSize),
+            return err(file, ptr,
+                       std::format("\"width\" and \"height\" must be integers from 1 to {}", kLightmapMaxPageSize),
                        "They are the size in texels of the page image.");
         m.pages.push_back(std::move(page));
     }
@@ -146,8 +154,12 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
         for (const char* key : {"mesh", "uv", "meshHash", "settingsHash"}) {
             const auto it = e.find(key);
             if (it == e.end()) continue;
-            if (!it->is_string()) return err(file, ptr + "/" + key, std::string("\"") + key + "\" must be a string", "");
-            std::string& dst = std::string(key) == "mesh" ? en.mesh : std::string(key) == "uv" ? en.uv : std::string(key) == "meshHash" ? en.meshHash : en.settingsHash;
+            if (!it->is_string())
+                return err(file, ptr + "/" + key, std::string("\"") + key + "\" must be a string", "");
+            std::string& dst = std::string(key) == "mesh"       ? en.mesh
+                               : std::string(key) == "uv"       ? en.uv
+                               : std::string(key) == "meshHash" ? en.meshHash
+                                                                : en.settingsHash;
             dst = it->get<std::string>();
         }
         if (!en.uv.empty() && en.uv != "gltf" && en.uv != "generated")
@@ -158,7 +170,8 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
                        "Do not edit it: bake again.");
         if (!read_int(e, "page", en.page))
             return err(file, ptr + "/page", "\"page\" is missing or not an integer",
-                       "It is the index in \"pages\" (0 to " + std::to_string(m.pages.empty() ? 0 : m.pages.size() - 1) + ").");
+                       "It is the index in \"pages\" (0 to " +
+                           std::to_string(m.pages.empty() ? 0 : m.pages.size() - 1) + ").");
         if (en.page < 0 || std::size_t(en.page) >= m.pages.size())
             return err(file, ptr + "/page",
                        std::format("page {} does not exist: the manifest lists {} page(s)", en.page, m.pages.size()),
@@ -170,21 +183,21 @@ Result<LightmapManifest> parse_lightmap_manifest(const Json& json, const std::st
                        "[sx, sy, ox, oy]: the entity's rectangle of the page, in 0..1 of the page.");
         for (std::size_t k = 0; k < 4; ++k) {
             const Json& v = (*so)[k];
-            if (!v.is_number())
-                return err(file, ptr + "/scaleOffset/" + std::to_string(k), "not a number", "");
+            if (!v.is_number()) return err(file, ptr + "/scaleOffset/" + std::to_string(k), "not a number", "");
             const double d = v.get<double>();
             if (!std::isfinite(d))
                 return err(file, ptr + "/scaleOffset/" + std::to_string(k), "not a finite number", "Bake again.");
             en.scaleOffset[k] = float(d);
         }
         constexpr float tol = 1e-4f;
-        if (!(en.scaleOffset[0] > 0 && en.scaleOffset[1] > 0) || en.scaleOffset[0] > 1 + tol || en.scaleOffset[1] > 1 + tol ||
-            en.scaleOffset[2] < -tol || en.scaleOffset[3] < -tol || en.scaleOffset[2] + en.scaleOffset[0] > 1 + tol ||
-            en.scaleOffset[3] + en.scaleOffset[1] > 1 + tol)
+        if (!(en.scaleOffset[0] > 0 && en.scaleOffset[1] > 0) || en.scaleOffset[0] > 1 + tol ||
+            en.scaleOffset[1] > 1 + tol || en.scaleOffset[2] < -tol || en.scaleOffset[3] < -tol ||
+            en.scaleOffset[2] + en.scaleOffset[0] > 1 + tol || en.scaleOffset[3] + en.scaleOffset[1] > 1 + tol)
             return err(file, ptr + "/scaleOffset",
                        std::format("the rectangle [{}, {}, {}, {}] is not inside the page", en.scaleOffset[0],
                                    en.scaleOffset[1], en.scaleOffset[2], en.scaleOffset[3]),
-                       "The scale must be above 0 and offset + scale must stay within 1: the lightmap UV of the mesh is mapped "
+                       "The scale must be above 0 and offset + scale must stay within 1: the lightmap UV of the mesh "
+                       "is mapped "
                        "to uv * scale + offset. Bake again.");
         m.entities.push_back(std::move(en));
     }
@@ -198,7 +211,8 @@ Json lightmap_manifest_to_json(const LightmapManifest& m) {
     j["uvVersion"] = m.uvVersion;
     if (!m.settingsHash.empty()) j["settingsHash"] = m.settingsHash;
     Json pages = Json::array();
-    for (const LightmapPage& p : m.pages) pages.push_back(Json{{"file", p.file}, {"width", p.width}, {"height", p.height}});
+    for (const LightmapPage& p : m.pages)
+        pages.push_back(Json{{"file", p.file}, {"width", p.width}, {"height", p.height}});
     j["pages"] = std::move(pages);
     Json ents = Json::array();
     for (const LightmapEntry& e : m.entities) {
@@ -208,7 +222,8 @@ Json lightmap_manifest_to_json(const LightmapManifest& m) {
         if (!e.uv.empty()) o["uv"] = e.uv;
         if (!e.meshHash.empty()) o["meshHash"] = e.meshHash;
         o["page"] = e.page;
-        o["scaleOffset"] = Json::array({round6(e.scaleOffset[0]), round6(e.scaleOffset[1]), round6(e.scaleOffset[2]), round6(e.scaleOffset[3])});
+        o["scaleOffset"] = Json::array(
+            {round6(e.scaleOffset[0]), round6(e.scaleOffset[1]), round6(e.scaleOffset[2]), round6(e.scaleOffset[3])});
         if (!e.settingsHash.empty()) o["settingsHash"] = e.settingsHash;
         ents.push_back(std::move(o));
     }
@@ -218,14 +233,17 @@ Json lightmap_manifest_to_json(const LightmapManifest& m) {
 
 Result<LightmapManifest> load_lightmap_manifest(const std::string& path) {
     auto text = fs::read_text(path);
-    if (!text) return Error{"cannot read the lightmap manifest '" + path + "': " + text.error().message, text.error().hint};
+    if (!text)
+        return Error{"cannot read the lightmap manifest '" + path + "': " + text.error().message, text.error().hint};
     auto json = parse_json(*text, path);
     if (!json) return json.error();
     return parse_lightmap_manifest(*json, path);
 }
 
 double lightmap_texels_per_meter(double baseTexelsPerMeter, float lightmapScale) {
-    if (!(lightmapScale > 0) || !std::isfinite(lightmapScale) || !(baseTexelsPerMeter > 0) || !std::isfinite(baseTexelsPerMeter)) return 0;
+    if (!(lightmapScale > 0) || !std::isfinite(lightmapScale) || !(baseTexelsPerMeter > 0) ||
+        !std::isfinite(baseTexelsPerMeter))
+        return 0;
     return baseTexelsPerMeter * double(std::min(lightmapScale, 100.0f));
 }
 
