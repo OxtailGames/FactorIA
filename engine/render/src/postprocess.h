@@ -28,6 +28,7 @@
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "renderer_volumetric.h"
+#include "subsurface.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -161,6 +162,11 @@ struct PostPlan {
     // with the stack after the main pass; `volImage` is the march image between them. Off (vol.on false) when the camera draws no volumetric fog.
     VolPlan vol;
     ResourceId volImage;
+    // The subsurface scattering of this camera (renderer_subsurface.h): the sss-draw pass is declared in the camera's own job, the blur and add passes
+    // with the stack after the main pass; `sssLight` and `sssParams` are the images between them. Off (sss.on false) when no mesh scatters or the
+    // camera cannot draw it.
+    SssPlan sss;
+    ResourceId sssLight, sssParams;
     // The custom post passes of this camera (renderer_custom_post.h): the materials of PostProcess.customPasses that
     // built, each at its position in the stack. Empty when none. Their prepass bits are set by plan_job (needsDepth /
     // needsNormals) when one reads the depth.

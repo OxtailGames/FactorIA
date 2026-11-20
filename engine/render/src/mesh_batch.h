@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 #include <unordered_map>
@@ -47,6 +48,17 @@ struct MeshItem {
 // 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
 inline int decal_recv(const MeshRenderer& mr) {
     return mr.receiveDecals ? std::clamp<int>(mr.decalLayer, 0, 15) + 1 : 0;
+}
+
+// What the subsurface pass of the shader reads of a mesh (MeshRenderer.subsurface*, M73.5): strength, radius in metres and the three channel
+// spreads, each finite and clamped; all zero when the strength is 0 (the radius and the colour of a mesh that does not scatter are not part
+// of a batch's key: two such meshes still share a draw). Part of every batch key: two meshes with different values never share a draw.
+inline std::array<float, 5> subsurface_of(const MeshRenderer& mr) {
+    auto fin = [](float v, float lo, float hi) { return std::isfinite(v) ? std::clamp(v, lo, hi) : lo; };
+    const float k = fin(mr.subsurface, 0.0f, 1.0f);
+    if (!(k > 0.0f)) return {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    return {k, fin(mr.subsurfaceRadius, 0.0f, 0.5f), fin(mr.subsurfaceColor.r, 0.0f, 1.0f),
+            fin(mr.subsurfaceColor.g, 0.0f, 1.0f), fin(mr.subsurfaceColor.b, 0.0f, 1.0f)};
 }
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
@@ -115,8 +127,9 @@ private:
     struct Rest {
         // colour rgba, metallic, roughness, emissive rgb, emissiveStrength, then the material layers (M73.6a): clearcoat,
         // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior, then the
-        // transmission and the volume (M73.6b): transmission, thickness, attenuationColor rgb, attenuationDistance
-        std::array<float, 26> shading;
+        // transmission and the volume (M73.6b): transmission, thickness, attenuationColor rgb, attenuationDistance, then the
+        // subsurface (M73.5, subsurface_of: strength, radius, colour rgb)
+        std::array<float, 31> shading;
         bool unlit = false, receiveShadows = true;
         int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
