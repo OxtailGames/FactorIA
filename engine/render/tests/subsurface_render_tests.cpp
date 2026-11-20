@@ -201,7 +201,8 @@ TEST_CASE("subsurface: a wax sphere lit from one side bleeds light into its dark
     expect_golden(waxed, "3d_subsurface_wax");
 }
 
-TEST_CASE("subsurface: with no mesh that scatters the picture is bit for bit the plain one, whatever the other values") {
+TEST_CASE(
+    "subsurface: with no mesh that scatters the picture is bit for bit the plain one, whatever the other values") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("subsurface")) return;
@@ -341,6 +342,7 @@ TEST_CASE("subsurface: with MSAA the sphere scatters too, and its silhouette sta
     int outside = 0;
     for (int y = 0; y < plain.height; ++y)
         for (int x = 0; x < plain.width; ++x)
-            if (!differs(plain.pixel(x, y), background.pixel(x, y), 1.0f / 255)) outside += differs(plain.pixel(x, y), waxed.pixel(x, y));
+            if (!differs(plain.pixel(x, y), background.pixel(x, y), 1.0f / 255))
+                outside += differs(plain.pixel(x, y), waxed.pixel(x, y));
     CHECK(outside == 0);
 }

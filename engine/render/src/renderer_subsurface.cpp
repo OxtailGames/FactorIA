@@ -184,8 +184,8 @@ bool SssFx::can_draw(TransientTargets& targets, Gpu& gpu, const SssPlan& plan) {
 }
 
 int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SssPlan& plan, ResourceId a,
-                      ResourceId b, const PostRect& rect, int picW, int picH, ResourceId game,
-                      const BloomTarget& dst, int* drawCalls, const std::string& job) {
+                      ResourceId b, const PostRect& rect, int picW, int picH, ResourceId game, const BloomTarget& dst,
+                      int* drawCalls, const std::string& job) {
     if (!plan.on || !a.valid() || !b.valid() || !ready(Prog::BlurH) || !ready(Prog::BlurV) || !ready(Prog::Add))
         return 0;
     const bool whole = rect.whole(picW, picH);

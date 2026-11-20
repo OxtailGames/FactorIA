@@ -27,7 +27,8 @@ TEST_CASE("subsurface profile: the four Gaussians integrate to 1 and follow the 
     // The 2D profile holds 90% of its light inside r = 1 (the unit of the radius), and 2 pi R(r) r integrates to its cdf.
     CHECK(sss_profile_cdf(1.0f) == doctest::Approx(0.9f).epsilon(0.002));
     double mass = 0.0;
-    for (double r = 1e-5; r < 1.0; r += 1e-4) mass += 2.0 * 3.14159265358979 * double(sss_profile_2d(float(r))) * r * 1e-4;
+    for (double r = 1e-5; r < 1.0; r += 1e-4)
+        mass += 2.0 * 3.14159265358979 * double(sss_profile_2d(float(r))) * r * 1e-4;
     CHECK(mass == doctest::Approx(0.9).epsilon(0.01));
     // The fit: the kernel's mass inside +-1 is near the 2D profile's inside the unit disc along one axis, a loose bound (a 1D marginal is wider than a
     // disc of the same radius): both hold most of the light there.
@@ -49,7 +50,7 @@ TEST_CASE("subsurface profile: the weights of the taps add up to 1 for every col
         sss_tap_weights(ratio, w);
         float total = w[0];
         for (int k = 1; k <= kSssTaps; ++k) {
-            CHECK(w[k] >= 0.0f);  // the outer taps of a narrow channel can underflow to 0
+            CHECK(w[k] >= 0.0f);   // the outer taps of a narrow channel can underflow to 0
             total += 2.0f * w[k];  // one tap on each side
         }
         CHECK(total <= 1.0f + 1e-4f);
@@ -96,7 +97,8 @@ TEST_CASE("subsurface: the radius in pixels follows the depth, is clamped and is
     CHECK(sss_radius_px(0.01f, 1.0f, inf, false) == 0.0f);
 }
 
-TEST_CASE("subsurface: the plan of a camera holds the pixels a metre covers at depth 1 and refuses an empty rectangle") {
+TEST_CASE(
+    "subsurface: the plan of a camera holds the pixels a metre covers at depth 1 and refuses an empty rectangle") {
     CameraGeometry cam;
     cam.perspective = true;
     cam.proj = Mat4::perspective(60.0f, 16.0f / 9.0f, 0.1f, 100.0f, true);
@@ -118,7 +120,8 @@ TEST_CASE("subsurface: the plan of a camera holds the pixels a metre covers at d
     CHECK(!make_sss_plan(broken, 320, 180).on);
 }
 
-TEST_CASE("subsurface: the values of a mesh that scatters are part of its batch, and a mesh that does not scatter has none") {
+TEST_CASE(
+    "subsurface: the values of a mesh that scatters are part of its batch, and a mesh that does not scatter has none") {
     MeshRenderer off;
     CHECK(off.subsurface == 0.0f);
     for (float v : subsurface_of(off)) CHECK(v == 0.0f);
@@ -145,12 +148,14 @@ TEST_CASE("subsurface: the values of a mesh that scatters are part of its batch,
     for (float v : subsurface_of(skin)) CHECK(v == 0.0f);
 }
 
-TEST_CASE("subsurface: every float of the GLES3 and WebGL2 sources of the blur and the add is highp (depth and weights need more than fp16)") {
+TEST_CASE("subsurface: every float of the GLES3 and WebGL2 sources of the blur and the add is highp (depth and weights "
+          "need more than fp16)") {
     // A mobile GPU's mediump is fp16: a depth of 100 m with a tolerance of 1 cm does not fit in it. sokol-shdc writes `precision mediump float;`
     // as the default of a GLSL ES 3.00 fragment shader and qualifies every declaration with highp; this reads the generated header (the GLES3
     // sources are only in it when it is built for GLES3) and scans the fragment shader of each program.
     for (const char* name : {"blur_h", "blur_v", "add"}) {
-        const std::string src = glsl_source_from_header("subsurface.glsl.h", std::string("subsurface_fs_") + name + "_source_glsl300es[");
+        const std::string src =
+            glsl_source_from_header("subsurface.glsl.h", std::string("subsurface_fs_") + name + "_source_glsl300es[");
         CAPTURE(std::string(name));
         REQUIRE(!src.empty());
         CHECK(src.find("highp") != std::string::npos);
