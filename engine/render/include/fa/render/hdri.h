@@ -46,10 +46,10 @@ std::string hdri_layout_problem(int width, int height, std::string_view name);
 
 // What a .hdr says about itself, checked (the header is read, the pixels are not).
 struct HdriCheck {
-    int width = 0, height = 0;                 // as in the file
-    int gpuWidth = 0, gpuHeight = 0;           // what the GPU gets (the file shrunk to kHdriMaxWidth when wider)
+    int width = 0, height = 0;        // as in the file
+    int gpuWidth = 0, gpuHeight = 0;  // what the GPU gets (the file shrunk to kHdriMaxWidth when wider)
     bool shrunk() const { return gpuWidth != width; }
-    std::uint64_t gpuBytes = 0;                // RGBA16F with the mip chain
+    std::uint64_t gpuBytes = 0;  // RGBA16F with the mip chain
 };
 // Reads the header of a .hdr and applies every rule above: an error that names the file, what is wrong and the fix, for a
 // header that is not Radiance's, a picture that is not equirectangular, one over the decode budget, or too small.

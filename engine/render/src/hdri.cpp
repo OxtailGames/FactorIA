@@ -54,7 +54,8 @@ std::string hdri_layout_problem(int width, int height, std::string_view name) {
     else
         what = std::format("{:.2f}:1, not 2:1", double(width) / double(height));
     return std::format(
-        "{} is {} x {} ({}), but only equirectangular (latitude-longitude) panoramas are read, which are twice as wide as "
+        "{} is {} x {} ({}), but only equirectangular (latitude-longitude) panoramas are read, which are twice as wide "
+        "as "
         "they are tall. Hint: convert it to an equirectangular .hdr (for example 2048 x 1024 or 4096 x 2048) in the "
         "program that made it, or set SceneSettings.environmentMap to a different file.",
         who, width, height, what);

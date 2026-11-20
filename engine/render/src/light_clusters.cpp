@@ -55,23 +55,23 @@ int cluster_tile(float ndc, int tiles) {
     return int(v);
 }
 
-bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const LightSphere& s, ClusterRange& out) {
-    if (!finite4(s.x, s.y, s.z, s.radius) || !(s.radius > 0.0f)) return false;
-    const float depth = (s.x - cam.position.x) * cam.forward.x + (s.y - cam.position.y) * cam.forward.y +
-                        (s.z - cam.position.z) * cam.forward.z;
-    const float lo = depth - s.radius, hi = depth + s.radius;
-    if (!std::isfinite(depth) || hi * (1.0f + kDepthMargin) + kDepthPad < cam.nearDepth) return false;
+namespace {
+
+// The clusters of a world-space box given by its eight corners and its depth range along the camera's forward axis (lo .. hi, before
+// the margins): the shared body of light_cluster_range (the box around a sphere) and decal_cluster_range.
+bool box_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, float lo, float hi, const Vec3* corners,
+                       ClusterRange& out) {
+    if (!std::isfinite(lo) || !std::isfinite(hi) || hi * (1.0f + kDepthMargin) + kDepthPad < cam.nearDepth)
+        return false;
     if (lo * (1.0f - kDepthMargin) - kDepthPad > cam.farDepth) return false;
     out.s0 = cluster_slice(grid, lo * (1.0f - kDepthMargin) - kDepthPad);
     out.s1 = cluster_slice(grid, hi * (1.0f + kDepthMargin) + kDepthPad);
-    // The box around the sphere, through the same matrix the vertex stage uses. When every corner is in front of the camera plane the
-    // projection of the box is the hull of its projected corners; otherwise the whole view is covered.
+    // The box through the same matrix the vertex stage uses. When every corner is in front of the camera plane the projection of the box
+    // is the hull of its projected corners; otherwise the whole view is covered.
     float x0 = 1e30f, x1 = -1e30f, y0 = 1e30f, y1 = -1e30f;
     bool whole = false;
     for (int c = 0; c < 8 && !whole; ++c) {
-        const Vec4 p =
-            cam.viewProj * Vec4{s.x + ((c & 1) ? s.radius : -s.radius), s.y + ((c & 2) ? s.radius : -s.radius),
-                                s.z + ((c & 4) ? s.radius : -s.radius), 1.0f};
+        const Vec4 p = cam.viewProj * Vec4{corners[c].x, corners[c].y, corners[c].z, 1.0f};
         if (!(p.w > kMinW) || !finite4(p.x, p.y, p.w, 0.0f)) {
             whole = true;
             break;
@@ -103,47 +103,41 @@ bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, cons
     return true;
 }
 
-void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, const std::vector<LightSphere>& spheres,
-                          ClusterLists& out) {
-    out = ClusterLists{};
-    out.grid = grid;
+// The lists of one kind of item (lights or decals) from the cluster range of each: `ranges[i]` is valid when `reaches[i]`. Each cluster
+// keeps at most `maxPerCluster` entries and the view at most `maxEntries`; the lists are filled slice by slice with the items in
+// ascending index order (a cluster of a slice belongs to that slice's chunk), so they are the same bytes for any number of threads.
+void assign_lists(const ClusterGrid& grid, const std::vector<ClusterRange>& ranges,
+                  const std::vector<std::uint8_t>& reaches, std::size_t maxPerCluster, std::size_t maxEntries,
+                  const char* countJob, const char* fillJob, ClusterLists& out) {
     const std::size_t clusters = std::size_t(grid.clusters());
-    const std::size_t lights = spheres.size();
-    // 1. The range of every light: independent per light.
-    std::vector<ClusterRange> ranges(lights);
-    std::vector<std::uint8_t> reaches(lights, 0);
-    constexpr std::size_t kRangeGrain = 128, kRangeMin = 512;
-    rjobs::run("render.light_ranges", rjobs::split(lights, kRangeGrain, kRangeMin), [&](const jobs::Chunk& c) {
-        for (std::size_t i = c.begin; i < c.end; ++i)
-            reaches[i] = light_cluster_range(cam, grid, spheres[i], ranges[i]) ? 1 : 0;
-    });
-    for (std::size_t i = 0; i < lights; ++i) out.lightsAssigned += reaches[i];
-    // 2. How many lights reach each cluster. The clusters of a slice are written by the chunk that owns the slice.
+    const std::size_t items = ranges.size();
+    for (std::size_t i = 0; i < items; ++i) out.lightsAssigned += reaches[i];
+    // How many items reach each cluster. The clusters of a slice are written by the chunk that owns the slice.
     std::vector<std::uint32_t> want(clusters, 0);
     const auto slices = std::size_t(grid.slices);
-    const std::size_t sliceMin = lights >= 128 ? 2 : slices + 1;  // below: one chunk
+    const std::size_t sliceMin = items >= 128 ? 2 : slices + 1;  // below: one chunk
     auto perSlice = [&](const char* name, auto&& fn) {
         rjobs::run(name, rjobs::split(slices, 2, sliceMin), [&](const jobs::Chunk& c) {
             for (std::size_t s = c.begin; s < c.end; ++s) fn(int(s));
         });
     };
     const std::size_t perSliceClusters = std::size_t(grid.tilesX) * std::size_t(grid.tilesY);
-    perSlice("render.light_count", [&](int slice) {
+    perSlice(countJob, [&](int slice) {
         std::uint32_t* w = want.data() + std::size_t(slice) * perSliceClusters;
-        for (std::size_t i = 0; i < lights; ++i) {
+        for (std::size_t i = 0; i < items; ++i) {
             if (!reaches[i] || slice < ranges[i].s0 || slice > ranges[i].s1) continue;
             const ClusterRange& r = ranges[i];
             for (int y = r.y0; y <= r.y1; ++y)
                 for (int x = r.x0; x <= r.x1; ++x) ++w[std::size_t(y) * std::size_t(grid.tilesX) + std::size_t(x)];
         }
     });
-    // 3. The lists, in cluster order: each keeps at most kMaxLightsPerCluster entries and the view at most kMaxClusterIndices.
+    // The lists, in cluster order.
     out.first.assign(clusters, 0);
     out.count.assign(clusters, 0);
     std::size_t total = 0;
     for (std::size_t c = 0; c < clusters; ++c) {
-        const std::size_t room = kMaxClusterIndices - total;
-        const std::size_t keep = std::min<std::size_t>({want[c], std::size_t(kMaxLightsPerCluster), room});
+        const std::size_t room = maxEntries - total;
+        const std::size_t keep = std::min<std::size_t>({want[c], maxPerCluster, room});
         out.first[c] = std::uint32_t(total);
         out.count[c] = std::uint32_t(keep);
         total += keep;
@@ -153,12 +147,12 @@ void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, con
         }
         out.maxPerCluster = std::max(out.maxPerCluster, keep);
     }
-    // 4. Fill: ascending light index, so a list is in the order of the light table.
+    // Fill: ascending item index, so a list is in the order of the table.
     out.indices.assign(total, 0);
     std::vector<std::uint32_t> filled(clusters, 0);
-    perSlice("render.light_fill", [&](int slice) {
+    perSlice(fillJob, [&](int slice) {
         const std::size_t base = std::size_t(slice) * perSliceClusters;
-        for (std::size_t i = 0; i < lights; ++i) {
+        for (std::size_t i = 0; i < items; ++i) {
             if (!reaches[i] || slice < ranges[i].s0 || slice > ranges[i].s1) continue;
             const ClusterRange& r = ranges[i];
             for (int y = r.y0; y <= r.y1; ++y)
@@ -170,6 +164,60 @@ void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, con
     });
 }
 
+}  // namespace
+
+bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const LightSphere& s, ClusterRange& out) {
+    if (!finite4(s.x, s.y, s.z, s.radius) || !(s.radius > 0.0f)) return false;
+    const float depth = (s.x - cam.position.x) * cam.forward.x + (s.y - cam.position.y) * cam.forward.y +
+                        (s.z - cam.position.z) * cam.forward.z;
+    Vec3 corners[8];
+    for (int c = 0; c < 8; ++c)
+        corners[c] = Vec3{s.x + ((c & 1) ? s.radius : -s.radius), s.y + ((c & 2) ? s.radius : -s.radius),
+                          s.z + ((c & 4) ? s.radius : -s.radius)};
+    return box_cluster_range(cam, grid, depth - s.radius, depth + s.radius, corners, out);
+}
+
+bool decal_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const DecalBox& box, ClusterRange& out) {
+    float lo = 1e30f, hi = -1e30f;
+    for (const Vec3& c : box.corners) {
+        if (!finite4(c.x, c.y, c.z, 0.0f)) return false;
+        const float d = (c.x - cam.position.x) * cam.forward.x + (c.y - cam.position.y) * cam.forward.y +
+                        (c.z - cam.position.z) * cam.forward.z;
+        lo = std::min(lo, d);
+        hi = std::max(hi, d);
+    }
+    return box_cluster_range(cam, grid, lo, hi, box.corners, out);
+}
+
+void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, const std::vector<LightSphere>& spheres,
+                          ClusterLists& out) {
+    out = ClusterLists{};
+    out.grid = grid;
+    const std::size_t lights = spheres.size();
+    // The range of every light: independent per light.
+    std::vector<ClusterRange> ranges(lights);
+    std::vector<std::uint8_t> reaches(lights, 0);
+    constexpr std::size_t kRangeGrain = 128, kRangeMin = 512;
+    rjobs::run("render.light_ranges", rjobs::split(lights, kRangeGrain, kRangeMin), [&](const jobs::Chunk& c) {
+        for (std::size_t i = c.begin; i < c.end; ++i)
+            reaches[i] = light_cluster_range(cam, grid, spheres[i], ranges[i]) ? 1 : 0;
+    });
+    assign_lists(grid, ranges, reaches, std::size_t(kMaxLightsPerCluster), kMaxClusterIndices, "render.light_count",
+                 "render.light_fill", out);
+}
+
+void build_decal_clusters(const ClusterCamera& cam, const ClusterGrid& grid, const std::vector<DecalBox>& boxes,
+                          ClusterLists& out) {
+    out = ClusterLists{};
+    out.grid = grid;
+    const std::size_t n = boxes.size();
+    std::vector<ClusterRange> ranges(n);
+    std::vector<std::uint8_t> reaches(n, 0);
+    for (std::size_t i = 0; i < n; ++i) reaches[i] = decal_cluster_range(cam, grid, boxes[i], ranges[i]) ? 1 : 0;
+    assign_lists(grid, ranges, reaches, std::size_t(kMaxDecalsPerCluster), kMaxDecalIndices, "render.decal_count",
+                 "render.decal_fill", out);
+}
+
 int light_texture_rows(std::size_t texels) {
     const std::size_t rows = (texels + kLightTextureWidth - 1) / kLightTextureWidth;
     std::size_t r = 1;
@@ -178,12 +226,22 @@ int light_texture_rows(std::size_t texels) {
 }
 
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
-                        const ClusterLists* lists, LightTexture& out) {
+                        const ClusterLists* lists, LightTexture& out, const std::vector<LocalShadowRecord>* shadows,
+                        const DecalPack* decals) {
+    if (!lists) decals = nullptr;  // the decals are found through the clusters
+    if (decals && (decals->records.empty() || decals->lists.first.size() != lists->first.size())) decals = nullptr;
     out.width = kLightTextureWidth;
     const std::size_t lightTexels = lights.size() * std::size_t(kLightTexels);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
-    out.usedTexels = lightTexels + clusterTexels + indexTexels;
+    const std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
+    out.shadowBase = shadowTexels > 0 ? static_cast<long long>(lightTexels + clusterTexels + indexTexels) : -1;
+    // One cursor, in a fixed order: lights | clusters | light indices | shadows | decals (header, records, decal indices).
+    const std::size_t decalBase = lightTexels + clusterTexels + indexTexels + shadowTexels;
+    const std::size_t decalIndexBase =
+        decalBase + kDecalHeaderTexels + (decals ? decals->records.size() * kDecalTexels : 0);
+    const std::size_t decalIndexTexels = decals ? (decals->lists.indices.size() + 3) / 4 : 0;
+    out.usedTexels = decals ? decalIndexBase + decalIndexTexels : decalBase;
     out.height = light_texture_rows(std::max<std::size_t>(out.usedTexels, 1));
     out.texels.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0.0f);
     float* t = out.texels.data();
@@ -196,7 +254,9 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
             p[8 + c] = l.dir[c];
         }
         p[12] = l.cosInner;
+        p[15] = l.baked ? 1.0f : 0.0f;  // texel +3, w: the flags (1 = Light.mode Baked), see light_data.glsl
     }
+    if (shadowTexels > 0) pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);
     if (!lists) return;
@@ -204,9 +264,38 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     for (std::size_t c = 0; c < clusterTexels; ++c) {
         t[(clusterBase + c) * 4 + 0] = float(lists->first[c]);
         t[(clusterBase + c) * 4 + 1] = float(lists->count[c]);
+        if (decals) {
+            t[(clusterBase + c) * 4 + 2] = float(decals->lists.first[c]);
+            t[(clusterBase + c) * 4 + 3] = float(decals->lists.count[c]);
+        }
     }
     float* idx = t + (clusterBase + clusterTexels) * 4;
     for (std::size_t i = 0; i < lists->indices.size(); ++i) idx[i] = float(lists->indices[i]);
+    if (decals) {
+        float* h = t + decalBase * 4;
+        h[0] = float(decals->records.size());
+        h[1] = float(decals->atlasWidth);
+        h[2] = float(decals->atlasHeight);
+        h[3] = float(decalIndexBase);
+        h[4] = float(decals->colorMode);
+        for (std::size_t i = 0; i < decals->records.size(); ++i) {
+            const DecalRecord& r = decals->records[i];
+            float* p = t + (decalBase + kDecalHeaderTexels + i * kDecalTexels) * 4;
+            for (int k = 0; k < 12; ++k) p[k] = r.rows[k];
+            for (int k = 0; k < 4; ++k) {
+                p[12 + k] = r.albedoRect[k];
+                p[16 + k] = r.normalRect[k];
+                p[20 + k] = r.tint[k];
+            }
+            p[24] = r.opacity;
+            p[25] = r.normalStrength;
+            p[26] = r.angleScale;
+            p[27] = r.layers;
+        }
+        float* idx = t + decalIndexBase * 4;
+        for (std::size_t i = 0; i < decals->lists.indices.size(); ++i) idx[i] = float(decals->lists.indices[i]);
+        out.uniforms.decalBase = float(decalBase);
+    }
     ClusterUniforms& u = out.uniforms;
     for (int c = 0; c < 4; ++c) {
         u.vpx[c] = camera.viewProj.at(c, 0);

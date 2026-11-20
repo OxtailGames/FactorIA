@@ -11,11 +11,22 @@
 //                                      +0 xyz position (point/spot) or direction TO the light (directional), w range
 //                                      +1 rgb colour * intensity, w type (0 directional, 1 point, 2 spot)
 //                                      +2 xyz spot axis (the direction the light points), w cos(spot half angle)
-//                                      +3 x cos of the inner cone of a spot (2 = the default fade), yzw reserved (cookie, IES)
+//                                      +3 x cos of the inner cone of a spot (2 = the default fade), y z reserved (cookie, IES),
+//                                         w flags: 1 = Light.mode Baked (its direct light is in the lightmaps, M73.4a), else 0
 //   [fa_cl_info.x, + fa_cl_info.w)   one texel per cluster (slice-major, then row, then column): x = slot of its first light index,
-//                                    y = how many local lights it has
+//                                    y = how many local lights it has, z = slot of its first decal index, w = how many decals it has
 //   after the clusters               the light indices, four to a texel (x, y, z, w); slot s is component s & 3 of the s >> 2 th
 //                                    texel of this region
+//   after the light indices          the shadow region of the point and spot lights (M73.2b), only in a frame where one has a shadow
+//                                    map; its first texel is fa_shadow_lcfg.x - 1 (the fa_shadows block, shadow_common.glsl):
+//                                      [base, base + L)  light n: x = the texel of its record, or -1 (no shadow map this frame)
+//                                      then the records: 2 header texels (+0 kind 1 = one tile / 2 = six cube faces, fade distance,
+//                                      filter, softness k; +1 depth bias, normal bias) and 6 texels per tile: the four rows of the
+//                                      matrix world -> (u * w, v * w, -, w) of the atlas texture (w = metres along the tile's axis), the
+//                                      tile's rectangle (umin, vmin, umax, vmax), and (metres per texel at distance 1, near plane,
+//                                      far plane). Written by local_shadows.cpp, read by fa_shadow_local.
+//   from fa_counts.y (0 = none)      (after the shadow region when there is one) the decals of the view (M73.5b, block fa_decals below): two header texels, 7 texels per decal, the
+//                                    decal indices four to a texel
 // The directional lights come first in the light table (at most 32) and belong to every cluster; the local lights of a cluster are
 // in ascending index order, so a loop over "directional, then the cluster's list" adds the lights up in the order of the table.
 @block fa_light_data
@@ -27,6 +38,8 @@ vec4 fa_light_texel(int t) {
 vec3 fa_light_rgb(int li) { return fa_light_texel(li * 4 + 1).rgb; }
 // The type of light li: 0 directional, 1 point, 2 spot.
 float fa_light_type(int li) { return fa_light_texel(li * 4 + 1).w; }
+// Whether light li is baked (Light.mode Baked): a lightmapped fragment skips it, its direct light is in the lightmap.
+bool fa_light_baked(int li) { return fa_light_texel(li * 4 + 3).w > 0.5; }
 
 // Light li of the table as seen from a world position, without its shadow: the direction to it, its color times intensity times
 // attenuation, the attenuation, the distance and the type. shadow is 1.
@@ -65,17 +78,17 @@ LightSample fa_light_sample(int li, vec3 world_pos) {
     return ls;
 }
 
-// The cluster of a world position, as (slot of its first local light, how many local lights): the tile of the view it projects to
-// (by the rows of the view-projection matrix the CPU used, so the answer does not depend on the backend's window conventions) and the
-// depth slice of its distance along the camera's forward axis. (0, 0) when the frame has no local lights.
-ivec2 fa_cluster_lookup(vec3 world_pos) {
-    // No clusters (info.x < 0), an empty grid, or a position that is not in front of the camera (no NaN path): no local lights.
+// The cluster of a world position: (slot of its first local light, how many local lights, slot of its first decal, how many decals): the
+// tile of the view it projects to (by the rows of the view-projection matrix the CPU used, so the answer does not depend on the backend's
+// window conventions) and the depth slice of its distance along the camera's forward axis. All zero when the frame has no clusters.
+vec4 fa_cluster_texel(vec3 world_pos) {
+    // No clusters (info.x < 0), an empty grid, or a position that is not in front of the camera (no NaN path): no lights, no decals.
     if (fa_cl_info.x < 0.0 || fa_cl_info.w < 1.0 || fa_cl_grid.x < 1.0 || fa_cl_grid.y < 1.0 || fa_cl_info.y < 1.0) {
-        return ivec2(0, 0);
+        return vec4(0.0);
     }
     vec4 p = vec4(world_pos, 1.0);
     float w = dot(fa_cl_vpw, p);
-    if (!(w > 1e-6)) { return ivec2(0, 0); }
+    if (!(w > 1e-6)) { return vec4(0.0); }
     vec2 ndc = vec2(dot(fa_cl_vpx, p), dot(fa_cl_vpy, p)) / w;
     int tiles_x = int(fa_cl_grid.x);
     int tiles_y = int(fa_cl_grid.y);
@@ -83,7 +96,12 @@ ivec2 fa_cluster_lookup(vec3 world_pos) {
     int ty = clamp(int(floor((ndc.y * 0.5 + 0.5) * fa_cl_grid.y)), 0, tiles_y - 1);
     float depth = dot(fa_cl_fwd.xyz, world_pos) + fa_cl_fwd.w;
     int sl = clamp(int(floor(log2(max(depth, fa_cl_grid.w) / fa_cl_grid.w) * fa_cl_grid.z)), 0, int(fa_cl_info.y) - 1);
-    vec4 e = fa_light_texel(int(fa_cl_info.x) + (sl * tiles_y + ty) * tiles_x + tx);
+    return fa_light_texel(int(fa_cl_info.x) + (sl * tiles_y + ty) * tiles_x + tx);
+}
+
+// The same as (slot of its first local light, how many local lights); (0, 0) when the frame has no local lights.
+ivec2 fa_cluster_lookup(vec3 world_pos) {
+    vec4 e = fa_cluster_texel(world_pos);
     return ivec2(int(e.x), int(e.y));
 }
 
@@ -91,5 +109,106 @@ ivec2 fa_cluster_lookup(vec3 world_pos) {
 int fa_cluster_index(int slot, int n) {
     vec4 t = fa_light_texel(int(fa_cl_info.x) + int(fa_cl_info.w) + ((slot + n) >> 2));
     return int(t[(slot + n) & 3]);
+}
+@end
+
+// ---- Projected decals (M73.5b; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "Decals") ----
+// The decal region of the data texture starts at texel fa_counts.y (0 = the view has no decals):
+//   +0  (decal count, atlas width, atlas height, first texel of the decal indices)
+//   +1  x = colour mode: 0 the atlas holds raw bytes of a gamma scene, 1 raw bytes in a linear scene (the albedo is sRGB-coded: decode
+//       it), 2 the atlas is SRGB8A8 (the GPU decoded every tile as sRGB: the normal tiles are encoded back)
+//   +2 + 7d .. +8 + 7d   decal d: rows 0..2 of the world -> box matrix (xyz, translation w; the box is the cube -0.5 .. 0.5), the
+//       albedo tile (u0, v0, u1, v1 in the atlas; all 0 = none), the normal tile, the tint (rgba, in the scene's colour space), and
+//       (opacity, normal strength, 1 / cos(angle fade), the layer mask)
+// fa_counts.w is the receiver: 0 = this mesh takes no decals, else 1 + its MeshRenderer.decalLayer. The decals of a cluster are in the
+// order they are drawn (Decal.sortOrder), each blends over what the ones before it left.
+@block fa_decals
+vec3 fa_dc_to_linear(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
+}
+vec3 fa_dc_to_srgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308)));
+}
+
+// A tile of the decal atlas at the tile-local uv (0..1), at the mip level the surface's footprint asks for. `ddx` and `ddy` are the
+// derivatives of the box position (x, y; the image's v runs the other way, which does not change the length).
+vec4 fa_decal_tile(vec4 rect, vec2 uv, vec2 atlas, vec2 ddx, vec2 ddy) {
+    vec2 size = rect.zw - rect.xy;
+    vec2 px = size * atlas;
+    vec2 gx = ddx * px;
+    vec2 gy = ddy * px;
+    float lod = clamp(0.5 * log2(max(max(dot(gx, gx), dot(gy, gy)), 1e-8)), 0.0, 4.0);
+    return textureLod(sampler2D(FA_DECAL_TEX, FA_DECAL_SMP), rect.xy + clamp(uv, 0.0, 1.0) * size, lod);
+}
+
+// Paints the decals of the fragment's cluster over the surface: `world_pos` the position, `geo_normal` the geometric normal (the way the
+// face looks, for the angle fade), `albedo` and `normal` (the shading normal, in the world) are changed. Call it once, in uniform control flow
+// (it takes derivatives), before the lights. Nothing happens while the view has no decals or the mesh does not receive them.
+void fa_apply_decals(vec3 world_pos, vec3 geo_normal, inout vec3 albedo, inout vec3 normal) {
+    // The two tests are on uniforms (the view and the draw), so every fragment of a quad takes the same branch and the derivatives below
+    // stay in uniform control flow; the cluster's decal count (per fragment) is only tested after them.
+    if (fa_counts.y < 0.5 || fa_counts.w < 0.5) { return; }
+    vec3 dpx = dFdx(world_pos);
+    vec3 dpy = dFdy(world_pos);
+    vec4 cl = fa_cluster_texel(world_pos);
+    int dcount = int(cl.w);
+    if (dcount < 1) { return; }
+    int base = int(fa_counts.y + 0.5);
+    vec4 head = fa_light_texel(base);
+    vec2 atlas = head.yz;
+    int idx_base = int(head.w);
+    float mode = fa_light_texel(base + 1).x;
+    int bit = int(fa_counts.w + 0.5) - 1;
+    int first = int(cl.z);
+    for (int k = 0; k < dcount; ++k) {
+        int slot = first + k;
+        int di = int(fa_light_texel(idx_base + (slot >> 2))[slot & 3]);
+        int t = base + 2 + di * 7;
+        vec4 prm = fa_light_texel(t + 6);
+        if (((int(prm.w + 0.5) >> bit) & 1) == 0) { continue; }
+        vec4 r0 = fa_light_texel(t);
+        vec4 r1 = fa_light_texel(t + 1);
+        vec4 r2 = fa_light_texel(t + 2);
+        vec3 b = vec3(dot(r0.xyz, world_pos) + r0.w, dot(r1.xyz, world_pos) + r1.w, dot(r2.xyz, world_pos) + r2.w);
+        if (abs(b.x) > 0.5 || abs(b.y) > 0.5 || abs(b.z) > 0.5) { continue; }
+        vec3 axis = normalize(r2.xyz);
+        float facing = clamp(dot(geo_normal, axis) * prm.z, 0.0, 1.0);
+        if (facing <= 0.0) { continue; }
+        // Fades over the last tenth of the box along the projection; the sides of the box cut sharply (a decal ends at the picture's edge).
+        float edge = clamp((0.5 - abs(b.z)) * 10.0, 0.0, 1.0);
+        float cover = edge * facing * prm.x;
+        vec2 uv = vec2(b.x + 0.5, 0.5 - b.y);
+        vec2 ddx = vec2(dot(r0.xyz, dpx), dot(r1.xyz, dpx));
+        vec2 ddy = vec2(dot(r0.xyz, dpy), dot(r1.xyz, dpy));
+        vec4 tint = fa_light_texel(t + 5);
+        vec4 ar = fa_light_texel(t + 3);
+        vec4 nr = fa_light_texel(t + 4);
+        float tex_a = 1.0;
+        vec3 col = tint.rgb;
+        bool has_albedo = ar.z > ar.x;
+        if (has_albedo) {
+            vec4 tx = fa_decal_tile(ar, uv, atlas, ddx, ddy);
+            if (mode > 0.5 && mode < 1.5) { tx.rgb = fa_dc_to_linear(tx.rgb); }
+            col *= tx.rgb;
+            tex_a = tx.a;
+        }
+        float a = cover * tex_a * tint.a;
+        albedo = mix(albedo, col, clamp(a, 0.0, 1.0));
+        if (nr.z > nr.x) {
+            vec4 nt = fa_decal_tile(nr, uv, atlas, ddx, ddy);
+            vec3 enc = mode > 1.5 ? fa_dc_to_srgb(nt.rgb) : nt.rgb;
+            vec3 m = enc * 2.0 - 1.0;
+            m.xy *= prm.y;
+            vec3 tx_axis = normalize(r0.xyz);
+            vec3 ty_axis = normalize(r1.xyz);
+            vec3 d = tx_axis * m.x + ty_axis * m.y;
+            vec3 n = normalize(normal);
+            vec3 bent = normalize(n * max(m.z, 0.05) + (d - n * dot(n, d)));
+            float w = clamp(cover * (has_albedo ? tex_a : 1.0), 0.0, 1.0);
+            normal = normalize(mix(n, bent, w));
+        }
+    }
 }
 @end

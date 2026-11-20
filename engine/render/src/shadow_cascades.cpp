@@ -74,12 +74,13 @@ ShadowAtlasLayout layout_shadow_atlas(int maxSize, const std::vector<ShadowTileR
     ShadowAtlasLayout out;
     maxSize = std::max(64, pow2_floor(maxSize));
     const std::size_t n = requests.size();
-    std::vector<int> sizes(n), mins(n), prio(n);
+    std::vector<int> sizes(n), mins(n), prio(n), tiers(n);
     std::vector<bool> alive(n, true);
     for (std::size_t i = 0; i < n; ++i) {
         sizes[i] = std::min(pow2_floor(requests[i].size), maxSize);
         mins[i] = std::min(std::max(1, pow2_floor(requests[i].minSize)), std::max(sizes[i], 1));
         prio[i] = requests[i].priority;
+        tiers[i] = requests[i].tier;
         if (sizes[i] <= 0) {
             alive[i] = false;
             ++out.dropped;
@@ -90,11 +91,15 @@ ShadowAtlasLayout layout_shadow_atlas(int maxSize, const std::vector<ShadowTileR
         for (std::size_t i = 0; i < n; ++i) live[i] = alive[i] ? sizes[i] : 0;
         const int unplaced = pack_tiles(maxSize, live, prio, out.tiles);
         if (unplaced == 0) break;
-        // The budget: halve the largest map that can still shrink (the least important of equally large ones), else drop the least
-        // important one. Every round shrinks or drops something, so the loop ends.
+        // The budget, on the highest tier that has a map alive (the local lights before the sun): halve its largest map that can still
+        // shrink (the least important of equally large ones), else drop its least important one. Every round shrinks or drops
+        // something, so the loop ends.
+        int top = -1;
+        for (std::size_t i = 0; i < n; ++i)
+            if (alive[i]) top = std::max(top, tiers[i]);
         int victim = -1;
         for (std::size_t i = 0; i < n; ++i) {
-            if (!alive[i] || sizes[i] <= mins[i]) continue;
+            if (!alive[i] || tiers[i] != top || sizes[i] <= mins[i]) continue;
             if (victim < 0 || sizes[i] > sizes[std::size_t(victim)] ||
                 (sizes[i] == sizes[std::size_t(victim)] && prio[i] >= prio[std::size_t(victim)]))
                 victim = int(i);
@@ -105,7 +110,7 @@ ShadowAtlasLayout layout_shadow_atlas(int maxSize, const std::vector<ShadowTileR
             continue;
         }
         for (std::size_t i = 0; i < n; ++i)
-            if (alive[i] && (victim < 0 || prio[i] >= prio[std::size_t(victim)])) victim = int(i);
+            if (alive[i] && tiers[i] == top && (victim < 0 || prio[i] >= prio[std::size_t(victim)])) victim = int(i);
         alive[std::size_t(victim)] = false;
         ++out.dropped;
     }

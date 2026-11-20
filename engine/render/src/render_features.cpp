@@ -130,6 +130,16 @@ std::vector<FeatureDef> build_table() {
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
     t.push_back(
+        {"lightmaps", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Baked lightmaps (M73.4a): the bake's light of a scene (SceneSettings.lightmaps, the lightmap.bake command) "
+         "is read from "
+         "the lightmap UV of each entity with MeshRenderer.receiveGI and replaces the ambient light on its diffuse "
+         "surface; "
+         "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
+         "material "
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"Lightmaps\")."});
+    t.push_back(
         {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
          "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
          "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
@@ -174,20 +184,26 @@ std::vector<FeatureDef> build_table() {
          "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
          nullptr},
         {"pointShadows", "float32",
-         "Shadows of point lights, six faces in the shadow atlas, with a budget per frame (M73.2)."},
-        {"spotShadows", "float32", "Shadows of spot lights in the shadow atlas, with a budget per frame (M73.2)."},
+         "Shadows of point lights: six face tiles in the shadow atlas, ranked by importance with a budget per frame, "
+         "PCF, PCSS or hard, faded out by distance (M73.2b).",
+         nullptr},
+        {"spotShadows", "float32",
+         "Shadows of spot lights: one perspective tile in the shadow atlas, with the same budget and filters "
+         "(M73.2b).",
+         nullptr},
         {"contactShadows", "depth",
          "Contact shadows: a short screen-space ray toward the light adds fine shadows where objects touch (M73.2)."},
         {"reflectionProbes", "half",
          "Reflection probes: local environment captures, baked or realtime, with box projection and blending between "
          "probes "
          "(M73.3)."},
-        {"lightmaps", "",
-         "Baked lightmaps: global illumination computed by a deterministic bake and read from a second UV set "
-         "(M73.4)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
-        {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},
+        {"decals", "",
+         "Projected decals: a Decal box paints albedo, tint and normal relief on the meshes it touches, found through "
+         "the light "
+         "clusters and applied in the mesh shader (M73.5b).",
+         nullptr},
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},
