@@ -269,29 +269,91 @@ TEST_CASE("frustum test of a box, both depth conventions") {
 
 TEST_CASE("lights over the limit: the most relevant ones are kept") {
     using fa::render::LightData;
+    static_assert(fa::render::kMaxLights == 1024 && fa::render::kMaxDirectionalLights == 32);
     std::vector<LightData> lights;
-    for (int i = 0; i < 40; ++i) {
+    for (int i = 0; i < 1040; ++i) {
         LightData l;
-        l.rank = i == 39 ? 0 : 2;
+        l.rank = i == 1039 ? 0 : 2;
         l.score = float(i);
         lights.push_back(l);
     }
     int dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
+    CHECK(dropped == 16);
+    REQUIRE(lights.size() == 1024);
+    CHECK(lights[0].rank == 0);           // the shadow caster first
+    CHECK(lights[1].score == 1038.0f);    // then the most relevant
+    CHECK(lights.back().score == 16.0f);  // scores 0..15 are the ones gone
+    // 40 directional lights: 32 stay, the brightest ones, and the local lights keep their place after them.
+    lights.clear();
+    for (int i = 0; i < 40; ++i) {
+        LightData l;
+        l.rank = 1;
+        l.score = float(i);
+        lights.push_back(l);
+    }
+    LightData local;
+    local.score = 5.0f;
+    lights.push_back(local);
+    dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
     CHECK(dropped == 8);
-    REQUIRE(lights.size() == 32);
-    CHECK(lights[0].rank == 0);          // the shadow caster first
-    CHECK(lights[1].score == 38.0f);     // then the most relevant
-    CHECK(lights.back().score == 8.0f);  // scores 0..7 are the ones gone
-    // Through the renderer: 40 point lights, 32 reach the shader.
+    REQUIRE(lights.size() == 33);
+    CHECK(lights[0].score == 39.0f);
+    CHECK(lights[31].score == 8.0f);
+    CHECK(lights[32].rank == 2);
+    // Through the renderer: 40 point lights in view all reach the shader (before the clusters of M73.1 it was 32).
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
     add_camera(w, {0, 3, 7}, {0, 0, 0});
     add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
-    for (int i = 0; i < 40; ++i) add_light(w, LightType::Point, {float(i) - 20, 2, 0}, {0, 0, 0}, 0.2f);
+    for (int i = 0; i < 40; ++i) add_light(w, LightType::Point, {float(i) * 0.1f - 2, 2, 0}, {0, 0, 0}, 0.2f);
     g.render(w);
-    CHECK(g.renderer.stats().lights == 32);
-    CHECK(g.renderer.stats().lightsDropped == 8);
+    CHECK(g.renderer.stats().lights == 40);
+    CHECK(g.renderer.stats().lightsDropped == 0);
+    CHECK(g.renderer.stats().lightClusters > 0);
+    CHECK(g.renderer.stats().lightMaxPerCluster == 40);
+}
+
+TEST_CASE("clustered lights: 256 coloured point lights over a floor, every one reaches the shader (golden)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 11, 9}, {0, 0, 0});
+    w.settings().ambientLight = Color{0.02f, 0.02f, 0.03f, 1};
+    add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xd0d0d0), {20, 1, 20});
+    add_mesh(w, "sphere", {-2.0f, 0.2f, 0}, Color::hex(0xf0f0f0));
+    add_mesh(w, "cube", {2.0f, 0.1f, 1.0f}, Color::hex(0xf0f0f0), {1.2f, 1.2f, 1.2f});
+    // A 16 x 16 grid, 1.4 m apart, each light with a range that reaches its neighbours: a floor lit by 256 lights, which the 32 of
+    // the shader before M73.1 could not.
+    for (int z = 0; z < 16; ++z)
+        for (int x = 0; x < 16; ++x) {
+            const float hue = float((x * 7 + z * 3) % 12) / 12.0f;
+            const float r = std::fabs(hue * 6.0f - 3.0f) - 1.0f, gr = 2.0f - std::fabs(hue * 6.0f - 2.0f),
+                        b = 2.0f - std::fabs(hue * 6.0f - 4.0f);
+            Entity e = add_light(w, LightType::Point, {(float(x) - 7.5f) * 1.4f, 1.0f, (float(z) - 7.5f) * 1.4f},
+                                 {0, 0, 0}, 1.0f,
+                                 Color{std::min(std::max(r, 0.15f), 1.0f), std::min(std::max(gr, 0.15f), 1.0f),
+                                       std::min(std::max(b, 0.15f), 1.0f), 1});
+            w.get<Light>(e)->range = 2.2f;
+        }
+    Image img = g.render(w);
+    const auto& st = g.renderer.stats();
+    CHECK(st.lights + st.lightsCulled == 256);  // a light outside the view (the frustum cull) never reaches the shader
+    CHECK(st.lights > 200);
+    CHECK(st.lightsDropped == 0);
+    CHECK(st.lightClusters > 0);
+    CHECK(st.lightMaxPerCluster >= 2);
+    CHECK(st.lightMaxPerCluster < 128);
+    CHECK(st.lightClusterClipped == 0);
+    // The corners of the floor are far from the middle, and are lit by their own lights: no part of the grid was left dark.
+    int lit = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x) {
+            const Color c = img.pixel(x, y);
+            if (c.r + c.g + c.b > 0.15f) ++lit;
+        }
+    CHECK(lit > img.width * img.height / 3);
+    expect_golden(img, "3d_clustered_256_lights", 0.006);
 }
 
 TEST_CASE("lights with a NaN score sort last and the order stays total") {
@@ -675,13 +737,12 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     auto desc = render::material_shader_desc("empty mesh", program, slots);
     REQUIRE(desc.ok());
     CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
-    CHECK(slots.ubMask == 0b111);  // vs params, fs params, lights
-    CHECK(slots.viewMask ==
-          (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView));  // + the sky environment
+    CHECK(slots.ubMask == 0b11);  // vs params, fs params (the lights are in the data texture, view 24)
+    CHECK(slots.viewMask == (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView |
+                             1u << VIEW_mesh_fa_light_tex));  // + the sky environment and the light data
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));
-    CHECK(slots.ubSize[2] == sizeof(mesh_fa_lights_t));
 
     Json broken = program;
     broken["reflection"]["uniform_blocks"][0]["slot"] = 99;

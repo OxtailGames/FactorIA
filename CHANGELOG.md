@@ -17,6 +17,14 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   scripts or `assets.import` yet; the HDRI environment import builds on it. New fuzz target `hdr`.
 ### M73: 3D lighting of a leading engine
 
+- **Clustered forward lighting (M73.1a):** a view is lit by up to 1024 lights at once (32 directional) instead of 32, on every
+  backend (OpenGL, GLES3, WebGL2, D3D11, Metal). The view is cut into tiles of 64 pixels by 24 depth slices, the CPU builds the light
+  list of each cluster as a deterministic job, and each fragment reads only its cluster's lights from one RGBA32F data texture. A scene
+  with up to 32 lights is pixel-identical. `Light.innerAngle` now works. `game.render_stats` (and `renderStats()`) report
+  `lightsCulled`, `lightClusters`, `lightClusterEntries`, `lightClusterClipped` and `lightMaxPerCluster`; the limits are 128 lights per
+  cluster and 524288 list entries per view. In a snippet material `fa_light_count()` / `fa_light(n, i)` give the lights of the
+  fragment's cluster; a full shader keeps the first 32 of the table and has `fa_cluster_light_count()` / `fa_cluster_light_index()`.
+  `render.supports` answers `true` for `clusteredLights`. docs/rendering/RENDERING_LIGHTING.md, "Many lights".
 - **The base of M73 (P0), no visible change:** the mesh shaders' lights and shadow lookup moved into three shared files
   (`light_data.glsl`, `light_loop.glsl`, `shadow_common.glsl`; the pictures are pixel-identical and the twin fixtures of the
   custom materials were regenerated); the texture slots of the mesh fragment shader are a table with static asserts (at most 16
@@ -28,7 +36,7 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   `contributeGI`, `receiveGI`, `clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`,
   `anisotropyRotation`, `specular`, `ior`, `transmission`, `thickness`, `attenuationColor`, `attenuationDistance`, `subsurface`).
   The defaults keep today's look and are not written to a scene file, so scenes made before load and save as they did; an area
-  light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
+  light shines like a point light until M73.1b. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
   lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
 
 ## 0.32.0
