@@ -53,7 +53,7 @@ the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper)
 | `fa_light(n, i)` | The `LightSample` of light `n` (`0` to `fa_light_count() - 1`) at this fragment, as `light()` receives it: `direction`, `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance`, `type` (0 directional, 1 point, 2 spot). A number out of range gives a sample that lights nothing (`color` and `attenuation` `0`, `shadow` `1`). |
 | `fa_light_unshadowed(n, i)` | The same without the shadow map read: `shadow` is `1` and `color` has no shadow in it. Use it to rank or choose lights without paying for the shadow, or to apply the shadow your own way. |
 | `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. Only light `0`, when it is the directional light that casts shadows and the mesh receives them, has a shadow map; every other light answers `1`. |
-| `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera. Add it to what you return, scaled or tinted as you like. |
+| `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera, and from the layers of `s` (`clearcoat`, `sheen_color`, `anisotropy`, `specular`, `ior`) when they are set. Add it to what you return, scaled or tinted as you like. |
 | `fa_sky_reflection(n, v, f0, roughness)` | The same term from the parts: normal `n`, direction to the camera `v`, reflectance at normal incidence `f0` (`vec3`: `0.04` for a dielectric, the albedo for a metal) and `roughness`. |
 | `fa_environment(direction, roughness)` | The color of the sky in a world direction, blurrier and flatter when `roughness` grows. With a sky material (below) it reads the sky that is seen. |
 | `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, with a sky material, the light of that sky from every direction (the cosine-weighted average). A `vec3`. |
@@ -64,6 +64,23 @@ material the sky is the gradient of `SceneSettings.skyColor` (top) and `horizonC
 it), which the engine's own meshes reflect too, so a custom material that adds `fa_sky_light(i, s)` reflects the same sky as
 a `"pbr"` one; with one it is the sky of the material (next section). In a `"custom"` material that has no `lighting()` the sky reflection is off, as before; call `fa_sky_light()` from
 `ambient()` (return it, or add it to the ambient colour) or from `light()` to turn it on, or from `lighting()`.
+
+## Material layers
+
+The last fields of `Surface` are the layers of the engine's own lighting (clear coat, sheen, anisotropy, specular and IOR; what each one
+looks like: [rendering/RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md#the-material-layers-m736a)):
+
+| Field | Meaning |
+|---|---|
+| `float clearcoat`, `float clearcoat_roughness` | 0..1 strength of a glossy coat over the surface, and its roughness (the engine keeps it at 0.05 or more). 0 = none. |
+| `vec3 sheen_color`, `float sheen_roughness` | The cloth sheen's colour (black = none) and its roughness 0..1 (kept at 0.1 or more). |
+| `float anisotropy`, `float anisotropy_rotation` | -1..1 stretch of the highlight along the tangent (negative: across it), and a turn of that direction in radians. |
+| `float specular`, `float ior`, `vec3 specular_color` | A non-metal's reflection: strength 0..1, index of refraction 1..3 (1.5 = the usual 4% at normal incidence) and a tint (white = none). A metal ignores them. |
+
+`surface()` receives them already filled with the `MeshRenderer` fields and the glTF material's values, so a snippet that does not touch
+them draws what the MeshRenderer asks for, and a snippet written before they existed compiles and draws as before. Write one of them
+to decide it per pixel (a mask texture for the coat of a paint, the sheen of a cloth). They act in the engine's own `light()`,
+`ambient()` and `fa_sky_light`; your own `lighting()` reads them from `s` and does what it likes with them.
 
 ## Which lights, how many, in what order
 

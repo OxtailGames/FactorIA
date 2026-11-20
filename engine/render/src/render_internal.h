@@ -20,6 +20,7 @@
 #include "fa/core/video.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/camera_geometry.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
@@ -275,6 +276,12 @@ struct SubMesh {
     TextureAsset* emissiveTex = nullptr;   // glTF emissiveTexture
     float normalScale = 1.0f;
     float occlusionStrength = 1.0f;
+    // The glTF material layers (KHR_materials_clearcoat, _sheen, _anisotropy, _specular, _ior; M73.6). `layersPacked`: what the
+    // importer packed into the maps the part binds (pack_layer_textures): 1 = the occlusion map also holds the clear coat (g),
+    // its roughness (b) and the sheen roughness (a), 2 = the metallic-roughness map also holds the anisotropy strength (r) and the
+    // specular (a); 3 = both. 0 = those maps are the model's own.
+    MaterialLayers layers;
+    int layersPacked = 0;
     // glTF pbrMetallicRoughness factors, used instead of MeshRenderer.metallic / roughness when `hasPbr`.
     bool hasPbr = false;
     float metallic = 0.0f, roughness = 0.6f;
@@ -310,6 +317,26 @@ struct PreparedTextureRef {  // one texture slot of a glTF material
     Image image;              // Image
     std::string error, hint;  // Missing
 };
+// The textures of the layer extensions of one glTF material, as the file names them (None = the material has none).
+struct LayerTextureRefs {
+    PreparedTextureRef clearcoat, clearcoatRoughness, clearcoatNormal, sheenColor, sheenRoughness, anisotropy, specular,
+        specularColor;
+    bool any() const;
+};
+// Packs the extension textures of a material into the maps a mesh part already binds, because no texture unit is free
+// (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The material layers"): the occlusion map becomes R occlusion (255 when the
+// material has none), G clearcoatTexture.R, B clearcoatRoughnessTexture.G, A sheenRoughnessTexture.A; the metallic-roughness
+// map becomes R anisotropyTexture.B, G and B of metallicRoughnessTexture, A specularTexture.A; a channel with no texture is 255.
+// All the sources of a map are resampled (bilinear, fixed point: the same bytes on every machine) to the largest width and
+// height among them. `occlusion` and `metalRough` are replaced by the composites (kind Image) and the returned bits tell which
+// (1, 2). Nothing is dropped silently: a texture that is not packed (the clear coat's normal map, the sheen colour, the specular
+// colour and the direction of the anisotropy texture: there is no channel for them), one that cannot be read, and a set that is
+// larger than kMaxLayerPackPixels, are named in `warnings` with `what` (file and material) and what is used instead.
+int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const std::string& compositeName,
+                        PreparedTextureRef& occlusion, PreparedTextureRef& metalRough,
+                        std::vector<std::string>& warnings);
+inline constexpr std::uint64_t kMaxLayerPackPixels = std::uint64_t(4096) * 4096;  // pixels of one packed map
+
 struct PreparedPart {
     std::vector<MeshVertex> verts;
     std::vector<std::uint32_t> idx;

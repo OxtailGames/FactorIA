@@ -31,6 +31,16 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
   lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
 
+- **Material layers (M73.6a):** clear coat, sheen, anisotropy and the dielectric specular (`specular`, `ior`) are drawn on every backend
+  (OpenGL, GLES3, WebGL2, D3D11, Metal) by the standard mesh shading, image-based light included (approximated: docs/rendering/RENDERING_LIGHTING.md,
+  "The material layers"); `MeshRenderer.clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`, `anisotropyRotation`,
+  `specular` and `ior` no longer say "No effect yet", `render.supports` answers `clearCoat`, `sheen` and `anisotropy` from the GPU, and a custom
+  material's `Surface` has the same fields. The defaults draw exactly the pictures of before (ior 1.5 and specular 1 are F0 0.04), so no
+  golden image changed. glTF import reads `KHR_materials_clearcoat`, `_sheen`, `_anisotropy`, `_specular` and `_ior`: the factors always, the
+  textures packed into free channels of the occlusion and metallic-roughness maps; what does not fit (the clear coat's normal map, the sheen
+  and specular colour textures, the direction of the anisotropy texture) is named in a warning with the file, the material and what is
+  used instead. Editable meshes keep the factors and write them back to glTF. Every custom material's shader twin was regenerated.
+
 - **LTC tables for area lights (M73, no renderer change yet):** `tools/ltc` fits Linearly Transformed Cosines tables for the engine's own GGX BRDF (deterministic, same bits with any thread count) and writes the committed `engine/render/src/ltc_tables.h`; `engine/render/shaders/ltc.glsl` and a CPU reference integrate polygon lights over them. See docs/design/ARCHITECTURE_AREA_LIGHTS.md.
 
 ## 0.32.0

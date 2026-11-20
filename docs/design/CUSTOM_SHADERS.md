@@ -435,8 +435,8 @@ pointer `/kind` (`parse_material`, `schemas/material.schema.json`).
   the same value) hashes only the template files of that kind, as listed explicitly in `engine/render/CMakeLists.txt`
   (`FA_TEMPLATE_FILES_<KIND>`) and in `template_file_names()` of `tools/common/src/shaders_generate.cpp`; a doctest checks
   that both lists give the same hash and that every `*_common.glsl` is in one list. Editing the sprite template leaves
-  every mesh twin valid. The mesh list is `mesh_common.glsl` plus the shared `light_data`, `light_loop` and `shadow_common` files (M73-P0
-  moved the lights out of it, so every twin was regenerated once). `compute` hashes `compute_common.glsl`
+  every mesh twin valid. The mesh list is `mesh_common.glsl` plus the shared `light_data`, `light_loop`, `shadow_common` and `brdf_layers` files (M73-P0
+  moved the lights out of it, M73.6a added the material layers, so every twin was regenerated each time). `compute` hashes `compute_common.glsl`
   (`FA_TEMPLATE_FILES_COMPUTE`).
 - **The twin names its kind.** A twin of any kind other than mesh carries `"kind": "<kind>"`; a twin without the key is a
   mesh twin (so every twin made before M72 stays valid, and mesh twins are written as they always were).

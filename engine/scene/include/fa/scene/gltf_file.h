@@ -4,9 +4,12 @@
 
 #include <cgltf.h>
 
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/types.h"
+#include "fa/scene/material_layers.h"
 
 namespace fa {
 
@@ -27,5 +30,11 @@ Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view pa
 // component size (the specification forbids it, and cgltf reads floats and indices through typed pointers). Every reader of
 // a glTF calls it once, after cgltf_load_buffers.
 Result<void> gltf_check(cgltf_data* data, std::string_view path);
+
+// Reads the five extensions of `m` into `out` (a material without them gives the defaults). A value outside its range, or not a
+// number, is clamped (NaN becomes the default) and says so in `warnings`: "<what>: ior 7 is outside 1..3, clamped to 3". `what`
+// names the file and the material, e.g. "assets/car.glb: material 'paint'".
+void read_material_layers(const cgltf_material& m, const std::string& what, MaterialLayers& out,
+                          std::vector<std::string>& warnings);
 
 }  // namespace fa
