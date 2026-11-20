@@ -267,11 +267,14 @@ Report compare(Gfx& g, const Setup& setup) {
     return r;
 }
 
-void report_and_check(const char* name, const Report& r, double bruteMean, double bruteWorst, double cpuMean, double cpuWorst) {
-    MESSAGE(std::string(name) << ": GPU vs brute force mean " << r.gpuVsBrute.mean << " worst " << r.gpuVsBrute.worst << "; GPU vs CPU SH mean "
-                 << r.gpuVsCpu.mean << " worst " << r.gpuVsCpu.worst << "; CPU SH vs brute force mean " << r.cpuVsBrute.mean
-                 << " worst " << r.cpuVsBrute.worst << " (colour 0..1)");
-    CHECK(std::fabs(r.sky.total - 4.0 * kPi) < 0.04 * 4.0 * kPi);  // the 24 views cover the sphere once, the weights add up to 4 pi
+void report_and_check(const char* name, const Report& r, double bruteMean, double bruteWorst, double cpuMean,
+                      double cpuWorst) {
+    MESSAGE(std::string(name) << ": GPU vs brute force mean " << r.gpuVsBrute.mean << " worst " << r.gpuVsBrute.worst
+                              << "; GPU vs CPU SH mean " << r.gpuVsCpu.mean << " worst " << r.gpuVsCpu.worst
+                              << "; CPU SH vs brute force mean " << r.cpuVsBrute.mean << " worst " << r.cpuVsBrute.worst
+                              << " (colour 0..1)");
+    CHECK(std::fabs(r.sky.total - 4.0 * kPi) <
+          0.04 * 4.0 * kPi);  // the 24 views cover the sphere once, the weights add up to 4 pi
     CHECK(r.gpuVsBrute.mean < bruteMean);
     CHECK(r.gpuVsBrute.worst < bruteWorst);
     CHECK(r.gpuVsCpu.mean < cpuMean);
@@ -282,8 +285,8 @@ Setup gradient_sky() {
     return [](World& w) {
         w.settings().ambientLight = Color{0, 0, 0, 1};
         w.settings().skyMaterial = "materials/skygrad.material.json";
-        w.settings().skyMaterialParams = Json::object({{"zenith", Json::array({0.15, 0.35, 0.9, 1.0})},
-                                                       {"ground", Json::array({0.7, 0.45, 0.2, 1.0})}});
+        w.settings().skyMaterialParams = Json::object(
+            {{"zenith", Json::array({0.15, 0.35, 0.9, 1.0})}, {"ground", Json::array({0.7, 0.45, 0.2, 1.0})}});
     };
 }
 
