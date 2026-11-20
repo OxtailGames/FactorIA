@@ -46,6 +46,7 @@
 #include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
+#include "light_atlas.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -219,6 +220,11 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
     bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
+    bool warnedDirectionalIes = false;  // one warning each for a Light.ies on a directional light,
+    bool warnedAreaCookie = false;      // a Light.cookie on an area light
+    bool warnedAreaIes = false;         // and a Light.ies on an area light (none of them uses it)
+    // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
+    LightAtlas lightAtlas;
     // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the
     // frame's jobs have run, like a MeshItem's MeshRenderer).
     struct DecalItem {
