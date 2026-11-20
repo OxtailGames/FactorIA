@@ -40,7 +40,8 @@ struct Scene {
         floor = add_mesh(w, "plane", {0, 0, 0}, Color::hex(0xc8c8c8), {16, 1, 16});
         box = add_mesh(w, "cube", {0, 0.3f, 0}, Color::hex(0xd8c8b0), {1.2f, 0.6f, 1.2f});
         sun = make(w, "sun", {0, 5, 0});
-        w.get<Transform>(sun)->rotation = {-20, 60, 0};  // the light travels toward -x, -z and down: the shade falls left and behind
+        w.get<Transform>(sun)->rotation = {
+            -20, 60, 0};  // the light travels toward -x, -z and down: the shade falls left and behind
         auto& l = w.add<Light>(sun);
         l.type = LightType::Directional;
         l.intensity = 1.5f;
@@ -110,7 +111,8 @@ TEST_CASE("contact shadows: a grazing sun darkens the floor where a box touches 
     expect_golden(shaded, "3d_contact_shadows");
 }
 
-TEST_CASE("contact shadows: switched off (the master switch, or a length of 0) the picture is bit for bit the plain one") {
+TEST_CASE(
+    "contact shadows: switched off (the master switch, or a length of 0) the picture is bit for bit the plain one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("contactShadows")) return;
@@ -168,7 +170,8 @@ TEST_CASE("contact shadows: a point light's ray and a second sun that has none")
     const Diff d = compare(shaded, lit);
     CHECK(d.darker > 50);
     CHECK(d.lighter == 0);
-    CHECK(compare(lit, plain).any > 0);  // the lamp lights the scene: the comparison above is not against an empty change
+    CHECK(compare(lit, plain).any >
+          0);  // the lamp lights the scene: the comparison above is not against an empty change
     // An area light is marched from its centre like a point light.
     l.type = LightType::Area;
     const Image area = g.render(s.w);

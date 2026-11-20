@@ -201,7 +201,8 @@ std::vector<FeatureDef> build_table() {
          "(M73.2b).",
          nullptr},
         {"contactShadows", "depth",
-         "Contact shadows: a short screen-space ray toward the light, marched against the depth prepass, adds fine shadows "
+         "Contact shadows: a short screen-space ray toward the light, marched against the depth prepass, adds fine "
+         "shadows "
          "where objects touch (Light.contactShadowLength, SceneSettings.contactShadows; M73.2c).",
          nullptr},
         {"reflectionProbes", "half",
