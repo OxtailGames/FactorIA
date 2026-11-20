@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <regex>
 
 #include "fa/core/strings.h"
 #include "fa/tooling/material_graph.h"
@@ -398,18 +397,34 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
         const MaterialDef& material = parsed.material;
         if (parsed.ok() && material.kind == "sprite" && material.buffers.empty() && !material.shader.empty()) {
             if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / material.shader)) {
-                std::string code;  // the snippet without its comments: a note that names the value is no use of it
-                for (std::size_t at = 0; at < text->size();) {
-                    if (text->compare(at, 2, "//") == 0) {
-                        while (at < text->size() && (*text)[at] != '\n') ++at;
-                    } else if (text->compare(at, 2, "/*") == 0) {
-                        const std::size_t end = text->find("*/", at + 2);
-                        at = end == std::string::npos ? text->size() : end + 2;
+                // The snippet without its comments (a note that names the value is no use of it) and without string
+                // literals (`#include "a//b.glsl"` holds no comment). A material snippet has no #include of its own:
+                // the compiler does not resolve one, so only this file is read.
+                std::string code;
+                const std::string& src = *text;
+                for (std::size_t at = 0; at < src.size();) {
+                    if (src[at] == '"') {
+                        const std::size_t end = src.find_first_of("\"\n", at + 1);
+                        at = end == std::string::npos ? src.size() : (src[end] == '"' ? end + 1 : end);
+                        code += ' ';
+                    } else if (src.compare(at, 2, "//") == 0) {
+                        while (at < src.size() && src[at] != '\n') ++at;
+                    } else if (src.compare(at, 2, "/*") == 0) {
+                        const std::size_t end = src.find("*/", at + 2);
+                        at = end == std::string::npos ? src.size() : end + 2;
+                        code += ' ';
                     } else {
-                        code += (*text)[at++];
+                        code += src[at++];
                     }
                 }
-                if (std::regex_search(code, std::regex("\\bfa_instance_index\\b")))
+                // the identifier by hand, as a whole word (no regex built per material)
+                const std::string word = "fa_instance_index";
+                const auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+                bool reads = false;
+                for (std::size_t at = code.find(word); at != std::string::npos && !reads; at = code.find(word, at + 1))
+                    reads = (at == 0 || !is_word(code[at - 1])) &&
+                            (at + word.size() >= code.size() || !is_word(code[at + word.size()]));
+                if (reads)
                     report.warnings.push_back(
                         {material.shader, "",
                          "this sprite snippet reads fa_instance_index, but the material declares no buffers, so the "
