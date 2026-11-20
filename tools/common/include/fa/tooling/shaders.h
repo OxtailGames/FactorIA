@@ -52,11 +52,10 @@ inline constexpr int kMaterialMaxTextures = 4;
 inline constexpr int kMaterialFsFirstView = 6, kMaterialFsFirstSampler = 2;
 inline constexpr int kMaterialVsFirstView = kMaterialFsFirstView + kMaterialMaxTextures,
                      kMaterialVsFirstSampler = kMaterialFsFirstSampler + kMaterialMaxTextures;
-// The baked sky of a sky material is fragment views kMaterialEnvView (prefiltered cube) and kMaterialEnvIrrView
-// (irradiance) and sampler kMaterialEnvSampler of every mesh program (the engine's own slots, after the vertex stage's
-// copies: a material cannot take them).
+// The baked sky of a sky material is fragment view kMaterialEnvView (a cube: the prefiltered sky in mips 0..4, its
+// spherical harmonics in mip 5) and sampler kMaterialEnvSampler of every mesh program (the engine's own slots, after the
+// vertex stage's copies: a material cannot take them). View 15, the irradiance cube it had, is free.
 inline constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaterialMaxTextures,
-                     kMaterialEnvIrrView = kMaterialEnvView + 1,
                      kMaterialEnvSampler = kMaterialVsFirstSampler + kMaterialMaxTextures;
 // Per-instance params ("instanced": true) travel in a second per-instance vertex buffer next to the model matrices: at
 // most this many vec4 (12 floats) per instance, so the main program of a skinned mesh (11 attributes + 3 + 2 declared

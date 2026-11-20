@@ -3,9 +3,13 @@
 
 #include <doctest.h>
 
+#include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -123,6 +127,48 @@ inline GoldenResult expect_golden(const Image& img, const std::string& name, dou
 // A golden with text, thin lines or nearest-sampled edges: single pixels may flip between backends (golden_check.h).
 inline GoldenResult expect_golden_edges(const Image& img, const std::string& name) {
     return expect_golden(img, name, golden_edge_limits());
+}
+
+// The declarations of float, vector and matrix type in a GLSL ES 3.00 fragment source that have no `highp` before them. A type
+// followed by `(` is a constructor, not a declaration.
+inline std::vector<std::string> unqualified_floats(const std::string& src) {
+    std::vector<std::string> bad;
+    static const char* const kTypes[] = {"float", "vec2", "vec3", "vec4", "mat2", "mat3", "mat4"};
+    auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    for (const char* type : kTypes) {
+        const std::string t = type;
+        for (std::size_t at = src.find(t); at != std::string::npos; at = src.find(t, at + 1)) {
+            if (at > 0 && is_word(src[at - 1])) continue;
+            const std::size_t lineStart = src.rfind('\n', at) == std::string::npos ? 0 : src.rfind('\n', at) + 1;
+            if (src.compare(lineStart, 9, "precision") == 0)
+                continue;  // the default precision statement is not a declaration
+            std::size_t after = at + t.size();
+            if (after < src.size() && is_word(src[after])) continue;
+            while (after < src.size() && src[after] == ' ') ++after;
+            if (after < src.size() && src[after] == '(') continue;  // a constructor
+            std::size_t before = at;
+            while (before > 0 && src[before - 1] == ' ') --before;
+            const bool highp = before >= 5 && src.compare(before - 5, 5, "highp") == 0;
+            if (!highp) bad.push_back(src.substr(lineStart, 80));
+        }
+    }
+    return bad;
+}
+
+// The GLSL ES 3.00 source of a sokol-shdc generated header (engine/render/src/shaders/<name>.glsl.h): the array `key` (for example
+// "env_fs_sh_source_glsl300es[") is a list of hex bytes. The header only holds the GLES3 sources when it is built for GLES3, so a test reads
+// its text. Empty when the array is not there.
+inline std::string glsl_source_from_header(const std::string& headerName, const std::string& key) {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/" + headerName, std::ios::binary);
+    const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::size_t at = header.find(key);
+    if (at == std::string::npos) return {};
+    const std::size_t open = header.find('{', at), close = header.find('}', open);
+    if (close == std::string::npos) return {};
+    std::string src;
+    for (std::size_t i = header.find("0x", open); i != std::string::npos && i < close; i = header.find("0x", i + 2))
+        src.push_back(char(std::strtoul(header.substr(i + 2, 2).c_str(), nullptr, 16)));
+    return src;
 }
 
 inline Entity make(World& w, const char* name, Vec3 pos = {}) {

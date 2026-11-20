@@ -129,9 +129,9 @@ layout(binding=24) uniform texture2D fa_full_light_tex;
 layout(binding=27) uniform texture2D fa_full_decal_tex;
 #define FA_DECAL_TEX fa_full_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
+// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: view 14, sampler 10; mips 0..4 the reflection, mip 5 the SH of the
+// ambient; used while fa_env_sky.w is 1 or 2).
 layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.

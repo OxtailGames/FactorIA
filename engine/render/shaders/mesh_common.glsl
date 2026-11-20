@@ -382,11 +382,11 @@ layout(binding=24) uniform texture2D fa_light_tex;
 layout(binding=27) uniform texture2D fa_decal_tex;
 #define FA_DECAL_TEX fa_decal_tex
 #define FA_DECAL_SMP fa_env_smp
-// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
-// mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
-// bound and used only while fa_env_sky.w is 1.
+// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): a cube, view 14, sampler 10 (after the
+// material's textures and their vertex-stage copies), whose mips 0..4 are the sky prefiltered by roughness and whose mip 5 holds the sky's
+// nine spherical-harmonics coefficients, the source of the diffuse ambient (fa_ambient_light); bound and used only while fa_env_sky.w is
+// 1 (2: the cube is RGBA8 and the coefficients are stored as c / 8 + 0.5).
 layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
 layout(binding=10) uniform sampler fa_env_smp;
 
 layout(binding=1) uniform fa_mesh_fs_params {
@@ -524,6 +524,7 @@ Surface fa_standard_surface(in SurfaceInput i) {
 // The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
 // declared fa_env_sky and fa_env_horizon).
 @block fa_env_funcs
+@include_block fa_sh
 // The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
 // mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
 // horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
@@ -541,11 +542,26 @@ vec3 fa_environment(vec3 d, float rough) {
     return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
 }
 
-// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material the sky's irradiance toward n (what a
-// diffuse surface sees of the sky, divided by pi: a sky of one color gives that color), which replaces ambientLight.
+// Coefficient k (0..8, the order of ShL2) of the sky's spherical harmonics: the texel (k & 3, k >> 2) of the face +X of mip 5 of the baked
+// cube (renderer_env.h, env.glsl fs_sh), read at the exact centre of the texel (the direction (1, y, z) of a texel centre is on the +X face
+// at (s, t) = ((c + 0.5) / 4, (r + 0.5) / 4)), so no filtering touches it.
+vec3 fa_sky_sh_coef(int k) {
+    vec3 d = vec3(1.0, 1.0 - float(2 * (k >> 2) + 1) * 0.25, 1.0 - float(2 * (k & 3) + 1) * 0.25);
+    vec3 v = textureLod(samplerCube(fa_env_tex, fa_env_smp), d, 5.0).rgb;
+    if (fa_env_sky.w > 1.5) { v = (v - 0.5) * 8.0; }
+    return v;
+}
+
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material (and with a physical sky or an HDRI
+// environment) the light of that sky toward n: its radiance as nine spherical-harmonics coefficients (L2), convolved with the clamped
+// cosine and divided by pi (fa_sh_eval), which replaces ambientLight. A sky of one color gives that color from every side; a sky with a
+// bright sun or a bright horizon is smooth (three bands) and never negative. The same value the `ambient()` hook of a custom material
+// receives as `ambientColor` (fa_indirect_diffuse: on a lightmapped surface the baked texel takes its place).
 vec3 fa_ambient_light(vec3 n) {
     if (fa_env_sky.w > 0.5) {
-        return textureLod(samplerCube(fa_irr_tex, fa_env_smp), n, 0.0).rgb;
+        vec3 c[9];
+        for (int k = 0; k < 9; ++k) { c[k] = fa_sky_sh_coef(k); }
+        return fa_sh_eval(c, n);
     }
     return fa_ambient.rgb;
 }
