@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "fa/platform/hdr_output.h"
+#include "fa/render/probe.h"
 #include "fa/render/renderer.h"
 
 namespace fa {
@@ -51,6 +52,9 @@ struct RendererTestAccess {
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
     static render::SkyBuilds sky_builds(Renderer& r);
+    static bool read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error);
+    static bool probe_tile(Renderer& r, std::uint64_t id, render::ProbeTile& out);
+    static void probe_force_rgba8(bool force);
 };
 
 namespace render {
@@ -100,6 +104,15 @@ inline bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& 
 inline void renderer_set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     RendererTestAccess::set_before_frame_graph(r, std::move(hook));
 }
+
+// The probe atlas (renderer_probes.h): a rectangle of its texels as RGBA floats, top row first (RGBA8 atlas: bytes / 255); the tile of a probe
+// (`id`: the entity's bits; render::kProbeSkyId for the sky's entry); and the next probe GPU objects as an RGBA8 GPU would make them (call before
+// the first probe is drawn, undo with false).
+inline bool renderer_read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error) {
+    return RendererTestAccess::read_probe_atlas(r, x, y, w, h, out, error);
+}
+inline bool renderer_probe_tile(Renderer& r, std::uint64_t id, ProbeTile& out) { return RendererTestAccess::probe_tile(r, id, out); }
+inline void renderer_probe_force_rgba8(bool force) { RendererTestAccess::probe_force_rgba8(force); }
 
 }  // namespace render
 }  // namespace fa

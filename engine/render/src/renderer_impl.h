@@ -31,6 +31,7 @@
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "renderer_env.h"
+#include "renderer_probes.h"
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
@@ -100,6 +101,7 @@ struct Renderer::Impl {
     HdriSky hdriSky;      // the program that draws SceneSettings.environmentMap (renderer_hdri.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
+    ProbeSystem probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
@@ -465,6 +467,17 @@ struct Renderer::Impl {
     // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
     // between begin_frame_graph() and run_frame_graph().
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
+    // The reflection probes (renderer_probes.cpp). probes_plan() runs after the cameras' jobs and before run_frame_graph(): it keeps the
+    // atlas tiles of the probes in the world, draws the faces of the realtime captures as view jobs ("probe:<n>") and decides the uploads.
+    // probes_finish() runs after run_frame_graph(): it copies the faces into the scratch cubes, filters the completed captures into the
+    // atlas, uploads the baked pages and writes the sky's entry.
+    void probes_plan(World& world);
+    void probes_finish();
+    // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
+    void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
+    void probes_release();  // the atlas, the scratch cubes and the programs (shutdown, and when the world has no probe left)
+    bool probe_sync_capture(World& world, Entity probe, Renderer::ProbePage& out, std::string* error);
+    bool probe_read_atlas(int x, int y, int w, int h, std::vector<float>& out, std::string* error);
     // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see
     // the frame before it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight
     // alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s history, which the frames

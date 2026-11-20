@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 
+#include "fa/core/image_float.h"
 #include "fa/core/log.h"
 #include "renderer_env.h"
 #include "renderer_probes.h"

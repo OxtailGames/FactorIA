@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "fa/core/hash.h"
+#include "fa/core/image_float.h"
 #include "fa/core/strings.h"
 
 namespace fa::render {
