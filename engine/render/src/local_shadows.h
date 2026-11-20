@@ -82,8 +82,8 @@ struct LocalShadowLight {
 struct LocalShadowPlan {
     ShadowAtlasLayout atlas;               // the sun's tiles first (in the order given), then the tiles of `lights`
     std::vector<LocalShadowLight> lights;  // the lights that got shadow maps, most important first
-    std::vector<int> lost;                 // the table index of every light that asked for one and lost it to the budget
-    int shrunkLights = 0;                  // lights whose tiles are smaller than they asked for
+    std::vector<int> lost;  // the table index of every light that asked for one and lost it to the budget
+    int shrunkLights = 0;   // lights whose tiles are smaller than they asked for
 };
 
 // The deterministic budget of a frame. `inputs` are the lights that want a shadow; they are ranked by importance for the camera at
@@ -92,16 +92,15 @@ struct LocalShadowPlan {
 // (layout_shadow_atlas: the least important of equally large ones first, down to 64), and when that is not enough the least important
 // light loses its shadow whole: a point light never has only some of its faces. With no inputs the layout is exactly the sun's.
 LocalShadowPlan plan_local_shadows(int atlasMax, const std::vector<ShadowTileRequest>& sunTiles,
-                                   const std::vector<LocalShadowInput>& inputs, Vec3 camera,
-                                   int maxViews = 64);
+                                   const std::vector<LocalShadowInput>& inputs, Vec3 camera, int maxViews = 64);
 
 // ---------------------------------------------------------------------------
 // The projection of a tile
 // ---------------------------------------------------------------------------
 struct LocalTileFit {
-    Mat4 viewProj;               // world -> clip space of the shadow pass (the depth range of the backend)
+    Mat4 viewProj;  // world -> clip space of the shadow pass (the depth range of the backend)
     float nearPlane = 0.05f, farPlane = 1.0f;  // metres
-    float texelCoef = 0;         // metres per texel at distance 1 along the axis
+    float texelCoef = 0;                       // metres per texel at distance 1 along the axis
 };
 
 // A perspective tile of `tile` texels per side at `position` looking along `forward` (`up` picks the roll). `tanHalf` is the tangent
@@ -126,18 +125,18 @@ inline constexpr int kLocalShadowHeaderTexels = 2;
 inline constexpr int kLocalShadowTileTexels = 6;
 
 struct LocalShadowTileRecord {
-    Mat4 sample;                         // local_sample_matrix
-    Vec4 rect{0, 0, 1, 1};               // the tile's rectangle in the atlas texture, a texel smaller on every side
+    Mat4 sample;            // local_sample_matrix
+    Vec4 rect{0, 0, 1, 1};  // the tile's rectangle in the atlas texture, a texel smaller on every side
     float nearPlane = 0.05f, farPlane = 1.0f, texelCoef = 0;
 };
 
 struct LocalShadowRecord {
-    int light = 0;       // the index in the light table
-    int kind = 1;        // 1 = one tile (a spot), 2 = six faces (a point light)
-    float fade = 0;      // metres from the camera past which the shadow fades out (0 = never)
-    int filter = 0;      // 0 pcf, 1 hard, 2 pcss
-    float softness = 0;  // tangent of the light's angular size (pcss)
-    float bias = 0, normalBias = 0;  // metres, 0 = automatic
+    int light = 0;                             // the index in the light table
+    int kind = 1;                              // 1 = one tile (a spot), 2 = six faces (a point light)
+    float fade = 0;                            // metres from the camera past which the shadow fades out (0 = never)
+    int filter = 0;                            // 0 pcf, 1 hard, 2 pcss
+    float softness = 0;                        // tangent of the light's angular size (pcss)
+    float bias = 0, normalBias = 0;            // metres, 0 = automatic
     std::vector<LocalShadowTileRecord> tiles;  // 1 or 6
 };
 
