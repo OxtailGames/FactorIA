@@ -860,7 +860,16 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
-    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
+    const int droppedNow = select_lights(lights, size_t(kMaxLights));
+    stats.lightsDropped += droppedNow;
+    if (droppedNow > 0 && !warnedLightsDropped) {
+        warnedLightsDropped = true;
+        FA_WARN("render",
+                "{} lights were left out: a view lights at most {} lights at once, {} of them directional (the most "
+                "relevant "
+                "ones are kept). Hint: use fewer lights, or turn some Lights off; stats.lightsDropped counts them.",
+                droppedNow, kMaxLights, kMaxDirectionalLights);
+    }
     stats.lightsCulled += culledLocal;
     stats.lights += int(lights.size());
     ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
@@ -1052,6 +1061,10 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
 void Renderer::Impl::upload_lights(DrawContext& ctx) {
     const std::vector<LightData>& lights = ctx.lights;
     const Frame& fr = ctx.fr;
+    // The "no clusters" value first, so every early return leaves a valid one (fuScene starts zeroed, which is not: the shader would
+    // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
+    ctx.fuScene.fa_cl_info[0] = -1.0f;
+    ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
     if (lights.empty() || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
     int directional = 0;
     while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
@@ -1086,6 +1099,16 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
         stats.lightClusterEntries += int(lists.indices.size());
         stats.lightClusterClipped += int(lists.clippedEntries);
         stats.lightMaxPerCluster = std::max(stats.lightMaxPerCluster, int(lists.maxPerCluster));
+        if (lists.clippedEntries > 0 && !warnedClusterClipped) {
+            warnedClusterClipped = true;
+            FA_WARN(
+                "render",
+                "{} light-list entries were left out: a cluster of the view holds at most {} lights and a view at most "
+                "{} entries in all, so some pixels miss lights. Hint: give the lights a smaller range or use fewer "
+                "lights "
+                "that overlap; stats.lightClusterClipped counts them.",
+                lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
+        }
     }
     LightTexture tex;
     pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex);
@@ -1152,6 +1175,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // first lights the full-shader API fa_light_count() hands over.
     fuScene.fa_counts[0] = float(std::min<std::size_t>(lights.size(), 32));
     upload_lights(ctx);
+    for (int c = 0; c < 4; ++c) lastClusterInfo[c] = fuScene.fa_cl_info[c];
     fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
     fuScene.fa_env_sky[0] = ss.skyColor.r;

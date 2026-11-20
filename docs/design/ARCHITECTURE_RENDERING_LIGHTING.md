@@ -75,8 +75,8 @@ The view is cut into a grid of **tiles of 64 px** (doubled while the grid would 
 slices** between the camera's near and far depth, exponential (`slice = floor(log2(depth / near) * slices / log2(far / near))`). Every
 local light is a sphere (its position and `range`); `src/light_clusters.cpp` gives each the box of clusters it reaches, the CPU builds
 the list of lights of every cluster, and the lights and the lists are packed into **one RGBA32F texture** (1024 texels per row, a
-power of two rows, texel `t` at `(t & 1023, t >> 10)`), written once per view (`Gpu::write_light_image`, a sokol transient image, so a
-frame with more than 16 views commits like the transient buffers) and read by the fragment shader with `texelFetch`, the same on GL,
+power of two rows, texel `t` at `(t & 1023, t >> 10)`), written once per view (`Gpu::write_light_image`, a sokol transient image: 16 per frame, and when the 16 are used the next
+`Gpu::begin_frame` forces a commit, like the transient buffers) and read by the fragment shader with `texelFetch`, the same on GL,
 GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build is a CPU job.
 
 - **Layout** (documented at the top of `light_data.glsl`): `[0, 4L)` the light table, four texels per light (position and range, or the
@@ -90,7 +90,7 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
   change). `Light.innerAngle` is stored in texel 3.
 - **Which cluster a fragment is in** is computed in the shader from the same `viewProj` rows the vertex stage uses (`fa_cl_vpx`,
   `fa_cl_vpy`, `fa_cl_vpw`, in `fa_mesh_fs_params`) and a forward-depth row (`fa_cl_fwd`), never from the window position, so GL's and
-  D3D's window conventions and a render target's flip do not matter. A fragment outside the view's tile range gets no local lights.
+  D3D's window conventions and a render target's flip do not matter. A fragment whose tile or slice falls outside the grid (the clamp of rounding at the edge of the view) reads the nearest edge cluster; one that is not in front of the camera, or a frame without clusters (`fa_cl_info.x = -1`, the value the renderer writes first for every view, also when it has no light), gets no local lights.
   The CPU range of a light is conservative: two pixels of margin per tile, a relative margin of 2e-3 in depth, and a corner of the
   light's box nearer than 1e-4 to the camera plane makes the whole view its range.
 - **Deterministic job.** The ranges are computed per light in chunks, the counts and the fill per slice (the clusters of a slice belong

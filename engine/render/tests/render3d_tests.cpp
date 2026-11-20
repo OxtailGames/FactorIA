@@ -356,6 +356,55 @@ TEST_CASE("clustered lights: 256 coloured point lights over a floor, every one r
     expect_golden(img, "3d_clustered_256_lights", 0.006);
 }
 
+TEST_CASE("clustered lights: a view with meshes and no local light has no clusters (a zeroed fa_cl_info once read "
+          "cluster -1)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    float info[4];
+    // No Light at all, ambient only: the early return of upload_lights must still leave "no clusters" (x = -1).
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        w.settings().ambientLight = Color{0.3f, 0.3f, 0.3f, 1};
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        const Image img = g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] == -1.0f);
+        CHECK(info[1] == 0.0f);
+        CHECK(info[2] == 0.0f);
+        CHECK(info[3] == 0.0f);
+        CHECK(g.renderer.stats().lights == 0);
+        CHECK(g.renderer.stats().lightClusters == 0);
+        // Ambient only: the middle of the sphere is dark (a ghost white point light would make it bright).
+        const Color mid = img.pixel(img.width / 2, img.height / 2);
+        CHECK(mid.r < 0.5f);
+    }
+    // Only a directional light: no clusters either, and the table holds its one light.
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        add_light(w, LightType::Directional, {0, 5, 0}, {-0.5f, -1, -0.3f}, 1.0f);
+        g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] == -1.0f);
+        CHECK(info[2] == 1.0f);
+        CHECK(g.renderer.stats().lightClusters == 0);
+    }
+    // A point light: the clusters exist (x is a texel index, not -1).
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        add_light(w, LightType::Point, {0, 2, 0}, {0, 0, 0}, 1.0f);
+        g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] >= 0.0f);
+        CHECK(info[1] == 24.0f);
+        CHECK(info[3] > 0.0f);
+    }
+}
+
 TEST_CASE("lights with a NaN score sort last and the order stays total") {
     using fa::render::LightData;
     const float nan = std::numeric_limits<float>::quiet_NaN();
