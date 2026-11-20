@@ -216,7 +216,7 @@ mesh: the ambient light, and what a metal or glossy surface reflects, come from 
 | `specular`, `ior` | 0..1; 1..3 | 1, 1.5 | drawn (M73.6a) |
 | `transmission`, `thickness` | 0..1; metres | 0, 0 | M73.6 |
 | `attenuationColor`, `attenuationDistance` | colour; metres | white, 0 | M73.6 |
-| `subsurface` | 0..1 | 0 | M73.5 |
+| `subsurface`, `subsurfaceRadius`, `subsurfaceColor` | 0..1; 0..0.5 m; colour | 0, 0.01, (1, 0.4, 0.25) | drawn (M73.5), see "Subsurface scattering" |
 
 A value outside its range, or a name that is not one of the listed words, is refused where it is written (the scene file on load, the commands that set a component field, a script property write) with the field, the allowed range or words and a "did you mean" for a misspelt word.
 
@@ -556,6 +556,24 @@ sun is read from the cascades the camera draws that frame: a sun with `castShado
 are not read yet: the march multiplies each local light by its attenuation and cone in `local_atten` (shaders/volumetric.glsl), which is
 where a cookie lookup goes, with the light's table index at hand.
 
+## Subsurface scattering (M73.5)
+
+`MeshRenderer.subsurface` (0..1, 0 = off) makes skin, wax or marble: the diffuse light of the mesh is blurred across its surface and added back.
+`subsurfaceRadius` is the distance in metres (0..0.5) inside which 90% of the light lands, and `subsurfaceColor` scales it per colour channel (the default
+spreads red furthest, then green, then blue: skin). Start with `subsurface` 0.5..1 and a radius of 0.005..0.02 for skin, 0.02..0.05 for wax.
+
+- **What is blurred.** Only the diffuse light (lights, sky and lightmap, with the fog's transmittance), never the specular light, the sky reflection or the
+  emission, so highlights stay sharp. The blur is separable and depth-aware: it never crosses a silhouette or reaches another object, and it uses our own
+  profile (four Gaussians fitted to the diffusion profile of skin).
+- **What scatters.** Opaque meshes drawn by the engine's own shader. A mesh with `material`, an `unlit` mesh and a transparent one draw as before.
+- **Cost and limits.** Two fullscreen passes of 15 taps over the camera's rectangle plus one more draw of each scattering mesh; a radius over 40 pixels is
+  clamped (a mesh very close to the camera scatters less); no temporal history; the images are not multisampled (a pixel of the silhouette is slightly
+  off). A scene with no `subsurface` is bit for bit unchanged, and costs nothing.
+- **Where the GPU cannot.** Without RGBA16F render targets, or if the images cannot be made, the meshes draw with no scattering (one log line) and
+  `render.supports` says `subsurface` is false. `game.render_stats` reports `subsurfaceCameras` and `subsurfaceDraws`.
+
+How it works: docs/design/ARCHITECTURE_SUBSURFACE.md (repository only, not in the binary).
+
 ## Asking what the renderer draws: render.supports
 
 `render.supports` (C++ `Renderer::supports(name)`) answers for each lighting feature below with `false` and the status `planned (M73)`
@@ -564,7 +582,7 @@ what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
 `contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured but not yet read by meshes, M73-P3c); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
-`volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
+`volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface` (M73.5, drawn: RGBA16F targets and the depth prepass), `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 
 A new capability row, `float32Targets`, says whether the GPU can render to and sample R32F and RGBA32F images: the shadow atlas of

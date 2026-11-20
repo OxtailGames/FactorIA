@@ -36,6 +36,7 @@
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "renderer_volumetric.h"
+#include "renderer_subsurface.h"
 #include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
@@ -109,6 +110,7 @@ struct Renderer::Impl {
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
     VolumetricFx volFx;  // SceneSettings.volumetricFog (renderer_volumetric.h): its shaders and pipelines
+    SssFx sssFx;         // MeshRenderer.subsurface (renderer_subsurface.h): the blur and add shaders and pipelines
     CustomPost
         customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
     Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
@@ -577,6 +579,9 @@ struct Renderer::Impl {
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
     void prepass_pass(DrawContext& ctx, const Target& t);
+    // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
+    // `pre` is the prepass the shader's visibility test reads.
+    void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);
     // The outline's image (M71-C2): plan_outline settles it after plan_prepass (a depth outline needs the prepass, a sprite outline a
     // coverage image of the 2D world; without it the effect is dropped from the plan), coverage_pass draws the 2D world's alpha into `t`.
     void plan_outline(DrawContext& ctx);

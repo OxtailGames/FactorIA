@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "27973f29289cdb06f6da050426786ada05329a25848bb279986221a7a56fee4b",
+  "template": "5c7bc8cc90909f1ebab7aa9dd758cdced3d658fca63fc282b6949a210c4a3347",
   "slang": "metal_macos",
   "params": [],
   "textures": [],
