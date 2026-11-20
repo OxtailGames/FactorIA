@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "fa/core/math.h"
+#include "local_shadows.h"
 #include "mesh_batch.h"
 
 namespace fa::render {
@@ -100,11 +101,16 @@ struct LightTexture {
     std::vector<float> texels;   // width * height RGBA32F texels
     std::size_t usedTexels = 0;  // texels that hold data
     ClusterUniforms uniforms;
+    // The first texel of the shadow region of the point and spot lights (local_shadows.h), after the cluster lists; -1 = none. The
+    // fragment shader finds it in fa_shadow_lcfg.x (shaders/shadow_common.glsl).
+    long long shadowBase = -1;
 };
 // Packs the light table (`lights`, directional first: `directional` of them), and when `lists` is not null the cluster table and the
-// lists after it. `camera` supplies the matrix rows and the forward axis. Sets height to the rows needed (at least 1).
+// lists after it, and when `shadows` is not null and not empty the shadow region of the local lights after those. `camera` supplies the
+// matrix rows and the forward axis. Sets height to the rows needed (at least 1).
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
-                        const ClusterLists* lists, LightTexture& out);
+                        const ClusterLists* lists, LightTexture& out,
+                        const std::vector<LocalShadowRecord>* shadows = nullptr);
 
 // The rows (a power of two) a texture of `texels` texels needs.
 int light_texture_rows(std::size_t texels);

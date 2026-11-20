@@ -97,8 +97,9 @@ constexpr std::size_t kSortGrain = 256;
 }  // namespace
 
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, int cascades) {
-    cascades = std::clamp(cascades, 1, kMaxBatchCascades);
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runsOut) {
+    std::vector<ShadowRun> discarded;
+    std::vector<ShadowRun>& runs = runsOut ? *runsOut : discarded;
     const std::size_t firstNewBatch = batches.size();
     if (sortByMaterial) {
         const bool allKeyed = std::all_of(items.begin(), items.end(), [](const MeshItem& m) { return m.keyed; });
@@ -134,18 +135,25 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
             ++b.mainCount;
         }
     }
-    // The casters, batch by batch and inside a batch cascade by cascade: each cascade's pass draws one contiguous run of instances.
+    // The casters, batch by batch and inside a batch view by view: each view's pass draws one contiguous run of instances.
     for (std::size_t bi = firstNewBatch; bi < batches.size(); ++bi) {
         MeshBatch& b = batches[bi];
         const std::size_t end = bi + 1 < batches.size() ? batches[bi + 1].rep : items.size();
-        for (int c = 0; c < cascades; ++c) {
-            b.cascadeFirst[c] = std::uint32_t(shadowMats.size());
+        std::uint64_t views = 0;
+        for (std::size_t i = b.rep; i < end; ++i)
+            if (items[i].casts) views |= items[i].castMask;
+        b.runFirst = std::uint32_t(runs.size());
+        for (int v = 0; v < kMaxShadowViews; ++v) {
+            if (!(views >> v & 1u)) continue;
+            ShadowRun r;
+            r.view = std::uint32_t(v);
+            r.first = std::uint32_t(shadowMats.size());
             for (std::size_t i = b.rep; i < end; ++i)
-                if (items[i].casts && (items[i].castMask >> c & 1u)) shadowMats.push_back(items[i].model);
-            b.cascadeCount[c] = std::uint32_t(shadowMats.size()) - b.cascadeFirst[c];
+                if (items[i].casts && (items[i].castMask >> v & 1u)) shadowMats.push_back(items[i].model);
+            r.count = std::uint32_t(shadowMats.size()) - r.first;
+            runs.push_back(r);
         }
-        b.shadowFirst = b.cascadeFirst[0];
-        b.shadowCount = b.cascadeCount[0];
+        b.runCount = std::uint32_t(runs.size()) - b.runFirst;
     }
 }
 
@@ -193,8 +201,7 @@ const float* InstanceParamCache::get(Entity entity, const MeshRenderer& mr, Mate
 
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
                           std::vector<float>& mainData, std::vector<float>& shadowData, InstanceParamCache* cache,
-                          int cascades) {
-    cascades = std::clamp(cascades, 1, kMaxBatchCascades);
+                          std::vector<ShadowRun>* runs) {
     for (std::size_t bi = 0; bi < batches.size(); ++bi) {
         MeshBatch& b = batches[bi];
         MaterialAsset* mat = items[b.rep].material;
@@ -215,12 +222,13 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
         };
         for (std::size_t i = b.rep; i < end; ++i)
             if (items[i].visible) append(mainData, items[i]);
-        for (int c = 0; c < cascades; ++c) {
-            b.cascadeExtra[c] = std::uint32_t(shadowData.size());
+        if (!runs) continue;
+        for (std::uint32_t k = 0; k < b.runCount; ++k) {
+            ShadowRun& r = (*runs)[b.runFirst + k];
+            r.extra = std::uint32_t(shadowData.size());
             for (std::size_t i = b.rep; i < end; ++i)
-                if (items[i].casts && (items[i].castMask >> c & 1u)) append(shadowData, items[i]);
+                if (items[i].casts && (items[i].castMask >> r.view & 1u)) append(shadowData, items[i]);
         }
-        b.shadowExtra = b.cascadeExtra[0];
     }
 }
 
