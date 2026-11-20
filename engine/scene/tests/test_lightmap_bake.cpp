@@ -2,9 +2,11 @@
 // any number of threads, analytic skies, direct light and shadows, colour bleeding, the gutter, cancel, progress, the budgets and the probes.
 #include <doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -628,4 +630,181 @@ TEST_CASE("sample_irradiance_sh: a roof darkens the probe, a light and a bounce 
             CHECK((*again)[i].c[k].x == (*pooled)[i].c[k].x);
             CHECK((*again)[i].c[k].z == (*pooled)[i].c[k].z);
         }
+}
+
+// ---- the sky's spherical harmonics (M73-P3e): sh_basis and sh_project_cube are the CPU twin of the pass that bakes the sky's SH -------
+
+namespace {
+
+// The six faces of a cube map of `size` texels, `radiance(direction)` at the centre of each (the layout of sh_project_cube).
+template <class F>
+std::vector<float> sky_cube(int size, F radiance, std::vector<Vec3>* dirs = nullptr,
+                            std::vector<double>* weights = nullptr) {
+    static const float kFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const float kRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
+    static const float kUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    std::vector<float> out;
+    double total = 0.0;
+    if (dirs) dirs->clear();
+    if (weights) weights->clear();
+    for (int f = 0; f < 6; ++f)
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x) {
+                const double u = (2.0 * x + 1.0) / size - 1.0, v = 1.0 - (2.0 * y + 1.0) / size;
+                double d[3];
+                for (int i = 0; i < 3; ++i) d[i] = kFwd[f][i] + u * kRight[f][i] + v * kUp[f][i];
+                const double len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                const Vec3 dir{float(d[0] / len), float(d[1] / len), float(d[2] / len)};
+                const Vec3 c = radiance(dir);
+                out.push_back(c.x);
+                out.push_back(c.y);
+                out.push_back(c.z);
+                const double w = 1.0 / (len * len * len);
+                total += w;
+                if (dirs) dirs->push_back(dir);
+                if (weights) weights->push_back(w);
+            }
+    if (weights)
+        for (double& w : *weights) w *= 4.0 * 3.14159265358979323846 / total;
+    return out;
+}
+
+// The irradiance toward n divided by pi, by summing the cosine over every texel of the sky: what the old 8 x 8 irradiance cube held.
+Vec3 brute_irradiance(const std::vector<float>& cube, const std::vector<Vec3>& dirs, const std::vector<double>& weights,
+                      Vec3 n) {
+    double sum[3] = {};
+    for (std::size_t i = 0; i < dirs.size(); ++i) {
+        const double cosine = std::max(0.0, double(dirs[i].x * n.x + dirs[i].y * n.y + dirs[i].z * n.z));
+        for (int c = 0; c < 3; ++c) sum[c] += cube[3 * i + c] * cosine * weights[i];
+    }
+    const double pi = 3.14159265358979323846;
+    return {float(sum[0] / pi), float(sum[1] / pi), float(sum[2] / pi)};
+}
+
+// 26 directions: the six axes, the twelve edges and the eight corners of a cube.
+std::vector<Vec3> probe_normals() {
+    std::vector<Vec3> out;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            for (int z = -1; z <= 1; ++z) {
+                if (!x && !y && !z) continue;
+                const float l = std::sqrt(float(x * x + y * y + z * z));
+                out.push_back({x / l, y / l, z / l});
+            }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("sky SH: the basis is orthonormal over the sphere and a constant sky is its first coefficient") {
+    // Project each basis function itself: the coefficient vector must be the unit vector of that function.
+    std::vector<Vec3> dirs;
+    std::vector<double> weights;
+    for (int k = 0; k < 9; ++k) {
+        const std::vector<float> cube = sky_cube(
+            48,
+            [&](Vec3 d) {
+                float y[9];
+                sh_basis(d, y);
+                return Vec3{y[k], y[k], y[k]};
+            },
+            nullptr, nullptr);
+        const ShL2 sh = sh_project_cube(48, cube.data());
+        for (int j = 0; j < 9; ++j) {
+            CAPTURE(k);
+            CAPTURE(j);
+            CHECK(sh.c[j].x == doctest::Approx(j == k ? 1.0f : 0.0f).epsilon(0.01).scale(1.0));
+            CHECK(sh.c[j].y == sh.c[j].x);
+        }
+    }
+    // A constant sky of radiance L: c[0] = L * sqrt(4 pi), the rest zero, and every normal receives L.
+    const std::vector<float> flat = sky_cube(16, [](Vec3) { return Vec3{0.5f, 0.25f, 2.0f}; });
+    const ShL2 sh = sh_project_cube(16, flat.data());
+    CHECK(sh.c[0].x == doctest::Approx(0.5f * std::sqrt(4.0f * 3.14159265f)).epsilon(1e-5));
+    CHECK(sh.c[0].z == doctest::Approx(2.0f * std::sqrt(4.0f * 3.14159265f)).epsilon(1e-5));
+    for (int k = 1; k < 9; ++k) CHECK(std::fabs(sh.c[k].x) + std::fabs(sh.c[k].y) + std::fabs(sh.c[k].z) < 1e-4f);
+    for (const Vec3& n : probe_normals()) {
+        const Vec3 e = sh_irradiance(sh, n);
+        CHECK(e.x == doctest::Approx(0.5f).epsilon(1e-4));
+        CHECK(e.y == doctest::Approx(0.25f).epsilon(1e-4));
+        CHECK(e.z == doctest::Approx(2.0f).epsilon(1e-4));
+    }
+}
+
+TEST_CASE("sky SH: a cosine lobe of sky gives the analytic irradiance and a gradient the brute-force one") {
+    std::vector<Vec3> dirs;
+    std::vector<double> weights;
+    // A sky that is max(0, up . d): the irradiance (divided by pi) toward up is 2/3, sideways 1/4... and 0 toward down.
+    const auto lobe = [](Vec3 d) {
+        const float v = std::max(0.0f, d.y);
+        return Vec3{v, v, v};
+    };
+    const std::vector<float> cube = sky_cube(48, lobe, &dirs, &weights);
+    const ShL2 sh = sh_project_cube(48, cube.data());
+    CHECK(sh_irradiance(sh, {0, 1, 0}).x == doctest::Approx(2.0f / 3.0f).epsilon(0.05));
+    CHECK(sh_irradiance(sh, {0, -1, 0}).x < 0.05f);  // the L2 undershoot below zero is clamped, never negative
+    // The lobe's three bands are exact: the SH of the cube agrees with the brute-force sum over its texels everywhere.
+    double worst = 0.0, mean = 0.0;
+    for (const Vec3& n : probe_normals()) {
+        const double e = std::fabs(sh_irradiance(sh, n).x - brute_irradiance(cube, dirs, weights, n).x);
+        worst = std::max(worst, e);
+        mean += e / probe_normals().size();
+    }
+    MESSAGE("cosine lobe: SH against brute force, mean " << mean << ", worst " << worst);
+    CHECK(mean < 0.01);
+    CHECK(worst < 0.03);
+
+    // A gradient of the engine's kind (blue above, orange below, a smooth blend): the diffuse light of three bands is within
+    // a few percent of the full cosine integral.
+    const auto gradient = [](Vec3 d) {
+        const float t = std::min(1.0f, std::max(0.0f, d.y * 0.5f + 0.5f));
+        return Vec3{0.9f * (1 - t) + 0.1f * t, 0.5f * (1 - t) + 0.2f * t, 0.1f * (1 - t) + 1.0f * t};
+    };
+    const std::vector<float> g = sky_cube(48, gradient, &dirs, &weights);
+    const ShL2 gsh = sh_project_cube(48, g.data());
+    mean = 0.0;
+    worst = 0.0;
+    for (const Vec3& n : probe_normals()) {
+        const Vec3 a = sh_irradiance(gsh, n), b = brute_irradiance(g, dirs, weights, n);
+        const double e = (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z)) / 3.0;
+        worst = std::max(worst, e);
+        mean += e / probe_normals().size();
+    }
+    MESSAGE("gradient: SH against brute force, mean " << mean << ", worst " << worst);
+    CHECK(mean < 0.01);
+    CHECK(worst < 0.02);
+}
+
+TEST_CASE("sky SH: a sun never makes the ambient negative and keeps its energy, and the projection is deterministic") {
+    std::vector<Vec3> dirs;
+    std::vector<double> weights;
+    // A sky of 0.2 with a sun of radiance 2000 in a cone of 3 degrees: three bands ring on the far side of the sun.
+    const Vec3 sun{0.6f, 0.64f, -0.48f};
+    const auto sky = [&](Vec3 d) {
+        const float c = d.x * sun.x + d.y * sun.y + d.z * sun.z;
+        const float v = c > 0.9986f ? 2000.0f : 0.2f;
+        return Vec3{v, v * 0.9f, v * 0.7f};
+    };
+    const std::vector<float> cube = sky_cube(64, sky, &dirs, &weights);
+    const ShL2 a = sh_project_cube(64, cube.data()), b = sh_project_cube(64, cube.data());
+    for (int k = 0; k < 9; ++k) CHECK(std::memcmp(&a.c[k], &b.c[k], sizeof(Vec3)) == 0);
+    double worstRel = 0.0, mean = 0.0, meanTruth = 0.0;
+    for (const Vec3& n : probe_normals()) {
+        Vec3 e = sh_irradiance(a, n);  // the shader clamps at 0 (fa_sh_eval); the CPU twin returns the raw sum
+        e = {std::max(e.x, 0.0f), std::max(e.y, 0.0f), std::max(e.z, 0.0f)};
+        const Vec3 r = brute_irradiance(cube, dirs, weights, n);
+        const double rel = std::fabs(e.x - r.x);
+        worstRel = std::max(worstRel, rel);
+        mean += rel / probe_normals().size();
+        meanTruth += r.x / probe_normals().size();
+    }
+    MESSAGE("sun sky: SH against brute force, mean error " << mean << " of a mean " << meanTruth << ", worst "
+                                                           << worstRel);
+    // The sun's energy is in c[0]: the mean over the sphere is the sky's, which is what a flat ambient would have been.
+    const double expect = 0.2 + (2000.0 - 0.2) * (1.0 - 0.9986) / 2.0;
+    CHECK(a.c[0].x / std::sqrt(4.0f * 3.14159265f) == doctest::Approx(expect).epsilon(0.03));
+    // Three bands cannot hold a 3 degree sun: the error is the sun smeared over the sphere and the clamped ring behind it. Bounded at a
+    // fifth of the mean light (measured: 12%), the worst normal at 40% (measured: 28%).
+    CHECK(mean < 0.2 * meanTruth);
+    CHECK(worstRel < 0.4 * meanTruth);
 }
