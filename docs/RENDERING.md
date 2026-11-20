@@ -15,10 +15,11 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on three pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on four pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`):
 
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
+- [Lighting (M73)](rendering/RENDERING_LIGHTING.md): the Light, scene and material fields of the M73 lighting, which of them draw yet, and the `render.supports` rows.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets

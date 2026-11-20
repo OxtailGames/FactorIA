@@ -402,19 +402,48 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (since 0.16.0) |
 | `instances` | int | `0` | 0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the material reads from compute buffers (the material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and places each instance; the entity's Transform is the base every instance is placed relative to (fa_model in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast shadows and enter the depth prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why. Range 0..16777216. (since 0.32.0) |
 | `instanceBounds` | float | `0.0` | For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen. Range 0.0..1000000.0. (since 0.32.0) |
+| `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps (docs/rendering/RENDERING_LIGHTING.md). Range 0.0..100.0. (not released yet, on main after 0.32.0) |
+| `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (not released yet, on main after 0.32.0) |
+| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap, the light probes and the realtime global illumination. No effect yet: M73.4 brings it. (not released yet, on main after 0.32.0) |
+| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. No effect yet: M73.6 brings it. (not released yet, on main after 0.32.0) |
+| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it. Range -1.0..1.0. (not released yet, on main after 0.32.0) |
+| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 brings it. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
+| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. No effect yet: M73.6 brings it. Range 1.0..3.0. (not released yet, on main after 0.32.0) |
+| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it. Range 0.0..1000.0. (not released yet, on main after 0.32.0) |
+| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it. (not released yet, on main after 0.32.0) |
+| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light. No effect yet: M73.6 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `subsurface` | float | `0.0` | Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 
 ### Light
 
-A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position.
+A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: directional \| point \| spot | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. |
+| `type` | enum: directional \| point \| spot \| area | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings it, an area light shines like a point light of the same `range`. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Light color. |
 | `intensity` | float | `1.0` | Brightness multiplier. Range 0.0..1000.0. |
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
-| `castShadows` | bool | `false` | Cast shadows. Only supported on directional lights for now. |
+| `castShadows` | bool | `false` | Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2. |
+| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today. No effect yet: M73.1 brings it. Range 0.0..89.0. (not released yet, on main after 0.32.0) |
+| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
+| `size` | vec2 | `[1.0,1.0]` | Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it. Range 0.001..1000.0. (not released yet, on main after 0.32.0) |
+| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
+| `ies` | asset (any) | `""` | An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
+| `shadowResolution` | int | `0` | Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it. Range 0..4096. (not released yet, on main after 0.32.0) |
+| `shadowBias` | float | `0.0` | Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
+| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps and the light probes and costs nothing at run time. mixed: baked indirect light plus realtime direct light and shadows. No effect yet: M73.4 brings it. (not released yet, on main after 0.32.0) |
+| `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above 0). 0 (default) = no shafts. No effect yet: M73.5 brings it. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
 
 ### Animator
 
@@ -1404,6 +1433,16 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `paperWhiteNits` | float | `200.0` | Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it. Range 80.0..1000.0. (since 0.31.0) |
 | `skyMaterial` | asset (material) | `""` | Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (since 0.32.0) |
 | `skyMaterialParams` | json | `{}` | Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. (since 0.32.0) |
+| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (not released yet, on main after 0.32.0) |
+| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
+| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
+| `shadowAtlasSize` | int | `4096` | Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it. Range 512..8192. (not released yet, on main after 0.32.0) |
+| `contactShadows` | bool | `false` | Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
+| `environmentMap` | asset (texture) | `""` | An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: M73.3 brings it. (not released yet, on main after 0.32.0) |
+| `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect yet: M73.3 brings it. Range 0.0..100.0. (not released yet, on main after 0.32.0) |
+| `environmentRotation` | float | `0.0` | Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
+| `skyModel` | enum: gradient \| physical | `"gradient"` | gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the place of both. No effect yet: M73.3 brings it. (not released yet, on main after 0.32.0) |
 
 
 # Commands reference
@@ -7675,13 +7714,13 @@ What this renderer can do on this graphics backend and GPU: float targets, linea
 
 Capabilities: read
 
-Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (none is today): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
+Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature. |
+| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature. |
 
 ## review
 
@@ -17800,17 +17839,99 @@ declare module "factoria" {
      * @since 0.32.0
      */
     instanceBounds: number;
+    /**
+     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). 0 keeps it out of the lightmap. No effect yet: M73.4 brings the lightmaps (docs/rendering/RENDERING_LIGHTING.md).
+     * @since unreleased
+     */
+    lightmapScale: number;
+    /**
+     * Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.
+     * @since unreleased
+     */
+    contributeGI: boolean;
+    /**
+     * Whether the surface is lit by the baked lightmap, the light probes and the realtime global illumination. No effect yet: M73.4 brings it.
+     * @since unreleased
+     */
+    receiveGI: boolean;
+    /**
+     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    clearcoat: number;
+    /**
+     * Roughness 0..1 of the clear coat layer. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    clearcoatRoughness: number;
+    /**
+     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    get sheenColor(): Color;
+    set sheenColor(value: ColorLike);
+    /**
+     * Roughness 0..1 of the sheen layer. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    sheenRoughness: number;
+    /**
+     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    anisotropy: number;
+    /**
+     * Degrees that turn the direction of the anisotropic stretch around the normal. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    anisotropyRotation: number;
+    /**
+     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    specular: number;
+    /**
+     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    ior: number;
+    /**
+     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    transmission: number;
+    /**
+     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    thickness: number;
+    /**
+     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids). No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    get attenuationColor(): Color;
+    set attenuationColor(value: ColorLike);
+    /**
+     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light. No effect yet: M73.6 brings it.
+     * @since unreleased
+     */
+    attenuationDistance: number;
+    /**
+     * Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): light enters the surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.
+     * @since unreleased
+     */
+    subsurface: number;
   }
   /**
-   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position.
+   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of M73 and have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
    * 
    * Category: 3D
    */
   export interface LightComponent {
     /**
-     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward.
+     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings it, an area light shines like a point light of the same `range`.
      */
-    type: "directional" | "point" | "spot";
+    type: "directional" | "point" | "spot" | "area";
     /**
      * Light color.
      */
@@ -17829,9 +17950,75 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only supported on directional lights for now.
+     * Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2.
      */
     castShadows: boolean;
+    /**
+     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today. No effect yet: M73.1 brings it.
+     * @since unreleased
+     */
+    innerAngle: number;
+    /**
+     * Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it.
+     * @since unreleased
+     */
+    shape: "rectangle" | "disc" | "tube";
+    /**
+     * Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it.
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (asset path: texture)
+     * @since unreleased
+     */
+    cookie: string;
+    /**
+     * An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (asset path: any)
+     * @since unreleased
+     */
+    ies: string;
+    /**
+     * Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowResolution: number;
+    /**
+     * Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowBias: number;
+    /**
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowNormalBias: number;
+    /**
+     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowFilter: "pcf" | "hard" | "pcss";
+    /**
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowSoftness: number;
+    /**
+     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowDistance: number;
+    /**
+     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps and the light probes and costs nothing at run time. mixed: baked indirect light plus realtime direct light and shadows. No effect yet: M73.4 brings it.
+     * @since unreleased
+     */
+    mode: "realtime" | "baked" | "mixed";
+    /**
+     * Strength 0..10 of this light's shafts in the volumetric fog (SceneSettings.fogDensity must be above 0). 0 (default) = no shafts. No effect yet: M73.5 brings it.
+     * @since unreleased
+     */
+    volumetric: number;
   }
   /**
    * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
@@ -21630,6 +21817,56 @@ declare module "factoria" {
      * @since 0.32.0
      */
     skyMaterialParams: any;
+    /**
+     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md).
+     * @since unreleased
+     */
+    shadowCascades: number;
+    /**
+     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowCascadeSplit: number;
+    /**
+     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowCascadeBlend: number;
+    /**
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowDistance: number;
+    /**
+     * Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    shadowAtlasSize: number;
+    /**
+     * Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.
+     * @since unreleased
+     */
+    contactShadows: boolean;
+    /**
+     * An HDR image (.hdr, equirectangular) of the surroundings: it is the sky and lights and reflects in every surface. Empty (default) = the sky material or the gradient. No effect yet: M73.3 brings it. (asset path: texture)
+     * @since unreleased
+     */
+    environmentMap: string;
+    /**
+     * Brightness multiplier of the environment map and the sky's image-based lighting, 0..100. No effect yet: M73.3 brings it.
+     * @since unreleased
+     */
+    environmentIntensity: number;
+    /**
+     * Degrees the environment map is turned around the up axis. No effect yet: M73.3 brings it.
+     * @since unreleased
+     */
+    environmentRotation: number;
+    /**
+     * gradient (default): the skyColor and horizonColor gradient. physical: a sun and an atmosphere computed from the directional light, with clouds. A skyMaterial or an environmentMap takes the place of both. No effect yet: M73.3 brings it.
+     * @since unreleased
+     */
+    skyModel: "gradient" | "physical";
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -21703,8 +21940,8 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number };
-    Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number };
+    Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
@@ -21737,7 +21974,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; skyModel?: "gradient" | "physical" };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).

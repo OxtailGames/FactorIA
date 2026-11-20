@@ -15,6 +15,21 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   codec: `decode_hdr` / `load_hdr` read run-length, flat and old-style rows and refuse other orientations, XYZE and
   oversized headers with an error that says what to do; `encode_hdr` / `save_hdr` write run-length rows. Not reachable from
   scripts or `assets.import` yet; the HDRI environment import builds on it. New fuzz target `hdr`.
+### M73: 3D lighting of a leading engine
+
+- **The base of M73 (P0), no visible change:** the mesh shaders' lights and shadow lookup moved into three shared files
+  (`light_data.glsl`, `light_loop.glsl`, `shadow_common.glsl`; the pictures are pixel-identical and the twin fixtures of the
+  custom materials were regenerated); the texture slots of the mesh fragment shader are a table with static asserts (at most 16
+  units, the material keeps views 6..9; docs/design/ARCHITECTURE_RENDERING_LIGHTING.md); and the fields the next steps read exist
+  already, each saying "No effect yet: M73.x brings it": `Light` (`type: "area"`, `innerAngle`, `shape`, `size`, `cookie`, `ies`,
+  `shadowResolution`, `shadowBias`, `shadowNormalBias`, `shadowFilter`, `shadowSoftness`, `shadowDistance`, `mode`, `volumetric`),
+  `SceneSettings` (`shadowCascades`, `shadowCascadeSplit`, `shadowCascadeBlend`, `shadowDistance`, `shadowAtlasSize`,
+  `contactShadows`, `environmentMap`, `environmentIntensity`, `environmentRotation`, `skyModel`) and `MeshRenderer` (`lightmapScale`,
+  `contributeGI`, `receiveGI`, `clearcoat`, `clearcoatRoughness`, `sheenColor`, `sheenRoughness`, `anisotropy`,
+  `anisotropyRotation`, `specular`, `ior`, `transmission`, `thickness`, `attenuationColor`, `attenuationDistance`, `subsurface`).
+  The defaults keep today's look and are not written to a scene file, so scenes made before load and save as they did; an area
+  light shines like a point light until M73.1. `render.supports` lists 21 lighting features, all `planned (M73)` until their step
+  lands, and the capability `float32Targets` (R32F and RGBA32F render and sample). docs/rendering/RENDERING_LIGHTING.md.
 
 ## 0.32.0
 
