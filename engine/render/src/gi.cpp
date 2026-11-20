@@ -55,9 +55,11 @@ Result<GiLayout> gi_layout(const RealtimeGI& c, Vec3 worldPosition, const std::s
                               std::to_string(kGiMaxFrameProbes),
                           "Each probe draws the scene six times: 1 to 4 a frame is usual.");
     if (!in_range(c.intensity, 0.0, 16.0))
-        return make_error(who + ": /intensity " + num(c.intensity) + " is outside 0..16", "Use 1 for the light as it is.");
+        return make_error(who + ": /intensity " + num(c.intensity) + " is outside 0..16",
+                          "Use 1 for the light as it is.");
     if (!in_range(c.bounce, 0.0, 1.0))
-        return make_error(who + ": /bounce " + num(c.bounce) + " is outside 0..1", "Use 1 for as many bounces as the frames give.");
+        return make_error(who + ": /bounce " + num(c.bounce) + " is outside 0..1",
+                          "Use 1 for as many bounces as the frames give.");
     if (!in_range(c.hysteresis, 0.0, 0.99))
         return make_error(who + ": /hysteresis " + num(c.hysteresis) + " is outside 0..0.99",
                           "Use 0.9 to keep nine tenths of the old value; 0 replaces it at once.");
@@ -114,7 +116,8 @@ Vec3 gi_probe_position(const GiLayout& g, int index) {
 
 GiNeighbours gi_neighbours(const GiLayout& g, Vec3 p) {
     const int n[3] = {g.nx, g.ny, g.nz};
-    const float local[3] = {(p.x - g.origin.x) / g.spacing, (p.y - g.origin.y) / g.spacing, (p.z - g.origin.z) / g.spacing};
+    const float local[3] = {(p.x - g.origin.x) / g.spacing, (p.y - g.origin.y) / g.spacing,
+                            (p.z - g.origin.z) / g.spacing};
     int base[3];
     float frac[3];
     for (int a = 0; a < 3; ++a) {
@@ -133,7 +136,8 @@ GiNeighbours gi_neighbours(const GiLayout& g, Vec3 p) {
         const int x = std::min(base[0] + dx, n[0] - 1), y = std::min(base[1] + dy, n[1] - 1),
                   z = std::min(base[2] + dz, n[2] - 1);
         out.index[i] = x + n[0] * (y + n[1] * z);
-        out.weight[i] = (dx ? frac[0] : 1.0f - frac[0]) * (dy ? frac[1] : 1.0f - frac[1]) * (dz ? frac[2] : 1.0f - frac[2]);
+        out.weight[i] =
+            (dx ? frac[0] : 1.0f - frac[0]) * (dy ? frac[1] : 1.0f - frac[1]) * (dz ? frac[2] : 1.0f - frac[2]);
     }
     // One layer on an axis: the two probes of that axis are the same one and the weights of both add up (they already sum to 1).
     return out;
@@ -150,10 +154,11 @@ Vec2 gi_depth_uv(Vec3 d) {
 }
 
 void gi_pack_record(const GiLayout& g, int baseBlock, bool ready, float out[kGiRecordFloats]) {
-    const float r[kGiRecordFloats] = {g.origin.x, g.origin.y,        g.origin.z,         g.spacing,
-                                      float(g.nx), float(g.ny),      float(g.nz),        float(g.count),
-                                      float(baseBlock), float(kGiBlocksPerRow), g.maxDistance, g.intensity,
-                                      g.bounce,    g.backfaceTolerance, ready ? 1.0f : 0.0f, 0.0f};
+    const float r[kGiRecordFloats] = {
+        g.origin.x,    g.origin.y,  g.origin.z,     g.spacing,           float(g.nx),
+        float(g.ny),   float(g.nz), float(g.count), float(baseBlock),    float(kGiBlocksPerRow),
+        g.maxDistance, g.intensity, g.bounce,       g.backfaceTolerance, ready ? 1.0f : 0.0f,
+        0.0f};
     std::memcpy(out, r, sizeof(r));
 }
 

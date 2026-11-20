@@ -2377,8 +2377,9 @@ void register_builtin_components(TypeRegistry& r) {
         .field("size", &RealtimeGI::size,
                "[x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world "
                "position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].")
-        .field("offset", &RealtimeGI::offset,
-               "[x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].")
+        .field(
+            "offset", &RealtimeGI::offset,
+            "[x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].")
         .field("spacing", &RealtimeGI::spacing,
                "Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving "
                "the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 "

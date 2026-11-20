@@ -86,10 +86,11 @@ bool ProbeGpu::gi_ready() {
     if (!ok) {
         release_gi();
         giState_ = -1;
-        FA_ERROR("render",
-                 "The realtime GI cannot be drawn: this GPU cannot blend into RGBA16F images, or the GI shaders failed to compile for this "
-                 "graphics backend (see the sokol log lines above). RealtimeGI components are ignored. Hint: update the graphics driver "
-                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render", "The realtime GI cannot be drawn: this GPU cannot blend into RGBA16F images, or the GI "
+                           "shaders failed to compile for this "
+                           "graphics backend (see the sokol log lines above). RealtimeGI components are ignored. Hint: "
+                           "update the graphics driver "
+                           "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     giState_ = 1;
@@ -187,8 +188,7 @@ void ProbeGpu::gi_dist(Gpu& gpu, int index, sg_view front, sg_view back, float m
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view dist, float maxDistance,
-                       int* drawCalls) {
+void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view dist, float maxDistance, int* drawCalls) {
     Scratch& s = scratch_[slot];
     const ProbeFace c = probe_face(face);
     PassDesc pd;
@@ -202,7 +202,8 @@ void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view di
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_gcol] = picture;
-    b.views[VIEW_probe_probe_gdist] = dist.id ? dist : picture;  // a slot must hold a view: the shader ignores it when g.x = 1
+    b.views[VIEW_probe_probe_gdist] =
+        dist.id ? dist : picture;  // a slot must hold a view: the shader ignores it when g.x = 1
     b.samplers[SMP_probe_probe_nsmp] = nearest_;
     sg_apply_bindings(&b);
     const EnvFace f = env_face(face, isGl_);

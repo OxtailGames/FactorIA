@@ -13,7 +13,8 @@ namespace fa {
 
 namespace {
 
-constexpr std::uint64_t kGiViewKeyBit = (1ull << 61) | (1ull << 41);  // the view_image keys of the GI's faces (bit 61 is the probes')
+constexpr std::uint64_t kGiViewKeyBit =
+    (1ull << 61) | (1ull << 41);  // the view_image keys of the GI's faces (bit 61 is the probes')
 
 Json vec_json(Vec3 v) { return Json::array({Json(double(v.x)), Json(double(v.y)), Json(double(v.z))}); }
 double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
@@ -43,7 +44,8 @@ void Renderer::Impl::gi_collect(World& world) {
     std::sort(g.wants.begin(), g.wants.end(), [](Entity a, Entity b) { return a.bits() < b.bits(); });
     if (g.wants.size() > std::size_t(kGiMaxGrids)) {
         FA_WARN("render",
-                "The scene has {} active RealtimeGI components: only the first {} (by entity) are drawn. Hint: one grid per room is "
+                "The scene has {} active RealtimeGI components: only the first {} (by entity) are drawn. Hint: one "
+                "grid per room is "
                 "enough; deactivate the others or merge their boxes",
                 g.wants.size(), kGiMaxGrids);
         g.wants.resize(std::size_t(kGiMaxGrids));
@@ -61,7 +63,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
         return;
     }
     for (auto& [id, gr] : g.grids) gr.seen = false;
-    const bool supported = !ps.gpu.rgba8() && ps.atlas.valid() && ps.atlas.height >= kGiAtlasHeight && ps.gpu.gi_ready();
+    const bool supported =
+        !ps.gpu.rgba8() && ps.atlas.valid() && ps.atlas.height >= kGiAtlasHeight && ps.gpu.gi_ready();
     g.unsupported = !supported;
     // The grids: the layout of each (a bad component says what is wrong and is not drawn), its run of blocks.
     for (Entity e : g.wants) {
@@ -75,8 +78,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
         if (!supported) {
             gr.valid = false;
             gr.state = "unsupported";
-            gr.message =
-                "this GPU cannot blend into RGBA16F images (the probe atlas of the realtime GI); the grid is not captured";
+            gr.message = "this GPU cannot blend into RGBA16F images (the probe atlas of the realtime GI); the grid is "
+                         "not captured";
             continue;
         }
         const Vec3 where = world.drawn_matrix(e, true).translation();
@@ -146,13 +149,15 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
             for (int face = 0; face < 6 && ok; ++face) {
                 TextureAsset* tex = view_image(kGiViewKeyBit | std::uint64_t(index + face), res, res, true);
                 const auto vit = viewTargets.find(kGiViewKeyBit | std::uint64_t(index + face));
-                ok = tex && vit != viewTargets.end() && vit->second->main.color.id && ps.gpu.dist_image(index + face, res);
+                ok = tex && vit != viewTargets.end() && vit->second->main.color.id &&
+                     ps.gpu.dist_image(index + face, res);
                 pictures.push_back(tex);
             }
             if (!ok) {
                 gr.retry[std::size_t(probe)] = g.frame + std::uint64_t(kGiRetryFrames);
                 gr.state = "failed";
-                gr.message = "the images of a capture could not be created (out of GPU memory?); the probe is tried again later";
+                gr.message =
+                    "the images of a capture could not be created (out of GPU memory?); the probe is tried again later";
                 continue;
             }
             const bool first = gr.last[std::size_t(probe)] == 0;
@@ -190,7 +195,8 @@ void Renderer::Impl::gi_finish() {
     GiSystem& g = ps.gi;
     if (g.wants.empty() && g.jobs.empty()) return;
     int calls = 0;
-    std::uint64_t skipped = 0;  // the grid and probe of a capture whose faces are not drawn (its scratch cubes could not be made)
+    std::uint64_t skipped =
+        0;  // the grid and probe of a capture whose faces are not drawn (its scratch cubes could not be made)
     bool skipping = false;
     int captured = 0;
     for (std::size_t i = 0; i < g.jobs.size(); ++i) {
@@ -260,7 +266,9 @@ Json Renderer::gi_report() {
     Json atlas = Json::object();
     atlas["width"] = ps.atlas.size;
     atlas["height"] = ps.atlas.height;
-    atlas["format"] = ps.gpu.format() == SG_PIXELFORMAT_NONE ? "none" : ps.gpu.rgba8() ? "RGBA16F unavailable (RGBA8)" : "RGBA16F";
+    atlas["format"] = ps.gpu.format() == SG_PIXELFORMAT_NONE ? "none"
+                      : ps.gpu.rgba8()                       ? "RGBA16F unavailable (RGBA8)"
+                                                             : "RGBA16F";
     atlas["bytes"] = double(std::uint64_t(ps.atlas.size) * std::uint64_t(ps.atlas.height) * (ps.gpu.rgba8() ? 4u : 8u));
     atlas["blocksUsed"] = g.blocks.used();
     out["atlas"] = std::move(atlas);

@@ -31,15 +31,16 @@ struct ImageF;
 
 namespace fa::render {
 
-inline constexpr int kGiScratchSlot = kProbeSlots + 1;      // the realtime GI's: one probe at a time is filtered through it
-inline constexpr int kProbeScratchSlots = kProbeSlots + 2;  // kProbeSlots is the synchronous capture's, the one after it the GI's
-inline constexpr int kProbeSyncAtlasSize = 512;             // holds one 256 tile (388 x 259)
+inline constexpr int kGiScratchSlot = kProbeSlots + 1;  // the realtime GI's: one probe at a time is filtered through it
+inline constexpr int kProbeScratchSlots =
+    kProbeSlots + 2;                             // kProbeSlots is the synchronous capture's, the one after it the GI's
+inline constexpr int kProbeSyncAtlasSize = 512;  // holds one 256 tile (388 x 259)
 
 // What the plan of a realtime GI capture face tells the graph and gets back (JobPlan::gi, renderer_gi.cpp).
 struct GiFacePlan {
     int distIndex = 0;          // the distance picture of the ProbeGpu this face's "gi-distance" pass draws
     float maxDistance = 30.0f;  // GiLayout::maxDistance
-    bool drawn = false;         // out: the job declared the pass (the face had opaque meshes and the GPU made the prepass)
+    bool drawn = false;  // out: the job declared the pass (the face had opaque meshes and the GPU made the prepass)
 };
 
 class ProbeGpu {
@@ -48,8 +49,9 @@ public:
         sg_image image{};
         sg_view tex{};  // what a shader samples
         sg_view att{};  // what a pass draws into
-        int size = 0;    // the width
-        int height = 0;  // the atlas is size x height: taller than wide while a RealtimeGI's band of blocks is in it (gi.h)
+        int size = 0;   // the width
+        int height =
+            0;  // the atlas is size x height: taller than wide while a RealtimeGI's band of blocks is in it (gi.h)
         bool valid() const { return image.id != 0; }
     };
 
@@ -113,8 +115,20 @@ public:
 
 private:
     enum class Prog {
-        Face, Down, OctCube, OctGgx, Sh, ShCube, Blit, Count,  // Count: the programs ready() makes
-        FaceGi = Count, GiDist, GiDepth, GiMeta, ShBlend, All  // the ones gi_ready() makes (ShBlend: the Sh program that blends)
+        Face,
+        Down,
+        OctCube,
+        OctGgx,
+        Sh,
+        ShCube,
+        Blit,
+        Count,  // Count: the programs ready() makes
+        FaceGi = Count,
+        GiDist,
+        GiDepth,
+        GiMeta,
+        ShBlend,
+        All  // the ones gi_ready() makes (ShBlend: the Sh program that blends)
     };
     struct DistImage {
         sg_image image{};
@@ -177,14 +191,14 @@ struct GiGrid {
     bool valid = false;    // the component passed gi_layout
     std::string error;     // why it did not
     GiLayout layout;
-    int probesPerFrame = 1;  // RealtimeGI.probesPerFrame
-    int base = -1;                   // the first block of the grid's run (-1: none)
-    std::vector<std::uint64_t> last;  // per probe: the ordinal of its last capture (0 = never)
-    std::vector<std::uint64_t> retry; // per probe: the gi frame before which it is not tried again
-    std::uint64_t serial = 0;         // captures of the grid since its layout changed
-    int captured = 0;                 // probes captured at least once
-    std::uint64_t cycles = 0;         // times every probe has been captured once more (serial / count)
-    std::string state;                // "updating", "ready", "invalid", "noRoom", "unsupported"
+    int probesPerFrame = 1;            // RealtimeGI.probesPerFrame
+    int base = -1;                     // the first block of the grid's run (-1: none)
+    std::vector<std::uint64_t> last;   // per probe: the ordinal of its last capture (0 = never)
+    std::vector<std::uint64_t> retry;  // per probe: the gi frame before which it is not tried again
+    std::uint64_t serial = 0;          // captures of the grid since its layout changed
+    int captured = 0;                  // probes captured at least once
+    std::uint64_t cycles = 0;          // times every probe has been captured once more (serial / count)
+    std::string state;                 // "updating", "ready", "invalid", "noRoom", "unsupported"
     std::string message;
     bool seen = false;
     int lastFrameCaptures = 0;  // probes captured in the last gi frame

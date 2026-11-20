@@ -31,7 +31,7 @@ struct RealtimeGI;
 
 namespace fa::render {
 
-inline constexpr int kGiDepthTexels = 8;  // interior texels per side of a probe's depth map
+inline constexpr int kGiDepthTexels = 8;                             // interior texels per side of a probe's depth map
 inline constexpr int kGiBlockW = kGiDepthTexels + 2 * kProbeBorder;  // 10
 inline constexpr int kGiBlockH = kGiBlockW + 1;                      // 11: the depth map and the row of SH texels
 inline constexpr int kGiShRow = kGiBlockW;                           // the block row of the SH texels
