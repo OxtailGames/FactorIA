@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
+- **Lightmap bake (M73.4c):** `lightmap.bake` (waits), `lightmap.bake_start`, `lightmap.bake_status` and `lightmap.bake_cancel` bake the open scene's `baked` and `mixed` lights, its sky (the environment map, the gradient or the ambient light) and its emissive and lit meshes into Radiance `.hdr` pages and a `.lightmap.json` manifest next to the scene, unwrapping the meshes that have no second UV set, and the renderer reads them at once (`SceneSettings.lightmaps` is set in memory: keep it with `scene.save` in a batch, or write it into the scene). The job reports a phase and progress, can be cancelled in every phase, writes the pages and then the manifest atomically (a file open on Windows gives an error that says what to close) and gives the same bytes with any number of threads. The editor has **View > Lightmap** (options, progress bar, Cancel, a summary of the pages, one undo step for the setting). The baker core now checks its input for NaN and infinity, derives its default ray offset from the texel size (not 10 cm in a kilometer-wide scene) and checks for cancel in the BVH build, the rasterizer, the denoiser and the gutter fill. Disc and Tube area lights are baked as rectangles. Docs: docs/rendering/RENDERING_LIGHTING.md, "Baking".
+- **Contact shadows (M73.2c):** `SceneSettings.contactShadows` and a new `Light.contactShadowLength` (metres, 0 = off, the default) add a
+  short screen-space ray from each lit point toward the light, marched in the mesh shader against the depth prepass (12 steps, a thickness
+  test, a per-pixel noise that does not change from frame to frame, a fade at the end of the ray, at the screen's edge and from 20 to 40 m
+  from the camera). It multiplies into the light's own shadow term, so the sun, point, spot and area lights take it with or without a
+  shadow map, and a custom `lighting()` gets it through `fa_light()` / `fa_light_shadow()`. It sees only what the camera sees (no caster
+  off screen, thin objects let the light through); blended meshes, full-shader materials and meshes with `receiveShadows` off have none.
+  Turning it on draws the prepass once; with it off the frame is bit for bit what it was. `render.supports("contactShadows")` follows the
+  depth prepass; `game.render_stats` reports `contactShadowLights`. See docs/rendering/RENDERING_LIGHTING.md, "Contact shadows".
 - **Volumetric fog and light shafts (M73.5):** `SceneSettings.volumetricFog` fills the view with a medium (`volumetricDensity`,
   `volumetricDistance`, `volumetricHeightBase` / `volumetricHeightFalloff`, `volumetricAnisotropy`, `volumetricAmbient`, colour `fogColor`) that the
   ambient light, the sun and the point and spot lights with `Light.volumetric` above 0 shine through; the shadows of the shadow atlas cut the

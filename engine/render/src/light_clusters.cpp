@@ -237,7 +237,12 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     const std::size_t lightTexels = lights.size() * std::size_t(out.stride);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
-    const std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
+    std::size_t shadowTexels = shadows ? local_shadow_region_texels(int(lights.size()), *shadows) : 0;
+    // The region also carries the contact shadow length of each light (y of its texel, M73.2c): it is there when a light has one even
+    // when no light has a shadow map (every x is then -1).
+    bool anyContact = false;
+    for (const LightData& l : lights) anyContact = anyContact || l.contactLength > 0.0f;
+    if (shadowTexels == 0 && anyContact) shadowTexels = lights.size();
     out.shadowBase = shadowTexels > 0 ? static_cast<long long>(lightTexels + clusterTexels + indexTexels) : -1;
     // One cursor, in a fixed order: lights | clusters | light indices | shadows | decals (header, records, decal indices).
     const std::size_t decalBase = lightTexels + clusterTexels + indexTexels + shadowTexels;
@@ -263,7 +268,16 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         }
         p[15] = l.baked ? 1.0f : 0.0f;  // texel +3, w: the flags (1 = Light.mode Baked), see light_data.glsl
     }
-    if (shadowTexels > 0) pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
+    if (shadowTexels > 0) {
+        if (shadows && !shadows->empty()) {
+            pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
+        } else {
+            for (std::size_t i = 0; i < lights.size(); ++i)
+                t[(std::size_t(out.shadowBase) + i) * 4] = -1.0f;  // no shadow map
+        }
+        for (std::size_t i = 0; i < lights.size(); ++i)
+            t[(std::size_t(out.shadowBase) + i) * 4 + 1] = std::max(lights[i].contactLength, 0.0f);
+    }
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);
     if (!lists) return;

@@ -49,7 +49,7 @@ into a row or changes the table together with the `static_assert`s under it.
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: ONE RGBA16F atlas: the LTC tables, the cookies and the IES profiles ("The light atlas") | 1, 2 |
 | 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |
 | 27 `fa_decal_atlas` (sampler 10) | M73.5b (landed): decal textures, RGBA8 with mips (their transforms are in `fa_light_data`); the white image while a view has no decals | 1, 2 |
-| 28 `fa_screen_tex` (sampler 10) | M73.2c and M73.6b: the prepass depth for contact shadows, the opaque colour for transmission | 2 |
+| 28 `fa_screen_tex` (sampler 1, nearest, `texelFetch`) | M73.2c (landed, [screen effects](ARCHITECTURE_SCREEN_EFFECTS.md)): the prepass for contact shadows; M73.6b: the opaque colour | 1, 2 |
 
 Rules the table follows, each checked by a `static_assert` (`mesh_fragment_views_valid()`, `mesh_fragment_units(phase)`) and by
 `engine/render/tests/mesh_slots_tests.cpp`:
@@ -65,8 +65,8 @@ Rules the table follows, each checked by a `static_assert` (`mesh_fragment_views
 - No phase binds more than 16 fragment units (`kMeshMaxFragmentUnits`).
 
 The phases: 0 is today (12 units). Phase 1 is M73.1, M73.2, M73.4 and M73.5 landed while the sky is still the two cubes (16 units).
-M73-P3e (M73.3a) retired the irradiance cube: the program binds 15 units and the freed one is the screen slot (view 28), reserved for
-contact shadows (M73.2c) and transmission (M73.6b), which now do not need to wait. Phase 2 is M73.3b/c landed: the prefiltered cube is
+M73-P3e (M73.3a) retired the irradiance cube: the program binds 15 units and the freed one is the screen slot (view 28), the prepass of the
+contact shadows (M73.2c) and later the opaque colour of transmission (M73.6b). Phase 2 is M73.3b/c landed: the prefiltered cube is
 replaced by the probe atlas (it takes view 14); 16 units, so **no fragment unit is left** in the final state. The sky's nine
 spherical-harmonics coefficients did not go into `fa_light_data` as first planned (see "The sky's spherical harmonics"); M73.3b/c moves
 them to the probe atlas with the rest of the sky.
@@ -310,7 +310,7 @@ image, the texels of a light, shading, shadows, approximations, tests) is in
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a, `cascadedShadows` in M73.2a: it needs only `float32`, `decals` in M73.5b: it needs nothing, `areaLights`, `lightCookies` and `iesProfiles` in M73.1b: they need `half`, RGBA16F images that filter, the atlas format, `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are, and `volumetricFog` in M73.5, with `half+depth`).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a, `cascadedShadows` in M73.2a: it needs only `float32`, `decals` in M73.5b: it needs nothing, `areaLights`, `lightCookies` and `iesProfiles` in M73.1b: they need `half`, RGBA16F images that filter, the atlas format, `environmentMap` in M73-P3a-2: it needs `half`, the RGBA16F targets the environment cubes are, and `volumetricFog` in M73.5, with `half+depth`, and `contactShadows` in M73.2c, with `depth`).
 
 ## The new fields
 
@@ -484,7 +484,7 @@ view 14 is bound (`surface()`, `light()`, `ambient()`, `lighting()`, the shadow 
 ## Lightmaps
 
 M73.4a: the runtime that draws a baked lightmap, and the UVs it needs. The baker core is [ARCHITECTURE_BAKING.md](ARCHITECTURE_BAKING.md);
-the `lightmap.bake` command that writes the files (M73.4c) and the light probes (M73.4d) are later packages. The user page is
+the `lightmap.bake` commands that write the files (M73.4c) are in the same page, "The lightmap.bake commands"; the light probes (M73.4d) are a later package. The user page is
 "Lightmaps" in [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md).
 
 **Lightmap UVs** (`fa/render/lightmap_geometry.h`, `fa/scene/lightmap_uv.h`). A mesh's lightmap UV is TEXCOORD_1 of its glTF when every
