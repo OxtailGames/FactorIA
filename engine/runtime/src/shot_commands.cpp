@@ -721,6 +721,54 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.material_cost",
+         "What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add "
+         "shader work.",
+         "The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are on and "
+         "what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, cost, "
+         "extraPasses, note}]}. `phase` is \"opaque\" or \"blended\" (blended meshes are drawn after the opaque ones, far to "
+         "near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is \"extraPass\" "
+         "(transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, one "
+         "that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per pass), "
+         "\"phase\" (blended: no pass, a different place in the frame) or \"shader\" (clear coat, sheen, anisotropy: more work "
+         "per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the top-level "
+         "one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer halves). "
+         "The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets no "
+         "layers and no transmission). Example: render.material_cost {\"id\":\"window\"}" FA_COMMAND_DETAILS
+         "Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no MeshRenderer, "
+         "`unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not loaded "
+         "yet. The same answer is Renderer::material_cost in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "id":{"type":"string","description":"The id of an entity with a MeshRenderer."}},"required":["id"]})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"id"}, "render.material_cost");
+            if (!a.is_object() || !a.contains("id") || !a["id"].is_string())
+                throw CommandError("invalid_argument",
+                                   "id: " +
+                                       (a.is_object() && a.contains("id") ? describe_json_value(a["id"])
+                                                                          : std::string("missing")) +
+                                       " is not an entity id string.",
+                                   "Pass the id of an entity with a MeshRenderer, e.g. {\"id\":\"window\"}.");
+            const std::string id = a["id"].get<std::string>();
+            const Entity e = I.world.find_by_id(id);
+            if (e == kNullEntity)
+                throw CommandError("not_found", "id: no entity '" + id + "' in the scene.",
+                                   "List the entities with scene.list_entities, or pass the id of the entity you mean.");
+            const MeshRenderer* mr = I.world.get<MeshRenderer>(e);
+            if (!mr)
+                throw CommandError("invalid_argument", "id: entity '" + id + "' has no MeshRenderer.",
+                                   "Add one with scene.add_component, or pass the id of a mesh entity.");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no frame is drawn to cost.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            Json report = I.renderer->material_cost(*mr);
+            report["id"] = id;
+            return report;
+        });
+
+    I.commands.add(
         {"render.output",
          "What the game window shows: the standard range or HDR, in which encoding, and what the display can do.",
          "The window's swapchain switches to HDR when SceneSettings.hdrOutput is \"auto\", the display the window is "
@@ -885,6 +933,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.material_cost", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},

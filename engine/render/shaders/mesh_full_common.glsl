@@ -182,6 +182,9 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_vpy;
     vec4 fa_ct_vpw;
     vec4 fa_ct_fwd;
+    // Transmission and volume (M73.6b): a full shader has none either.
+    vec4 fa_tr_a;
+    vec4 fa_tr_b;
 };
 
 @include_block fa_inst_flags

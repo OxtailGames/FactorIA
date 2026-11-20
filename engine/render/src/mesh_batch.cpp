@@ -51,8 +51,9 @@ auto material_key(const MeshItem& a) {
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
                            r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.clearcoat,
                            r.clearcoatRoughness, r.sheenColor.r, r.sheenColor.g, r.sheenColor.b, r.sheenRoughness,
-                           r.anisotropy, r.anisotropyRotation, r.specular, r.ior, r.unlit, r.receiveShadows,
-                           r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash,
+                           r.anisotropy, r.anisotropyRotation, r.specular, r.ior, r.transmission, r.thickness,
+                           r.attenuationColor.r, r.attenuationColor.g, r.attenuationColor.b, r.attenuationDistance,
+                           r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash, a.colorsHash,
                            a.flash.r, a.flash.g, a.flash.b, a.flash.a, a.lm.mesh ? a.entity.bits() : std::uint64_t(0),
                            decal_recv(r));
 }
@@ -77,7 +78,9 @@ auto order_key(const MeshItem& a) {
         order_float(r.emissiveStrength), order_float(r.clearcoat), order_float(r.clearcoatRoughness),
         order_float(r.sheenColor.r), order_float(r.sheenColor.g), order_float(r.sheenColor.b),
         order_float(r.sheenRoughness), order_float(r.anisotropy), order_float(r.anisotropyRotation),
-        order_float(r.specular), order_float(r.ior), r.unlit, r.receiveShadows, order_float(r.uvScale.x),
+        order_float(r.specular), order_float(r.ior), order_float(r.transmission), order_float(r.thickness),
+        order_float(r.attenuationColor.r), order_float(r.attenuationColor.g), order_float(r.attenuationColor.b),
+        order_float(r.attenuationDistance), r.unlit, r.receiveShadows, order_float(r.uvScale.x),
         order_float(r.uvScale.y), order_float(r.normalScale),
         (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash, a.colorsHash,
         order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a), decal_recv(r));
@@ -273,7 +276,10 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
                  order_float(r.emissiveStrength), order_float(r.clearcoat),    order_float(r.clearcoatRoughness),
                  order_float(r.sheenColor.r),     order_float(r.sheenColor.g), order_float(r.sheenColor.b),
                  order_float(r.sheenRoughness),   order_float(r.anisotropy),   order_float(r.anisotropyRotation),
-                 order_float(r.specular),         order_float(r.ior)};
+                 order_float(r.specular),         order_float(r.ior),          order_float(r.transmission),
+                 order_float(r.thickness),        order_float(r.attenuationColor.r),
+                 order_float(r.attenuationColor.g), order_float(r.attenuationColor.b),
+                 order_float(r.attenuationDistance)};
     x.unlit = r.unlit;
     x.receiveShadows = r.receiveShadows;
     x.decalRecv = decal_recv(r);

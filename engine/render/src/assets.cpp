@@ -418,6 +418,16 @@ void prepare_layers(const cgltf_material* mat, const cgltf_data* data, const std
             ref(mat->specular.specular_texture, refs.specular);
             ref(mat->specular.specular_color_texture, refs.specularColor);
         }
+        // The transmission and the volume have no free channel in the maps a part binds: their factors alone are used.
+        auto unused = [&](const cgltf_texture_view& v, const char* name, const char* instead) {
+            if (v.texture && v.texture->image)
+                warnings.push_back(std::format("{}: {} is not used ({}).", what, name, instead));
+        };
+        if (mat->has_transmission)
+            unused(mat->transmission.transmission_texture, "transmissionTexture",
+                   "transmissionFactor is used for the whole surface");
+        if (mat->has_volume)
+            unused(mat->volume.thickness_texture, "thicknessTexture", "thicknessFactor is used for the whole surface");
         if (refs.any()) {
             e.occlusion = part.occlusion;
             e.metalRough = part.metalRough;
