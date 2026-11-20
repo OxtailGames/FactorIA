@@ -1147,6 +1147,28 @@ struct LightProbeGroup {
         array();  // extra probes [[x, y, z], ...] in world metres, up to 256; they light the objects close to them
     bool showGizmo = true;  // the editor draws the probes of this group as small spheres coloured by their baked light
 };
+// M73.5d: realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world that the renderer
+// captures a few at a time (the capture of a reflection probe, at 16 or 32 texels a face), each into a spherical-harmonics irradiance and
+// depth moments (docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination"). This is the data side: the meshes read the
+// grid from M73.5d-2 on; until then the commands render.gi_grid and render.probes show what it holds.
+struct RealtimeGI {
+    Vec3 size{20.0f, 6.0f, 20.0f};    // metres, the box of the grid; 0 on an axis = one layer of probes on it
+    Vec3 offset{0.0f, 0.0f, 0.0f};    // metres: the box's centre relative to the entity's world position
+    float spacing = 2.0f;             // metres between two probes, 0.25..100
+    std::int32_t probesPerFrame = 2;  // probes captured a frame (six faces each), 1..32
+    std::int32_t resolution = 16;     // texels per side of a capture face: 16 or 32
+    float intensity = 1.0f;           // 0..16 multiplies the light the grid gives
+    float bounce = 1.0f;              // 0..1 how much of the grid's own light the captures see (the extra bounces)
+    float hysteresis =
+        0.9f;  // 0..0.99 how much of a probe's old value a new capture keeps (less flicker, slower reaction)
+    float nearExclusion = 0.1f;  // metres 0.01..10: what is closer than this to a probe is not captured
+    float maxDistance =
+        30.0f;  // metres 1..1000: the farthest surface a probe sees; the depth moments are clamped to it
+    float backfaceTolerance =
+        0.25f;  // 0.02..0.9: a probe whose rays hit this fraction of back faces first is inside geometry
+    Json showTags = Json::array();  // culling mask like Camera.showTags
+    Json hideTags = Json::array();  // like Camera.hideTags: what is not in the captures (the player, particles...)
+};
 enum class LightType : std::int32_t { Directional, Point, Spot, Area };
 enum class LightShape : std::int32_t { Rectangle, Disc, Tube };
 enum class ShadowFilter : std::int32_t { Pcf, Hard, Pcss };
