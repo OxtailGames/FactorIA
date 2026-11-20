@@ -564,9 +564,11 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
      "are in "
      "fa_light_data)"},
-    {"fa_screen_tex", 28, 10, 1, 2,
-     "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission (reserved: the unit "
-     "M73.3a freed; no program declares it yet)"},
+    {"fa_screen_tex", 28, 1, 1, 2,
+     "the screen slot, read with texelFetch through the nearest sampler 1 (sampler 10 filters, which an unfilterable image "
+     "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for the "
+     "contact shadows, a white image while none is drawn or in the blended phase; M73.6b the opaque color for transmission "
+     "(read with texelFetch too, any mip, bilinear by hand)"},
 };
 inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
 

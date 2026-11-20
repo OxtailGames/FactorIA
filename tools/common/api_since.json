@@ -355,6 +355,7 @@
     "Light.range": "0.1.0",
     "Light.spotAngle": "0.1.0",
     "Light.type": "0.1.0",
+    "Light.contactShadowLength": "unreleased",
     "Light.cookie": "unreleased",
     "Light.ies": "unreleased",
     "Light.innerAngle": "unreleased",

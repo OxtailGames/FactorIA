@@ -18,8 +18,10 @@
 //   after the clusters               the light indices, four to a texel (x, y, z, w); slot s is component s & 3 of the s >> 2 th
 //                                    texel of this region
 //   after the light indices          the shadow region of the point and spot lights (M73.2b), only in a frame where one has a shadow
-//                                    map; its first texel is fa_shadow_lcfg.x - 1 (the fa_shadows block, shadow_common.glsl):
-//                                      [base, base + L)  light n: x = the texel of its record, or -1 (no shadow map this frame)
+//                                    map or a contact shadow; its first texel is fa_shadow_lcfg.x - 1 (the fa_shadows block, shadow_common.glsl):
+//                                      [base, base + L)  light n: x = the texel of its record, or -1 (no shadow map this frame);
+//                                      y = Light.contactShadowLength in metres, 0 = no contact shadow (M73.2c; zw free). The region is
+//                                      also there, with every x = -1, in a frame where a light has a contact shadow and none a map.
 //                                      then the records: 2 header texels (+0 kind 1 = one tile / 2 = six cube faces, fade distance,
 //                                      filter, softness k; +1 depth bias, normal bias) and 6 texels per tile: the four rows of the
 //                                      matrix world -> (u * w, v * w, -, w) of the atlas texture (w = metres along the tile's axis), the
