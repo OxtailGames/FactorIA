@@ -101,7 +101,8 @@ struct Renderer::Impl {
     HdriSky hdriSky;      // the program that draws SceneSettings.environmentMap (renderer_hdri.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
-    ProbeSystem probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
+    ProbeSystem
+        probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
@@ -475,7 +476,8 @@ struct Renderer::Impl {
     void probes_finish();
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
     void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
-    void probes_release();  // the atlas, the scratch cubes and the programs (shutdown, and when the world has no probe left)
+    void
+    probes_release();  // the atlas, the scratch cubes and the programs (shutdown, and when the world has no probe left)
     bool probe_sync_capture(World& world, Entity probe, Renderer::ProbePage& out, std::string* error);
     bool probe_read_atlas(int x, int y, int w, int h, std::vector<float>& out, std::string* error);
     // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see

@@ -346,6 +346,13 @@ Not packed: `clearcoatNormalTexture` (the coat follows the geometric normal), `s
 tangent turned by `anisotropyRotation`); a texture file that cannot be read (`its factor alone is used`), and a set whose packed size would pass
 4096 x 4096. An editable mesh (`mesh.*` commands, a model converted to a mesh) keeps only the factors: its textures are not carried.
 
+## Reflection probes (M73-P3b)
+
+A `ReflectionProbe` entity captures the light around its position (six views of the scene, a mirror picture, four rougher ones and nine
+spherical-harmonics coefficients) into one shared atlas, either while the game runs (`realtime`) or once, with `probe.bake`. Captured and
+stored today, read by the meshes from M73-P3c; `render.probes` shows what the renderer holds. The fields, the commands, the atlas and
+its limits: [RENDERING_PROBES.md](RENDERING_PROBES.md) (`docs.read rendering-probes`).
+
 ## Lightmaps
 
 A lightmap is light computed once and stored in an image: the diffuse light of the sun, the lights of mode `baked` and the sky, with the
@@ -556,7 +563,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured but not yet read by meshes, M73-P3c); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

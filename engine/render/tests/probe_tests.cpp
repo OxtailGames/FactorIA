@@ -72,7 +72,8 @@ TEST_CASE("probe octahedral map: the border texel is the texel across the edge, 
     for (int i = 0; i < size; ++i) {
         const float c = (float(i) + 0.5f) / float(size) * 2.0f - 1.0f;
         // Beyond the right edge: the fold mirrors it back, with the other coordinate negated.
-        const Vec3 over = oct_decode(Vec2{1.0f + (1.0f - (float(size - 1) + 0.5f) / float(size) * 2.0f + 1.0f) * 0.0f + 1.0f / size, c});
+        const Vec3 over = oct_decode(
+            Vec2{1.0f + (1.0f - (float(size - 1) + 0.5f) / float(size) * 2.0f + 1.0f) * 0.0f + 1.0f / size, c});
         const Vec3 mirrored = oct_decode(Vec2{1.0f - 1.0f / size, -c});
         CHECK(length(over - mirrored) < 1e-5f);
         const Vec3 under = oct_decode(Vec2{c, -1.0f - 1.0f / size});
@@ -212,7 +213,8 @@ TEST_CASE("probe atlas: the same id keeps its tile, a new resolution moves it, r
     CHECK_FALSE(small.acquire(1, 256, 0, 1, nullptr).has_value());
 }
 
-TEST_CASE("probe atlas: the budget is the atlas; a full one evicts the least important, then the oldest, never an equal") {
+TEST_CASE(
+    "probe atlas: the budget is the atlas; a full one evicts the least important, then the oldest, never an equal") {
     ProbeAtlasAllocator a;
     std::vector<std::uint64_t> evicted;
     // Fill the atlas with 256 probes of importance 0 until it says no.
@@ -318,7 +320,8 @@ TEST_CASE("probe scheduler: a capture's faces come in order, one probe at a time
     CHECK(s.info(3).lastFrame == 6);
 }
 
-TEST_CASE("probe scheduler: every-frame probes first, the more important before the less, on-demand ones only on request") {
+TEST_CASE(
+    "probe scheduler: every-frame probes first, the more important before the less, on-demand ones only on request") {
     ProbeScheduler s;
     s.set_budget(6);
     s.set_probes({ProbeSpec{1, ProbeUpdateKind::TimeSliced, 0, 64}, ProbeSpec{2, ProbeUpdateKind::TimeSliced, 9, 64},

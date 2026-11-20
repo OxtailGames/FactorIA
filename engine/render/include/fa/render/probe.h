@@ -25,22 +25,24 @@
 #include "fa/scene/lightmap_bake.h"
 
 namespace fa {
-struct ImageF;  // fa/core/image_float.h: not included here, its sRGB functions would clash with the renderer's (color_space.h)
+struct
+    ImageF;  // fa/core/image_float.h: not included here, its sRGB functions would clash with the renderer's (color_space.h)
 }
 
 namespace fa::render {
 
 inline constexpr int kProbeMaxLevels = 5;
 inline constexpr int kProbeShCoefficients = 9;
-inline constexpr int kProbeBorder = 1;            // texels around each level
-inline constexpr int kProbeAtlasSize = 1024;      // texels per side of the atlas (RGBA16F: 8 MB)
-inline constexpr int kProbeSkyResolution = 128;   // the sky's entry (atlas entry 0): the resolution of the environment cube
-inline constexpr std::uint64_t kProbeSkyId = 0;   // the allocator id of the sky; entities have bits above 0
+inline constexpr int kProbeBorder = 1;        // texels around each level
+inline constexpr int kProbeAtlasSize = 1024;  // texels per side of the atlas (RGBA16F: 8 MB)
+inline constexpr int kProbeSkyResolution =
+    128;  // the sky's entry (atlas entry 0): the resolution of the environment cube
+inline constexpr std::uint64_t kProbeSkyId = 0;  // the allocator id of the sky; entities have bits above 0
 inline constexpr int kProbeFaces = 6;
-inline constexpr int kProbeFaceBudget = 2;        // faces the realtime probes may draw per frame, in all
-inline constexpr int kProbeSlots = 2;             // probes with a capture in progress at once
+inline constexpr int kProbeFaceBudget = 2;  // faces the realtime probes may draw per frame, in all
+inline constexpr int kProbeSlots = 2;       // probes with a capture in progress at once
 inline constexpr int kProbeManifestVersion = 1;
-inline constexpr int kProbeMaxCount = 256;        // probes the renderer keeps (the rest are listed as "over the limit")
+inline constexpr int kProbeMaxCount = 256;  // probes the renderer keeps (the rest are listed as "over the limit")
 
 // ---- the octahedral map -----------------------------------------------------------------------------------------------------
 
@@ -160,10 +162,10 @@ public:
         bool last = false;  // the sixth face of this capture: the filtering follows it in the same frame
     };
     struct Info {
-        std::uint64_t captures = 0;    // completed captures
-        std::uint64_t lastFrame = 0;   // the frame the last one completed (0 = never)
-        int facesDone = 0;             // of the capture under way (0 = none)
-        bool pending = false;          // wants a capture
+        std::uint64_t captures = 0;   // completed captures
+        std::uint64_t lastFrame = 0;  // the frame the last one completed (0 = never)
+        int facesDone = 0;            // of the capture under way (0 = none)
+        bool pending = false;         // wants a capture
     };
     void set_budget(int faces);
     int budget() const { return budget_; }
@@ -195,10 +197,10 @@ struct ProbeManifest {
     int version = kProbeManifestVersion;
     int resolution = 128;
     int levels = 5;
-    std::string page;        // project-relative .hdr, probe_page_width x probe_page_height of RGBE texels
-    std::string entity;      // the id of the entity that was baked (for the reader; the component names the file)
+    std::string page;    // project-relative .hdr, probe_page_width x probe_page_height of RGBE texels
+    std::string entity;  // the id of the entity that was baked (for the reader; the component names the file)
     float sh[kProbeShCoefficients][3]{};
-    std::string hash;        // 16 hex digits of the page's bytes: what a hot reload compares, and in the page's name
+    std::string hash;  // 16 hex digits of the page's bytes: what a hot reload compares, and in the page's name
 };
 Json probe_manifest_to_json(const ProbeManifest& manifest);
 // Errors name the file, the JSON pointer and the fix.

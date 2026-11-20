@@ -140,7 +140,8 @@ std::vector<Expect> expectations() {
 void check_colors(const std::vector<float>& px, int stride, int rowWidth, int x0, int y0, int size, float tolerance) {
     for (const Expect& e : expectations()) {
         const Rgb got = sample(px, stride, rowWidth, x0, y0, size, normalize(e.dir));
-        INFO(e.what << ": got " << got.r << " " << got.g << " " << got.b << ", want " << e.want.r << " " << e.want.g << " " << e.want.b);
+        INFO(e.what << ": got " << got.r << " " << got.g << " " << got.b << ", want " << e.want.r << " " << e.want.g
+                    << " " << e.want.b);
         CHECK(std::fabs(got.r - e.want.r) < tolerance);
         CHECK(std::fabs(got.g - e.want.g) < tolerance);
         CHECK(std::fabs(got.b - e.want.b) < tolerance);
@@ -315,7 +316,8 @@ TEST_CASE("realtime probe: the atlas tile holds the same capture as the synchron
 
     std::vector<float> px;
     std::string error;
-    const bool read = renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, px, &error);
+    const bool read =
+        renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, px, &error);
     INFO("read error: " << error);
     REQUIRE(read);
     REQUIRE(px.size() == std::size_t(128) * 128 * 4);
@@ -420,7 +422,8 @@ TEST_CASE("realtime probe: removing the component or the entity gives the tile b
     CHECK(before >= 1);
 }
 
-TEST_CASE("realtime probe: a probe's resolution decides the size of its tile, and a bigger probe may evict a smaller one that matters less") {
+TEST_CASE("realtime probe: a probe's resolution decides the size of its tile, and a bigger probe may evict a smaller "
+          "one that matters less") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_probes(g)) {
@@ -482,8 +485,8 @@ TEST_CASE("realtime probe: the sky is entry 0 of the atlas, written from the sky
     if (state == "ready") {
         std::vector<float> px;
         std::string error;
-        REQUIRE(renderer_read_probe_atlas(o.r, sky.x + kProbeBorder, sky.y + kProbeBorder, kProbeSkyResolution, kProbeSkyResolution, px,
-                                          &error));
+        REQUIRE(renderer_read_probe_atlas(o.r, sky.x + kProbeBorder, sky.y + kProbeBorder, kProbeSkyResolution,
+                                          kProbeSkyResolution, px, &error));
         const Rgb up = sample(px, 4, kProbeSkyResolution, 0, 0, kProbeSkyResolution, {0, 1, 0});
         const Rgb down = sample(px, 4, kProbeSkyResolution, 0, 0, kProbeSkyResolution, {0, -1, 0});
         CHECK(up.b > up.r);  // blue overhead
@@ -491,7 +494,8 @@ TEST_CASE("realtime probe: the sky is entry 0 of the atlas, written from the sky
     }
 }
 
-TEST_CASE("realtime probe: on a GPU that cannot render half floats the atlas is RGBA8, the capture still reads right and probe_capture says no") {
+TEST_CASE("realtime probe: on a GPU that cannot render half floats the atlas is RGBA8, the capture still reads right "
+          "and probe_capture says no") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     ForceRgba8 force;
@@ -517,7 +521,8 @@ TEST_CASE("realtime probe: on a GPU that cannot render half floats the atlas is 
     CHECK(error.find("RGBA16F") != std::string::npos);
 }
 
-TEST_CASE("baked probe: the page of a manifest is uploaded to the atlas, a changed pair is read again, a missing one is reported") {
+TEST_CASE("baked probe: the page of a manifest is uploaded to the atlas, a changed pair is read again, a missing one "
+          "is reported") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_probes(g)) {
