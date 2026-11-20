@@ -120,6 +120,11 @@ layout(binding=1) uniform sampler fa_full_shadow_smp;
 // unique in the whole top file, and the top of a full material also holds the engine's own programs).
 #define FA_SHADOW_TEX fa_full_shadow_tex
 #define FA_SHADOW_SMP fa_full_shadow_smp
+// The light data texture (light_data.glsl; view 24), read with texelFetch through the shadow map's nearest sampler.
+layout(binding=24) uniform texture2D fa_full_light_tex;
+@image_sample_type fa_full_light_tex unfilterable_float
+#define FA_LIGHT_TEX fa_full_light_tex
+#define FA_LIGHT_SMP fa_full_shadow_smp
 // The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
 layout(binding=14) uniform textureCube fa_env_tex;
 layout(binding=15) uniform textureCube fa_irr_tex;
@@ -140,10 +145,19 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
+    // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
+    // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
+    vec4 fa_cl_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_cl_vpy;             // row 1: clip y
+    vec4 fa_cl_vpw;             // row 3: clip w
+    vec4 fa_cl_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
+    vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
+                                // w = clusters (tiles x * tiles y * slices)
 };
 
 @include_block fa_inst_flags
@@ -201,18 +215,31 @@ float fa_shadow(vec4 coord, vec3 n, vec3 l) {
     return fa_shadow_sun(coord.xyz / coord.w, n, l);
 }
 
-// The lights of the scene, as the engine's own light loop selects them.
+// The first lights of the scene's light table: the directional lights, then the most relevant local ones, at most 32 (fa_counts.x of
+// them). What a full shader that has no position to ask for a cluster loops over; fa_cluster_light_count() is the list of a position.
 int fa_light_count() { return min(int(fa_counts.x), 32); }
-// Light i (0 .. fa_light_count() - 1) as seen from a surface point: the direction to the light, its colour times intensity times
-// attenuation times shadow, the attenuation and the shadow separately, the distance and the type (0 directional, 1 point,
-// 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is shadowed); `gn` the geometric normal.
+// Light li (0 .. fa_light_count() - 1, or an index of fa_cluster_light_index()) as seen from a surface point: the direction to the
+// light, its colour times intensity times attenuation times shadow, the attenuation and the shadow separately, the distance and the
+// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is
+// shadowed); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
     LightSample ls = fa_light_sample(li, world_pos);
     if (ls.type == 0 && li == 0) {
         ls.shadow = fa_shadow(coord, gn, ls.direction);
-        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
+        ls.color = ls.color * ls.shadow;
     }
     return ls;
+}
+// The lights that reach a world position (M73.1, clustered lighting): the directional lights and the local lights of the position's
+// cluster, hundreds in the scene but a few here. fa_cluster_light_index(n, p) for n in 0 .. fa_cluster_light_count(p) - 1 is the
+// index to give to fa_light(). Both look the cluster up again: call fa_cluster_light_count once and keep the position.
+int fa_cluster_light_count(vec3 world_pos) {
+    return int(fa_cl_info.z) + fa_cluster_lookup(world_pos).y;
+}
+int fa_cluster_light_index(int n, vec3 world_pos) {
+    int ndir = int(fa_cl_info.z);
+    if (n < ndir) { return n; }
+    return fa_cluster_index(fa_cluster_lookup(world_pos).x, n - ndir);
 }
 
 // The scene's fog (SceneSettings fog, or the stack's fog on a blended mesh) applied to a colour drawn at a world position: the

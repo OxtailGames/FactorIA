@@ -2029,13 +2029,14 @@ void register_builtin_components(TypeRegistry& r) {
                "surface and leaves it blurred nearby. 0 = none. No effect yet: M73.5 brings it.")
         .range(0, 1);
 
-    r.add<Light>(
-         "Light",
-         "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
-         "rotated by the Transform), point and spot lights shine from the entity's position, an area light "
-         "from a rectangle, disc or tube around it. The fields after castShadows belong to the lighting of "
-         "M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).",
-         "3D")
+    r.add<Light>("Light",
+                 "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
+                 "rotated by the Transform), point and spot lights shine from the entity's position, an area light "
+                 "from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them "
+                 "directional): each fragment reads only the lights of its cluster. The fields after castShadows "
+                 "belong to the lighting of M73; the doc string of each says whether the renderer draws it yet "
+                 "(docs/rendering/RENDERING_LIGHTING.md).",
+                 "3D")
         .enum_field(
             "type", &Light::type, {"directional", "point", "spot", "area"},
             "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. "
@@ -2054,7 +2055,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("innerAngle", &Light::innerAngle,
                "Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to "
                "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
-               "does today. No effect yet: M73.1 brings it.")
+               "does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.")
         .range(0, 89)
         .enum_field("shape", &Light::shape, {"rectangle", "disc", "tube"},
                     "Area lights only: the shape of the emitter. rectangle and disc face the entity's forward "

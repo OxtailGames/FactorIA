@@ -31,10 +31,11 @@ const std::vector<std::string> kMeshFields = {
     "sheenColor",    "sheenRoughness", "anisotropy", "anisotropyRotation", "specular",
     "ior",           "transmission",   "thickness",  "attenuationColor",   "attenuationDistance",
     "subsurface"};
-// The fields a package has made work: their doc string no longer says "No effect yet" (M73.2a: the cascaded shadows of the sun).
-const std::vector<std::string> kDrawn = {
-    "shadowResolution", "shadowBias",     "shadowNormalBias",   "shadowFilter",       "shadowSoftness",
-    "shadowDistance",   "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend", "shadowAtlasSize"};
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun).
+const std::vector<std::string> kDrawn = {"innerAngle",         "shadowResolution", "shadowBias",
+                                         "shadowNormalBias",   "shadowFilter",     "shadowSoftness",
+                                         "shadowDistance",     "shadowCascades",   "shadowCascadeSplit",
+                                         "shadowCascadeBlend", "shadowAtlasSize"};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {

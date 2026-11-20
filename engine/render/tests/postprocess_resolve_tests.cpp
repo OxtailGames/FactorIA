@@ -679,11 +679,10 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"clusteredLights",  "areaLights",  "lightCookies",   "iesProfiles",
-                                "pointShadows",     "spotShadows", "contactShadows", "environmentMap",
-                                "reflectionProbes", "physicalSky", "lightmaps",      "lightProbes",
-                                "volumetricFog",    "decals",      "subsurface",     "realtimeGI",
-                                "clearCoat",        "sheen",       "anisotropy",     "transmission"};
+    const char* const rows[] = {"areaLights",     "lightCookies",   "iesProfiles",      "pointShadows", "spotShadows",
+                                "contactShadows", "environmentMap", "reflectionProbes", "physicalSky",  "lightmaps",
+                                "lightProbes",    "volumetricFog",  "decals",           "subsurface",   "realtimeGI",
+                                "clearCoat",      "sheen",          "anisotropy",       "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -693,6 +692,10 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // clusteredLights is drawn: it is a feature of the renderer on every GPU, with the row still in the same place.
+    CHECK(find_feature("clusteredLights") >= 0);
+    CHECK(supported(full, "clusteredLights"));
+    CHECK(feature_table()[std::size_t(find_feature("clusteredLights"))].kind == FeatureKind::Engine);
     // float32Targets follows the GPU: a GPU whose R32F cannot be sampled answers with what is missing, not with the plan.
     std::string why;
     CHECK(supported(full, "float32Targets", &why));
