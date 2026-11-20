@@ -57,7 +57,8 @@ TEST_CASE("assets.import: an equirectangular .hdr lands in assets/hdri/ as the k
     CHECK(asset_type_of("assets/hdri/Sunset_Sky.hdr") == "hdri");
 }
 
-TEST_CASE("assets.import: an .hdr that is not equirectangular, cut short or not Radiance's is an error that says how to fix it") {
+TEST_CASE("assets.import: an .hdr that is not equirectangular, cut short or not Radiance's is an error that says how "
+          "to fix it") {
     AssetsProject p;
     // a mirror-ball light probe
     CommandResult probe = p.call("assets.import", {{"source", art(p, "ball.hdr", hdr_file(32, 32))}});
@@ -78,11 +79,13 @@ TEST_CASE("assets.import: an .hdr that is not equirectangular, cut short or not 
     CHECK(cut.error["message"].get<std::string>().find("cut.hdr") != std::string::npos);
     CHECK_FALSE(cut.error["hint"].get<std::string>().empty());
     // a PNG renamed .hdr
-    CommandResult renamed = p.call("assets.import", {{"source", art(p, "fake.hdr", png_string(make_image(4, 2, {1, 2, 3, 255})))}});
+    CommandResult renamed =
+        p.call("assets.import", {{"source", art(p, "fake.hdr", png_string(make_image(4, 2, {1, 2, 3, 255})))}});
     REQUIRE_FALSE(renamed.ok);
     CHECK(renamed.error["message"].get<std::string>().find("fake.hdr") != std::string::npos);
     // the extension of the destination is kept
-    CommandResult ext = p.call("assets.import", {{"source", art(p, "sky.hdr", hdr_file(64, 32))}, {"path", "assets/hdri/sky.png"}});
+    CommandResult ext =
+        p.call("assets.import", {{"source", art(p, "sky.hdr", hdr_file(64, 32))}, {"path", "assets/hdri/sky.png"}});
     REQUIRE_FALSE(ext.ok);
     CHECK(ext.error["message"].get<std::string>().find("'.hdr'") != std::string::npos);
 }

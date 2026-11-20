@@ -20,20 +20,23 @@ bool HdriSky::ready(Gpu&) {
     sd.label = "hdri-sampler";
     shader_ = make_shader(hdri_hdri_shader_desc(sg_query_backend()), "hdri");
     sampler_ = sg_make_sampler(&sd);
-    if (sg_query_shader_state(shader_) != SG_RESOURCESTATE_VALID || sg_query_sampler_state(sampler_) != SG_RESOURCESTATE_VALID) {
+    if (sg_query_shader_state(shader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_sampler_state(sampler_) != SG_RESOURCESTATE_VALID) {
         release();
         state_ = -1;
-        FA_ERROR("render", "SceneSettings.environmentMap cannot be drawn: the HDRI shader could not be made for this graphics backend "
-                           "(see the sokol log lines above). The scene keeps its sky material or gradient. Hint: update the graphics "
-                           "driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR(
+            "render",
+            "SceneSettings.environmentMap cannot be drawn: the HDRI shader could not be made for this graphics backend "
+            "(see the sokol log lines above). The scene keeps its sky material or gradient. Hint: update the graphics "
+            "driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     state_ = 1;
     return true;
 }
 
-void HdriSky::draw(Gpu& gpu, const HdriAsset& hdri, float rotationDegrees, float gain, bool gamma, const float* invViewProj,
-                   const float camPos[3], const TargetFormat* format) {
+void HdriSky::draw(Gpu& gpu, const HdriAsset& hdri, float rotationDegrees, float gain, bool gamma,
+                   const float* invViewProj, const float camPos[3], const TargetFormat* format) {
     if (state_ <= 0 || !hdri.view.id) return;
     sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shader_) : gpu.sky_pipeline(shader_));
     sg_bindings b{};

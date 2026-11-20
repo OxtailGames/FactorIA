@@ -20,15 +20,23 @@ const FieldInfo* field_of(const char* type, const std::string& name) {
         if (f.name == name) return &f;
     return nullptr;
 }
-const std::vector<std::string> kLightFields = {
-    "innerAngle",       "shape",        "size",           "cookie",         "ies",  "shadowResolution", "shadowBias",
-    "shadowNormalBias", "shadowFilter", "shadowSoftness", "shadowDistance", "mode", "volumetric"};
+const std::vector<std::string> kLightFields = {"innerAngle",
+                                               "shape",
+                                               "size",
+                                               "cookie",
+                                               "ies",
+                                               "shadowResolution",
+                                               "shadowBias",
+                                               "shadowNormalBias",
+                                               "shadowFilter",
+                                               "shadowSoftness",
+                                               "shadowDistance",
+                                               "volumetric"};
 const std::vector<std::string> kSettingsFields = {
     "shadowCascades", "shadowCascadeSplit", "shadowCascadeBlend",   "shadowDistance",      "shadowAtlasSize",
     "contactShadows", "environmentMap",     "environmentIntensity", "environmentRotation", "environmentBackground"};
-const std::vector<std::string> kMeshFields = {"lightmapScale",       "contributeGI", "receiveGI",
-                                              "transmission",        "thickness",    "attenuationColor",
-                                              "attenuationDistance", "subsurface"};
+const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission",        "thickness",
+                                              "attenuationColor", "attenuationDistance", "subsurface"};
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
@@ -37,6 +45,11 @@ const std::vector<std::string> kDrawn = {
     "innerAngle",      "shadowResolution", "shadowBias",           "shadowNormalBias",    "shadowFilter",
     "shadowSoftness",  "shadowDistance",   "shadowCascades",       "shadowCascadeSplit",  "shadowCascadeBlend",
     "shadowAtlasSize", "environmentMap",   "environmentIntensity", "environmentRotation", "environmentBackground"};
+// Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
+const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
+                                                                      {"MeshRenderer", "lightmapScale"},
+                                                                      {"MeshRenderer", "receiveGI"},
+                                                                      {"SceneSettings", "lightmaps"}};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
@@ -53,6 +66,15 @@ TEST_CASE("lighting fields: every new field is reflected and its doc says what i
             CHECK((f->doc.find("No effect yet: M73.") == std::string::npos) == drawn);
             CHECK(f->serialized);
         }
+    }
+    for (const auto& [type, name] : kLiveFields) {
+        CAPTURE(type);
+        CAPTURE(name);
+        const FieldInfo* f = field_of(type.c_str(), name);
+        REQUIRE(f != nullptr);
+        CHECK(f->doc.size() > 40);
+        CHECK(f->doc.find("No effect yet") == std::string::npos);
+        CHECK(f->serialized);
     }
     for (const std::string& n : kLayerFields) {
         CAPTURE(n);

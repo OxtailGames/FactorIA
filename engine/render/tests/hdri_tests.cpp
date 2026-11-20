@@ -37,7 +37,8 @@ std::vector<std::uint8_t> hdr_bytes(int w, int h, F color) {
 
 // The header of a w x h .hdr with no pixels: all the checks of a file are made from it.
 std::vector<std::uint8_t> hdr_header(int w, int h) {
-    const std::string s = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y " + std::to_string(h) + " +X " + std::to_string(w) + "\n";
+    const std::string s =
+        "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y " + std::to_string(h) + " +X " + std::to_string(w) + "\n";
     return std::vector<std::uint8_t>(s.begin(), s.end());
 }
 
@@ -321,7 +322,8 @@ TEST_CASE("environment map: a gamma scene and a linear scene show the same pictu
     CHECK(g.render(gamma.w).pixel(160, 90).r < 0.01f);
 }
 
-TEST_CASE("environment map: the environment is baked when the map, the rotation or the intensity change, and only then") {
+TEST_CASE(
+    "environment map: the environment is baked when the map, the rotation or the intensity change, and only then") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!supported(g)) {
@@ -422,7 +424,8 @@ TEST_CASE("environment map: a file that cannot be used is one error, and the sce
     }
 }
 
-TEST_CASE("environment map: a sun at the largest value times a big intensity is never infinity, in the background or in the mirror") {
+TEST_CASE("environment map: a sun at the largest value times a big intensity is never infinity, in the background or "
+          "in the mirror") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!supported(g)) {
@@ -481,7 +484,8 @@ TEST_CASE("environment map: the same picture bakes to the same lighting every ti
     CHECK(diff_images(first, other, 0.0f).maxError > 0.0);
 }
 
-TEST_CASE("environment map: the sky material draws the background, the picture lights, and the map lights over the sky") {
+TEST_CASE(
+    "environment map: the sky material draws the background, the picture lights, and the map lights over the sky") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!supported(g)) {
@@ -524,7 +528,7 @@ TEST_CASE("environment map: the pictures: two spheres lit by a picture with a su
     write_file("assets/hdri_spheres.hdr", sky_sun());
     EnvScene s;
     s.w.get<Transform>(s.cam)->position = {0, 0.3f, 0};
-    s.mesh({-1.4f, 0, -4}, 2.2f, 1.0f, 0.1f);                           // a mirror: shows the picture
+    s.mesh({-1.4f, 0, -4}, 2.2f, 1.0f, 0.1f);                             // a mirror: shows the picture
     s.mesh({1.4f, 0, -4}, 2.2f, 0.0f, 0.8f, Color{0.9f, 0.9f, 0.9f, 1});  // rough white: the irradiance
     s.w.settings().environmentMap = "assets/hdri_spheres.hdr";
     s.w.settings().environmentRotation = 20.0f;

@@ -139,6 +139,12 @@ struct RenderStats {
         0;  // entries left out because a cluster already had 128 lights or the view 524288 entries: a hint to lower the ranges
     int lightMaxPerCluster =
         0;  // the longest list of a cluster (the most lights any one fragment loops over, besides the directional ones)
+    // Projected decals (M73.5b), summed over the views of the frame.
+    int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
+    int decalsDropped =
+        0;  // Decals in view that were left out: over the 256 of the view, or their albedo texture could not be used
+    int decalClusterClipped =
+        0;  // decal-list entries lost to the 32 decals per cluster or the 131072 entries per view: 0 is normal
     int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =

@@ -2,6 +2,7 @@
 // choice of the lights that fit the shader.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -33,11 +34,20 @@ struct MeshItem {
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // model-space bounds used for culling (the mesh's, or the skinned ones)
     bool visible = true;                // inside the camera frustum: drawn in the main pass
     bool casts = false;                 // inside a shadow map's frustum and castShadows: drawn in the shadow pass
-    std::uint32_t castMask = 1;  // with `casts`: bit c = drawn into cascade c of the sun's shadow (1 = the first only)
-    std::uint64_t sortKey = 0;   // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
-    bool keyed = false;          // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
-    bool noCull = false;  // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    std::uint64_t castMask =
+        1;  // with `casts`: bit v = drawn into shadow view v (a cascade of the sun, a face of a local light)
+    std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
+    bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
+    bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
+    LightmapUse lm;
 };
+
+// What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
+// 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
+inline int decal_recv(const MeshRenderer& mr) {
+    return mr.receiveDecals ? std::clamp<int>(mr.decalLayer, 0, 15) + 1 : 0;
+}
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
 struct SortFields {
@@ -50,9 +60,12 @@ struct SortFields {
     const MaterialAsset* material = nullptr;
     std::size_t paramsHash = 0, colorsHash = 0;
     Color flash{0, 0, 0, 0};
+    bool lightmapped =
+        false;  // a batch of its own, like a skinned one: its entity is part of what the batches differ by
 };
 inline SortFields fields_of(const MeshItem& m) {
-    return {m.mesh, m.tex, m.normalTex, m.mr, m.entity, m.anim, m.material, m.paramsHash, m.colorsHash, m.flash};
+    return {m.mesh,       m.tex,   m.normalTex,         m.mr, m.entity, m.anim, m.material, m.paramsHash,
+            m.colorsHash, m.flash, m.lm.mesh != nullptr};
 }
 
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
@@ -104,6 +117,7 @@ private:
         // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior
         std::array<float, 20> shading;
         bool unlit = false, receiveShadows = true;
+        int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
         std::string_view material;      // by name
@@ -140,28 +154,34 @@ bool box_in_frustum(const Mat4& viewProj, bool zeroToOne, Vec3 bmin, Vec3 bmax, 
 void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3& outMin, Vec3& outMax);
 
 // A run of items drawn with one instanced draw per mesh part. The model matrices of the visible items sit at
-// mainMats[mainFirst .. +mainCount), those of the shadow casters at shadowMats[shadowFirst .. +shadowCount).
-// The most cascades of the sun's shadow a batch lists (render's kMaxShadowCascades, shadow_cascades.h).
-constexpr int kMaxBatchCascades = 4;
+// mainMats[mainFirst .. +mainCount).
+// The most shadow views of a frame: the cascades of the sun, then the tile of each shadowed spot light and the six faces of each
+// shadowed point light (shadow_cascades.h, local_shadows.h). A view is one tile of the shadow atlas drawn with one matrix.
+constexpr int kMaxShadowViews = 64;
+
+// The casters of one shadow view inside a batch: shadowMats[first .. +count), and the per-instance params of the same run at
+// shadowData[extra ..) (a material with "instanced" params).
+struct ShadowRun {
+    std::uint32_t view = 0, first = 0, count = 0, extra = 0;
+};
 
 struct MeshBatch {
     std::size_t rep = 0;  // index in `items` of the first item (stands for the material of the whole batch)
-    std::uint32_t mainFirst = 0, mainCount = 0, shadowFirst = 0, shadowCount = 0;
-    // The casters of each cascade of the sun's shadow: shadowMats[cascadeFirst[c] .. +cascadeCount[c]) (the casters whose castMask has
-    // bit c), and the per-instance params of the same run at shadowData[cascadeExtra[c] ..). shadowFirst, shadowCount and shadowExtra
-    // are those of cascade 0, the only one when there is one shadow map.
-    std::uint32_t cascadeFirst[kMaxBatchCascades] = {}, cascadeCount[kMaxBatchCascades] = {},
-                  cascadeExtra[kMaxBatchCascades] = {};
+    std::uint32_t mainFirst = 0, mainCount = 0;
+    // The shadow runs of the batch, one per view that holds a caster of it, in ascending view order: runs[runFirst .. +runCount) of the
+    // vector build_batches filled (the one the caller passed).
+    std::uint32_t runFirst = 0, runCount = 0;
     // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each
-    // instance, at mainData[mainExtra ..) (floats) for the visible items and shadowData[shadowExtra ..) for the
-    // casters, in the order of the matrices. instanceVec4 is 0 for a batch without them.
-    std::uint32_t instanceVec4 = 0, mainExtra = 0, shadowExtra = 0;
+    // instance, at mainData[mainExtra ..) (floats) for the visible items; the casters' are ShadowRun::extra. instanceVec4 is 0
+    // for a batch without them.
+    std::uint32_t instanceVec4 = 0, mainExtra = 0;
 };
 
 // Groups `items` (sorted in place by material when `sortByMaterial`, otherwise kept in order and only neighbours merge:
 // blended meshes stay far-to-near).
+// The casters (`casts`, one run per bit of castMask) go to shadowMats and, as ShadowRun entries in `runs` (null = not kept), per batch.
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, int cascades = 1);
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runs = nullptr);
 
 // The packed per-instance params (pack_instance_params) of each entity, kept between frames: 10 000 instances of one
 // material must not run the param lookup 10 000 times per frame and camera. An entry is valid while the material is the
@@ -202,12 +222,13 @@ private:
 
 // Packs the per-instance params of every batch whose material has instanced ones (MaterialAsset::instanceVec4, built):
 // appends to `mainData` and `shadowData` the floats of each visible / casting item, in the order build_batches put the
-// matrices, and sets the batch's instanceVec4, mainExtra and shadowExtra. Entities with different values share the
+// matrices, and sets the batch's instanceVec4 and mainExtra (and the extra of its shadow runs). Entities with different values share the
 // batch: the values are not part of the batch key (MaterialHashCache::refresh). Batches of other materials are left
-// alone. `cache` (null = none) keeps the packed values of each entity between frames.
+// alone. `cache` (null = none) keeps the packed values of each entity between frames. `runs` is the vector build_batches filled: each
+// run of a batch gets its `extra`.
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
                           std::vector<float>& mainData, std::vector<float>& shadowData,
-                          InstanceParamCache* cache = nullptr, int cascades = 1);
+                          InstanceParamCache* cache = nullptr, std::vector<ShadowRun>* runs = nullptr);
 
 // The directional lights of a view: every cluster loops over all of them, so there are at most this many (the shader's light table
 // keeps them first).
@@ -220,6 +241,18 @@ struct LightData {
     // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
     // outer quarter of the cone (shaders/light_data.glsl).
     float cosInner = 2.0f;
+    // The shadow of a point or spot light (Light.castShadows and the fields after it, collect_lights); the sun's are SunShadow.
+    struct LocalShadow {
+        bool casts = false;
+        int resolution = 0;  // Light.shadowResolution: texels per side of a tile (0 = from the distance to the camera)
+        float bias = 0, normalBias = 0;  // Light.shadowBias / shadowNormalBias in metres (0 = automatic)
+        float softness = 1;              // Light.shadowSoftness
+        float distance = 0;              // metres from the camera past which the shadow fades out (0 = no limit)
+        int filter = 0;                  // 0 pcf, 1 hard, 2 pcss (Light.shadowFilter)
+        float spotAngle = 0;             // a spot's cone half angle in degrees (0 for a point light)
+    } shadow;
+    bool baked =
+        false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

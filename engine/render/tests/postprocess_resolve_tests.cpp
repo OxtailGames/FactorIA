@@ -679,9 +679,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",     "lightCookies",     "iesProfiles", "pointShadows", "spotShadows",
-                                "contactShadows", "reflectionProbes", "lightmaps",   "lightProbes",  "volumetricFog",
-                                "decals",         "subsurface",       "realtimeGI",  "transmission"};
+    const char* const rows[] = {"areaLights",  "lightCookies",  "iesProfiles", "contactShadows", "reflectionProbes",
+                                "lightProbes", "volumetricFog", "subsurface",  "realtimeGI",     "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -691,6 +690,15 @@ TEST_CASE(
         CHECK(why == "planned (M73)");
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
     }
+    // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
+    CHECK(find_feature("decals") >= 0);
+    CHECK(supported(full, "decals"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "decals"));
+    CHECK(feature_table()[std::size_t(find_feature("decals"))].kind == FeatureKind::Engine);
+    // M73.4a: the lightmaps are drawn; the row needs nothing of the GPU.
+    REQUIRE(find_feature("lightmaps") >= 0);
+    CHECK(supported(full, "lightmaps"));
+    CHECK(feature_table()[std::size_t(find_feature("lightmaps"))].kind == FeatureKind::Engine);
     // The physical sky is drawn (M73-P3d): it needs RGBA16F targets for its tables and says so when they are missing.
     {
         std::string why;
@@ -720,11 +728,15 @@ TEST_CASE(
     CHECK(supported(full, "float32Targets", &why));
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
     CHECK(why.find("R32F") != std::string::npos);
-    // cascadedShadows (M73.2a) is drawn: it needs float32Targets and nothing else, so it says what is missing, never "planned".
-    CHECK(supported(full, "cascadedShadows", &why));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "cascadedShadows", &why));
-    CHECK(why.find("R32F") != std::string::npos);
-    CHECK(why.find("planned") == std::string::npos);
+    // cascadedShadows (M73.2a), pointShadows and spotShadows (M73.2b) are drawn: they need float32Targets and nothing else, so they
+    // say what is missing, never "planned".
+    for (const char* n : {"cascadedShadows", "pointShadows", "spotShadows"}) {
+        CAPTURE(n);
+        CHECK(supported(full, n, &why));
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), n, &why));
+        CHECK(why.find("R32F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
 }
 
 TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {
