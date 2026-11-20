@@ -543,3 +543,18 @@ TEST_CASE("environment map: the pictures: two spheres lit by a picture with a su
     CHECK(up.b > up.r);
     CHECK(down.r > down.b);
 }
+
+TEST_CASE("hdr pages: the budget of a page is its manifest size, so a legal 8192 x 8192 lightmap page is not refused") {
+    // What assets.cpp passes to decode_hdr for a lightmap page (or a probe page): image_float_bytes of the manifest's size.
+    const auto page =
+        hdr_header(8192, 8192);  // kLightmapMaxPageSize squared: 805 MB of floats, under kMaxImageFloatBytes
+    const auto own = hdr_info(page.data(), page.size(), image_float_bytes(8192, 8192, 3));
+    CHECK(own.ok());
+    // The budget of an environment map (hdri_decode_pixel_budget x 12 bytes) would refuse it, naming size and limit.
+    const auto env = hdr_info(page.data(), page.size(), hdri_decode_pixel_budget() * 12u);
+    REQUIRE_FALSE(env.ok());
+    CHECK(env.error().message.find("8192 x 8192") != std::string::npos);
+    CHECK(env.error().message.find("MB") != std::string::npos);
+    // A page larger than the manifest says is still refused.
+    CHECK_FALSE(hdr_info(page.data(), page.size(), image_float_bytes(4096, 4096, 3)).ok());
+}

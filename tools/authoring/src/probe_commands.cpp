@@ -111,9 +111,17 @@ void register_probe_commands(Engine& engine, Engine::Impl& impl) {
          "materials, lights, shadows). "
          "The probe's own entity is not special: hide what must not appear with hideTags. Writes: the page, then the "
          "manifest (a file another program holds open cannot be replaced on "
-         "Windows: close it, or use another `path`). docs/design/ARCHITECTURE_PROBES.md, \"Baked probes\"."},
+         "Windows: close it, or use another `path`). Refused with game_running while the editor's game runs (Stop "
+         "would throw "
+         "the bakedMap away). docs/design/ARCHITECTURE_PROBES.md, \"Baked probes\"."},
         [&I](const Json& a) {
             check_args_known(a, {"entity", "path", "apply"}, "probe.bake");
+            // The editor's Play runs in this world: bakedMap would be set on the play copy and thrown away at Stop (the lightmap
+            // commands refuse the same way).
+            if (I.playWorld)
+                throw CommandError(
+                    "game_running", "probe.bake: the game is running in the editor.",
+                    "Stop the game (Play > Stop, F5), then bake: the probe's bakedMap is set on the scene.");
             if (a.contains("apply") && !a["apply"].is_null() && !a["apply"].is_boolean())
                 throw CommandError(
                     "invalid_argument", "/apply: must be true or false.",

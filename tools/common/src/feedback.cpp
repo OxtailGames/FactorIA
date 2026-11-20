@@ -1322,6 +1322,9 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                     msg += " This is not an " + std::string(kFeedbackFileName) +
                            "; pass a project directory or that file.";
                 errors.push_back(msg);
+            } else {
+                notes.push_back(f + ": skipped, it is not called " + std::string(kFeedbackFileName) +
+                                " and has no \"entries\" array.");
             }
             continue;
         }
