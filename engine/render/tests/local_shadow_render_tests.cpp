@@ -131,7 +131,8 @@ TEST_CASE("local shadows: hard, PCF and PCSS filters differ, and the shadow dist
     CHECK(differing(faded, plain, 0, faded.height, 0.0f) == 0);
 }
 
-TEST_CASE("local shadows: a light with no caster in its range, or a scene with no local caster, is drawn exactly as before") {
+TEST_CASE(
+    "local shadows: a light with no caster in its range, or a scene with no local caster, is drawn exactly as before") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("pointShadows")) return;

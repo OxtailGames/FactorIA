@@ -23,7 +23,9 @@ int cube_face_of(Vec3 d) {
     return d.z > 0.0f ? 4 : 5;
 }
 
-bool local_light_is_cube(const LocalShadowInput& in) { return in.spotAngle <= 0.0f || in.spotAngle > kMaxSpotTileAngle; }
+bool local_light_is_cube(const LocalShadowInput& in) {
+    return in.spotAngle <= 0.0f || in.spotAngle > kMaxSpotTileAngle;
+}
 
 float local_shadow_importance(float brightness, float range, float distanceToCamera) {
     const float r2 = std::max(range * range, 1e-6f);
@@ -124,7 +126,8 @@ void spot_tile_basis(Vec3 axis, Vec3& forward, Vec3& up) {
     up = std::fabs(forward.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
 }
 
-LocalTileFit fit_local_tile(Vec3 position, Vec3 forward, Vec3 up, float tanHalf, int tile, float range, bool zeroToOne) {
+LocalTileFit fit_local_tile(Vec3 position, Vec3 forward, Vec3 up, float tanHalf, int tile, float range,
+                            bool zeroToOne) {
     LocalTileFit out;
     const float half = 0.5f * float(std::max(tile, 4 * kLocalShadowGuard));
     const float guard = float(std::min(kLocalShadowGuard, std::max(tile, 4) / 4));

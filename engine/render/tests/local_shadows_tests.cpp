@@ -28,7 +28,8 @@ bool overlaps(const ShadowTile& a, const ShadowTile& b) {
            b.y < a.y + a.size;
 }
 bool same_plan(const LocalShadowPlan& a, const LocalShadowPlan& b) {
-    if (a.lights.size() != b.lights.size() || a.lost != b.lost || a.atlas.tiles.size() != b.atlas.tiles.size()) return false;
+    if (a.lights.size() != b.lights.size() || a.lost != b.lost || a.atlas.tiles.size() != b.atlas.tiles.size())
+        return false;
     for (std::size_t i = 0; i < a.atlas.tiles.size(); ++i)
         if (a.atlas.tiles[i].x != b.atlas.tiles[i].x || a.atlas.tiles[i].y != b.atlas.tiles[i].y ||
             a.atlas.tiles[i].size != b.atlas.tiles[i].size)
@@ -39,7 +40,8 @@ bool same_plan(const LocalShadowPlan& a, const LocalShadowPlan& b) {
 }
 }  // namespace
 
-TEST_CASE("local shadows: the face of a direction is the axis of its largest component, and its tile holds the direction") {
+TEST_CASE(
+    "local shadows: the face of a direction is the axis of its largest component, and its tile holds the direction") {
     CHECK(cube_face_of({1, 0, 0}) == 0);
     CHECK(cube_face_of({-1, 0.5f, 0.2f}) == 1);
     CHECK(cube_face_of({0.1f, 2, -1}) == 2);
@@ -111,7 +113,8 @@ TEST_CASE("local shadows: a tile's depth is metres along its axis, and a texel i
     CHECK(tiny.nearPlane < tiny.farPlane);
 }
 
-TEST_CASE("local shadows: the sample matrix takes a world position to its texel of the atlas, for GL and for the other backends") {
+TEST_CASE("local shadows: the sample matrix takes a world position to its texel of the atlas, for GL and for the other "
+          "backends") {
     const Vec3 pos{0, 0, 0};
     const LocalTileFit fit = fit_local_tile(pos, {0, 0, -1}, {0, 1, 0}, 1.0f, 256, 20.0f, true);
     ShadowTile tile;
@@ -187,7 +190,8 @@ TEST_CASE("local shadows: with room everything is placed, a point light takes si
     CHECK(plan.atlas.tiles[0].size == 1024);
     CHECK(plan.atlas.tiles[1].size == 1024);
     for (std::size_t a = 0; a < plan.atlas.tiles.size(); ++a)
-        for (std::size_t b = a + 1; b < plan.atlas.tiles.size(); ++b) CHECK_FALSE(overlaps(plan.atlas.tiles[a], plan.atlas.tiles[b]));
+        for (std::size_t b = a + 1; b < plan.atlas.tiles.size(); ++b)
+            CHECK_FALSE(overlaps(plan.atlas.tiles[a], plan.atlas.tiles[b]));
     // No local light: exactly the layout of the sun alone.
     const LocalShadowPlan alone = plan_local_shadows(4096, sun, {}, {0, 0, 5});
     const ShadowAtlasLayout expect = layout_shadow_atlas(4096, sun);
@@ -200,7 +204,8 @@ TEST_CASE("local shadows: with room everything is placed, a point light takes si
     CHECK(alone.atlas.width == expect.width);
 }
 
-TEST_CASE("local shadows: a full atlas shrinks the maps, then drops the least important light whole, the same every time") {
+TEST_CASE(
+    "local shadows: a full atlas shrinks the maps, then drops the least important light whole, the same every time") {
     // Twelve spot lights of 512 texels (a 4x3 of tiles of a 2048 atlas would hold sixteen of 512): an atlas of 1024 holds four.
     std::vector<LocalShadowInput> in;
     for (int i = 0; i < 12; ++i) in.push_back(input(i, {float(i), 0, 0}, 10, 30, 1, 512));
@@ -284,7 +289,7 @@ TEST_CASE("local shadows: the shadow region is one index texel per light and a r
     CHECK(at(0, 0) == -1.0f);
     CHECK(at(2, 0) == -1.0f);
     CHECK(at(4, 0) == -1.0f);
-    CHECK(at(1, 0) == float(base + lights));      // the index texels hold the texel of the record: the spot's follows them
+    CHECK(at(1, 0) == float(base + lights));  // the index texels hold the texel of the record: the spot's follows them
     CHECK(at(3, 0) == float(base + lights + 8));  // then the cube's
     const std::size_t s = std::size_t(lights);
     CHECK(at(s, 0) == 1.0f);
@@ -304,7 +309,8 @@ TEST_CASE("local shadows: the shadow region is one index texel per light and a r
     CHECK(at(s + 8, 0) == 2.0f);  // the cube's header
 }
 
-TEST_CASE("local shadows: with no records the light texture is the one it was before, with them the region follows the lists") {
+TEST_CASE("local shadows: with no records the light texture is the one it was before, with them the region follows the "
+          "lists") {
     ClusterCamera cam;
     cam.widthPx = 320;
     cam.heightPx = 180;
@@ -331,6 +337,7 @@ TEST_CASE("local shadows: with no records the light texture is the one it was be
     pack_light_texture(table, 1, cam, nullptr, with, &records);
     CHECK(with.shadowBase == static_cast<long long>(none.usedTexels));
     CHECK(with.usedTexels == none.usedTexels + local_shadow_region_texels(2, records));
-    CHECK(with.texels[std::size_t(with.shadowBase) * 4] == -1.0f);        // the sun has no record
-    CHECK(with.texels[(std::size_t(with.shadowBase) + 1) * 4] == float(with.shadowBase + 2));  // the lamp's is after the two index texels
+    CHECK(with.texels[std::size_t(with.shadowBase) * 4] == -1.0f);  // the sun has no record
+    CHECK(with.texels[(std::size_t(with.shadowBase) + 1) * 4] ==
+          float(with.shadowBase + 2));  // the lamp's is after the two index texels
 }
