@@ -53,7 +53,7 @@ struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao };
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)

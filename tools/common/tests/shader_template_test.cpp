@@ -185,11 +185,11 @@ TEST_CASE("shader template: the full-shader template's uniform block is that of 
     CHECK(mesh.find("@include_block fa_light_data") != std::string::npos);
     CHECK(full.find("@include_block fa_light_data") != std::string::npos);
     CHECK(includes_in_order(full, "@include_block fa_types", "@include_block fa_light_data"));
-    // The shadow lookup too: one fa_shadow_pcf, used by both.
+    // The shadow lookup too: one fa_shadow_sun, used by both.
     const std::string shadow = read("shadow_common.glsl");
-    CHECK(shadow.find("float fa_shadow_pcf(") != std::string::npos);
-    CHECK(mesh.find("float fa_shadow_pcf(") == std::string::npos);
-    CHECK(full.find("float fa_shadow_pcf(") == std::string::npos);
+    CHECK(shadow.find("float fa_shadow_sun(") != std::string::npos);
+    CHECK(mesh.find("float fa_shadow_sun(") == std::string::npos);
+    CHECK(full.find("float fa_shadow_sun(") == std::string::npos);
     CHECK(full.find("@include_block fa_shadow_common") != std::string::npos);
     CHECK(mesh.find("@include_block fa_shadow_common") != std::string::npos);
 }

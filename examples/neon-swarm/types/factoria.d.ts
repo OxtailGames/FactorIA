@@ -7606,7 +7606,7 @@ declare module "factoria" {
     subsurface: number;
   }
   /**
-   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; innerAngle is drawn, the others have no effect yet (docs/rendering/RENDERING_LIGHTING.md).
+   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
    * 
    * Category: 3D
    */
@@ -7633,7 +7633,7 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only directional lights cast shadows today; the shadows of point and spot lights come with M73.2.
+     * Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b.
      */
     castShadows: boolean;
     /**
@@ -7663,32 +7663,32 @@ declare module "factoria" {
      */
     ies: string;
     /**
-     * Texels per side of this light's shadow map, 0..4096 (a value under 128 is raised to 128, a power of two is used). 0 (default) = the engine picks from the light's distance to the camera. No effect yet: M73.2 brings it.
+     * Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128.
      * @since unreleased
      */
     shadowResolution: number;
     /**
-     * Depth offset of the shadow test, 0..1, against shadow acne. 0 (default) = the engine's own bias. No effect yet: M73.2 brings it.
+     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowBias: number;
     /**
-     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own. No effect yet: M73.2 brings it.
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map.
      * @since unreleased
      */
     shadowNormalBias: number;
     /**
-     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. No effect yet: M73.2 brings it.
+     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness.
      * @since unreleased
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
-     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual). No effect yet: M73.2 brings it.
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
      * @since unreleased
      */
     shadowSoftness: number;
     /**
-     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, this light draws shadows. 0 (default) = the scene's SceneSettings.shadowDistance.
      * @since unreleased
      */
     shadowDistance: number;
@@ -11501,27 +11501,27 @@ declare module "factoria" {
      */
     skyMaterialParams: any;
     /**
-     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. 1 (default) = a single map, as today. No effect yet: M73.2 brings it (docs/rendering/RENDERING_LIGHTING.md).
+     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).
      * @since unreleased
      */
     shadowCascades: number;
     /**
-     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. No effect yet: M73.2 brings it.
+     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between.
      * @since unreleased
      */
     shadowCascadeSplit: number;
     /**
-     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. No effect yet: M73.2 brings it.
+     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.
      * @since unreleased
      */
     shadowCascadeBlend: number;
     /**
-     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view. A light's own shadowDistance overrides it. No effect yet: M73.2 brings it.
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
      * @since unreleased
      */
     shadowDistance: number;
     /**
-     * Texels per side of the shadow atlas that holds every shadow map, 512..8192 (4096 default). A bigger atlas costs memory (4096 x 4096 x 4 bytes = 64 MB). No effect yet: M73.2 brings it.
+     * The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame.
      * @since unreleased
      */
     shadowAtlasSize: number;

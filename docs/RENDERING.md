@@ -516,7 +516,7 @@ orthographic 3D camera.
   reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
   depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
   mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
-  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals` or `ao` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `"cascades"` tints the lit meshes by the cascade of the sun's shadow that covers them (see [Lighting](rendering/RENDERING_LIGHTING.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals`, `ao` or `cascades` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
   It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
   argument for it: set the view, step a frame, take the shot.
 - **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;
