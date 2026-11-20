@@ -261,8 +261,8 @@ Result<void> validate_impl(const BakeScene& scene, const BakeSettings& st, bool 
                               "use 0..1 channels, or more for a bright light");
         if (!std::isfinite(l.intensity) || l.intensity < 0)
             return make_error(where + "intensity must be finite and not negative", "use 0 to switch the light off");
-        if (!finite3(l.position) || !finite3(l.direction))
-            return make_error(where + "position and direction must be finite", "remove the NaN or infinite value");
+        if (!finite3(l.position) || !finite3(l.direction) || !finite3(l.up))
+            return make_error(where + "position, direction and up must be finite", "remove the NaN or infinite value");
         const bool needsDir = l.kind != BakeLightKind::Point;
         if (needsDir && length_sq(l.direction) < 1e-12f)
             return make_error(
@@ -285,8 +285,12 @@ Result<void> validate_impl(const BakeScene& scene, const BakeSettings& st, bool 
                 return make_error(where + "spotInnerDeg must be 0 (automatic) or between 0 and spotAngleDeg",
                                   "the inner cone is inside the outer one");
         }
-        if (!(l.softRadius >= 0) || !(l.softAngleDeg >= 0 && l.softAngleDeg <= 45))
-            return make_error(where + "softRadius must be >= 0 and softAngleDeg 0..45", "0 gives hard shadows");
+        if (!std::isfinite(l.softRadius) || !(l.softRadius >= 0) || !(l.softAngleDeg >= 0 && l.softAngleDeg <= 45))
+            return make_error(where + "softRadius must be finite and >= 0, and softAngleDeg 0..45",
+                              "0 gives hard shadows");
+        if (!std::isfinite(l.width) || !std::isfinite(l.height))
+            return make_error(where + "width and height must be finite numbers",
+                              "they are the size of an area light in meters");
         if (l.kind == BakeLightKind::Area && !(l.width > 0 && l.height > 0))
             return make_error(where + "an area light needs width and height above 0", "its size in meters");
     }
@@ -295,6 +299,9 @@ Result<void> validate_impl(const BakeScene& scene, const BakeSettings& st, bool 
         sky.intensity < 0)
         return make_error("sky colors and intensity must be finite and not negative (/sky)", "use 0 for no sky light");
     const BakeEquirect& img = sky.image;
+    if (!std::isfinite(img.rotationDeg))
+        return make_error("sky image rotation (/sky/image/rotationDeg) is not a finite number",
+                          "it is an angle in degrees, e.g. 0");
     if (img.width > 0 || img.height > 0 || !img.rgb.empty()) {
         if (img.width < 1 || img.height < 1 ||
             sat_mul(sat_mul(std::uint64_t(std::max(img.width, 0)), std::uint64_t(std::max(img.height, 0))), 3) !=
@@ -327,6 +334,15 @@ struct LightRt {
     float width = 1, height = 1;
 };
 
+bool cancel_requested() {
+    const std::atomic<bool>* flag = command_cancel_flag();
+    return flag != nullptr && flag->load(std::memory_order_relaxed);
+}
+
+Error cancelled_error() {
+    return make_error("cancelled", "the bake was cancelled before it finished; nothing was returned");
+}
+
 struct Prepared {
     std::vector<Vec3> corners;   // three per triangle, every mesh in order
     std::vector<Vec3> cornerN;   // shading normals, three per triangle (the face normal for flat meshes)
@@ -342,7 +358,7 @@ struct Prepared {
     float eps = 1e-3f;
 };
 
-Prepared prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
+Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
     Prepared p;
     p.materials = scene.materials;
     if (p.materials.empty()) p.materials.push_back(BakeMaterial{});
@@ -358,6 +374,7 @@ Prepared prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
     std::vector<Vec3> casterCorners;
     Vec3 lo{kFar, kFar, kFar}, hi{-kFar, -kFar, -kFar};
     for (const BakeMesh& m : scene.meshes) {
+        if (cancel_requested()) return cancelled_error();
         const bool smooth = !m.normals.empty();
         const bool baked = !probes && m.atlas >= 0;
         for (const Vec3& v : m.positions) {
@@ -399,7 +416,7 @@ Prepared prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
             }
         }
     }
-    p.bvh.build(casterCorners.data(), p.casterGlobal.size());
+    if (!p.bvh.build(casterCorners.data(), p.casterGlobal.size(), command_cancel_flag())) return cancelled_error();
     float diag = lo.x > hi.x ? 1.0f : length(hi - lo);
     if (!(diag > 1e-6f)) diag = 1.0f;
     p.eps = st.rayEpsilon > 0 ? st.rayEpsilon : diag * 1e-4f;
@@ -431,6 +448,11 @@ Prepared prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
             const Basis bs = basis_of(r.dir);
             r.right = bs.t;
             r.up = bs.b;
+            const Vec3 flat = l.up - r.dir * dot(l.up, r.dir);  // the asked up, made perpendicular to the direction
+            if (length_sq(flat) > 1e-10f) {
+                r.up = normalize(flat);
+                r.right = cross(r.dir, r.up);
+            }
         }
         p.lights.push_back(r);
     }
@@ -602,16 +624,35 @@ private:
 
 // ---- batches: progress, cancel ------------------------------------------------------------------------------------------------------
 
-Error cancelled_error() {
-    return make_error("cancelled", "the bake was cancelled before it finished; nothing was returned");
-}
-
 // Runs fn(i, rays) for i in [0, count) on the job pool, in batches: after each batch the calling thread reports progress and looks at the
 // cancel flag. The batch and chunk sizes depend only on `count` and `grain`, and fn writes only slot i, so the threads change nothing.
+// Where run_batches reports to besides the command progress: the callback of the caller and what phase, atlas and rays so far to name.
+struct Reporter {
+    const BakeProgressFn* fn = nullptr;
+    BakePhase phase = BakePhase::Trace;
+    int atlas = 0, atlasCount = 0;
+    std::uint64_t raysBefore = 0;
+};
+
+void report_phase(const Reporter& rep, BakePhase phase, int atlas, int atlasCount, std::uint64_t done,
+                  std::uint64_t total, std::uint64_t rays) {
+    if (rep.fn == nullptr || !*rep.fn) return;
+    BakeProgress pr;
+    pr.phase = phase;
+    pr.atlas = atlas;
+    pr.atlasCount = atlasCount;
+    pr.done = done;
+    pr.total = total;
+    pr.rays = rays;
+    (*rep.fn)(pr);
+}
+
 template <class Fn>
-Result<std::uint64_t> run_batches(const std::string& label, std::size_t count, std::size_t grain, Fn&& fn) {
+Result<std::uint64_t> run_batches(const std::string& label, std::size_t count, std::size_t grain, Fn&& fn,
+                                  const Reporter& rep = {}) {
+    // The flag is per thread: read it once here, on the calling thread, and share the pointer with the pool's chunks.
     const std::atomic<bool>* flag = command_cancel_flag();
-    auto is_cancelled = [&] { return flag != nullptr && flag->load(std::memory_order_relaxed); };
+    auto is_cancelled = [flag] { return flag != nullptr && flag->load(std::memory_order_relaxed); };
     if (is_cancelled()) return cancelled_error();
     const std::size_t batch = std::max<std::size_t>(256, (count + 39) / 40);
     std::uint64_t rays = 0;
@@ -631,6 +672,7 @@ Result<std::uint64_t> run_batches(const std::string& label, std::size_t count, s
         const std::size_t done = b0 + n;
         report_command_progress(label + ", texels " + std::to_string(done) + "/" + std::to_string(count) + " (" +
                                 std::to_string(done * 100 / count) + "%)");
+        report_phase(rep, rep.phase, rep.atlas, rep.atlasCount, done, count, rep.raysBefore + rays);
     }
     return rays;
 }
@@ -645,7 +687,7 @@ struct TexelMap {
     std::uint32_t overlapped = 0;
 };
 
-TexelMap rasterize_atlas(const Prepared& p, int atlas, const BakeAtlas& size) {
+Result<TexelMap> rasterize_atlas(const Prepared& p, int atlas, const BakeAtlas& size) {
     TexelMap m;
     m.width = size.width;
     m.height = size.height;
@@ -655,6 +697,7 @@ TexelMap rasterize_atlas(const Prepared& p, int atlas, const BakeAtlas& size) {
     m.b2.assign(n, 0.0f);
     const float W = float(m.width), H = float(m.height);
     for (std::size_t g = 0; g < p.faceN.size(); ++g) {
+        if ((g & 255) == 0 && cancel_requested()) return cancelled_error();
         if (p.atlas[g] != atlas || length_sq(p.faceN[g]) < 0.5f) continue;
         const Vec2 a{p.cornerUv[3 * g].x * W, p.cornerUv[3 * g].y * H},
             b{p.cornerUv[3 * g + 1].x * W, p.cornerUv[3 * g + 1].y * H},
@@ -685,6 +728,7 @@ TexelMap rasterize_atlas(const Prepared& p, int atlas, const BakeAtlas& size) {
     }
     for (std::size_t i = 0; i < n; ++i)
         if (m.tri[i] >= 0) m.work.push_back(std::uint32_t(i));
+    if (cancel_requested()) return cancelled_error();
     return m;
 }
 
@@ -694,7 +738,8 @@ TexelMap rasterize_atlas(const Prepared& p, int atlas, const BakeAtlas& size) {
 // lies on the same plane (in texel spacings), and by how close their light is (relative to the light). Reads `in`, writes `out`.
 Result<void> denoise_atlas(const std::string& label, int width, int height, int radius, float sigmaC,
                            const std::vector<std::uint8_t>& mask, const std::vector<Vec3>& pos,
-                           const std::vector<Vec3>& nrm, const std::vector<float>& in, std::vector<float>& out) {
+                           const std::vector<Vec3>& nrm, const std::vector<float>& in, std::vector<float>& out,
+                           const Reporter& rep) {
     out = in;
     const float sigmaS = std::max(0.5f, float(radius) * 0.5f);
     std::vector<float> spatial;
@@ -702,51 +747,55 @@ Result<void> denoise_atlas(const std::string& label, int width, int height, int 
         for (int dx = -radius; dx <= radius; ++dx)
             spatial.push_back(det::exp(-float(dx * dx + dy * dy) / (2.0f * sigmaS * sigmaS)));
     const int side = 2 * radius + 1;
-    auto r = run_batches(label, std::size_t(width) * std::size_t(height), 256, [&](std::size_t i, std::uint64_t&) {
-        if (mask[i] != kBakeBaked) return;
-        const int x = int(i % std::size_t(width)), y = int(i / std::size_t(width));
-        auto valid = [&](int xx, int yy) {
-            return xx >= 0 && yy >= 0 && xx < width && yy < height &&
-                   mask[std::size_t(yy) * std::size_t(width) + std::size_t(xx)] == kBakeBaked;
-        };
-        // the spacing of the texels here, in meters: the nearest valid 4-neighbour
-        float spacing = kFar;
-        const int off[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-        for (const auto& o : off)
-            if (valid(x + o[0], y + o[1]))
-                spacing = std::min(
-                    spacing, length(pos[std::size_t(y + o[1]) * std::size_t(width) + std::size_t(x + o[0])] - pos[i]));
-        if (spacing >= kFar || spacing < 1e-9f) return;
-        const Vec3 c{in[3 * i], in[3 * i + 1], in[3 * i + 2]};
-        const float lc = luminance(c);
-        const float sc = sigmaC * lc + 0.01f;
-        Vec3 sum{};
-        float wTotal = 0;
-        for (int dy = -radius; dy <= radius; ++dy) {
-            for (int dx = -radius; dx <= radius; ++dx) {
-                if (!valid(x + dx, y + dy)) continue;
-                const std::size_t j = std::size_t(y + dy) * std::size_t(width) + std::size_t(x + dx);
-                const float nd = std::max(0.0f, dot(nrm[i], nrm[j]));
-                float wn = nd * nd;
-                wn *= wn;
-                wn *= wn;
-                const float plane = std::fabs(dot(nrm[i], pos[j] - pos[i])) / spacing;
-                const float wp = det::exp(-2.0f * plane * plane);
-                const Vec3 cj{in[3 * j], in[3 * j + 1], in[3 * j + 2]};
-                const float dl = luminance(cj) - lc;
-                const float wc = det::exp(-(dl * dl) / (2.0f * sc * sc));
-                const float w =
-                    spatial[std::size_t(dy + radius) * std::size_t(side) + std::size_t(dx + radius)] * wn * wp * wc;
-                sum += cj * w;
-                wTotal += w;
+    auto r = run_batches(
+        label, std::size_t(width) * std::size_t(height), 256,
+        [&](std::size_t i, std::uint64_t&) {
+            if (mask[i] != kBakeBaked) return;
+            const int x = int(i % std::size_t(width)), y = int(i / std::size_t(width));
+            auto valid = [&](int xx, int yy) {
+                return xx >= 0 && yy >= 0 && xx < width && yy < height &&
+                       mask[std::size_t(yy) * std::size_t(width) + std::size_t(xx)] == kBakeBaked;
+            };
+            // the spacing of the texels here, in meters: the nearest valid 4-neighbour
+            float spacing = kFar;
+            const int off[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+            for (const auto& o : off)
+                if (valid(x + o[0], y + o[1]))
+                    spacing = std::min(
+                        spacing,
+                        length(pos[std::size_t(y + o[1]) * std::size_t(width) + std::size_t(x + o[0])] - pos[i]));
+            if (spacing >= kFar || spacing < 1e-9f) return;
+            const Vec3 c{in[3 * i], in[3 * i + 1], in[3 * i + 2]};
+            const float lc = luminance(c);
+            const float sc = sigmaC * lc + 0.01f;
+            Vec3 sum{};
+            float wTotal = 0;
+            for (int dy = -radius; dy <= radius; ++dy) {
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    if (!valid(x + dx, y + dy)) continue;
+                    const std::size_t j = std::size_t(y + dy) * std::size_t(width) + std::size_t(x + dx);
+                    const float nd = std::max(0.0f, dot(nrm[i], nrm[j]));
+                    float wn = nd * nd;
+                    wn *= wn;
+                    wn *= wn;
+                    const float plane = std::fabs(dot(nrm[i], pos[j] - pos[i])) / spacing;
+                    const float wp = det::exp(-2.0f * plane * plane);
+                    const Vec3 cj{in[3 * j], in[3 * j + 1], in[3 * j + 2]};
+                    const float dl = luminance(cj) - lc;
+                    const float wc = det::exp(-(dl * dl) / (2.0f * sc * sc));
+                    const float w =
+                        spatial[std::size_t(dy + radius) * std::size_t(side) + std::size_t(dx + radius)] * wn * wp * wc;
+                    sum += cj * w;
+                    wTotal += w;
+                }
             }
-        }
-        if (wTotal > 1e-12f) {
-            out[3 * i] = sum.x / wTotal;
-            out[3 * i + 1] = sum.y / wTotal;
-            out[3 * i + 2] = sum.z / wTotal;
-        }
-    });
+            if (wTotal > 1e-12f) {
+                out[3 * i] = sum.x / wTotal;
+                out[3 * i + 1] = sum.y / wTotal;
+                out[3 * i + 2] = sum.z / wTotal;
+            }
+        },
+        rep);
     if (!r) return r.error();
     return {};
 }
@@ -826,15 +875,20 @@ Result<void> validate_bake(const BakeScene& scene, const BakeSettings& settings)
     return validate_impl(scene, settings, false, sizes, memory);
 }
 
-Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st) {
-    if (const std::atomic<bool>* flag = command_cancel_flag(); flag != nullptr && flag->load(std::memory_order_relaxed))
-        return cancelled_error();
+Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st, const BakeProgressFn& progress) {
+    if (cancel_requested()) return cancelled_error();
     Sizes sizes;
     std::uint64_t memory = 0;
     if (auto r = validate_impl(scene, st, false, sizes, memory); !r) return r.error();
+    const int atlasCount = int(scene.atlases.size());
+    Reporter prepRep;
+    prepRep.fn = &progress;
+    report_phase(prepRep, BakePhase::Prepare, 0, atlasCount, 0, 0, 0);
+    report_command_progress("lightmap bake: preparing the scene");
 
-    const Prepared prep = prepare(scene, st, false);
-    const Tracer tracer(prep, scene.sky, st);
+    auto prepared = prepare(scene, st, false);
+    if (!prepared) return prepared.error();
+    Prepared prep = std::move(prepared.value());
 
     BakeResult result;
     result.stats.triangles = sizes.triangles;
@@ -842,9 +896,28 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st)
     std::vector<TexelMap> maps;
     std::uint64_t covered = 0;
     for (std::size_t a = 0; a < scene.atlases.size(); ++a) {
-        maps.push_back(rasterize_atlas(prep, int(a), scene.atlases[a]));
+        report_phase(prepRep, BakePhase::Rasterize, int(a) + 1, atlasCount, a, scene.atlases.size(), 0);
+        report_command_progress("lightmap bake: atlas " + std::to_string(a + 1) + "/" + std::to_string(atlasCount) +
+                                ", mapping the texels");
+        auto map = rasterize_atlas(prep, int(a), scene.atlases[a]);
+        if (!map) return map.error();
+        maps.push_back(std::move(map.value()));
         covered = sat_add(covered, maps.back().work.size());
     }
+    if (!(st.rayEpsilon > 0) && covered > 0) {
+        // The automatic offset: size / 10000 (set by prepare), but at most 1/20 of a texel (the offset must stay far below what a texel
+        // resolves: in a 1 km scene 10 cm would leak light through every wall thinner than that) and at least size / 500000 (the float
+        // precision of the positions). The texel size is the mean over the atlases: sqrt(surface area / covered texels).
+        double area = 0;
+        for (std::size_t g = 0; g < prep.faceN.size(); ++g) {
+            if (prep.atlas[g] < 0 || length_sq(prep.faceN[g]) < 0.5f) continue;
+            area += 0.5 * double(length(cross(prep.corners[3 * g + 1] - prep.corners[3 * g],
+                                              prep.corners[3 * g + 2] - prep.corners[3 * g])));
+        }
+        const float texel = float(std::sqrt(area / double(covered)));
+        if (texel > 0) prep.eps = std::max(prep.eps * 0.02f, std::min(prep.eps, 0.05f * texel));
+    }
+    const Tracer tracer(prep, scene.sky, st);
     const std::uint64_t estimate = ray_estimate(st, prep.lights.size(), covered);
     result.stats.rayBudget = estimate;
     if (estimate > st.maxRays) return ray_budget_error(estimate, st, covered, "texels");
@@ -867,40 +940,50 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st)
         const std::uint64_t atlasKey = combine(combine(0xfac70a1a5eedull, st.seed), std::uint64_t(a) + 1);
         const std::string label =
             "lightmap bake: atlas " + std::to_string(a + 1) + "/" + std::to_string(scene.atlases.size());
-        auto rays = run_batches(label, map.work.size(), 16, [&](std::size_t k, std::uint64_t& r) {
-            const std::size_t i = map.work[k];
-            const std::size_t g = std::size_t(map.tri[i]);
-            const float b1 = map.b1[i], b2 = map.b2[i], b0 = 1.0f - b1 - b2;
-            const Vec3 P = prep.corners[3 * g] * b0 + prep.corners[3 * g + 1] * b1 + prep.corners[3 * g + 2] * b2;
-            const Vec3 Ng = prep.faceN[g];
-            Vec3 Ns = prep.cornerN[3 * g] * b0 + prep.cornerN[3 * g + 1] * b1 + prep.cornerN[3 * g + 2] * b2;
-            const float nl = length(Ns);
-            Ns = nl > 1e-6f ? Ns / nl : Ng;
-            const std::uint64_t key = combine(atlasKey, i);
-            const std::int32_t skip = prep.casterOf[g];
-            const Vec3 o = P + Ng * prep.eps;
-            Vec3 value = tracer.direct(P, Ns, Ng, skip, combine(key, 0xD1), std::uint32_t(st.shadowSamples), false, r);
-            const Basis bs = basis_of(Ns);
-            Vec3 gather{};
-            for (int s = 0; s < st.samples; ++s) {
-                const std::uint64_t skey = combine(key, 0x10000 + std::uint64_t(s));
-                float u1, u2;
-                sample2d(key, std::uint32_t(s), std::uint32_t(st.samples), u1, u2);
-                const Vec3 d = cosine_hemisphere(bs, u1, u2);
-                if (dot(d, Ng) <= 1e-4f)
-                    continue;  // a shading normal that leans over the edge of the face: nothing lights it from below the surface
-                gather += tracer.path(o, d, skip, skey, r);
-            }
-            value += gather / float(st.samples);
-            out.rgb[3 * i] = value.x;
-            out.rgb[3 * i + 1] = value.y;
-            out.rgb[3 * i + 2] = value.z;
-            out.mask[i] = kBakeBaked;
-            if (!gpos.empty()) {
-                gpos[i] = P;
-                gnrm[i] = Ns;
-            }
-        });
+        Reporter traceRep;
+        traceRep.fn = &progress;
+        traceRep.phase = BakePhase::Trace;
+        traceRep.atlas = int(a) + 1;
+        traceRep.atlasCount = atlasCount;
+        traceRep.raysBefore = result.stats.rays;
+        auto rays = run_batches(
+            label, map.work.size(), 16,
+            [&](std::size_t k, std::uint64_t& r) {
+                const std::size_t i = map.work[k];
+                const std::size_t g = std::size_t(map.tri[i]);
+                const float b1 = map.b1[i], b2 = map.b2[i], b0 = 1.0f - b1 - b2;
+                const Vec3 P = prep.corners[3 * g] * b0 + prep.corners[3 * g + 1] * b1 + prep.corners[3 * g + 2] * b2;
+                const Vec3 Ng = prep.faceN[g];
+                Vec3 Ns = prep.cornerN[3 * g] * b0 + prep.cornerN[3 * g + 1] * b1 + prep.cornerN[3 * g + 2] * b2;
+                const float nl = length(Ns);
+                Ns = nl > 1e-6f ? Ns / nl : Ng;
+                const std::uint64_t key = combine(atlasKey, i);
+                const std::int32_t skip = prep.casterOf[g];
+                const Vec3 o = P + Ng * prep.eps;
+                Vec3 value =
+                    tracer.direct(P, Ns, Ng, skip, combine(key, 0xD1), std::uint32_t(st.shadowSamples), false, r);
+                const Basis bs = basis_of(Ns);
+                Vec3 gather{};
+                for (int s = 0; s < st.samples; ++s) {
+                    const std::uint64_t skey = combine(key, 0x10000 + std::uint64_t(s));
+                    float u1, u2;
+                    sample2d(key, std::uint32_t(s), std::uint32_t(st.samples), u1, u2);
+                    const Vec3 d = cosine_hemisphere(bs, u1, u2);
+                    if (dot(d, Ng) <= 1e-4f)
+                        continue;  // a shading normal that leans over the edge of the face: nothing lights it from below the surface
+                    gather += tracer.path(o, d, skip, skey, r);
+                }
+                value += gather / float(st.samples);
+                out.rgb[3 * i] = value.x;
+                out.rgb[3 * i + 1] = value.y;
+                out.rgb[3 * i + 2] = value.z;
+                out.mask[i] = kBakeBaked;
+                if (!gpos.empty()) {
+                    gpos[i] = P;
+                    gnrm[i] = Ns;
+                }
+            },
+            traceRep);
         if (!rays) return rays.error();
         result.stats.rays = sat_add(result.stats.rays, rays.value());
         out.bakedTexels = std::uint32_t(map.work.size());
@@ -909,12 +992,17 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st)
             std::vector<float> smoothed;
             if (auto r = denoise_atlas(
                     "lightmap denoise: atlas " + std::to_string(a + 1) + "/" + std::to_string(scene.atlases.size()),
-                    map.width, map.height, st.denoiseRadius, st.denoiseSigma, out.mask, gpos, gnrm, out.rgb, smoothed);
+                    map.width, map.height, st.denoiseRadius, st.denoiseSigma, out.mask, gpos, gnrm, out.rgb, smoothed,
+                    Reporter{&progress, BakePhase::Denoise, int(a) + 1, atlasCount, result.stats.rays});
                 !r)
                 return r.error();
             out.rgb = std::move(smoothed);
         }
+        report_phase(prepRep, BakePhase::Dilate, int(a) + 1, atlasCount, a, scene.atlases.size(), result.stats.rays);
+        report_command_progress("lightmap bake: atlas " + std::to_string(a + 1) + "/" + std::to_string(atlasCount) +
+                                ", filling the gutter");
         out.dilatedTexels = std::uint32_t(dilate_texels(out.width, out.height, out.rgb, out.mask, st.dilatePasses));
+        if (cancel_requested()) return cancelled_error();
     }
     return result;
 }
@@ -929,6 +1017,7 @@ std::size_t dilate_texels(int width, int height, std::vector<float>& rgb, std::v
         prev = mask;
         std::size_t filled = 0;
         for (int y = 0; y < height; ++y) {
+            if (cancel_requested()) return total + filled;
             for (int x = 0; x < width; ++x) {
                 const std::size_t i = std::size_t(y) * std::size_t(width) + std::size_t(x);
                 if (prev[i] != kBakeEmpty) continue;
@@ -1001,8 +1090,7 @@ Vec3 sh_irradiance(const ShL2& sh, Vec3 normal, int bands) {
 
 Result<std::vector<ShL2>> sample_irradiance_sh(const BakeScene& scene, const std::vector<Vec3>& points,
                                                const BakeSettings& st) {
-    if (const std::atomic<bool>* flag = command_cancel_flag(); flag != nullptr && flag->load(std::memory_order_relaxed))
-        return cancelled_error();
+    if (cancel_requested()) return cancelled_error();
     Sizes sizes;
     std::uint64_t memory = 0;
     if (auto r = validate_impl(scene, st, true, sizes, memory); !r) return r.error();
@@ -1017,7 +1105,9 @@ Result<std::vector<ShL2>> sample_irradiance_sh(const BakeScene& scene, const std
             return make_error("probe point /points/" + std::to_string(i) + " is not a finite position",
                               "remove the NaN or infinite point");
 
-    const Prepared prep = prepare(scene, st, true);
+    auto prepared = prepare(scene, st, true);
+    if (!prepared) return prepared.error();
+    const Prepared prep = std::move(prepared.value());
     const Tracer tracer(prep, scene.sky, st);
     const std::uint64_t estimate = ray_estimate(st, prep.lights.size(), points.size());
     if (estimate > st.maxRays) return ray_budget_error(estimate, st, points.size(), "probes");
