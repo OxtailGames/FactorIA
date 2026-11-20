@@ -254,6 +254,7 @@ void Renderer::Impl::destroy_targets() {
     viewTargets.clear();
     bloom.release();
     ssr.forget_targets();
+    xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
     fogFx.forget_targets();

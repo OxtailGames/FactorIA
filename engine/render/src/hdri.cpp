@@ -86,7 +86,8 @@ Result<HdriCheck> hdri_check(const std::uint8_t* data, std::size_t size, std::st
 Result<HdriImage> hdri_from_bytes(const std::uint8_t* data, std::size_t size, std::string_view name) {
     auto check = hdri_check(data, size, name);
     if (!check) return check.error();
-    auto decoded = decode_hdr(data, size);
+    // The platform's pixel budget is also the decoder's memory limit (3 floats a pixel): a file cannot make it take more.
+    auto decoded = decode_hdr(data, size, hdri_decode_pixel_budget() * 12u);
     if (!decoded) return make_error(std::string(name) + ": " + decoded.error().message, decoded.error().hint);
     ImageF level = std::move(*decoded);
     // NaN and negative values are 0; a huge value keeps its place but cannot overflow the filter.

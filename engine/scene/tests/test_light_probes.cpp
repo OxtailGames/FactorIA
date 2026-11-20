@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -259,4 +260,123 @@ TEST_CASE("sample_probes: progress names the probes phase and ends at the last p
     CHECK(seen.back().phase == BakePhase::Probes);
     CHECK(seen.back().done == seen.back().total);
     CHECK(seen.back().total == 2);
+}
+
+namespace {
+// Two grids (one with a single layer), a group of points and an empty-looking far group, all baked with different light.
+ProbeSet many_groups() {
+    ProbeSet set;
+    LightProbeGroup a;
+    a.size = {6, 4, 6};
+    a.spacing = 2;
+    REQUIRE(add_probe_group(set, "a", a, {0, 0, 0}).ok());
+    LightProbeGroup b;
+    b.size = {8, 0, 8};
+    b.spacing = 2;
+    REQUIRE(add_probe_group(set, "b", b, {20, 1, 3}).ok());
+    LightProbeGroup c;
+    c.grid = false;
+    c.points =
+        Json::array({Json::array({-9.0, 1.0, 2.0}), Json::array({-12.5, 2.0, 2.5}), Json::array({40.0, 0.0, 0.0})});
+    REQUIRE(add_probe_group(set, "c", c, {0, 0, 0}).ok());
+    set.sh.resize(set.size());
+    set.valid.assign(set.size(), 1);
+    for (std::size_t i = 0; i < set.size(); ++i) {
+        set.sh[i].c[0] = {1.0f + float(i % 7), 0.5f + float(i % 5), 0.25f + float(i % 3)};
+        set.sh[i].c[3] = {0.1f * float(i % 4), 0.0f, 0.0f};
+    }
+    set.valid[4] = 0;
+    return set;
+}
+}  // namespace
+
+TEST_CASE("light probes: the group boxes cull without changing a single result") {
+    ProbeSet boxed = many_groups();
+    REQUIRE(boxed.bounds.size() == boxed.groups.size());
+    ProbeSet plain = boxed;
+    plain.bounds.clear();  // a set built by hand has no boxes: read in full
+    int covered = 0, empty = 0;
+    // A lattice around and well outside every group, including the faces of the boxes themselves.
+    for (float x = -16.0f; x <= 44.0f; x += 1.25f)
+        for (float y = -3.0f; y <= 6.0f; y += 1.0f)
+            for (float z = -8.0f; z <= 12.0f; z += 1.25f) {
+                const ProbeLight a = probe_light_at(boxed, {x, y, z}), b = probe_light_at(plain, {x, y, z});
+                REQUIRE(a.coverage == b.coverage);
+                REQUIRE(a.probesUsed == b.probesUsed);
+                REQUIRE(probe_light_key(a) == probe_light_key(b));
+                REQUIRE(std::memcmp(&a.sh, &b.sh, sizeof a.sh) == 0);
+                (a.coverage > 0 ? covered : empty)++;
+            }
+    CHECK(covered > 100);
+    CHECK(empty > 100);  // the boxes did cull something
+    // The faces of one group alone: a grid reaches one spacing past its probes, a point kProbePointRadius, and not further.
+    const ProbeSet one = strip(1, 5, 9);  // probes at x = -2, 0, 2, spacing 2
+    CHECK(probe_light_at(one, {-2.0f - 2.0f - 0.01f, 0, 0}).coverage == 0.0f);
+    CHECK(probe_light_at(one, {-2.0f - 1.9f, 0, 0}).coverage > 0.0f);
+    ProbeSet pts;
+    LightProbeGroup pg;
+    pg.grid = false;
+    pg.points = Json::array({Json::array({10.0, 0.0, 0.0})});
+    REQUIRE(add_probe_group(pts, "p", pg, {0, 0, 0}).ok());
+    pts.sh.assign(1, ShL2{});
+    pts.sh[0].c[0] = {1, 1, 1};
+    pts.valid.assign(1, 1);
+    CHECK(probe_light_at(pts, {10.0f + kProbePointRadius + 0.01f, 0, 0}).coverage == 0.0f);
+    CHECK(probe_light_at(pts, {10.0f + kProbePointRadius - 0.5f, 0, 0}).coverage > 0.0f);
+}
+
+TEST_CASE("light probes: the lookup cell of a point is deterministic, and a probe lookup at its centre is what a cache "
+          "returns") {
+    std::int32_t a[3], b[3];
+    REQUIRE(probe_cell_of({0.01f, -0.01f, 1.0f}, a));
+    REQUIRE(probe_cell_of({0.02f, -0.02f, 1.01f}, b));
+    CHECK(a[0] == b[0]);
+    CHECK(a[1] == b[1]);
+    CHECK(a[2] == b[2]);
+    const Vec3 centre = probe_cell_centre(a);
+    CHECK(std::fabs(centre.x - 0.01f) <= kProbeCell);
+    CHECK(centre.y < 0.0f);  // the cell of -0.01 is below zero, not zero
+    std::int32_t far[3] = {7, 7, 7};
+    CHECK_FALSE(probe_cell_of({1e9f, 0, 0}, far));
+    CHECK_FALSE(probe_cell_of({NAN, 0, 0}, far));
+    CHECK(far[0] == 7);  // untouched
+}
+
+TEST_CASE("light probes: a baked group is told from one that was edited since (find_same_probe_group)") {
+    const ProbeSet baked = many_groups();
+    ProbeSet scene = many_groups();
+    for (const ProbeGroup& g : scene.groups) CHECK(find_same_probe_group(baked, scene, g) != nullptr);
+    CHECK(find_same_probe_group(baked, scene, scene.groups[1])->id == "b");
+
+    ProbeSet edited;
+    LightProbeGroup a;
+    a.size = {6, 4, 6};
+    a.spacing = 1.5f;  // spacing changed
+    REQUIRE(add_probe_group(edited, "a", a, {0, 0, 0}).ok());
+    CHECK(find_same_probe_group(baked, edited, edited.groups[0]) == nullptr);
+    LightProbeGroup moved = a;
+    moved.spacing = 2;
+    ProbeSet shifted;
+    REQUIRE(add_probe_group(shifted, "a", moved, {0.5f, 0, 0}).ok());  // the entity moved
+    CHECK(find_same_probe_group(baked, shifted, shifted.groups[0]) == nullptr);
+    ProbeSet same;
+    REQUIRE(add_probe_group(same, "a", moved, {0, 0, 0}).ok());
+    CHECK(find_same_probe_group(baked, same, same.groups[0]) != nullptr);
+
+    // One entity with a grid and points (the same id): each is matched on its own kind, never on the other's.
+    ProbeSet both, bothScene;
+    LightProbeGroup mixed;
+    mixed.size = {2, 0, 0};
+    mixed.spacing = 2;
+    mixed.points = Json::array({Json::array({5.0, 5.0, 5.0})});
+    REQUIRE(add_probe_group(both, "m", mixed, {0, 0, 0}).ok());
+    REQUIRE(add_probe_group(bothScene, "m", mixed, {0, 0, 0}).ok());
+    REQUIRE(both.groups.size() == 2);
+    CHECK(find_same_probe_group(both, bothScene, bothScene.groups[0])->kind == ProbeGroupKind::Grid);
+    CHECK(find_same_probe_group(both, bothScene, bothScene.groups[1])->kind == ProbeGroupKind::Points);
+    mixed.points = Json::array({Json::array({5.0, 5.0, 6.0})});  // only the point moved
+    ProbeSet pointMoved;
+    REQUIRE(add_probe_group(pointMoved, "m", mixed, {0, 0, 0}).ok());
+    CHECK(find_same_probe_group(both, pointMoved, pointMoved.groups[0]) != nullptr);
+    CHECK(find_same_probe_group(both, pointMoved, pointMoved.groups[1]) == nullptr);
 }

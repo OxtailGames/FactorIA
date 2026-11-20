@@ -33,6 +33,7 @@
 #include "renderer_env.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
+#include "renderer_xmit.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "renderer_volumetric.h"
@@ -105,6 +106,7 @@ struct Renderer::Impl {
     ProbeSystem
         probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
+    Xmit xmit;   // the opaque picture the transmissive meshes look through (renderer_xmit.h): its shader and pipelines
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
@@ -564,6 +566,7 @@ struct Renderer::Impl {
     void collect_lights(DrawContext& ctx);
     void shadow_bounds(DrawContext& ctx);
     void cull_and_batch(DrawContext& ctx);
+    void plan_transmission(DrawContext& ctx);
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);

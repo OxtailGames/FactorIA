@@ -1125,10 +1125,21 @@ public:
         std::string
             error;  // non-empty: the group has a mistake (the Inspector and the bake say which); nothing is drawn
         ProbeSet set;
+        bool showGizmo = true;  // LightProbeGroup.showGizmo of the entity
+        bool stale = false;     // baked file exists but has no group like this one (edited or added since the bake)
+        // Per group of `set`: the group of the baked set it matches (null: grey, not baked as it is now); valid for the frame in `probeCacheFrame_`.
+        std::vector<const ProbeGroup*> baked;
     };
-    bool showProbes_ = true;
+    bool showProbes_ = true;  // View > Show light probes (and the Lightmap panel's checkbox)
     std::map<std::string, ProbeGizmoCache> probeGizmo_;
-    void draw_probe_gizmos(ImDrawList* dl, Renderer& r, const std::function<ImVec2(Vec3)>& project_world);
+    int probeCacheFrame_ = -1;
+    int probeStaleGroups_ = 0;  // LightProbeGroups whose baked probes are not what the scene asks for now
+    int probeGroupsBaked_ = 0;  // LightProbeGroups of the scene that match the baked file
+    const ProbeSet* baked_probes_ = nullptr;
+    // Updates probeGizmo_ for this frame (a group is rebuilt only when it changed) and the two counters above; once per frame.
+    void refresh_probe_cache(Renderer& r);
+    void draw_probe_gizmos(ImDrawList* dl, Renderer& r, Vec3 eye, Vec3 forward,
+                           const std::function<ImVec2(Vec3)>& project_world);
     std::vector<NavLinkDraw> navLinks_;  // last links drawn (same rule as navCells_)
     std::vector<NavCell>
         navCells_;  // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
@@ -1459,6 +1470,12 @@ public:
     const MaterialInfoEntry& material_info_for(const std::string& path);  // material.info of a material, cached
     Json assetReport_;  // Renderer::asset_report(), refreshed twice a second
     double assetReportAt_ = -1e9;
+    // MeshRenderer "Render cost" block (M73-P6b): the answer of render.material_cost for the inspected entity, asked at most twice a second.
+    // The editor only shows it: the one place that decides the cost is the renderer (material_cost.cpp).
+    std::string renderCostId_;
+    Json renderCost_;
+    double renderCostAt_ = -1e9;
+    void draw_render_cost(const std::string& id);
     std::map<std::string, std::pair<double, std::vector<std::string>>>
         assetFiles_;  // asset type -> files, refreshed every 2 s
 

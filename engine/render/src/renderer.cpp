@@ -1,3 +1,4 @@
+#include "material_cost.h"
 #include "renderer_impl.h"
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
@@ -312,6 +313,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
             im.warmGroups.push_back([gpu] {
                 gpu->mesh_pipeline(true, false);
                 gpu->mesh_pipeline(true, true);
+                gpu->mesh_pipeline(true, false, false, {}, {}, true);
                 gpu->quad_pipeline(true, false, BlendMode::Alpha);
             });
             im.warmGroups.push_back([gpu] {
@@ -426,6 +428,7 @@ void Renderer::shutdown() {
         }
         im.fonts.reset();
         im.ssr.release();
+        im.xmit.release();
         im.skyEnv.release();
         im.probes_release();
         im.physSky.release();
@@ -611,17 +614,29 @@ Json Renderer::light_probes_report(World& world, Entity entity) {
     j["probes"] = set ? int(set->size()) : 0;
     j["invalid"] = set ? int(set->invalid_count()) : 0;
     Json groups = Json::array();
+    // What the scene's LightProbeGroups ask for now, to tell a baked group that was edited since (stale) from one still as baked.
+    ProbeSet scene;
+    const bool sceneKnown = set && static_cast<bool>(collect_probe_groups(world, scene));
     if (set)
         for (const ProbeGroup& g : set->groups) {
             int bad = 0;
             for (int i = 0; i < g.count; ++i)
                 if (set->baked() && !set->valid[std::size_t(g.first + i)]) ++bad;
-            groups.push_back(Json::object({{"id", g.id},
-                                           {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
-                                           {"count", g.count},
-                                           {"invalid", bad}}));
+            Json item = Json::object({{"id", g.id},
+                                      {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
+                                      {"count", g.count},
+                                      {"invalid", bad}});
+            if (sceneKnown) item["stale"] = find_same_probe_group(scene, *set, g) == nullptr;
+            groups.push_back(std::move(item));
         }
     j["groups"] = std::move(groups);
+    if (sceneKnown) {
+        // Groups of the scene the file does not hold (added or edited since the bake): they are not lit by probes until the next bake.
+        Json unbaked = Json::array();
+        for (const ProbeGroup& g : scene.groups)
+            if (!find_same_probe_group(*set, scene, g)) unbaked.push_back(g.id);
+        j["unbaked"] = std::move(unbaked);
+    }
     if (entity == kNullEntity) return j;
     Json e =
         Json::object({{"id", world.id_of(entity)},
@@ -807,6 +822,14 @@ Json Renderer::asset_report() const {
     Json j = impl_->assets->report();
     j["fonts"] = impl_->fonts->report();
     return j;
+}
+
+Json Renderer::material_cost(const MeshRenderer& mr) {
+    if (!impl_ || !impl_->assets) return Json::object();
+    const render::MeshAsset* mesh = mr.mesh.empty() ? nullptr : impl_->assets->mesh(mr.mesh);
+    const render::MaterialAsset* material = mr.material.empty() ? nullptr : impl_->assets->material(mr.material);
+    if (material && !material->ok) material = nullptr;
+    return render::material_cost_report(mr, mesh, material, impl_->physW, impl_->physH);
 }
 
 // ---- camera helpers ----

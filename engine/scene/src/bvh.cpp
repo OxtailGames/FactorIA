@@ -7,7 +7,13 @@
 namespace fa {
 
 bool TriBvh::build(const Vec3* corners, std::size_t triangleCount, const std::atomic<bool>* cancel) {
-    corners_.assign(corners, corners + triangleCount * 3);
+    return build(std::vector<Vec3>(corners, corners + triangleCount * 3), cancel);
+}
+
+bool TriBvh::build(std::vector<Vec3>&& corners, const std::atomic<bool>* cancel) {
+    corners_ = std::move(corners);
+    const std::size_t triangleCount = corners_.size() / 3;
+    corners_.resize(triangleCount * 3);
     nodes_.clear();
     order_.clear();
     lo_ = hi_ = Vec3{};

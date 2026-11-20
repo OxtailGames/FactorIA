@@ -182,6 +182,9 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_vpy;
     vec4 fa_ct_vpw;
     vec4 fa_ct_fwd;
+    // Transmission and volume (M73.6b): a full shader has none either.
+    vec4 fa_tr_a;
+    vec4 fa_tr_b;
     // Light probes (M73.4d): a full shader has no lighting either; the 9 vec4 keep the block the same size.
     vec4 fa_probe_sh[9];
 };

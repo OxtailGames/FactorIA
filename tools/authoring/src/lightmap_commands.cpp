@@ -6,7 +6,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -62,6 +61,11 @@ struct Request {
 
 // The arguments of lightmap.bake and lightmap.bake_start; judged on the thread the registry called us on (the caller's capabilities).
 Request read_request(Engine::Impl& I, const Json& a, const char* command) {
+    // The editor's Play runs in this world: a bake would read the game as it is now, not the scene as it is saved, and what it set
+    // would be thrown away at Stop. The Lightmap panel refuses the same way.
+    if (I.playWorld)
+        throw CommandError("game_running", std::string(command) + ": the game is running in the editor.",
+                           "Stop the game (Play > Stop, F5), then bake: a bake reads the scene as it is saved.");
     Request r;
     lightmap_job::Options& o = r.options;
     BakeSettings& s = o.settings;
@@ -162,11 +166,23 @@ struct Job {
 struct Registry {
     std::mutex mu;
     std::map<std::string, std::shared_ptr<Job>> byId;
-    std::deque<std::string> finishedOrder;
     int next = 1;
 };
 
 constexpr std::size_t kKeepFinished = 8;
+
+// Forgets the oldest finished jobs beyond kKeepFinished (done, failed or cancelled, whether or not anybody asked for their status: a job
+// nobody polls must not stay for ever). The caller holds Registry::mu and no Job::mu.
+void prune_finished(Registry& reg) {
+    std::vector<std::pair<Clock::time_point, std::string>> finished;
+    for (const auto& [id, job] : reg.byId) {
+        std::lock_guard jl(job->mu);
+        if (job->state != "running") finished.emplace_back(job->finished, id);
+    }
+    if (finished.size() <= kKeepFinished) return;
+    std::sort(finished.begin(), finished.end());
+    for (std::size_t i = 0; i + kKeepFinished < finished.size(); ++i) reg.byId.erase(finished[i].second);
+}
 
 // Two spellings of one manifest: the filesystems of Windows and macOS do not tell "Scenes/A.lightmap.json" from "scenes/a.lightmap.json".
 bool same_manifest(const std::string& a, const std::string& b) {
@@ -199,6 +215,13 @@ Json hand_over(Engine::Impl& I, const std::string& scene, const std::string& man
         out["note"] = "the open scene is no longer '" + scene +
                       "', so SceneSettings.lightmaps was not changed; the files are written. Open that scene and set "
                       "SceneSettings.lightmaps to '" +
+                      manifestProject + "'.";
+        return out;
+    }
+    if (I.playWorld) {  // a bake started before the game: the world now is the Play copy, which Stop throws away
+        out["applied"] = false;
+        out["note"] = "the game is running in the editor, so SceneSettings.lightmaps was not changed (Stop would throw "
+                      "it away); the files are written. Stop the game and set SceneSettings.lightmaps to '" +
                       manifestProject + "'.";
         return out;
     }
@@ -275,7 +298,7 @@ const char* kRequestProps = R"(
     "dilatePasses":{"type":"integer","minimum":0,"maximum":64,"default":4,"description":"Texels of gutter filled around each mesh so bilinear filtering does not bleed black."},
     "denoiseRadius":{"type":"integer","minimum":0,"maximum":8,"default":2,"description":"Edge-aware blur radius in texels; 0 turns the denoiser off."},
     "denoiseSigma":{"type":"number","minimum":0.01,"maximum":10,"default":0.3,"description":"How different two neighbouring texels may be (relative to their light) and still be blended."},
-    "rayEpsilon":{"type":"number","minimum":0,"maximum":100,"default":0,"description":"Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel."},
+    "rayEpsilon":{"type":"number","minimum":0,"maximum":100,"default":0,"description":"Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel."},
     "maxRays":{"type":"number","minimum":1,"default":50000000000,"description":"The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit."},
     "sky":{"type":"string","enum":["auto","environment","gradient","ambient","none"],"default":"auto","description":"The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings."},
     "apply":{"type":"boolean","default":true,"description":"Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way)."})";
@@ -390,6 +413,7 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
                                            "Wait for it (lightmap.bake_status {\"job\":\"" + id +
                                                "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
                 }
+                prune_finished(*reg);  // jobs nobody asked about must not pile up
                 job->id = "bake:" + std::to_string(reg->next++);
                 job->manifestProject =
                     req.manifestProject;  // set before the job is visible: a second start sees the path at once
@@ -452,7 +476,12 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it "
          "to the scene (SceneSettings.lightmaps "
          "and the renderer's reload) unless the bake was started with apply false, or the scene changed since; "
-         "`handOver` says what happened. "
+         "`handOver` says what happened (while the editor's game runs it is not applied: Stop would throw it away). "
+         "With no worker thread (runtime.jobThreads 0, or a web build without threads) a job only runs when somebody "
+         "waits for "
+         "it: the first bake_status then blocks until the bake is done and answers done, failed or cancelled, never "
+         "running (in inline mode bake_start itself runs the whole bake). Only the last 8 "
+         "finished jobs are kept, whether or not their status was read. "
          "Example: lightmap.bake_status {\"job\":\"bake:1\"}",
          parse_schema(
              R"({"type":"object","required":["job"],"properties":{"job":{"type":"string","description":"The id lightmap.bake_start returned."},
@@ -462,32 +491,24 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
             auto job = need_job(*reg, a);
             // With no worker thread the job only runs when somebody waits for it (inline pool, 0 workers).
             if (!job->handle.done() && jobs::worker_count() == 0) (void)jobs::wait(job->handle);
-            std::unique_lock registryLock(reg->mu);  // Registry::mu, then Job::mu: the one lock order
-            std::lock_guard lock(job->mu);
-            Json out = status_json(*job);
-            if (job->state == "done") {
-                if (!job->handedOver) {
-                    const bool apply =
-                        a.contains("apply") && a["apply"].is_boolean() ? a["apply"].get<bool>() : job->apply;
-                    job->handover = hand_over(I, job->scene, job->manifestProject, apply);
-                    job->handedOver = true;
-                    reg->finishedOrder.push_back(job->id);
-                    while (reg->finishedOrder.size() > kKeepFinished) {
-                        reg->byId.erase(reg->finishedOrder.front());
-                        reg->finishedOrder.pop_front();
+            std::lock_guard registryLock(reg->mu);  // Registry::mu, then Job::mu: the one lock order
+            Json out;
+            {
+                std::lock_guard lock(job->mu);
+                out = status_json(*job);
+                if (job->state == "done") {
+                    if (!job->handedOver) {
+                        const bool apply =
+                            a.contains("apply") && a["apply"].is_boolean() ? a["apply"].get<bool>() : job->apply;
+                        job->handover = hand_over(I, job->scene, job->manifestProject, apply);
+                        job->handedOver = true;
                     }
-                }
-                out["handOver"] = job->handover;
-            } else if (job->state != "running") {
-                if (!job->handedOver) {
+                    out["handOver"] = job->handover;
+                } else if (job->state != "running") {
                     job->handedOver = true;
-                    reg->finishedOrder.push_back(job->id);
-                    while (reg->finishedOrder.size() > kKeepFinished) {
-                        reg->byId.erase(reg->finishedOrder.front());
-                        reg->finishedOrder.pop_front();
-                    }
                 }
             }
+            prune_finished(*reg);  // the oldest finished jobs beyond kKeepFinished are forgotten
             return out;
         });
 

@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 #include "fa/core/fs.h"
 #include "fa/scene/components.h"
 #include "fa/scene/lightmap_manifest.h"
+#include "fa/scene/world.h"
 
 namespace fa {
 
@@ -58,6 +60,40 @@ std::int64_t axis_count(double extent, double spacing) {
 }
 
 }  // namespace
+
+void ProbeSet::build_bounds() {
+    bounds.clear();
+    bounds.reserve(groups.size());
+    constexpr float kMargin = 1e-3f;  // a little generous: the box never decides what the maths would not
+    for (const ProbeGroup& g : groups) {
+        ProbeBounds b;
+        if (g.kind == ProbeGroupKind::Grid) {
+            // grid_contribution gives coverage only below one spacing outside the (single-probe axes: half-spacing padded) lattice.
+            const int n[3] = {g.nx, g.ny, g.nz};
+            const float org[3] = {g.origin.x, g.origin.y, g.origin.z};
+            float lo[3], hi[3];
+            for (int a = 0; a < 3; ++a) {
+                const float pad = n[a] == 1 ? 0.5f * g.spacing : 0.0f;
+                lo[a] = org[a] - pad - g.spacing - kMargin;
+                hi[a] = org[a] + float(n[a] - 1) * g.spacing + pad + g.spacing + kMargin;
+            }
+            b.lo = {lo[0], lo[1], lo[2]};
+            b.hi = {hi[0], hi[1], hi[2]};
+        } else {
+            Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+            for (std::int32_t i = 0; i < g.count; ++i) {
+                const std::size_t idx = std::size_t(g.first) + std::size_t(i);
+                if (idx >= positions.size()) break;
+                lo = min(lo, positions[idx]);
+                hi = max(hi, positions[idx]);
+            }
+            const float r = kProbePointRadius + kMargin;
+            b.lo = lo - Vec3{r, r, r};
+            b.hi = hi + Vec3{r, r, r};
+        }
+        bounds.push_back(b);
+    }
+}
 
 std::size_t ProbeSet::invalid_count() const {
     std::size_t n = 0;
@@ -139,6 +175,21 @@ Result<void> add_probe_group(ProbeSet& set, const std::string& entityId, const L
         }
         for (const Vec3& p : pts) set.positions.push_back(p);
         set.groups.push_back(std::move(g));
+    }
+    set.build_bounds();
+    return {};
+}
+
+Result<void> collect_probe_groups(World& world, ProbeSet& set) {
+    std::vector<std::pair<std::string, Entity>> groupEntities;
+    world.each<LightProbeGroup>([&](Entity e, LightProbeGroup&) {
+        if (world.active_in_hierarchy(e)) groupEntities.emplace_back(world.id_of(e), e);
+    });
+    std::sort(groupEntities.begin(), groupEntities.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [id, e] : groupEntities) {
+        const Vec3 at = world.world_matrix(e).translation();
+        if (auto r = add_probe_group(set, id, *world.get<LightProbeGroup>(e), at); !r) return r;
     }
     return {};
 }
@@ -243,6 +294,7 @@ Result<ProbeSet> decode_probe_set(const std::uint8_t* data, std::size_t size, co
         }
     set.valid.resize(probes);
     for (std::uint8_t& v : set.valid) v = data[r.at++] != 0 ? 1 : 0;
+    set.build_bounds();
     return set;
 }
 
@@ -323,7 +375,14 @@ ProbeLight probe_light_at(const ProbeSet& set, Vec3 p) {
     ProbeLight out;
     if (!set.baked() || !finite3v(p)) return out;
     Accum acc;
-    for (const ProbeGroup& g : set.groups) {
+    const bool boxed = set.bounds.size() == set.groups.size();
+    for (std::size_t gi = 0; gi < set.groups.size(); ++gi) {
+        const ProbeGroup& g = set.groups[gi];
+        if (boxed) {
+            const ProbeBounds& b = set.bounds[gi];
+            if (p.x < b.lo.x || p.y < b.lo.y || p.z < b.lo.z || p.x > b.hi.x || p.y > b.hi.y || p.z > b.hi.z)
+                continue;  // no probe of the group reaches the point
+        }
         if (g.kind == ProbeGroupKind::Grid) {
             grid_contribution(set, g, p, acc);
         } else {
@@ -341,6 +400,42 @@ ProbeLight probe_light_at(const ProbeSet& set, Vec3 p) {
     out.coverage = std::min(1.0f, acc.weight);
     out.probesUsed = acc.used;
     return out;
+}
+
+bool probe_cell_of(Vec3 p, std::int32_t cell[3]) {
+    constexpr float kLimit = 1.0e5f;
+    if (!finite3v(p) || std::fabs(p.x) > kLimit || std::fabs(p.y) > kLimit || std::fabs(p.z) > kLimit) return false;
+    cell[0] = std::int32_t(std::floor(p.x / kProbeCell));
+    cell[1] = std::int32_t(std::floor(p.y / kProbeCell));
+    cell[2] = std::int32_t(std::floor(p.z / kProbeCell));
+    return true;
+}
+
+Vec3 probe_cell_centre(const std::int32_t cell[3]) {
+    return {(float(cell[0]) + 0.5f) * kProbeCell, (float(cell[1]) + 0.5f) * kProbeCell,
+            (float(cell[2]) + 0.5f) * kProbeCell};
+}
+
+const ProbeGroup* find_same_probe_group(const ProbeSet& in, const ProbeSet& of, const ProbeGroup& g) {
+    auto near = [](Vec3 a, Vec3 b, float tol) {
+        return std::fabs(a.x - b.x) <= tol && std::fabs(a.y - b.y) <= tol && std::fabs(a.z - b.z) <= tol;
+    };
+    for (const ProbeGroup& cand : in.groups) {
+        if (cand.id != g.id || cand.kind != g.kind || cand.count != g.count) continue;
+        if (g.kind == ProbeGroupKind::Grid) {
+            if (cand.nx == g.nx && cand.ny == g.ny && cand.nz == g.nz && std::fabs(cand.spacing - g.spacing) <= 1e-4f &&
+                near(cand.origin, g.origin, 1e-3f))
+                return &cand;
+            continue;
+        }
+        bool same = true;
+        for (std::int32_t i = 0; same && i < g.count; ++i) {
+            const std::size_t a = std::size_t(cand.first) + std::size_t(i), b = std::size_t(g.first) + std::size_t(i);
+            same = a < in.positions.size() && b < of.positions.size() && near(in.positions[a], of.positions[b], 1e-3f);
+        }
+        if (same) return &cand;
+    }
+    return nullptr;
 }
 
 std::uint64_t probe_light_key(const ProbeLight& light) {

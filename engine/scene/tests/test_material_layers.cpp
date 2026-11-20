@@ -150,3 +150,48 @@ TEST_CASE("material layers: values outside their range are clamped and reported,
     CHECK(any_warning_has(mesh->warnings, "clearcoatFactor 4 is outside 0..1, clamped to 1"));
     CHECK(any_warning_has(mesh->warnings, "ior 0.5 is outside 1..3, clamped to 1"));
 }
+
+TEST_CASE("material layers: transmission, volume and ior are read, an infinite distance is 0, and mesh.save writes "
+          "them back") {
+    // attenuationDistance is left out: glTF's default is infinity ("no tint"), which the engine keeps as 0.
+    Json mat = {
+        {"name", "bottle"},
+        {"extensions",
+         {{"KHR_materials_transmission", {{"transmissionFactor", 0.75}, {"transmissionTexture", {{"index", 0}}}}},
+          {"KHR_materials_volume", {{"thicknessFactor", 0.5}, {"attenuationColor", Json::array({0.25, 0.5, 1.0})}}},
+          {"KHR_materials_ior", {{"ior", 1.33}}}}}};
+    auto mesh = read_gltf_mesh_bytes(triangle_glb(mat, true), "assets/bottle.glb");
+    REQUIRE(mesh.ok());
+    REQUIRE(mesh->materials.size() == 1);
+    const MaterialLayers& L = mesh->materials[0].layers;
+    CHECK(L.transmission == doctest::Approx(0.75f));
+    CHECK(L.thickness == doctest::Approx(0.5f));
+    CHECK(L.attenuationColor[0] == doctest::Approx(0.25f));
+    CHECK(L.attenuationColor[1] == doctest::Approx(0.5f));
+    CHECK(L.attenuationColor[2] == doctest::Approx(1.0f));
+    CHECK(L.attenuationDistance == 0.0f);
+    CHECK(L.ior == doctest::Approx(1.33f));
+    CHECK(L.any());
+    CHECK(any_warning_has(mesh->warnings, "assets/bottle.glb: material 'bottle': transmissionTexture is not carried"));
+
+    auto saved = mesh_to_glb(mesh->data, "assets/models/out.glb");
+    REQUIRE(saved.ok());
+    auto again = read_gltf_mesh_bytes(*saved, "assets/models/out.glb");
+    REQUIRE(again.ok());
+    REQUIRE(again->materials.size() == 1);
+    CHECK(again->materials[0].layers == L);
+
+    // A finite distance is kept, and a value out of range is clamped with a report.
+    Json bad = {{"name", "pond"},
+                {"extensions",
+                 {{"KHR_materials_transmission", {{"transmissionFactor", 3.0}}},
+                  {"KHR_materials_volume", {{"thicknessFactor", -1.0}, {"attenuationDistance", 2.5}}}}}};
+    auto clamped = read_gltf_mesh_bytes(triangle_glb(bad, false), "pond.glb");
+    REQUIRE(clamped.ok());
+    const MaterialLayers& C = clamped->materials[0].layers;
+    CHECK(C.transmission == 1.0f);
+    CHECK(C.thickness == 0.0f);
+    CHECK(C.attenuationDistance == doctest::Approx(2.5f));
+    CHECK(any_warning_has(clamped->warnings, "transmissionFactor 3 is outside 0..1, clamped to 1"));
+    CHECK(any_warning_has(clamped->warnings, "thicknessFactor -1 is outside 0..1000, clamped to 0"));
+}
