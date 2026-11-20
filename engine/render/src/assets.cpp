@@ -1317,6 +1317,7 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
     // A write-transient image is written in every sokol frame that draws it, once and before it is bound: a second
     // draw before the commit (editor screenshots, render_now) shows what the first one wrote.
     if (v.writtenFrame != gpu_.frame() + 1) {
+        gpu_.begin_transient_writes();
         sg_write_image_desc w{};
         w.src.data = {decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
         w.dst.image = t.image;
@@ -1962,6 +1963,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
     const bool canCopy = sg_query_pass_state() == SG_PASSSTATE_NONE;
     const std::uint64_t frameTag = gpu_.frame() + 1;
     if (canCopy) {
+        gpu_.begin_transient_writes();  // before the first write of the frame (render_internal.h)
         const bool fits = pm.vbStage.id && vbBytes <= pm.vbCap && ibBytes <= pm.ibCap && pm.stagedFrame != frameTag;
         if (!fits) {
             const bool grow = pm.vb.id && (vbBytes > pm.vbCap || ibBytes > pm.ibCap);

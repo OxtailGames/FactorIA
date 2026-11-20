@@ -1615,6 +1615,16 @@ public:
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
+    // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
+    // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
+    // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
+    // command buffer is made, at its first pass or copy, so a write before it overwrote data the GPU was still reading whenever
+    // the GPU was a frame or two behind (a probe's second face drew with the instances of another face; only a loaded
+    // GPU showed it). This makes the frame's command buffer, and so waits for the same frame sokol waits for anyway at the first
+    // pass, with an empty copy: no extra synchronisation, only earlier. Nothing on the other backends (OpenGL and
+    // Direct3D 11 order the write in the driver, Vulkan makes the frame's command buffers in the write).
+    // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
+    void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
     sg_buffer acquire_transient(std::size_t bytes);
     // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
@@ -1726,6 +1736,8 @@ private:
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
     std::size_t lightImagesUsed_ = 0;
     bool committed_ = true;
+    sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
+    std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
