@@ -401,6 +401,16 @@ TEST_CASE(
         [](MeshRenderer& r) { r.anisotropyRotation = 30.0f; },
         [](MeshRenderer& r) { r.specular = 0.5f; },
         [](MeshRenderer& r) { r.ior = 2.0f; },
+        // M73.5: the subsurface strength, radius and colour of a mesh that scatters are part of the key.
+        [](MeshRenderer& r) { r.subsurface = 0.5f; },
+        [](MeshRenderer& r) {
+            r.subsurface = 0.5f;
+            r.subsurfaceRadius = 0.05f;
+        },
+        [](MeshRenderer& r) {
+            r.subsurface = 0.5f;
+            r.subsurfaceColor = Color{1.0f, 1.0f, 1.0f, 1.0f};
+        },
     };
     for (Setter set : setters) {
         for (bool keyed : {false, true}) {
