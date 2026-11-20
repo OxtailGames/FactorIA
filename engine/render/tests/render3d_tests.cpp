@@ -791,10 +791,11 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     builtin.attrs[ATTR_mesh_mesh_fa_attr_uv1] = {};
     CHECK(describe_desc(*desc) == describe_desc(builtin));
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
-    CHECK(slots.viewMask ==
-          (0b111111u | 1u << render::kMaterialEnvView | 1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
-           1u << VIEW_mesh_fa_light_atlas | 1u << VIEW_mesh_fa_lightmap |
-           1u << VIEW_mesh_fa_screen_tex));  // + the sky environment, the light data, the light atlas, the decal atlas, the lightmap and the screen slot
+    CHECK(
+        slots.viewMask ==
+        (0b111111u | 1u << render::kMaterialEnvView | 1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
+         1u << VIEW_mesh_fa_light_atlas | 1u << VIEW_mesh_fa_lightmap |
+         1u << VIEW_mesh_fa_screen_tex));  // + the sky environment, the light data, the light atlas, the decal atlas, the lightmap and the screen slot
     // M73.2c: the screen slot (view 28) is the prepass of the contact shadows, read with texelFetch through the nearest sampler 1.
     CHECK(VIEW_mesh_fa_screen_tex == 28);
     // M73.3a: the irradiance cube (view 15) is gone, its unit is the reserved screen slot, and the program binds fewer than 16 units
@@ -1176,6 +1177,46 @@ TEST_CASE("materials: light() gets an area light from the closest point of its e
     CHECK(lum(point, side) < 0.6 * lum(point, cx));
     // The area light: the closest point of the tube keeps the side in the lit band, like the floor under the middle.
     CHECK(lum(area, side) > 0.75 * lum(area, cx));
+}
+
+TEST_CASE(
+    "materials: the contact shadow of a light reaches light() through the LightSample, and a full shader has none") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("contactShadows")) return;
+    MaterialScope scope;
+    ErrorLog log;
+    // A grazing sun without a shadow map and a box on a floor drawn with the two-band toon (custom lighting): the contact ray darkens the
+    // LightSample the snippet gets (ls.shadow, ls.color), so the lit band turns to the dark one next to the box.
+    auto frame = [&](bool contact) {
+        World w;
+        Entity cam = make(w, "cam", {0.5f, 3.0f, 5.0f});
+        w.get<Transform>(cam)->rotation = {-30.0f, 5.0f, 0};
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().contactShadows = true;
+        Entity f = add_mesh(w, "plane", {0, 0, 0}, Color::white(), {16, 1, 16});
+        w.get<MeshRenderer>(f)->material = "materials/toon.material.json";
+        add_mesh(w, "cube", {0, 0.3f, 0}, Color::white(), {1.2f, 0.6f, 1.2f});
+        Entity e = add_light(w, LightType::Directional, {0, 5, 0}, {-20, 60, 0}, 1.5f);
+        Light* l = w.get<Light>(e);
+        l->castShadows = false;
+        l->contactShadowLength = contact ? 1.5f : 0.0f;
+        return g.render(w);
+    };
+    const Image plain = frame(false);
+    const Image shaded = frame(true);
+    CHECK(log.messages().empty());
+    int darker = 0, lighter = 0;
+    for (std::size_t i = 0; i < plain.rgba.size(); i += 4) {
+        const int d = int(plain.rgba[i + 1]) - int(shaded.rgba[i + 1]);
+        darker += d > 20;
+        lighter += d < -20;
+    }
+    CHECK(darker > 100);
+    CHECK(lighter == 0);
 }
 
 TEST_CASE("materials: the sky (IBL) is one call away from lighting(), ambient() and a full shader") {

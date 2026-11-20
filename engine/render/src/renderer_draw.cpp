@@ -2280,7 +2280,8 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
     b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
     // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows, a white image otherwise (no fragment reads it).
-    b.views[VIEW_mesh_fa_screen_tex] = (ctx.contactOn && opaquePhase && !shadowPass && ctx.screenView.id) ? ctx.screenView : white->view;
+    b.views[VIEW_mesh_fa_screen_tex] =
+        (ctx.contactOn && opaquePhase && !shadowPass && ctx.screenView.id) ? ctx.screenView : white->view;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();

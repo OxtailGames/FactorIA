@@ -272,7 +272,8 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         if (shadows && !shadows->empty()) {
             pack_local_shadow_region(int(lights.size()), *shadows, std::size_t(out.shadowBase), t);
         } else {
-            for (std::size_t i = 0; i < lights.size(); ++i) t[(std::size_t(out.shadowBase) + i) * 4] = -1.0f;  // no shadow map
+            for (std::size_t i = 0; i < lights.size(); ++i)
+                t[(std::size_t(out.shadowBase) + i) * 4] = -1.0f;  // no shadow map
         }
         for (std::size_t i = 0; i < lights.size(); ++i)
             t[(std::size_t(out.shadowBase) + i) * 4 + 1] = std::max(lights[i].contactLength, 0.0f);
