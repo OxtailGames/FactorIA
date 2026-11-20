@@ -435,6 +435,23 @@ bool tile_colors_right(Own& o, Entity probe, int resolution, std::string& why) {
 
 }  // namespace
 
+namespace {
+
+// Another realtime probe of the colour room, at its centre, with a tile of `resolution`.
+Entity add_probe(World& w, const char* name, int resolution) {
+    Entity e = make(w, name, {0, 0, 0});
+    auto& rp = w.add<ReflectionProbe>(e);
+    rp.mode = ProbeMode::Realtime;
+    rp.update = ProbeUpdate::OnDemand;
+    rp.resolution = resolution;
+    rp.boxSize = {6, 6, 6};
+    rp.clear = ProbeClear::Color;
+    rp.clearColor = Color{0, 0, 0, 1};
+    return e;
+}
+
+}  // namespace
+
 TEST_CASE("realtime probe: two probes of different resolutions share the scratch slots and both tiles are right, at "
           "every face budget") {
     Gfx& g = gfx();
@@ -445,48 +462,57 @@ TEST_CASE("realtime probe: two probes of different resolutions share the scratch
     }
     // A budget of 2 draws a capture over three frames; 4 and 8 make the second probe start in the frame the first one ends, the case in
     // which the scratch images of a slot used to be remade for the other resolution before the first probe's filtering ran.
+    // Every capture is compared, the first ones too: a capture that spreads over several frames once drew one face of its tile with
+    // the data of another frame when the GPU was behind (Gpu::begin_transient_writes), which only a loaded machine showed.
     for (int budget : {2, 4, 8}) {
         INFO("budget " << budget);
         Own o(g);
         REQUIRE(o.ok);
         World w;
         const Entity a = build_room(w, ProbeMode::Realtime, ProbeUpdate::OnDemand);  // 128
-        Entity b = make(w, "second", {0, 0, 0});
-        auto& rb = w.add<ReflectionProbe>(b);
-        rb.mode = ProbeMode::Realtime;
-        rb.update = ProbeUpdate::OnDemand;
-        rb.resolution = 256;
-        rb.boxSize = {6, 6, 6};
-        rb.clear = ProbeClear::Color;
-        rb.clearColor = Color{0, 0, 0, 1};
+        const Entity b = add_probe(w, "second", 256);
         o.r.probe_set_budget(budget);
+        std::string whyA, whyB;
         REQUIRE(frames_until_captured(o, w, a, 1));
+        CHECK_MESSAGE(tile_colors_right(o, a, 128, whyA), "first capture of the probe of 128: " << whyA);
         REQUIRE(frames_until_captured(o, w, b, 1));
-        // The first captures are not compared: one that spreads over the first frames of a renderer was seen to draw a whole face
-        // differently on Metal (the cyan wall without its blue), which the later captures never did. The second ones, asked together
-        // and so sharing the slots, are compared.
+        CHECK_MESSAGE(tile_colors_right(o, b, 256, whyB), "first capture of the probe of 256: " << whyB);
+        // The second ones, asked together and so sharing the slots.
         CHECK(o.r.probe_refresh(a));
         CHECK(o.r.probe_refresh(b));
         REQUIRE(frames_until_captured(o, w, a, 2));
         REQUIRE(frames_until_captured(o, w, b, 2));
-        std::string whyA, whyB;
-        const bool rightA = tile_colors_right(o, a, 128, whyA);
-        const bool rightB = tile_colors_right(o, b, 256, whyB);
-        INFO("probe of 128: " << whyA);
-        INFO("probe of 256: " << whyB);
-        const sg_backend backend = sg_query_backend();
-        const bool metal = backend == SG_BACKEND_METAL_MACOS || backend == SG_BACKEND_METAL_IOS ||
-                           backend == SG_BACKEND_METAL_SIMULATOR;
-        if (metal && !(rightA && rightB)) {
-            // Open on Metal (cause not found): a capture that spreads over several frames reads one face of the tile
-            // wrong on a loaded machine (about one run in three with six runs side by side, never alone, and never when each face
-            // is read back before it is copied). The scheduler's order of the faces is the same on every backend and is checked by
-            // the CPU tests; a wrong tile is reported here, and fails where the GPU does not show it.
-            WARN_MESSAGE(
-                false, "Metal drew a face of the tile wrong (the known multi-frame capture problem): " << whyA << whyB);
-        } else {
-            CHECK(rightA);
-            CHECK(rightB);
+        CHECK_MESSAGE(tile_colors_right(o, a, 128, whyA), "second capture of the probe of 128: " << whyA);
+        CHECK_MESSAGE(tile_colors_right(o, b, 256, whyB), "second capture of the probe of 256: " << whyB);
+    }
+}
+
+TEST_CASE(
+    "realtime probe: three probes of mixed resolutions captured one face per frame, round after round, every tile "
+    "is right") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!half_float_probes(g)) {
+        MESSAGE("this GPU has no half-float render targets: not run");
+        return;
+    }
+    // Every face of every capture is a frame of its own, so the data of the next face is written while the GPU may still be drawing
+    // the one before it (what Gpu::begin_transient_writes keeps apart); the three probes share the scratch slots.
+    Own o(g);
+    REQUIRE(o.ok);
+    World w;
+    const Entity probes[3] = {build_room(w, ProbeMode::Realtime, ProbeUpdate::OnDemand), add_probe(w, "second", 256),
+                              add_probe(w, "third", 128)};
+    const int sizes[3] = {128, 256, 128};
+    o.r.probe_set_budget(1);
+    for (int round = 1; round <= 4; ++round) {
+        INFO("round " << round);
+        if (round > 1)
+            for (const Entity& p : probes) CHECK(o.r.probe_refresh(p));
+        for (const Entity& p : probes) REQUIRE(frames_until_captured(o, w, p, round, 120));
+        for (int i = 0; i < 3; ++i) {
+            std::string why;
+            CHECK_MESSAGE(tile_colors_right(o, probes[i], sizes[i], why), "probe " << i << ": " << why);
         }
     }
 }

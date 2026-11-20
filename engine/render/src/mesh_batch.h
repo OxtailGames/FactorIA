@@ -131,9 +131,10 @@ private:
     // Every value of an item that is not a name above, in the order of the old comparator (floats through order_float).
     struct Rest {
         // colour rgba, metallic, roughness, emissive rgb, emissiveStrength, then the material layers (M73.6a): clearcoat,
-        // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior, then the subsurface
-        // (M73.5, subsurface_of: strength, radius, colour rgb)
-        std::array<float, 25> shading;
+        // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior, then the
+        // transmission and the volume (M73.6b): transmission, thickness, attenuationColor rgb, attenuationDistance, then the
+        // subsurface (M73.5, subsurface_of: strength, radius, colour rgb)
+        std::array<float, 31> shading;
         bool unlit = false, receiveShadows = true;
         int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale

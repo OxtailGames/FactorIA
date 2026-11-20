@@ -76,6 +76,7 @@ looks like: [rendering/RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md
 | `vec3 sheen_color`, `float sheen_roughness` | The cloth sheen's colour (black = none) and its roughness 0..1 (kept at 0.1 or more). |
 | `float anisotropy`, `float anisotropy_rotation` | -1..1 stretch of the highlight along the tangent (negative: across it), and a turn of that direction in radians. |
 | `float specular`, `float ior`, `vec3 specular_color` | A non-metal's reflection: strength 0..1, index of refraction 1..3 (1.5 = the usual 4% at normal incidence) and a tint (white = none). A metal ignores them. |
+| `float transmission`, `float thickness`, `vec3 attenuation_color`, `float attenuation_distance` | Glass and liquids: 0..1 share of the light that goes through (and shows what is behind, refracted), the metres of volume behind the surface, and the colour the light has after `attenuation_distance` metres inside (0 = no tint). Only the standard shading draws them: a `full` shader and a `lighting()` of your own get none ([RENDERING_TRANSMISSION.md](../rendering/RENDERING_TRANSMISSION.md)). |
 
 `surface()` receives them already filled with the `MeshRenderer` fields and the glTF material's values, so a snippet that does not touch
 them draws what the MeshRenderer asks for, and a snippet written before they existed compiles and draws as before. Write one of them

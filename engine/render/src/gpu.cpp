@@ -320,6 +320,10 @@ void Gpu::shutdown() {
     }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
+    if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
+    if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
+    pacerSrc_ = pacerDst_ = {};
+    pacedFrame_ = 0;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
                          &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
@@ -558,8 +562,9 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader, MeshExtras extras) {
-    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+                               sg_shader shader, MeshExtras extras, bool glass) {
+    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -588,7 +593,9 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
         d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
     }
-    d.cull_mode = (doubleSided || blended) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    // A blended mesh draws both faces (no depth write: the order inside it is the index order); a glass mesh (transmission) only the faces that
+    // look at the camera unless it is double sided, because its back faces would refract the picture again over the front ones.
+    d.cull_mode = (doubleSided || (blended && !glass)) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "mesh";
     return find_or_make(key, format, d);
@@ -1127,7 +1134,38 @@ sg_pipeline Gpu::light_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+void Gpu::begin_transient_writes() {
+    const sg_backend backend = sg_query_backend();
+    if (backend != SG_BACKEND_METAL_MACOS && backend != SG_BACKEND_METAL_IOS && backend != SG_BACKEND_METAL_SIMULATOR)
+        return;
+    if (inPass_ || pacedFrame_ == frame_ + 1) return;  // in a pass the command buffer exists; once per sokol frame
+    if (!pacerSrc_.id) {
+        const std::uint32_t zero = 0;
+        sg_buffer_desc s{};
+        s.size = sizeof(zero);
+        s.usage.copy_src = true;
+        s.data = {&zero, sizeof(zero)};
+        s.label = "transient-pacer-src";
+        pacerSrc_ = sg_make_buffer(&s);
+        sg_buffer_desc d{};
+        d.size = sizeof(zero);
+        d.usage.copy_dst = true;
+        d.label = "transient-pacer-dst";
+        pacerDst_ = sg_make_buffer(&d);
+    }
+    if (sg_query_buffer_state(pacerSrc_) != SG_RESOURCESTATE_VALID ||
+        sg_query_buffer_state(pacerDst_) != SG_RESOURCESTATE_VALID)
+        return;
+    sg_copy_buffer_to_buffer_desc c{};
+    c.src.buffer = pacerSrc_;
+    c.dst.buffer = pacerDst_;
+    c.size = sizeof(std::uint32_t);
+    sg_copy_buffer_to_buffer(&c);
+    pacedFrame_ = frame_ + 1;
+}
+
 sg_buffer Gpu::acquire_transient(std::size_t bytes) {
+    begin_transient_writes();
     if (transientUsed_ >= transient_.size()) transient_.emplace_back();
     Transient& t = transient_[transientUsed_++];
     if (t.capacity < bytes || !t.buf.id) {
@@ -1146,6 +1184,7 @@ sg_buffer Gpu::acquire_transient(std::size_t bytes) {
 }
 
 Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
+    begin_transient_writes();
     if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
     LightImg& l = lightImages_[lightImagesUsed_++];
     if (!l.image.id || l.rows != rows) {

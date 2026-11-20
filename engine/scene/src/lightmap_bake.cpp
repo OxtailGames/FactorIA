@@ -22,6 +22,12 @@ namespace fa {
 namespace {
 
 constexpr float kFar = 1e30f;
+// A triangle whose edge cross product is no longer than this (twice its area, m^2) has no usable face normal and casts no shadow: the
+// one threshold for both, so a triangle that is lit as "no area" never blocks a ray either.
+constexpr float kDegenerateCross = 1e-20f;
+// The largest automatic ray offset (meters, when BakeSettings::rayEpsilon is 0). Float positions are good to about 6e-5 m at 1 km, so
+// 1 cm still clears the rounding of a scene of 100 km, and it stays far under the thinnest wall that is worth shadowing.
+constexpr float kMaxAutoRayEpsilon = 0.01f;
 constexpr std::uint64_t kU64Max = std::numeric_limits<std::uint64_t>::max();
 
 // ---- 64-bit saturating size maths (size_t is 32 bits on wasm32) ---------------------------------------------------------------------
@@ -111,7 +117,9 @@ struct Sizes {
 
 // Roughly what one texel, one triangle and one probe keep alive during a bake (a margin included): see ARCHITECTURE_BAKING.md.
 constexpr std::uint64_t kBytesPerTexel = 80;
-constexpr std::uint64_t kBytesPerTriangle = 240;
+// A triangle: the flattened arrays (corners, normals, UVs: about 125 B), the BVH (corners, centroids, order, nodes: about 75 B) and the
+// scene's own meshes (about 40 B) add up to about 240 B once built (summed from the struct sizes, not measured), and the construction peaks above that: 320 B.
+constexpr std::uint64_t kBytesPerTriangle = 320;
 constexpr std::uint64_t kBytesPerProbe = 160;
 
 Result<void> check_settings(const BakeSettings& s) {
@@ -387,7 +395,8 @@ Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool pr
             for (int k = 0; k < 3; ++k) c[k] = m.positions[m.indices[t + std::size_t(k)]];
             Vec3 raw = cross(c[1] - c[0], c[2] - c[0]);
             const float len = length(raw);
-            Vec3 fn = len > 1e-20f ? raw / len : Vec3{};
+            const bool degenerate = !(len > kDegenerateCross);
+            Vec3 fn = degenerate ? Vec3{} : raw / len;
             Vec3 n[3] = {fn, fn, fn};
             if (smooth) {
                 Vec3 avg{};
@@ -409,17 +418,20 @@ Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool pr
             p.faceN.push_back(fn);
             p.material.push_back(m.materials.empty() ? 0u : m.materials[t / 3]);
             p.atlas.push_back(baked ? std::int32_t(m.atlas) : -1);
-            if (m.castsShadow && len > 0.0f) {
+            if (m.castsShadow && !degenerate) {
                 p.casterOf[g] = std::int32_t(p.casterGlobal.size());
                 p.casterGlobal.push_back(std::uint32_t(g));
                 for (int k = 0; k < 3; ++k) casterCorners.push_back(c[k]);
             }
         }
     }
-    if (!p.bvh.build(casterCorners.data(), p.casterGlobal.size(), command_cancel_flag())) return cancelled_error();
+    if (!p.bvh.build(std::move(casterCorners), command_cancel_flag())) return cancelled_error();
     float diag = lo.x > hi.x ? 1.0f : length(hi - lo);
     if (!(diag > 1e-6f)) diag = 1.0f;
-    p.eps = st.rayEpsilon > 0 ? st.rayEpsilon : diag * 1e-4f;
+    // The automatic offset is size / 10000, but never over kMaxAutoRayEpsilon: 10 cm in a 1 km world would shorten every shadow ray by
+    // 20 cm and let light through a thin wall. A caller who wants more asks for it with rayEpsilon. (The lightmap bake also brings it
+    // under a twentieth of a texel, see bake_lightmap; probes have no texel.)
+    p.eps = st.rayEpsilon > 0 ? st.rayEpsilon : std::min(diag * 1e-4f, kMaxAutoRayEpsilon);
 
     for (const BakeLight& l : scene.lights) {
         if (l.mode == BakeLightMode::Realtime) continue;

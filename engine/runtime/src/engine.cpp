@@ -1285,6 +1285,8 @@ void Engine::reload_scene() {
     I.load_scene_impl(I.currentScene, &err, true);
 }
 
+bool Engine::play_world() const { return impl_->playWorld; }
+void Engine::set_play_world(bool on) { impl_->playWorld = on; }
 bool Engine::paused() const { return impl_->paused; }
 void Engine::set_paused(bool p) {
     if (p && !impl_->paused) impl_->input.stop_all_rumble();  // a paused game does not keep a pad shaking

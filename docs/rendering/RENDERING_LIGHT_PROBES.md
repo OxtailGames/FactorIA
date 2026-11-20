@@ -35,13 +35,16 @@ with lightmaps). The position the probes are read at is the centre of the mesh's
 around that point (trilinear in a grid, a smooth falloff outside the box over one `spacing`, then back to the sky's ambient light). The
 blend with the sky is `coverage`: 1 inside the probes, 0 where none reaches.
 
-`render.light_probes` answers what the renderer has: without arguments `{lightmaps, baked, probes, invalid, groups: [...]}`, with
+`render.light_probes` answers what the renderer has: without arguments `{lightmaps, baked, probes, invalid, groups: [...], unbaked: [...]}`
+(a group is `stale` when its component was edited after the bake, `unbaked` lists the scene's groups the file does not hold: bake again), with
 `{"entity": "Player"}` also `source` (`probes`, `lightmap`, `sky` or `none`), `coverage`, `probesUsed`, the `sh` coefficients and the
 `ambient` light that a surface facing up, down, east, west, north or south would get. `render.supports {"feature": "lightProbes"}` says
 the GPU can draw them (every backend can).
 
 In the editor the probes of a group are small spheres coloured by their baked light (grey before the first bake, or after the group was
-edited), shown by **View > Lightmap > Show probes** and `LightProbeGroup.showGizmo` of each group.
+edited), shown by **View > Show light probes** (the Lightmap window's **Show probes** is the same switch) and `LightProbeGroup.showGizmo` of each
+group. Probes behind the camera are not drawn and at most 2048 are drawn in all, so a big grid thins out; the Lightmap window says how many groups
+changed since the bake.
 
 ## Light mode against receiver
 

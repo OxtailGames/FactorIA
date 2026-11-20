@@ -1439,6 +1439,7 @@
     "render.frame_graph": "0.28.0",
     "render.inspect": "0.4.0",
     "render.light_probes": "unreleased",
+    "render.material_cost": "unreleased",
     "render.output": "0.31.0",
     "render.pick": "0.4.0",
     "render.probe_refresh": "unreleased",

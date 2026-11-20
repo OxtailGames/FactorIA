@@ -179,6 +179,21 @@ the `message` names the file and the fix), "noRoom".
 5. Keep `reflectionProbes` in `render.supports` planned until a draw samples a probe; then flip its row and the test that
    requires `why == "planned (M73)"` in `postprocess_resolve_tests.cpp`.
 
+## Resource lifetimes the capture relies on
+
+- **Face image of a job.** The picture of job `i` of a frame is the `view_image` of key `kProbeViewKeyBit | i`, drawn by the frame
+  graph and read by `face_to_cube` at the end of the SAME frame (`probes_finish`, before `release_unused_views`). It is never read
+  in a later frame, so a later frame's job with the same key may redraw it: both are commands of one queue, in order.
+- **Scratch cubes of a slot** are made in `probes_plan`, freed only when the slot's resolution changes (the scheduler never gives a
+  slot to another resolution in the call that completed its capture), and sokol keeps a destroyed image for three more commits.
+- **What a face draws with is CPU-written data that has a copy per frame in flight** (the instance matrices, the light data image,
+  the 2D stream): a capture's frames differ from each other with the scene unchanged (each frame draws other faces, so other
+  visible instances), which a static scene's frames do not, so the capture is what showed a write that reached the GPU's copy of an
+  earlier frame. The rule that prevents it is in ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes" (`Gpu::begin_transient_writes`).
+  The symptom was one face of a tile showing another face's colour on Metal when the GPU was a frame behind (budget 2 and under CPU
+  and GPU load; budget 1 with a 256 probe every time). The tests `realtime probe: two probes of different resolutions ...` and
+  `three probes of mixed resolutions ...` compare every capture, the first ones too, on every backend.
+
 ## Limits and what is not verified
 
 - 256 probes (`kProbeMaxCount`); the atlas 1024 square; the faces per frame 1..12; resolutions 32, 64, 128, 256.

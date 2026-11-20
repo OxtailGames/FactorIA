@@ -577,9 +577,10 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "image "
      "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for "
      "the "
-     "contact shadows, a white image while none is drawn or in the blended phase; M73.6b the opaque color for "
-     "transmission "
-     "(read with texelFetch too, any mip, bilinear by hand)"},
+     "contact shadows, a white image while none is drawn; in the blended phase of a frame with a transmissive mesh "
+     "(M73.6b) the "
+     "refraction atlas (renderer_xmit.h): the opaque picture and its halves, read with texelFetch too, bilinear and "
+     "trilinear by hand"},
 };
 inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
 
@@ -1386,11 +1387,12 @@ public:
     // `extras` = the per-instance params and declared channels of that custom material (MaterialAsset::extras()):
     // vertex buffers 3, 4 and 5 at the attributes after the matrix (and the joints). The shader id decides the
     // pipeline: a material's programs and its extras change together, so the key does not name them.
+    // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {});
+                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+                              MeshExtras extras = {}, bool glass = false) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
@@ -1615,6 +1617,16 @@ public:
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
+    // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
+    // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
+    // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
+    // command buffer is made, at its first pass or copy, so a write before it overwrote data the GPU was still reading whenever
+    // the GPU was a frame or two behind (a probe's second face drew with the instances of another face; only a loaded
+    // GPU showed it). This makes the frame's command buffer, and so waits for the same frame sokol waits for anyway at the first
+    // pass, with an empty copy: no extra synchronisation, only earlier. Nothing on the other backends (OpenGL and
+    // Direct3D 11 order the write in the driver, Vulkan makes the frame's command buffers in the write).
+    // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
+    void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
     sg_buffer acquire_transient(std::size_t bytes);
     // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
@@ -1726,6 +1738,8 @@ private:
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
     std::size_t lightImagesUsed_ = 0;
     bool committed_ = true;
+    sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
+    std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }

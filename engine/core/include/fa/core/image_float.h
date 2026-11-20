@@ -87,15 +87,23 @@ struct ImageF {
 // what to do. The result has 3 channels, linear light. A truncated or corrupt file is an error that names the byte
 // offset; a size above kMaxImageFloatSide or kMaxImageFloatBytes is refused from the header, before pixel memory is
 // allocated.
-Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size);
+// `maxBytes` is the most pixel memory (width x height x 3 floats) this read may take, never above kMaxImageFloatBytes: a
+// caller that cannot afford 1 GB (a phone, a browser tab) passes less and gets the error from the header. It matters
+// because a file is not as big as the picture it makes: a row of any width costs about 12 bytes with old-style repeat
+// markers, so 50 KB can claim 400 MB. The file is read twice (the first pass proves every row, the second converts
+// them), so the pixel memory is taken once, at its final size, and only for a file that is valid to its last row.
+// ImageF::exposure is read by the decoder's own decimal parser (digits summed in a double, scaled by repeated *10 or
+// /10), not by strtod: the same value on every platform, but not always the correctly rounded float of the text (it can
+// differ in the last bit or two). It is metadata, so compare it with a tolerance.
+Result<ImageF> decode_hdr(const std::uint8_t* data, std::size_t size, std::uint64_t maxBytes = kMaxImageFloatBytes);
 // What the header of a .hdr says, read without touching the pixels (the same checks, so the same errors, as decode_hdr's
-// header: only the first bytes of the file are needed, at most 16 KB). The size is within kMaxImageFloatSide and
-// kMaxImageFloatBytes.
+// header: only the first bytes of the file are needed, at most 16 KB). The size is within kMaxImageFloatSide, kMaxImageFloatBytes
+// and `maxBytes` (as for decode_hdr).
 struct HdrInfo {
     int width = 0, height = 0;
     float exposure = 1.0f;  // as ImageF::exposure
 };
-Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size);
+Result<HdrInfo> hdr_info(const std::uint8_t* data, std::size_t size, std::uint64_t maxBytes = kMaxImageFloatBytes);
 // Reads and decodes a .hdr through the engine's file layer (fs::read_bytes: project paths, packs); the error names the
 // file.
 Result<ImageF> load_hdr(std::string_view path);
