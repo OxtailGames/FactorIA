@@ -2,6 +2,7 @@
 // choice of the lights that fit the shader.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -38,6 +39,12 @@ struct MeshItem {
     bool keyed = false;          // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;  // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
 };
+
+// What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
+// 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
+inline int decal_recv(const MeshRenderer& mr) {
+    return mr.receiveDecals ? std::clamp<int>(mr.decalLayer, 0, 15) + 1 : 0;
+}
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
 struct SortFields {
@@ -102,6 +109,7 @@ private:
     struct Rest {
         std::array<float, 10> shading;  // colour rgba, metallic, roughness, emissive rgb, emissiveStrength
         bool unlit = false, receiveShadows = true;
+        int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
         std::string_view material;      // by name

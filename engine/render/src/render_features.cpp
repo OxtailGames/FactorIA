@@ -170,7 +170,11 @@ std::vector<FeatureDef> build_table() {
          "(M73.4)."},
         {"lightProbes", "", "Light probes: baked spherical-harmonics lighting for moving objects (M73.4)."},
         {"volumetricFog", "half+depth", "Volumetric fog and light shafts per light (M73.5)."},
-        {"decals", "depth", "Projected decals drawn over the meshes they touch (M73.5)."},
+        {"decals", "",
+         "Projected decals: a Decal box paints albedo, tint and normal relief on the meshes it touches, found through "
+         "the light "
+         "clusters and applied in the mesh shader (M73.5b).",
+         nullptr},
         {"subsurface", "half+depth", "Screen-space subsurface scattering for skin and wax (M73.5)."},
         {"realtimeGI", "half",
          "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5)."},

@@ -28,6 +28,8 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "decal_atlas.h"
+#include "light_clusters.h"
 #include "renderer_env.h"
 #include "renderer_ssr.h"
 #include "renderer_dof.h"
@@ -211,6 +213,42 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
     bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
+    // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the
+    // frame's jobs have run, like a MeshItem's MeshRenderer).
+    struct DecalItem {
+        Mat4 world;
+        const Decal* decal = nullptr;
+    };
+    // The atlas of the decal textures: one RGBA8 image with mips (view 27), rebuilt when a decal names a texture it does not hold, when a
+    // texture is reloaded (Assets::reload_generation) or when the scene's colour space changes; known = every path the build was asked for
+    // (a texture that failed or did not fit is not asked for again until then). A replaced image is kept in decalRetired until the next
+    // frame's graph begins (an earlier job of the same frame may still draw with it).
+    struct DecalAtlasState {
+        sg_image image{};
+        sg_view view{};
+        render::DecalAtlasLayout layout;
+        std::set<std::string> known;
+        std::uint64_t generation = 0;
+        int colorMode = 0;
+        bool built = false;
+        std::uint64_t bytes = 0;
+    };
+    DecalAtlasState decalAtlas;
+    std::vector<std::pair<sg_image, sg_view>> decalRetired;
+    bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false;
+    std::set<std::string> warnedDecalTextures;  // the textures reported as unreadable or left out (once each)
+    // Makes sure the atlas holds `paths` (every texture of every Decal of the world); false when decals cannot be drawn with textures.
+    bool ensure_decal_atlas(const std::vector<std::string>& paths, bool linear);
+    // The records of the decals of a view, in drawing order, and their boxes; a decal whose albedo is not in the atlas is skipped.
+    // `skipped` counts the decals left out for a missing albedo.
+    void make_decal_records(const std::vector<DecalItem>& items, bool linear, render::DecalPack& pack,
+                            std::vector<render::DecalBox>& boxes, int& skipped);
+    static std::string decal_path_key(const std::string& path);
+    void free_retired_decal_atlases();
+    void destroy_decal_atlas();
+    // The image a mesh program reads at view 27: the atlas, or the white image while there is none.
+    sg_view decal_view_or(sg_view fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
+    void collect_decals(DrawContext& ctx);
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;

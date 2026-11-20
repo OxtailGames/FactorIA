@@ -788,7 +788,8 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
     CHECK(slots.viewMask == (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView |
-                             1u << VIEW_mesh_fa_light_tex));  // + the sky environment and the light data
+                             1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex));
+    // + the sky environment, the light data and the decal atlas
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));

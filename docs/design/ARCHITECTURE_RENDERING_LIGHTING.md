@@ -45,10 +45,10 @@ into a row or changes the table together with the `static_assert`s under it.
 | 14 `fa_env_tex` (sampler 10) | the baked sky, a prefiltered cube | 0, 1 |
 | 15 `fa_irr_tex` (sampler 10) | its irradiance cube | 0, 1 |
 | 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
-| 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists (landed); later decals, the sky's spherical harmonics | 1, 2 |
+| 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists, M73.5b the decal records and their cluster lists (landed); later the sky's spherical harmonics | 1, 2 |
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: cookies and IES profiles, one RGBA8 atlas | 1, 2 |
 | 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap atlas, UV2 of the mesh | 1, 2 |
-| 27 `fa_decal_atlas` (sampler 10) | M73.5b: decal textures (their transforms are in `fa_light_data`) | 1, 2 |
+| 27 `fa_decal_atlas` (sampler 10) | M73.5b (landed): decal textures, RGBA8 with mips (their transforms are in `fa_light_data`); the white image while a view has no decals | 1, 2 |
 | 28 `fa_screen_tex` (sampler 10) | M73.2c and M73.6b: the prepass depth for contact shadows, the opaque colour for transmission | 2 |
 
 Rules the table follows, each checked by a `static_assert` (`mesh_fragment_views_valid()`, `mesh_fragment_units(phase)`) and by
@@ -83,7 +83,8 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
 - **Layout** (documented at the top of `light_data.glsl`): `[0, 4L)` the light table, four texels per light (position and range, or the
   direction to a directional light; colour times intensity and the type; the spot axis and `cos(outer)`; `cos(inner)`, 2 meaning "the
   default fade" and three reserved components for the cookie and IES of M73.1b); then one texel per cluster (slot of its first light
-  index, how many lights), slice-major, then row, then column; then the light indices, four to a texel.
+  index, how many lights, and since M73.5b the slot of its first decal index and how many decals: 0, 0 without decals), slice-major, then
+  row, then column; then the light indices, four to a texel; then, only when the view has decals, the decal region (see "Decals").
 - **Who is in the table.** The directional lights come first (at most 32, `kMaxDirectionalLights`; the shadow caster is light 0) and
   belong to every cluster, they are not in the lists. Then the local lights in the order of `select_lights` (at most 1024 in all,
   `kMaxLights`). A light list is in ascending table order, so a loop over "the directional lights, then the cluster's list" adds the
@@ -163,6 +164,66 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
 - **Debug view.** `render.debug_view cascades` (`DebugView::Cascades`; also `FA_RENDER_DEBUG_VIEW=cascades`) sets `fa_shadow_eye.w` and
   the mesh fragment tints its colour by cascade (`fa_shadow_debug`); the prepass is not planned for that view.
 
+## Decals (M73.5b)
+
+The user page is docs/rendering/RENDERING_LIGHTING.md, "Decals". A projected decal is **forward**, not deferred: the opaque and the
+blended meshes are drawn as before, and the mesh fragment shader paints the decals of its cluster over the surface (albedo and shading
+normal) before the lights read them. There is no G-buffer and no extra pass; a view without decals binds the white image at view 27 and a
+`fa_counts.y` of 0, and its pixels and its light data texture are the same as before (a test compares a scene with the decal code on and
+off).
+
+- **Which decals.** `collect_decals` (`renderer_draw.cpp`) walks the world's `Decal` components of the active entities in the order of the
+  world, keeps the first `kMaxDecals` (256; the rest count in `stats.decalsDropped`, warned once), then sorts them **stably** by
+  `sortOrder`: the order in the shader is the order of painting, so a later decal covers an earlier one. It also gathers every texture path
+  the decals name (sorted, normalised) so the atlas is built for all of them, not only for the ones in view.
+- **Boxes in the cluster grid.** `make_decal_records` turns each decal into a `DecalRecord` (the inverse of its world matrix, so
+  `world -> box` is three rows; the box is the cube -0.5..0.5 of the entity's local space, the projector looks along local -Z) and a
+  `DecalBox` of eight world corners. `build_decal_clusters` (`light_clusters.cpp`) gives each box the range of clusters its corners
+  reach, with the same margins as a light sphere (`decal_cluster_range`), and fills lists with the same deterministic job as the lights
+  (chunks, per-slice fill, serial prefix): the lists are the same bytes for any number of workers. Limits are counts: 32 decals per cluster
+  (the first 32 in drawing order stay), 131072 list entries per view; what is lost is in `stats.decalClusterClipped`. A view with decals
+  and no lights builds the clusters with no light spheres.
+- **The decal region of `fa_light_data`**, after the light indices, at texel `fa_counts.y`: header texel (count, atlas width, atlas
+  height, first texel of the decal indices); texel 1 `.x` the colour mode (below); then 7 texels per decal (`kDecalTexels`): the three rows of
+  `world -> box`, the albedo rectangle in atlas uv (`x0, y0, x1, y1`; empty when there is no albedo), the normal rectangle, the tint
+  (linear in a linear scene) with the colour's alpha, and `(opacity, normalStrength, angleScale, layers)`; then the decal indices, four to a texel.
+  `angleScale = 1 / max(cos(angleFade), 1e-3)`, `layers` is the mask (0 is stored as 65535). Texel 0 of every cluster has, in z and w, the
+  slot of the cluster's first decal index and the count.
+- **The receiver.** `fa_counts.w` (set per draw in `fill_fs`) is 0 for a mesh with `receiveDecals` false, else `1 + decalLayer`
+  (clamped to 0..15). `decal_recv(mr)` (`mesh_batch.cpp`) is the same number and is part of the batch and the sort key, so two meshes with
+  different values never share a draw (the uniform is per draw, not per instance).
+- **`fa_apply_decals(world_pos, geo_normal, inout albedo, inout normal)`** (block `fa_decals` of `light_data.glsl`) is called once in `main()`
+  of the mesh template, after `surface(i, s)` and **before** the alpha-clip `discard`: it takes `dFdx`/`dFdy` of the position (the
+  mip level of the atlas lookup), which must happen in uniform control flow, and the early outs that follow it do not. In each decal of
+  the fragment's cluster: the box test (`|b| <= 0.5`), the angle fade `clamp(dot(geoNormal, axis) * angleScale, 0, 1)`, an edge fade over
+  the last 10 % of the box in z (the sides cut sharply), then `albedo = mix(albedo, tint * texel, cover * texel.a * tint.a)` and a
+  perturbation of the normal in box space weighted by the same cover. `metallic`, `roughness` and the rest of the surface stay the mesh's. The
+  full template (`mesh_full_common.glsl`) declares the atlas as `fa_full_decal_tex` and includes the same block; it does **not** call the
+  function (a full shader has no surface hook): the author calls it (docs/shaders/SHADERS_LIGHTING.md, "Decals"). The depth prepass and
+  the shadow programs do not include the block, so a decal casts no shadow and never changes the depth.
+- **The atlas** (`decal_atlas.h/.cpp`, CPU, pure and tested without a GPU): every texture the decals name is read (the order of
+  `Assets::load_texture`: the export-packed atlas, then a `.ktx2` twin, then the file), scaled so its longer side is at most 1024, put in a
+  cell with a 16 px edge-replicated gutter (the cell is a multiple of 16, so mips down to 16 px never blend neighbours), and packed in
+  shelves sorted by height, width and path (so the layout does not depend on the order the decals are in) into the smallest square power
+  of two from 64 up to `min(4096, max_image_size_2d)`, its height then trimmed to a power of two. When they do not fit, the biggest tile is
+  halved (down to 16 px), then the last is dropped (warned once, `stats.decalsDropped`); the budget is 96 MB, checked in 64-bit before the
+  allocation. `Renderer::Impl::ensure_decal_atlas` (`renderer_decals.cpp`) rebuilds the image only when a requested path is not in the
+  atlas, when `Assets::reload_generation()` changed (a reloaded file) or when the colour mode changed; the paths it holds are the union of
+  the ones asked for before and the new ones while that is at most 512 (`kMaxDecalTextures`), so two views with different decals do not
+  rebuild it by turns. The replaced image goes to `decalRetired` and is freed at the start of the next frame (an earlier job of this frame
+  may still draw with it), like the shadow targets.
+- **Colour.** Mode 0 (a gamma scene): the atlas is RGBA8 and the shader mixes raw bytes. Mode 1 (a linear scene without an sRGB format): RGBA8, and the shader
+  decodes the albedo (`fa_dc_to_linear`). Mode 2 (a linear scene with `SRGB8A8`): the hardware decodes the albedo and the shader encodes
+  the normal map's texels back (`fa_dc_to_srgb`), because a normal map holds data, not colour. The mips of mode 2 are built in linear space.
+- **Backends.** Only `texelFetch` on the RGBA32F data (as the lights) and one filtered 2D lookup per tile (`textureLod`): nothing a
+  GL, GLES3, WebGL2, D3D11 or Metal driver lacks, and no `float32` target is needed (`render.supports decals` is true wherever the renderer
+  draws). The tile uv is clamped to 0..1 of the tile and the mip level to 0..4 (a 16 px gutter keeps four mips inside the cell), so the
+  filter never reads a neighbour. The golden `3d_decals.png` was made on Metal; the other backends are compared with it by CI.
+- **Stats** (`RenderStats`): `decals` (decals drawn, summed over the frame's views), `decalsDropped` (over 256, no albedo in the atlas, or no
+  atlas), `decalClusterClipped` (list entries lost).
+- **Not the same as the model `texturing` decals** (`model_texture.h`): those are baked by the CPU into a model's texture when it is made, one
+  fixed picture, no component, no runtime cost; this section is the live component. The two do not share code.
+
 ## The feature rows
 
 `render_features.cpp` has one row per feature (docs/design/ARCHITECTURE_RENDERING.md, "What the GPU can do"). M73-P0 added `float32Targets`
@@ -171,7 +232,7 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,
 `subsurface`, `realtimeGI`, `clearCoat`, `sheen`, `anisotropy`, `transmission`. Each carries the `needs` its pass will ask of the GPU.
 `needs_met` runs before the planned check, so on a GPU that lacks the capability the answer names the capability, not the plan. The
-package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`).
+package that draws a feature drops its `"M73"` text from the table (`clusteredLights` did in M73.1a and `cascadedShadows` in M73.2a: it needs only `float32`, and `decals` in M73.5b: it needs nothing).
 
 ## The new fields
 

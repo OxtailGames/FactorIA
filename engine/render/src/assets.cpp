@@ -1495,6 +1495,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
 }
 
 void Assets::reload(const std::string& pathIn) {
+    ++reloadGeneration_;
     std::string path = fs::normalize(pathIn);
     if (path.empty()) path = pathIn;
     auto t = textures_.find(path);

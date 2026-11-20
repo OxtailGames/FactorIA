@@ -23,7 +23,14 @@ inline constexpr int kMaxClusters = 1 << 16;  // the tiles grow (doubling) until
 inline constexpr int kMaxLightsPerCluster =
     128;  // a cluster keeps its first 128 lights (ascending light index); the rest are dropped
 inline constexpr std::size_t kMaxClusterIndices =
-    std::size_t(1) << 19;                        // list entries of a view; the last clusters lose lights past it
+    std::size_t(1) << 19;  // list entries of a view; the last clusters lose lights past it
+// The decals (M73.5b): at most this many per view, 32 per cluster and 131072 list entries in all (a cluster, then the view, keeps its first
+// decals in ascending order; the rest are dropped). Counts, never times.
+inline constexpr int kMaxDecals = 256;
+inline constexpr int kMaxDecalsPerCluster = 32;
+inline constexpr std::size_t kMaxDecalIndices = std::size_t(1) << 17;
+inline constexpr int kDecalTexels = 7;  // texels of one decal in the decal region (shaders/light_data.glsl, fa_decals)
+inline constexpr int kDecalHeaderTexels = 2;     // the region starts with two header texels
 inline constexpr int kLightTextureWidth = 1024;  // texels per row of the data texture (shaders/light_data.glsl)
 inline constexpr int kLightTexels = 4;           // texels of one light in the table
 
@@ -72,6 +79,13 @@ struct ClusterRange {
 bool light_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const LightSphere& sphere,
                          ClusterRange& out);
 
+// A decal's box as the eight corners it has in the world (bit 0 of the index = local x, bit 1 = y, bit 2 = z, of the cube -0.5 .. 0.5).
+struct DecalBox {
+    Vec3 corners[8];
+};
+// The clusters a decal box can reach (the same margins and rules as light_cluster_range).
+bool decal_cluster_range(const ClusterCamera& cam, const ClusterGrid& grid, const DecalBox& box, ClusterRange& out);
+
 // The lists of a view: per cluster the first slot of its light indices and how many it has; `indices` holds the lists one after the
 // other, each in ascending light index.
 struct ClusterLists {
@@ -90,9 +104,36 @@ struct ClusterLists {
 void build_light_clusters(const ClusterCamera& cam, const ClusterGrid& grid, const std::vector<LightSphere>& spheres,
                           ClusterLists& out);
 
+// Assigns the decals (`boxes[n]` is decal n of the table, in drawing order) to the clusters of `grid`, with the limits of the decals
+// (kMaxDecalsPerCluster, kMaxDecalIndices). Deterministic for any number of job threads. `lightsAssigned` of the result counts the decals
+// that reach a cluster.
+void build_decal_clusters(const ClusterCamera& cam, const ClusterGrid& grid, const std::vector<DecalBox>& boxes,
+                          ClusterLists& out);
+
+// A decal as the shader reads it: kDecalTexels RGBA32F texels.
+struct DecalRecord {
+    float rows[12]{};       // world -> box space (the cube -0.5 .. 0.5), three rows of xyz + translation w
+    float albedoRect[4]{};  // u0, v0, u1, v1 of the albedo tile in the atlas (without its gutter); all 0 = no albedo
+    float normalRect[4]{};  // the same for the normal map
+    float tint[4]{1, 1, 1, 1};  // colour (in the scene's colour space) and alpha
+    float opacity = 1.0f, normalStrength = 1.0f;
+    float angleScale = 1.0f;  // 1 / max(cos(angleFade), 1e-3)
+    float layers = 65535.0f;  // bit mask of the MeshRenderer.decalLayer values that receive it
+};
+// The decals of a view: their records in drawing order, their cluster lists and what the shader needs of the atlas.
+struct DecalPack {
+    std::vector<DecalRecord> records;
+    ClusterLists lists;  // from build_decal_clusters, on the same grid as the lights' lists
+    int atlasWidth = 1, atlasHeight = 1;
+    int colorMode =
+        0;  // 0 = gamma scene (the atlas holds raw bytes), 1 = linear scene, atlas RGBA8 (the albedo is sRGB: decode it),
+            // 2 = the atlas is SRGB8A8 (the GPU decodes everything, the normal tiles are encoded back)
+};
+
 // The data texture of a view and the numbers the shader needs (fa_mesh_fs_params, fa_cl_*; all zero and info.x = -1 with no clusters).
 struct ClusterUniforms {
     float vpx[4]{}, vpy[4]{}, vpw[4]{}, fwd[4]{}, grid[4]{}, info[4]{-1, 0, 0, 0};
+    float decalBase = 0;  // first texel of the decal region (fa_counts.y); 0 = the view has no decals
 };
 struct LightTexture {
     int width = kLightTextureWidth;
@@ -102,9 +143,11 @@ struct LightTexture {
     ClusterUniforms uniforms;
 };
 // Packs the light table (`lights`, directional first: `directional` of them), and when `lists` is not null the cluster table and the
-// lists after it. `camera` supplies the matrix rows and the forward axis. Sets height to the rows needed (at least 1).
+// lists after it. `camera` supplies the matrix rows and the forward axis. Sets height to the rows needed (at least 1). `decals` (only with
+// `lists`, on the same grid) adds the decal region after the light indices and the decal slots in z and w of each cluster texel; a
+// view without decals has the same texels as before M73.5b (z and w of a cluster texel are 0).
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
-                        const ClusterLists* lists, LightTexture& out);
+                        const ClusterLists* lists, LightTexture& out, const DecalPack* decals = nullptr);
 
 // The rows (a power of two) a texture of `texels` texels needs.
 int light_texture_rows(std::size_t texels);
