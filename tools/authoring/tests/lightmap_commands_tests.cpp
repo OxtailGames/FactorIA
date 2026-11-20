@@ -19,6 +19,7 @@
 #include "fa/render/lightmap_geometry.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/components.h"
+#include "fa/scene/light_probes.h"
 #include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/lightmap_uv.h"
 #include "lightmap_bake_job.h"
@@ -596,4 +597,73 @@ TEST_CASE("lightmap bake plan: an environment map is used, a missing or malforme
     const auto with = sums(small(Json::object({{"bounces", 0}})));
     CHECK(with[0] - without[0] > 1.0);
     CHECK(with[2] - without[2] > 3.0 * (with[0] - without[0]));
+}
+
+TEST_CASE("lightmap.bake: a LightProbeGroup is baked in the same job, listed in the result and the manifest") {
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2, "points": [[0, 0.5, 0]] } } })";
+    TempProject p("probes", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto r = e.commands().call("lightmap.bake", small());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result.contains("probes"));
+    const Json& pr = r.result["probes"];
+    CHECK(pr["count"] == 3 * 2 * 3 + 1);   // the grid (4 x 2 x 4 m at 2 m: 3 x 2 x 3) and the point
+    CHECK(pr["invalid"].get<int>() >= 1);  // the point sits in the box (a unit cube at y = 0.5)
+    REQUIRE(pr["groups"].size() == 2);     // the grid and the points are two groups of the same entity
+    CHECK(pr["groups"][0]["id"] == "probes");
+
+    auto manifest = load_lightmap_manifest("scenes/main.lightmap.json");
+    REQUIRE_MESSAGE(manifest.ok(), manifest.error().message);
+    CHECK(manifest->probes.file == pr["file"].get<std::string>());
+    CHECK(manifest->probes.count == pr["count"].get<int>());
+    CHECK(manifest->probes.invalid == pr["invalid"].get<int>());
+    auto set = load_probe_set(manifest->probes.file);
+    REQUIRE_MESSAGE(set.ok(), set.error().message);
+    CHECK(int(set->size()) == manifest->probes.count);
+    CHECK(set->baked());
+    CHECK(int(set->invalid_count()) == manifest->probes.invalid);
+    // A rebake of the unchanged scene keeps one probe file next to the pages.
+    auto again = e.commands().call("lightmap.bake", small());
+    REQUIRE_MESSAGE(again.ok, again.error.dump());
+    CHECK(again.result["probes"]["file"] == pr["file"]);
+    int probeFiles = 0;
+    for (const std::string& f : p.files())
+        if (f.size() > 7 && f.substr(f.size() - 7) == ".probes") ++probeFiles;
+    CHECK(probeFiles == 1);
+    e.shutdown();
+}
+
+TEST_CASE("lightmap.bake: a scene without a LightProbeGroup has no probes key and no probe file") {
+    TempProject plain("noprobes");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(plain), nullptr, &err), err);
+    auto r = e.commands().call("lightmap.bake", small());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK_FALSE(r.result.contains("probes"));
+    auto m = load_lightmap_manifest("scenes/main.lightmap.json");
+    REQUIRE_MESSAGE(m.ok(), m.error().message);
+    CHECK(m->probes.file.empty());
+    for (const std::string& f : plain.files()) CHECK(f.find(".probes") == std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE("lightmap.bake: a LightProbeGroup with a mistake stops the bake with its field and a hint") {
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "LightProbeGroup": { "size": [400, 400, 400], "spacing": 0.5 } } })";
+    TempProject p("probesbad", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto r = e.commands().call("lightmap.bake", small());
+    REQUIRE_FALSE(r.ok);
+    const std::string text = r.error.dump();
+    CHECK(text.find("probes") != std::string::npos);
+    CHECK(text.find("per group") != std::string::npos);
+    CHECK(text.find("spacing") != std::string::npos);
+    CHECK(e.world().settings().lightmaps.empty());
+    e.shutdown();
 }

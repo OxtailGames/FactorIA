@@ -137,7 +137,8 @@ TEST_CASE("light probes: trilinear at the corners, continuous across a cell, inv
     // halfway between two probes: their mean; and no jump where the cell changes (x = 0)
     CHECK(probe_light_at(set, {-1, 0, 0}).sh.c[0].x == doctest::Approx(3.0f));
     CHECK(probe_light_at(set, {1, 0, 0}).sh.c[0].x == doctest::Approx(7.0f));
-    const float below = probe_light_at(set, {-1e-4f, 0, 0}).sh.c[0].x, above = probe_light_at(set, {1e-4f, 0, 0}).sh.c[0].x;
+    const float below = probe_light_at(set, {-1e-4f, 0, 0}).sh.c[0].x,
+                above = probe_light_at(set, {1e-4f, 0, 0}).sh.c[0].x;
     CHECK(std::fabs(above - below) < 1e-3f);
     // the layer axes (one probe) do not matter near the probes, and a point far above the layer is out of its reach
     CHECK(probe_light_at(set, {0, 0.5f, 0.5f}).coverage == doctest::Approx(1.0f));
@@ -154,9 +155,11 @@ TEST_CASE("light probes: trilinear at the corners, continuous across a cell, inv
     const ProbeLight skip = probe_light_at(set, {-1, 0, 0});  // between probe 0 (valid) and probe 1 (invalid)
     CHECK(skip.sh.c[0].x == doctest::Approx(1.0f));
     CHECK(skip.coverage == doctest::Approx(1.0f));  // half of the weight is left: above the 0.25 that counts as full
-    const ProbeLight nearInvalid = probe_light_at(set, {-0.05f, 0, 0});  // almost on the invalid probe: little weight is left
+    const ProbeLight nearInvalid =
+        probe_light_at(set, {-0.05f, 0, 0});  // almost on the invalid probe: little weight is left
     CHECK(nearInvalid.coverage < skip.coverage);
-    CHECK(probe_light_at(set, {0, 0, 0}).coverage == 0.0f);  // on the invalid probe and its cell neighbours at weight 0 or 1
+    CHECK(probe_light_at(set, {0, 0, 0}).coverage ==
+          0.0f);  // on the invalid probe and its cell neighbours at weight 0 or 1
     // all invalid: nothing covers
     set.valid.assign(3, 0);
     CHECK(probe_light_at(set, {0, 0, 0}).coverage == 0.0f);
@@ -168,7 +171,8 @@ TEST_CASE("light probes: trilinear at the corners, continuous across a cell, inv
     CHECK(probe_light_key(probe_light_at(raw, {0, 0, 0})) == 0);
 }
 
-TEST_CASE("light probes: single points light the objects near them, the nearer the stronger, and equal light has an equal key") {
+TEST_CASE("light probes: single points light the objects near them, the nearer the stronger, and equal light has an "
+          "equal key") {
     ProbeSet set;
     LightProbeGroup g;
     g.grid = false;
@@ -188,7 +192,8 @@ TEST_CASE("light probes: single points light the objects near them, the nearer t
     CHECK(probe_light_key(far) == 0);
 }
 
-TEST_CASE("sample_probes: a probe inside a solid block is flagged and zeroed, one in a room is not, on any thread count") {
+TEST_CASE(
+    "sample_probes: a probe inside a solid block is flagged and zeroed, one in a room is not, on any thread count") {
     BakeSettings st;
     st.samples = 48;
     st.bounces = 1;

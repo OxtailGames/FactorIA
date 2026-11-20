@@ -69,7 +69,7 @@ struct SortFields {
     std::uint64_t probeKey = 0;  // probe_light_key: items with other light probe SH are other batches
 };
 inline SortFields fields_of(const MeshItem& m) {
-    return {m.mesh,       m.tex,   m.normalTex,         m.mr, m.entity, m.anim, m.material, m.paramsHash,
+    return {m.mesh,       m.tex,   m.normalTex,          m.mr,      m.entity, m.anim, m.material, m.paramsHash,
             m.colorsHash, m.flash, m.lm.mesh != nullptr, m.probeKey};
 }
 

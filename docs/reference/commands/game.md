@@ -437,6 +437,22 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
 
+## `render.light_probes`
+
+Not released yet (on main after 0.32.0).
+
+The baked light probes of the scene and the light a MeshRenderer receives from them.
+
+Capabilities: read
+
+Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the scene's lightmap manifest (SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives their spherical harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at MeshRenderer.probeAnchor). Without `entity`: {lightmaps, baked, probes, invalid, groups: [{id, kind: "grid" | "points", count, invalid}]}; `invalid` probes sit inside geometry and are skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: "probes" | "lightmap" | "sky" | "none", position, coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine [r, g, b] coefficients), ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; `sky` means no probe reaches it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes {"entity":"Player"}
+
+Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::light_probes_report in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
+
 ## `render.output`
 
 Since 0.31.0.
@@ -492,7 +508,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles and volumetricFog are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes and volumetricFog are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

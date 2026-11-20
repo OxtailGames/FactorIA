@@ -404,7 +404,8 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `instanceBounds` | float | `0.0` | For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen. Range 0.0..1000000.0. (since 0.32.0) |
 | `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "Lightmaps"). Range 0.0..100.0. (not released yet, on main after 0.32.0) |
 | `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (not released yet, on main after 0.32.0) |
-| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime global illumination (M73.4d, M73.5) read it too. (not released yet, on main after 0.32.0) |
+| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well. (not released yet, on main after 0.32.0) |
+| `probeAnchor` | entity |  | The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty. (not released yet, on main after 0.32.0) |
 | `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen). (not released yet, on main after 0.32.0) |
@@ -464,6 +465,21 @@ A texture projected onto the 3D meshes that stand inside the box of this entity:
 | `angleFade` | float | `60.0` | Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the surface is edge-on. Default 60. Range 0.0..90.0. |
 | `sortOrder` | int | `0` | Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); equal values keep the order in which the world visits its Decal components (a stable sort). When more than 32 decals cover one cluster of the view the lowest values are kept. Range -1000000..1000000. |
 | `layers` | int | `0` | Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 layer 1, up to bit 15. 0 (default) = every layer. Range 0..65535. |
+
+### LightProbeGroup
+
+Not released yet (on main after 0.32.0).
+
+Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[10.0,4.0,10.0]` | [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10]. |
+| `spacing` | float | `2.0` | Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1. Range 0.25..100.0. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet. |
+| `grid` | bool | `true` | true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored). |
+| `points` | json | `[]` | Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. |
+| `showGizmo` | bool | `true` | The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game. |
 
 ### Animator
 
@@ -5682,9 +5698,9 @@ Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it,
 
 Capabilities: read, state, writeProject
 
-Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, texels, rays, skipped, warnings, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
+Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. The LightProbeGroups of the scene are baked by the same job (phase "probes") into `<name>.lightmap.<hash>.probes`, which the manifest lists: moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. Result: {manifest, pages, entities, texels, rays, skipped, warnings, probes {file, count, invalid, groups}, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
 
-Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps".
+Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps".
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -5752,7 +5768,7 @@ The state of a bake job: running with a phase and progress, or done with its res
 
 Capabilities: read, state, writeProject
 
-Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. Example: lightmap.bake_status {"job":"bake:1"}
+Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, probes, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. Example: lightmap.bake_status {"job":"bake:1"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7791,6 +7807,22 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
 
+### `render.light_probes`
+
+Not released yet (on main after 0.32.0).
+
+The baked light probes of the scene and the light a MeshRenderer receives from them.
+
+Capabilities: read
+
+Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the scene's lightmap manifest (SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives their spherical harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at MeshRenderer.probeAnchor). Without `entity`: {lightmaps, baked, probes, invalid, groups: [{id, kind: "grid" | "points", count, invalid}]}; `invalid` probes sit inside geometry and are skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: "probes" | "lightmap" | "sky" | "none", position, coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine [r, g, b] coefficients), ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; `sky` means no probe reaches it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes {"entity":"Player"}
+
+Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::light_probes_report in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
+
 ### `render.output`
 
 Since 0.31.0.
@@ -7846,7 +7878,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles and volumetricFog are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes and volumetricFog are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -17980,10 +18012,16 @@ declare module "factoria" {
      */
     contributeGI: boolean;
     /**
-     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. The light probes and the realtime global illumination (M73.4d, M73.5) read it too.
+     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well.
      * @since unreleased
      */
     receiveGI: boolean;
+    /**
+     * The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.
+     * @since unreleased
+     */
+    get probeAnchor(): Entity | null;
+    set probeAnchor(value: EntityLike);
     /**
      * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
      * @since unreleased
@@ -18213,6 +18251,46 @@ declare module "factoria" {
      * @since unreleased
      */
     layers: number;
+  }
+  /**
+   * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights".
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface LightProbeGroupComponent {
+    /**
+     * [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1.
+     * @since unreleased
+     */
+    spacing: number;
+    /**
+     * [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet.
+     * @since unreleased
+     */
+    get offset(): Vec3;
+    set offset(value: Vec3Like);
+    /**
+     * true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored).
+     * @since unreleased
+     */
+    grid: boolean;
+    /**
+     * Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    points: any;
+    /**
+     * The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.
+     * @since unreleased
+     */
+    showGizmo: boolean;
   }
   /**
    * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
@@ -22180,6 +22258,7 @@ declare module "factoria" {
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
     Decal: DecalComponent;
+    LightProbeGroup: LightProbeGroupComponent;
     Animator: AnimatorComponent;
     IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
@@ -22232,9 +22311,10 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; receiveDecals?: boolean; decalLayer?: number };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; receiveDecals?: boolean; decalLayer?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
+    LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };

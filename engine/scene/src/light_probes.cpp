@@ -107,9 +107,8 @@ Result<void> add_probe_group(ProbeSet& set, const std::string& entityId, const L
         for (std::int32_t z = 0; z < g.nz; ++z)
             for (std::int32_t y = 0; y < g.ny; ++y)
                 for (std::int32_t x = 0; x < g.nx; ++x)
-                    set.positions.push_back(
-                        {g.origin.x + float(x) * c.spacing, g.origin.y + float(y) * c.spacing,
-                         g.origin.z + float(z) * c.spacing});
+                    set.positions.push_back({g.origin.x + float(x) * c.spacing, g.origin.y + float(y) * c.spacing,
+                                             g.origin.z + float(z) * c.spacing});
         set.groups.push_back(std::move(g));
     }
     if (c.points.is_array() && !c.points.empty()) {
@@ -135,8 +134,7 @@ Result<void> add_probe_group(ProbeSet& set, const std::string& entityId, const L
             if (!e.is_array() || e.size() != 3 || !e[0].is_number() || !e[1].is_number() || !e[2].is_number())
                 return make_error(at + " must be [x, y, z] (three numbers)", "Example: \"points\": [[1, 1.5, -2]].");
             const Vec3 p{float(e[0].get<double>()), float(e[1].get<double>()), float(e[2].get<double>())};
-            if (!finite3v(p))
-                return make_error(at + " is not a finite position", "Remove the NaN or infinite value.");
+            if (!finite3v(p)) return make_error(at + " is not a finite position", "Remove the NaN or infinite value.");
             pts.push_back(p);
         }
         for (const Vec3& p : pts) set.positions.push_back(p);
@@ -195,8 +193,8 @@ Result<ProbeSet> decode_probe_set(const std::uint8_t* data, std::size_t size, co
     const std::uint32_t groups = r.u32(), probes = r.u32();
     if (!r.ok || groups > std::uint32_t(kMaxProbeGroups) || probes > std::uint32_t(kMaxProbes))
         return bad("it lists " + std::to_string(groups) + " groups and " + std::to_string(probes) +
-                   " probes, over the limits (" + std::to_string(kMaxProbeGroups) + ", " +
-                   std::to_string(kMaxProbes) + ")");
+                   " probes, over the limits (" + std::to_string(kMaxProbeGroups) + ", " + std::to_string(kMaxProbes) +
+                   ")");
     ProbeSet set;
     set.groups.reserve(groups);
     std::uint64_t covered = 0;
@@ -226,9 +224,12 @@ Result<ProbeSet> decode_probe_set(const std::uint8_t* data, std::size_t size, co
         covered += count;
         set.groups.push_back(std::move(g));
     }
-    if (covered != probes) return bad("its groups cover " + std::to_string(covered) + " of " + std::to_string(probes) + " probes");
+    if (covered != probes)
+        return bad("its groups cover " + std::to_string(covered) + " of " + std::to_string(probes) + " probes");
     const std::uint64_t need = std::uint64_t(probes) * (12 + 108 + 1);
-    if (!r.ok || need > r.left()) return bad("it is cut short (" + std::to_string(r.left()) + " bytes left, " + std::to_string(need) + " needed)");
+    if (!r.ok || need > r.left())
+        return bad("it is cut short (" + std::to_string(r.left()) + " bytes left, " + std::to_string(need) +
+                   " needed)");
     set.positions.resize(probes);
     for (Vec3& p : set.positions) {
         p = {r.f32(), r.f32(), r.f32()};
@@ -247,7 +248,9 @@ Result<ProbeSet> decode_probe_set(const std::uint8_t* data, std::size_t size, co
 
 Result<ProbeSet> load_probe_set(const std::string& path) {
     auto bytes = fs::read_bytes(path);
-    if (!bytes) return make_error("cannot read the light probe file '" + path + "': " + bytes.error().message, bytes.error().hint);
+    if (!bytes)
+        return make_error("cannot read the light probe file '" + path + "': " + bytes.error().message,
+                          bytes.error().hint);
     return decode_probe_set(bytes->data(), bytes->size(), path);
 }
 
@@ -300,7 +303,9 @@ void grid_contribution(const ProbeSet& s, const ProbeGroup& g, Vec3 p, Accum& ac
         if (!(wc > 0)) continue;
         const int ix = std::min(i0[0] + dx, n[0] - 1), iy = std::min(i0[1] + dy, n[1] - 1),
                   iz = std::min(i0[2] + dz, n[2] - 1);
-        const std::size_t idx = std::size_t(g.first) + (std::size_t(iz) * std::size_t(n[1]) + std::size_t(iy)) * std::size_t(n[0]) + std::size_t(ix);
+        const std::size_t idx = std::size_t(g.first) +
+                                (std::size_t(iz) * std::size_t(n[1]) + std::size_t(iy)) * std::size_t(n[0]) +
+                                std::size_t(ix);
         if (idx >= s.sh.size() || s.valid[idx] == 0) continue;
         for (int k = 0; k < 9; ++k) mean.c[k] += s.sh[idx].c[k] * wc;
         w += wc;
@@ -342,7 +347,8 @@ std::uint64_t probe_light_key(const ProbeLight& light) {
     if (!(light.coverage > 0)) return 0;
     std::uint64_t h = kLightmapHashSeed;
     auto q = [&](float v) {
-        const std::int64_t i = std::int64_t(std::llround(double(v) * 4096.0));  // 1/4096 of a unit of radiance: far below what shows
+        const std::int64_t i =
+            std::int64_t(std::llround(double(v) * 4096.0));  // 1/4096 of a unit of radiance: far below what shows
         h = lightmap_hash_bytes(h, &i, sizeof i);
     };
     q(light.coverage);

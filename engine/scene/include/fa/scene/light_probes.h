@@ -1,4 +1,4 @@
-// Light probes (M73.4d, docs/design/ARCHITECTURE_BAKING.md, "Light probes"): the baked spherical harmonics of the light at points of the scene, that a
+// Light probes (M73.4d, docs/design/ARCHITECTURE_BAKING.md, "Light probes and mixed lights"): the baked spherical harmonics of the light at points of the scene, that a
 // moving object (one with no lightmap of its own) reads as its ambient light. GPU-free: the layout of the probes of a LightProbeGroup, the file
 // lightmap.bake writes next to the lightmap pages, and the CPU interpolation the renderer uses per mesh.
 //
@@ -64,8 +64,9 @@ Result<ProbeSet> load_probe_set(const std::string& path);  // a project path, th
 
 // What a point of the world receives: the interpolated radiance SH of the probes around it and how much of it the probes cover.
 struct ProbeLight {
-    ShL2 sh;             // weighted mean of the covering probes; zeros when coverage is 0
-    float coverage = 0;  // 0 = no probe reaches the point (use the sky's ambient), 1 = fully inside the probes; in between it blends
+    ShL2 sh;  // weighted mean of the covering probes; zeros when coverage is 0
+    float coverage =
+        0;  // 0 = no probe reaches the point (use the sky's ambient), 1 = fully inside the probes; in between it blends
     int probesUsed = 0;  // probes that contributed (grid corners and points with a non-zero weight)
 };
 // Trilinear in each grid (corners that are invalid are skipped and the rest renormalised, the coverage falls where too little is left), a
