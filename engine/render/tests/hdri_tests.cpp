@@ -529,7 +529,7 @@ TEST_CASE("environment map: the pictures: two spheres lit by a picture with a su
     EnvScene s;
     s.w.get<Transform>(s.cam)->position = {0, 0.3f, 0};
     s.mesh({-1.4f, 0, -4}, 2.2f, 1.0f, 0.1f);                             // a mirror: shows the picture
-    s.mesh({1.4f, 0, -4}, 2.2f, 0.0f, 0.8f, Color{0.9f, 0.9f, 0.9f, 1});  // rough white: the irradiance
+    s.mesh({1.4f, 0, -4}, 2.2f, 0.0f, 0.8f, Color{0.9f, 0.9f, 0.9f, 1});  // rough white: the sky's SH ambient
     s.w.settings().environmentMap = "assets/hdri_spheres.hdr";
     s.w.settings().environmentRotation = 20.0f;
     const Image img = g.render(s.w);

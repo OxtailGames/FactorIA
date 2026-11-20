@@ -14,6 +14,13 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
   `volumetricQuality` (`low` for phones and the web, `medium`, `high`) bounds the cost, and the jitter depends on the pixel only (no temporal
   reprojection). A scene without `volumetricFog` is unchanged and compiles nothing. `render.supports("volumetricFog")` is true wherever the GPU has
   RGBA16F render targets that blend and filter; `game.render_stats` reports `volumetricCameras`, `volumetricLights` and `volumetricLightsDropped`.
+- **Sky ambient light from spherical harmonics (M73-P3e):** the diffuse ambient light of every mesh under a sky material, a physical
+  sky or an HDRI now comes from nine RGB coefficients (L2 spherical harmonics) that the renderer projects, in one GPU pass, into a
+  4x4 mip of the sky cube it already bakes, instead of from the 32x32 irradiance cube, which is gone (view 15 is free; it is reserved
+  for the screen texture). Same re-bake keys, same cost, deterministic, on GL 4.1, GLES3, WebGL2, D3D11 and Metal (an RGBA8
+  fallback where the GPU cannot render to half floats). A custom shader's `ambient()` still gets `ambientColor`, the whole ambient term;
+  see docs/shaders/SHADERS_LIGHTING.md. A sun in an HDRI now smears into the ambient light a little (the golden `3d_hdri_spheres`
+  changed, mean 0.0027); the physical-sky goldens moved by one level at most.
 - **Environment from an HDRI (M73-P3a-2):** `SceneSettings.environmentMap` now works. It is an equirectangular Radiance `.hdr`
   (`assets.import` takes it into `assets/hdri/`, kind `hdri`; a cube cross, a strip of faces or a light probe is refused with the layout
   named and how to convert it; `project.validate` checks the file a scene names) that lights every mesh (ambient light and

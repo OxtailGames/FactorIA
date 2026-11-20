@@ -42,10 +42,10 @@ into a row or changes the table together with the `static_assert`s under it.
 | 1 `fa_shadow_tex` (1, 1) | the directional shadow map; from M73.2 the shadow atlas (cascades, spot and point faces), same slot, nearest sampler | 0, 1, 2 |
 | 2..5 normal, metallic-roughness, occlusion, emissive (views 2..5, sampler 0) | the material's maps | 0, 1, 2 |
 | 6..9 (samplers 2..5) | the four textures of a custom material | 0, 1, 2 |
-| 14 `fa_env_tex` (sampler 10) | the baked sky, a prefiltered cube | 0, 1 |
-| 15 `fa_irr_tex` (sampler 10) | its irradiance cube | 0, 1 |
+| 14 `fa_env_tex` (sampler 10) | the baked sky, a cube: mips 0..4 prefiltered by roughness, mip 5 the sky's nine spherical-harmonics coefficients (M73-P3e) | 0, 1 |
+| 15 | free: the irradiance cube is retired (its unit is the screen slot, 28) | 0 |
 | 14 `fa_probe_atlas` (sampler 10) | M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness; replaces the cube | 2 |
-| 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists, M73.5b the decal records and their cluster lists (landed); later the sky's spherical harmonics | 1, 2 |
+| 24 `fa_light_data` (sampler 1, nearest, `texelFetch`) | M73.1a, RGBA32F: the lights and the clusters' light lists, M73.5b the decal records and their cluster lists (landed) | 1, 2 |
 | 25 `fa_light_atlas` (sampler 10) | M73.1b: cookies and IES profiles, one RGBA8 atlas | 1, 2 |
 | 26 `fa_lightmap` (sampler 10) | M73.4a: the lightmap page of the entity drawn (RGBA16F, one page per draw; a white texel when it has none), read at its lightmap UV | 1, 2 |
 | 27 `fa_decal_atlas` (sampler 10) | M73.5b (landed): decal textures, RGBA8 with mips (their transforms are in `fa_light_data`); the white image while a view has no decals | 1, 2 |
@@ -65,10 +65,11 @@ Rules the table follows, each checked by a `static_assert` (`mesh_fragment_views
 - No phase binds more than 16 fragment units (`kMeshMaxFragmentUnits`).
 
 The phases: 0 is today (12 units). Phase 1 is M73.1, M73.2, M73.4 and M73.5 landed while the sky is still the two cubes (16 units).
-Phase 2 is M73.3 landed: M73.3a retires the irradiance cube (nine spherical-harmonics `vec4` in the light data texture) and M73.3b/c the
-prefiltered cube (the probe atlas takes its view 14); phase 2 binds 16 units too, so **no fragment unit is left** in the final state.
-The screen slot (view 28) exists only in phase 2: contact shadows (M73.2c) and transmission (M73.6b) read it, so they come after
-M73.3a, or they pack what they need into another row.
+M73-P3e (M73.3a) retired the irradiance cube: the program binds 15 units and the freed one is the screen slot (view 28), reserved for
+contact shadows (M73.2c) and transmission (M73.6b), which now do not need to wait. Phase 2 is M73.3b/c landed: the prefiltered cube is
+replaced by the probe atlas (it takes view 14); 16 units, so **no fragment unit is left** in the final state. The sky's nine
+spherical-harmonics coefficients did not go into `fa_light_data` as first planned (see "The sky's spherical harmonics"); M73.3b/c moves
+them to the probe atlas with the rest of the sky.
 
 ## Clustered lights (M73.1a)
 
@@ -404,7 +405,7 @@ four goldens: noon, sunset, overcast, a metal sphere).
 ## The environment from an HDRI (M73-P3a-2)
 
 `SceneSettings.environmentMap` (user page: RENDERING_LIGHTING.md, "The environment map"). One bake, one set of cubes: the picture is drawn into
-the cube the sky was drawn into, and the prefilter and the irradiance that follow are the sky's. The files:
+the cube the sky was drawn into, and the prefilter and the SH pass that follow are the sky's. The files:
 
 - `include/fa/render/hdri.h`, `src/hdri.cpp`: the CPU half, shared by the renderer, `assets.import` and `project.validate` so a file one
   accepts is a file the others load, with the same words when not. `hdri_check` (header only: `hdr_info` in core reads the size and the
@@ -423,7 +424,7 @@ the cube the sky was drawn into, and the prefilter and the irradiance that follo
   once for a file that is still being written, `note_failure` kind "hdri", counted in `texture_bytes()`); `reload()` and `clear()` drop it.
   Needs the RGBA16F sample and filter capability: else one error and no map.
 - `shaders/env.glsl` / `src/renderer_env.cpp`: `Environment::set_look(gain, tapLimit)` (two numbers the bake takes when it starts; a slice sequence
-  keeps the look it started with). The level-0 copy, the prefilter and the irradiance multiply by the gain, so the intensity also lights from a
+  keeps the look it started with). The level-0 copy, the prefilter and the SH pass multiply by the gain, so the intensity also lights from a
   sky material or the physical sky; a tap limit of 0 (every sky but an HDRI) leaves the maths as it was, and with gain 1 the multiplications are
   exact: scenes without an `environmentMap` are bit-identical (their goldens did not change).
 - `src/renderer_draw.cpp` `plan_env`: loads the picture, decides `hdriMain` (the main pass draws the HDRI: it loaded, `environmentBackground`,
@@ -433,11 +434,44 @@ the cube the sky was drawn into, and the prefilter and the irradiance that follo
   is drawn by the main pass and not baked.
 
 Highlights: see the user page. After the gain (`environmentIntensity`, up to 100) `env_out` in env.glsl and the background in hdri.glsl limit the brightest channel to 65000, colour kept, because the cubes and the scene target are RGBA16F (max 65504); the GPU test "a sun at the largest value times a big intensity" guards it (Metal turns an infinity into white, so it is D3D11 and GL that it catches). The two limits are `kHdriMaxValue` (60000, on the CPU, so the half never overflows to infinity before the gain) and `kHdriTapLimit` (64, per
-sample of the blurred levels and the irradiance, in the shader). Not done here: a picture as a light source that casts shadows (the sun of
+sample of the blurred levels and the SH pass, in the shader). Not done here: a picture as a light source that casts shadows (the sun of
 the picture does not cast a shadow: place a directional light), several maps blended, a cube map or a mirror-ball file, a map per camera or per
 area (reflection probes, M73.3). The tests are `engine/render/tests/hdri_tests.cpp` (the CPU half, the orientation and the rotation, the
 colour spaces and the intensity, the bake key counted in draw calls, hot reload, a file that cannot be used, precedence, determinism, the golden
 `3d_hdri_spheres`) and `tools/common/tests/assets_hdri_test.cpp` (import, its errors and validate).
+
+## The sky's spherical harmonics (M73-P3e)
+
+The diffuse ambient light under a sky (sky material, physical sky, HDRI) is the sky's radiance as **L2 real spherical harmonics, nine RGB
+coefficients**, convolved with the clamped cosine and divided by pi in the mesh shader (`fa_sh_eval`, `light_data.glsl`). The 8 x 8
+irradiance cube (view 15) is gone. The CPU half is `ShL2` of `fa/scene/lightmap_bake.h` (`sh_basis`, `sh_irradiance`, `sh_project_cube`,
+which the tests compare the GPU with): the sky and the light probes of M73.4d share one basis (Y00, y, z, x, xy, yz, 3z^2-1, xz, x^2-y^2),
+one normalisation and one evaluation.
+
+Why the coefficients live in a mip of the sky cube (the other choices: a `fa_light_data` row or a uniform; a texture of their own):
+
+- **They must exist for every sky.** A sky material is only a GPU program and sokol has no general GPU readback, so the CPU cannot compute
+  them for a row or a uniform. The pass `fs_sh` (`Environment::bake_sh`, 6 of the 60 passes of `kEnvPasses`) sums the smallest pyramid
+  image (16 x 16 per face), each texel at its exact centre, times the basis times its solid angle normalised to 4 pi (a sky of one colour
+  gives `c0 = L * sqrt(4 pi)` and `L` toward every normal). The loop is fixed, so a sky gives the same coefficients every run.
+- **No new texture unit** (16 of 16 on GLES3 and WebGL2). The cube (view 14) is bound already and its mip 5 (4 x 4 per face,
+  `kEnvShMip`) is below what a reflection reads (mip 4 at most): texel (c, r) of face +X holds coefficient c + 4 r, the rest is zero,
+  and `fa_sky_sh_coef` reads it with `textureLod(..., 5.0)` at the texel centre (no filtering error).
+- **The same re-bake keys**: baked with the sky (`envKey`, the slices of `bake_slice`, the one-frame bake of an HDRI), never per frame.
+- A lightmapped surface keeps the P4a rule: its baked texel replaces the diffuse ambient (`fa_indirect_diffuse`), the specular IBL stays.
+
+**Windowing.** Three bands cannot hold a sun and ring below zero on its far side. No extra window: the clamped-cosine factors (1, 2/3, 1/4)
+already are the smoothest window an irradiance can have, a further one (Hanning, Lanczos) darkens a smooth sky for nothing, an HDRI's
+sun is limited to `kHdriTapLimit` per tap, and `fa_sh_eval` clamps at 0. Measured against the brute-force cosine integral (what the old
+cube held): `test_lightmap_bake.cpp` "sky SH" (gradient within 0.0001, cosine lobe 0.005; a 3 degree sun of 2000 over 0.2 is the worst
+case, 12 % mean error: use a directional light for a sun) and `env_sh_tests.cpp` on the GPU (colour 0..1, 14 normals: the worst normal of
+the gradient, the physical sky and an HDRI picture is within 0.003, 0.005, 0.005).
+
+**Formats.** RGBA16F: the coefficients as they are (a component limited to 65000). RGBA8 (`fa_env_sky.w` = 2; `force_rgba8_for_tests`):
+`clamp(c / 4, -1, 1) * 0.5 + 0.5`; a sky of radiance 1 has `c0 = 3.5`, so an LDR sky fits (0.015 from the half-float result in the test).
+**GLES3:** every float of `fs_sh` and of `fa_sh_eval`, `fa_sky_sh_coef`, `fa_ambient_light` is `highp` (a test scans the GLSL ES 3.00
+source); the face table is a function because sokol-shdc leaves a global constant array at mediump. `fa_ambient_light(n)` works wherever
+view 14 is bound (`surface()`, `light()`, `ambient()`, `lighting()`, the shadow and depth passes).
 
 ## Lightmaps
 
