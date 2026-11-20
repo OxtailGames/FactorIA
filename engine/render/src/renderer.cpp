@@ -28,6 +28,11 @@ Json RenderStats::to_json() const {
                 {"shadowCasters", shadowCasters},
                 {"lights", lights},
                 {"lightsDropped", lightsDropped},
+                {"lightsCulled", lightsCulled},
+                {"lightClusters", lightClusters},
+                {"lightClusterEntries", lightClusterEntries},
+                {"lightClusterClipped", lightClusterClipped},
+                {"lightMaxPerCluster", lightMaxPerCluster},
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
@@ -787,6 +792,10 @@ void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     if (!r.impl_) return;
     r.impl_->outputForced = info != nullptr;
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
+}
+
+void RendererTestAccess::last_cluster_info(Renderer& r, float out[4]) {
+    for (int c = 0; c < 4; ++c) out[c] = r.impl_ ? r.impl_->lastClusterInfo[c] : 0.0f;
 }
 
 bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {

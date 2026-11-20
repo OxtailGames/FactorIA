@@ -204,6 +204,8 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
+    bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;
@@ -477,6 +479,9 @@ struct Renderer::Impl {
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    void upload_lights(DrawContext& ctx);
+    // fa_cl_info (what the shader reads of the clusters) of the last job's scene uniforms, for the render tests.
+    float lastClusterInfo[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
     // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
     // fuScene.
     void plan_env(DrawContext& ctx);

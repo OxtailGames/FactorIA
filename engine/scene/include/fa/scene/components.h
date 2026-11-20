@@ -1099,10 +1099,10 @@ struct Light {
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
     bool castShadows = false;  // directional only until M73.2 brings point and spot shadows
-    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); no effect yet, the doc string of each
-    // names the package that brings it.
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); no effect yet (except innerAngle), the
+    // doc string of each names the package that brings it.
     float innerAngle =
-        0.0f;  // M73.1: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
+        0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
     LightShape shape = LightShape::Rectangle;  // M73.1: type area only
     Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
     std::string cookie;     // M73.1: texture projected by a spot or point light
