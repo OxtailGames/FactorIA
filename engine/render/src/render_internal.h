@@ -522,7 +522,8 @@ constexpr int kMaxMeshBuffers = 4, kMeshBufferFirstView = 16, kMeshInstanceBaseU
 //   - Data read with texelFetch needs no sampler (sampler -1). Every linear, clamped atlas shares sampler 10 (today's env sampler).
 //   - Phases: 0 = before M73 (12 units), 1 = M73.1, M73.2, M73.4, M73.5 and M73.3a landed (15 units bound + the reserved screen slot = 16): the irradiance cube is retired,
 //     the sky's nine spherical-harmonics coefficients live in mip 5 of the sky cube (view 14, renderer_env.h) and the unit it freed is
-//     the screen slot (view 28), reserved for contact shadows (M73.2c) and transmission (M73.6b); 2 = M73.3b/c landed: the prefiltered
+//     the screen slot (view 28), the prepass the contact shadows march through (M73.2c, nearest sampler 1) and later the opaque colour
+//     of transmission (M73.6b); 2 = M73.3b/c landed: the prefiltered
 //     cube is replaced by the probe atlas (same view 14).
 // Reused today's slots: view 1 (the shadow map becomes the shadow atlas, same nearest sampler 1), view 14 (the sky cube becomes the
 // reflection-probe atlas) and sampler 10. Freed: view 15 (the irradiance cube), for fa_screen_tex.
@@ -569,9 +570,14 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
      "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
      "are in "
      "fa_light_data)"},
-    {"fa_screen_tex", 28, 10, 1, 2,
-     "M73.2c / M73.6b: the prepass depth for contact shadows, the opaque color for transmission (reserved: the unit "
-     "M73.3a freed; no program declares it yet)"},
+    {"fa_screen_tex", 28, 1, 1, 2,
+     "the screen slot, read with texelFetch through the nearest sampler 1 (sampler 10 filters, which an unfilterable "
+     "image "
+     "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for "
+     "the "
+     "contact shadows, a white image while none is drawn or in the blended phase; M73.6b the opaque color for "
+     "transmission "
+     "(read with texelFetch too, any mip, bilinear by hand)"},
 };
 inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
 

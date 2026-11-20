@@ -130,6 +130,10 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
+    // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
+    bool contactOn = false;
+    sg_view screenView{};
     // plan_outline: this job declares the sprite-coverage pass (PostPlan::coverage) for a sprite outline.
     bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
@@ -791,7 +795,19 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 ctx.postPlan.vol = VolPlan{};
         }
     }
+    // Contact shadows (M73.2c) read the prepass depth: a camera with a light that has one asks for it (the volumetric fog's prepass is the
+    // same image). A job that cannot make the prepass draws none: the lengths are cleared before the lights are packed (upload_lights).
+    bool wantContact = false;
+    if (draws && !fr.cam.studio)
+        for (const LightData& l : ctx.lights) wantContact = wantContact || l.contactLength > 0.0f;
+    if (wantContact) ctx.postPlan.needsDepth = true;
     plan_prepass(ctx);
+    ctx.contactOn = wantContact && ctx.doPrepass;
+    if (ctx.contactOn) {
+        for (const LightData& l : ctx.lights) stats.contactShadowLights += l.contactLength > 0.0f ? 1 : 0;
+    } else {
+        for (LightData& l : ctx.lights) l.contactLength = 0.0f;
+    }
     plan_outline(ctx);
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
@@ -1087,6 +1103,9 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             }
             ld.baked = l.mode == LightMode::Baked;
             ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
+            // Light.contactShadowLength counts only with the scene's master switch; plan_job drops it again when the frame has no prepass.
+            if (world.settings().contactShadows && std::isfinite(l.contactShadowLength))
+                ld.contactLength = std::clamp(l.contactShadowLength, 0.0f, 10.0f);
             lights.push_back(ld);
         });
     // The light atlas for the lights that use it: made (or made again) when a light asked for something it does not hold yet; each
@@ -1787,6 +1806,25 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // The point and spot lights' shadow records are in the light texture (upload_lights): the shadows block says where (0 = none).
     if (ctx.localShadowBase >= 0) ctx.shadowU.fa_shadow_lcfg[0] = float(ctx.localShadowBase + 1);
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
+    // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
+    // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs).
+    if (ctx.contactOn) {
+        const Mat4& vp = fr.cam.viewProj;
+        const Vec3& fwd = fr.cam.forward;
+        for (int c = 0; c < 4; ++c) {
+            fuScene.fa_ct_vpx[c] = vp.at(c, 0);
+            fuScene.fa_ct_vpy[c] = vp.at(c, 1);
+            fuScene.fa_ct_vpw[c] = vp.at(c, 3);
+        }
+        fuScene.fa_ct_fwd[0] = fwd.x;
+        fuScene.fa_ct_fwd[1] = fwd.y;
+        fuScene.fa_ct_fwd[2] = fwd.z;
+        fuScene.fa_ct_fwd[3] = -dot(fwd, fr.cam.position);
+        fuScene.fa_ct_a[1] = gpu.is_gl() ? 1.0f : 0.0f;
+        fuScene.fa_ct_a[2] = float(ctx.camPx.w);
+        fuScene.fa_ct_a[3] = float(ctx.camPx.h);
+        fuScene.fa_ct_b[0] = kContactShadowFadeEnd;
+    }
     fuScene.fa_env_sky[0] = ss.skyColor.r;
     fuScene.fa_env_sky[1] = ss.skyColor.g;
     fuScene.fa_env_sky[2] = ss.skyColor.b;
@@ -2131,6 +2169,9 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     }
     fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
     fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
+    // Contact shadows: an opaque mesh that receives shadows with a program of the engine's template (a full shader has none; a blended or
+    // transmissive draw has no prepass at the screen slot).
+    fu.fa_ct_a[0] = (ctx.contactOn && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}
@@ -2220,7 +2261,7 @@ void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, Mat
 // Bindings of a custom program: the engine's textures and the material's, only the slots the program declares (sokol
 // rejects a binding the shader does not have). `shadowPass`: the shadow map is being drawn, so it is not sampled.
 void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
-                                   const MaterialInputs& in, bool shadowPass) {
+                                   const MaterialInputs& in, bool shadowPass, bool opaquePhase) {
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
@@ -2238,6 +2279,9 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     // reads it while no light has the data texture's extension texels).
     b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
     b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
+    // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows, a white image otherwise (no fragment reads it).
+    b.views[VIEW_mesh_fa_screen_tex] =
+        (ctx.contactOn && opaquePhase && !shadowPass && ctx.screenView.id) ? ctx.screenView : white->view;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     const bool env = ctx.envActive && skyEnv.baked();
@@ -2902,6 +2946,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         ctx.fuBlend.fa_env_sky[3] = 0.0f;
     }
     if (ctx.doMainPass) {
+        // The prepass image (M73.2c): bound at the screen slot of the opaque meshes (bind_textures) while a light has a contact shadow, and
+        // read by the effects after them (below).
+        const Target* preT = ctx.postPlan.prepass.target(pc);
+        ctx.screenView = preT ? preT->texView : sg_view{};
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
@@ -3012,7 +3060,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                                                                : assets->zero_uv1(std::size_t(part.vertexCount));
                         b.index_buffer = part.ib;
                         b.index_buffer_offset = part.ibOffset;
-                        bind_textures(ctx, b, pd, prog, inputs, false);
+                        bind_textures(ctx, b, pd, prog, inputs, false, !isBlend);
                         if (mbu.active && prog) bind_mesh_buffers(b, mbu, *prog);
                         sg_apply_bindings(&b);
                         if (mbu.active && prog) apply_mesh_base_model(*prog, mi.model);
@@ -3053,7 +3101,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
         // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
         bool fogDrawn = false;
-        const Target* preT = ctx.postPlan.prepass.target(pc);
         if (preT && preT->texView.id) {
             if (partial) apply_view(camPx);
             if (ctx.ssaoApply.valid) {

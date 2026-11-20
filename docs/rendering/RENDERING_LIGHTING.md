@@ -102,6 +102,7 @@ invisible next to the 2 % the fit itself has.
 | `shadowBias`, `shadowNormalBias` | metres, 0..1 | 0 (the engine's own: 1.5 texels of the map) | drawn (M73.2a, M73.2b) |
 | `shadowFilter`, `shadowSoftness` | `pcf`, `hard`, `pcss`; 0..10 | `pcf`, 1 | drawn (M73.2a, M73.2b) |
 | `shadowDistance` | metres, 0..100000 | 0 (the scene's) | drawn (M73.2a, M73.2b: fades out and limits point and spot lights) |
+| `contactShadowLength` | metres, 0..10 | 0 (off) | drawn (M73.2c): the length of this light's screen-space contact ray, see "Contact shadows"; counts only with `SceneSettings.contactShadows` |
 | `mode` | `realtime`, `baked`, `mixed` | `realtime` | M73.4a: `baked` lights stop lighting lightmapped entities (see "Lightmaps"); `mixed`: M73.4d |
 | `volumetric` | 0..10 | 0 | drawn (M73.5): the strength of this light's shafts in the volumetric fog, see "Volumetric fog and light shafts" |
 
@@ -113,7 +114,7 @@ invisible next to the 2 % the fit itself has.
 | `shadowCascadeSplit`, `shadowCascadeBlend` | 0..1; 0..0.5 | 0.5, 0.1 | drawn (M73.2a) |
 | `shadowDistance` | metres, 0..100000 | 0 (the engine's own fit) | drawn (M73.2a) |
 | `shadowAtlasSize` | 512..8192 texels per side, the most the atlas may have | 4096 | drawn (M73.2a) |
-| `contactShadows` | bool | false | M73.2 (needs a GPU that can sample the depth) |
+| `contactShadows` | bool | false | drawn (M73.2c): the master switch of the lights' `contactShadowLength`, see "Contact shadows" (needs a GPU that can sample the depth) |
 | `environmentMap`, `environmentIntensity`, `environmentRotation` | an equirectangular `.hdr` file; 0..100; degrees | none, 1, 0 | drawn (M73-P3a-2, see "The environment map") |
 | `environmentBackground` | bool: draw the map as the background too | true | M73-P3a-2 |
 | `skyModel` | `gradient`, `physical` | `gradient` | M73-P3d (drawn, see "The physical sky") |
@@ -207,8 +208,8 @@ mesh: the ambient light, and what a metal or glossy surface reflects, come from 
 
 | Field | Values | Default | Brought by |
 |---|---|---|---|
-| `lightmapScale` | 0..100 | 1 | M73.4a (0 = never lightmapped); the bake's texel density: M73.4c |
-| `contributeGI`, `receiveGI` | bool | true, true | `receiveGI`: M73.4a (false = ignores its lightmap entry); `contributeGI`: M73.4c (bake), M73.5 (realtime GI) |
+| `lightmapScale` | 0..100 | 1 | M73.4a (0 = never lightmapped); the bake's texel density (`lightmap.bake`) |
+| `contributeGI`, `receiveGI` | bool | true, true | `receiveGI`: M73.4a (false = ignores its lightmap entry); `contributeGI`: false = the bake ignores the mesh's shadow and bounces; M73.5 (realtime GI) |
 | `clearcoat`, `clearcoatRoughness` | 0..1 | 0, 0.03 | drawn (M73.6a), see "The material layers" |
 | `sheenColor`, `sheenRoughness` | colour; 0..1 | black, 0.5 | drawn (M73.6a) |
 | `anisotropy`, `anisotropyRotation` | -1..1; degrees | 0, 0 | drawn (M73.6a) |
@@ -274,7 +275,32 @@ casts from many lights shares one image and one pass.
   buffer), and is grown but never shrunk during a run.
 - **GPUs.** `render.supports` with `{"feature": "pointShadows"}` or `{"feature": "spotShadows"}` follows `float32Targets` like the sun's.
 
-Contact shadows (M73.2c, `contactShadows` still has no effect) come next.
+## Contact shadows (M73.2c)
+
+A shadow map is too coarse for the crack where a box meets the floor or a button sits on a coat. A contact shadow is a short ray the
+mesh shader marches from the shaded point toward the light, against the depth the frame's prepass already drew: if the ray passes
+behind a surface the camera sees (not by more than a thickness), the light is blocked there. It is a screen-space effect, so it adds
+fine detail to the shadow maps and does not replace them.
+
+- **Turn it on.** `SceneSettings.contactShadows = true` and, on each light that should have it, `Light.contactShadowLength` in metres
+  (0, the default, is off; the most is 10). A long ray reaches far but misses thin things and smears; 0.1 to 1 m suits most scenes. The
+  sun and the local lights all take it, whether or not they cast a shadow map: the ray multiplies into the light's own shadow term, so
+  `fa_light_shadowed()`, `fa_light()` and `fa_light_shadow()` of a custom `lighting()` hold it too (see `docs/shaders/SHADERS_LIGHTING.md`).
+  An area light is marched toward the point of its emitter that its light comes from (the same direction `light()` receives), over its
+  distance, like a point light.
+- **How it looks.** 12 steps along the ray, shifted by a noise of the pixel (never of the frame, so a still picture does not shimmer).
+  The shadow fades toward the end of the ray, toward the edges of the screen and with the distance from the camera (full up to 20 m,
+  gone at 40 m).
+- **Cost.** Turning it on makes the frame draw the depth prepass (as the effects that need depth do), once, whatever the number of
+  lights; `stats.contactShadowLights` counts the lights that ask for a ray and is 0 when the prepass cannot be made. Only a fragment
+  that is lit by such a light marches, with 12 reads of the prepass each; with every `contactShadowLength` at 0 or the switch off the
+  frame is bit for bit the one without the feature, and nothing is bound or drawn for it.
+- **Limits.** It sees only what the camera sees: a caster that is off screen, behind the view or hidden by another surface throws no
+  contact shadow, and a thin object (thinner than half the ray) lets the light through; the ray stops at the edge of the screen. The
+  prepass holds the opaque meshes only, so blended meshes cast none; a blended mesh, a mesh whose material is a full shader (`mode:
+  "full"`), and one with `receiveShadows` off get no contact shadow either, and the draws of transmission (M73.6b), which read the
+  screen's colour in the same slot, will get none. Sprites and the 2D renderer are not affected.
+- **GPUs.** `render.supports` with `{"feature": "contactShadows"}` follows the GPU's depth prepass, like the effects that need depth.
 
 ## The material layers (M73.6a)
 
@@ -323,9 +349,8 @@ tangent turned by `anisotropyRotation`); a texture file that cannot be read (`it
 ## Lightmaps
 
 A lightmap is light computed once and stored in an image: the diffuse light of the sun, the lights of mode `baked` and the sky, with the
-bounces between surfaces, so a static level looks lit by global illumination for the price of one texture read. M73.4a is the part that
-draws it; the `lightmap.bake` command that writes the files comes with M73.4c, so until then the files are made by tools that use the
-baker (docs/design/ARCHITECTURE_BAKING.md, repository only, not in the binary) or by hand.
+bounces between surfaces, so a static level looks lit by global illumination for the price of one texture read. The `lightmap.bake`
+commands compute it (see "Baking" below); the renderer draws it (the rest of this section).
 
 **What you set.** `SceneSettings.lightmaps` is the project path of a manifest (`scenes/level.lightmap.json`). It lists, for each entity
 (by its stable id), the mesh it was baked for, the page (a Radiance `.hdr` next to it) and the rectangle of the page that is its
@@ -356,8 +381,51 @@ material that textures with `uv1` should not be on a lightmapped entity (set `re
 material that reads compute buffers are never lightmapped. A material that does not list `"uv1"` is not lightmapped either: it has
 no place to get the UV from.
 
-**The texel density.** `lightmap_texels_per_meter` (C++, `fa/scene/lightmap_manifest.h`) gives the density the bake will use for an entity:
-16 texels per metre times `MeshRenderer.lightmapScale`, 0 when the scale is 0.
+**The texel density.** `MeshRenderer.lightmapScale` multiplies the bake's `texelsPerMeter` (16 by default): 16 texels per metre times
+`lightmapScale`, and 0 means the entity is never lightmapped. `lightmap_texels_per_meter` (C++, `fa/scene/lightmap_manifest.h`) gives the number.
+
+### Baking
+
+`lightmap.bake` (one call, waits for the end), or `lightmap.bake_start` with `lightmap.bake_status` and `lightmap.bake_cancel` (a job that
+runs on the engine's job threads, so the editor and an agent stay responsive), compute the lightmaps of the open scene and write them next
+to it. The editor's **View > Lightmap** window starts a bake, shows the phase and a progress bar, and has a Cancel button.
+
+```
+factoria call lightmap.bake '{"texelsPerMeter":16,"samples":64}' --project .
+factoria call lightmap.bake_start '{}' --project .          # -> {"job":"bake:1"}  (inside one engine: the editor, MCP, a --batch)
+factoria call lightmap.bake_status '{"job":"bake:1"}'        # -> {"state":"running","phase":"trace","progress":0.4,"etaSeconds":12,...}
+factoria call lightmap.bake_cancel '{"job":"bake:1"}'
+```
+
+**What is baked.** The scene's `Light` entities of mode `baked` (the whole light) and `mixed` (only the indirect light: the direct light stays
+realtime, so its shadows and highlights move), a `realtime` light is left out. The sky comes from `sky`: `auto` (the environment map when the scene
+has one, else the ambient light), `environment`, `gradient` (`skyColor` and `horizonColor`), `ambient` or `none`. A `physicalSky` or a
+`skyMaterial` cannot be evaluated by the baker: the bake uses the gradient and says so in `warnings`. A light's `intensity`, colour,
+`range` and `falloff` (the engine's or the inverse-square one), the spot cone, and the softness of a light (`shadowSoftness` when `shadowFilter` is `pcss`, the size of an
+area light) are mapped; `Disc` and `Tube` area lights are baked as rectangles of the same area (a disc as the square of the same area, a tube as
+its length by its thickness). Meshes with `emissive` light the scene through the bounces. Every active `MeshRenderer` is part of the scene the rays hit: it
+shadows and bounces light unless `castShadows` or `contributeGI` is off (turn `contributeGI` off on what moves, so it leaves no shadow in the
+lightmaps); only those with `receiveGI` on, `lightmapScale` above 0 and no `unlit` get a lightmap. Textures are not read: a surface bounces its
+`color` (and `emissive`). A skinned mesh is baked in its bind pose.
+
+**Where it goes.** `path` (default: the scene's name with `.lightmap.json`, `scenes/main.lightmap.json`) names the manifest; the pages are
+`<name>.lightmap.<hash>.<n>.hdr` next to it, written first (a page with the same bytes is not written again), the manifest last. A file that is
+being written fails with the path and what to close (a Windows file open in another program cannot be replaced; close it and call again,
+or pass another `path`); the files of a failed bake are removed. After a good bake the pages of the same name that the new manifest no
+longer uses are deleted. The entities' squares are packed into pages of at most `maxPageSize` texels (up to 256 pages), `texelsPerMeter`
+per metre of surface, with a gutter of `dilatePasses` texels so bilinear filtering does not bleed.
+
+**It shows at once.** The bake asks the renderer to read the manifest again and, with `apply` (the default), sets `SceneSettings.lightmaps`
+to it **in memory**: a later `factoria call` starts a new engine from the files, so keep the setting with `scene.save` in the same batch
+(`factoria call --batch`), or write `"lightmaps": "scenes/main.lightmap.json"` into the scene's `settings` once. The editor does it as one
+undo step and marks the scene as changed; Save keeps it. When another scene was opened while the job ran, the files are written and
+nothing is set (`handOver` says so).
+
+**Cost.** The work is `texels x samples` gather rays plus `texels x lights x shadowSamples` shadow rays, times the bounces. `maxRays` (default
+5e10) refuses a bake over that many before it traces one; as a guide one core traces 2 to 10 million rays per second, so 1e9 rays is minutes
+on a laptop. Start with `texelsPerMeter` 8 and `samples` 16 for a draft, then raise them. The result is the same bits with any number of
+threads and on every run (a seed: `seed`). Cancel is looked at in every phase (the BVH, the layout, the rays, the denoiser, the gutter); a
+cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRadius`, `rayEpsilon`, ...) are in the command's schema (`api.commands`).
 
 ## Decals (M73.5b)
 
@@ -488,7 +556,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a), `lightProbes` (M73.4d);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface`, `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b).
 

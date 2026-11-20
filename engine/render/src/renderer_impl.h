@@ -567,7 +567,7 @@ struct Renderer::Impl {
                                      bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
-                       const MaterialInputs& in, bool shadowPass);
+                       const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
     void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);

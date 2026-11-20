@@ -31,7 +31,7 @@ const std::vector<std::string> kMeshFields = {"contributeGI",     "transmission"
 // Drawn since M73.6 (the material layers): their docs say what they do, not that they have no effect.
 const std::vector<std::string> kLayerFields = {"clearcoat",  "clearcoatRoughness", "sheenColor", "sheenRoughness",
                                                "anisotropy", "anisotropyRotation", "specular",   "ior"};
-// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun; M73.1b: shape, size, cookie, ies; M73-P3a-2: the environment fields).
+// The fields a package has made work: their doc string no longer says "No effect yet" (M73.1a: innerAngle; M73.2a: the cascaded shadows of the sun; M73.1b: shape, size, cookie, ies; M73-P3a-2: the environment fields; M73.2c: contactShadows).
 const std::vector<std::string> kDrawn = {"innerAngle",
                                          "shadowResolution",
                                          "shadowBias",
@@ -50,7 +50,8 @@ const std::vector<std::string> kDrawn = {"innerAngle",
                                          "shape",
                                          "size",
                                          "cookie",
-                                         "ies"};
+                                         "ies",
+                                         "contactShadows"};
 // Fields a package has made work: their doc strings no longer say "No effect yet" (M73.4a: the lightmap runtime).
 const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", "mode"},
                                                                       {"MeshRenderer", "lightmapScale"},
@@ -65,7 +66,9 @@ const std::vector<std::pair<std::string, std::string>> kLiveFields = {{"Light", 
                                                                       {"SceneSettings", "volumetricAnisotropy"},
                                                                       {"SceneSettings", "volumetricAmbient"},
                                                                       {"SceneSettings", "volumetricDistance"},
-                                                                      {"SceneSettings", "volumetricQuality"}};
+                                                                      {"SceneSettings", "volumetricQuality"},
+                                                                      // M73.2c: the screen-space contact shadows.
+                                                                      {"Light", "contactShadowLength"}};
 }  // namespace
 
 TEST_CASE("lighting fields: every new field is reflected and its doc says what it does and which package brings it") {
@@ -118,6 +121,7 @@ TEST_CASE("lighting fields: the defaults keep the look of a scene made before M7
     CHECK(l.shadowFilter == ShadowFilter::Pcf);
     CHECK(l.mode == LightMode::Realtime);
     CHECK(l.volumetric == 0.0f);
+    CHECK(l.contactShadowLength == 0.0f);
     CHECK(l.cookie.empty());
     CHECK(l.ies.empty());
     const SceneSettings s;

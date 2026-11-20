@@ -446,6 +446,7 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d). (not released yet, on main after 0.32.0) |
 | `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
+| `contactShadowLength` | float | `0.0` | Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches from its centre). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i). Range 0.0..10.0. (not released yet, on main after 0.32.0) |
 
 ### Decal
 
@@ -1457,7 +1458,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
 | `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
 | `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (not released yet, on main after 0.32.0) |
-| `contactShadows` | bool | `false` | Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it. (not released yet, on main after 0.32.0) |
+| `contactShadows` | bool | `false` | Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows"). (not released yet, on main after 0.32.0) |
 | `environmentMap` | asset (hdri) | `""` | An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (not released yet, on main after 0.32.0) |
 | `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background. Range 0.0..100.0. (not released yet, on main after 0.32.0) |
 | `environmentRotation` | float | `0.0` | Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
@@ -4482,9 +4483,9 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
 
-lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched: 0 when no camera could make the depth prepass); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -5670,6 +5671,93 @@ The job system now: worker threads, mode, jobs run and queued last frame, how bu
 Capabilities: read
 
 mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
+
+## assets
+
+### `lightmap.bake` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.
+
+Capabilities: read, state, writeProject
+
+Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. Result: {manifest, pages, entities, texels, rays, skipped, warnings, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
+
+Mapping. Light: Baked -> baked, Mixed -> indirect only, Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps".
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+### `lightmap.bake_cancel` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Stop a running bake job; no file is changed unless it was already writing them.
+
+Capabilities: read, state
+
+Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the rays, the denoiser, the gutter fill) looks at it within a short time, and the job ends with state cancelled. A job that reached the writing phase finishes (a half-written set would be worse) and ends done. Cancelling a finished or already cancelled job is not an error. Result: lightmap.bake_status's shape. Example: lightmap.bake_cancel {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+
+### `lightmap.bake_start` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.
+
+Capabilities: read, state, writeProject
+
+The same bake as lightmap.bake (same arguments and result) on a job thread, so the editor and an agent stay responsive. The scene is read when you call this: changing the scene while it runs does not change the bake, and a result is only given to the scene it was made for. Call lightmap.bake_status until its state is done, failed or cancelled: that call also hands the result to the scene (SceneSettings.lightmaps and the renderer's reload). Result: {job, state, phase, progress, manifest}. Example: lightmap.bake_start {"path":"scenes/main.lightmap.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+### `lightmap.bake_status` (modifies state)
+
+Not released yet (on main after 0.32.0).
+
+The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.
+
+Capabilities: read, state, writeProject
+
+Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened. Example: lightmap.bake_status {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+| `apply` | boolean | no | Overrides the apply of lightmap.bake_start for this hand-over. The editor passes false and edits the setting itself (undo, dirty scene). |
 
 ## scene
 
@@ -18071,6 +18159,11 @@ declare module "factoria" {
      * @since unreleased
      */
     volumetric: number;
+    /**
+     * Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches from its centre). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).
+     * @since unreleased
+     */
+    contactShadowLength: number;
   }
   /**
    * A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, "Decals".
@@ -21944,7 +22037,7 @@ declare module "factoria" {
      */
     shadowAtlasSize: number;
     /**
-     * Short screen-space shadow rays toward the light that add fine shadows where objects touch. Needs a GPU that can sample the depth (render.supports contactShadows). No effect yet: M73.2 brings it.
+     * Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows").
      * @since unreleased
      */
     contactShadows: boolean;
@@ -22140,7 +22233,7 @@ declare module "factoria" {
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; receiveDecals?: boolean; decalLayer?: number };
-    Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number };
+    Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };

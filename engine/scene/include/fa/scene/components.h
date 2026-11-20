@@ -1160,6 +1160,7 @@ struct Light {
     float shadowDistance = 0.0f;  // M73.2: how far from the camera the light shadows; 0 = the scene's shadowDistance
     LightMode mode = LightMode::Realtime;  // M73.4: realtime, baked into lightmaps, or mixed
     float volumetric = 0.0f;  // M73.5: strength of the light shafts of this light in the volumetric fog; 0 = none
+    float contactShadowLength = 0.0f;  // M73.2c: metres of the screen-space contact shadow ray of this light; 0 = none
 };
 
 struct ClipRuntime;  // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
