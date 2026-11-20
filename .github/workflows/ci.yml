@@ -437,7 +437,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 90  # a build with a cold ccache takes 35-60 min
+    timeout-minutes: 120  # a build with a cold ccache takes 35-70 min, and two shards of main's M72 run were past 89
     permissions:
       contents: read
       actions: write  # "Delete this ref's older ccaches" (shard 1)
@@ -579,7 +579,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
-    timeout-minutes: 90  # a cold-ccache build (~50 min on Linux) plus the full suite went past 60 in M91
+    timeout-minutes: 120  # a cold-ccache build (~40-60 min) plus the suite (~11 min); the Test step has its own limit
     permissions:
       contents: read
       actions: write  # "Delete this ref's older ccaches"
@@ -634,10 +634,33 @@ jobs:
           test -n "$cli" || { echo "::error::factoria was not built under build/macos-release/tools/cli"; exit 1; }
           "$cli" setup shaders
 
+      # The suite takes ~11 min here. Twice in M72 the step stalled past 30 min with no log left (the job's time limit,
+      # then a runner that lost the server). Three things make the next stall name its test: --timeout 600 for the tests
+      # that set no TIMEOUT of their own (render, runtime, tooling_N... would wait ctest's 1500 s), a line every minute
+      # with the test processes still running (the last one that reaches the log, if the VM freezes), and the step's own
+      # limit, which ends it while the runner still answers so the steps below run.
       - name: Test (macos-release)
+        id: test
+        timeout-minutes: 30
         env:
           FA_REQUIRE_SHDC: '1'
-        run: ctest --preset macos-release --parallel 3  # the runner's 3 vCPUs
+        run: |
+          ( while sleep 60; do
+              echo "== $(date -u +%H:%M:%S) still running:"
+              ps -axo pid,etime,pcpu,rss,command | grep -E 'build/macos-release|sokol-shdc|MTLCompiler' | grep -v grep | cut -c1-220
+            done ) &
+          heartbeat=$!
+          rc=0
+          ctest --preset macos-release --parallel 3 --timeout 600 || rc=$?  # the runner's 3 vCPUs
+          kill "$heartbeat" 2>/dev/null || true
+          exit "$rc"
+
+      - name: Processes left by the tests (on failure)
+        if: ${{ failure() && steps.test.outcome == 'failure' }}
+        run: |
+          ps -axo pid,ppid,etime,time,rss,state,command | grep -E 'build/macos-release|sokol-shdc|ctest' | grep -v grep || true
+          for p in $(pgrep -f 'build/macos-release/' || true); do echo "== sample $p"; sample "$p" 3 -mayDie 2>/dev/null | head -n 80 || true; done
+          vm_stat; sysctl vm.swapusage
 
       - name: Performance warnings (macos)
         if: ${{ !cancelled() }}
