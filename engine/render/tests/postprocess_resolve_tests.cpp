@@ -679,9 +679,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 TEST_CASE(
     "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"areaLights",     "lightCookies",   "iesProfiles",      "pointShadows", "spotShadows",
-                                "contactShadows", "environmentMap", "reflectionProbes", "lightmaps",    "lightProbes",
-                                "volumetricFog",  "decals",         "subsurface",       "realtimeGI",   "transmission"};
+    const char* const rows[] = {"pointShadows",     "spotShadows", "contactShadows", "environmentMap",
+                                "reflectionProbes", "lightmaps",   "lightProbes",    "volumetricFog",
+                                "decals",           "subsurface",  "realtimeGI",     "transmission"};
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
     for (const char* n : rows) {
         CAPTURE(n);
@@ -698,6 +698,17 @@ TEST_CASE(
         CHECK(supported(full, "physicalSky", &why));
         CHECK(feature_table()[std::size_t(find_feature("physicalSky"))].kind == FeatureKind::Engine);
         CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "physicalSky", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The light atlas rows are drawn (M73.1b): they need RGBA16F images that filter and say so when they are missing.
+    for (const char* n : {"areaLights", "lightCookies", "iesProfiles"}) {
+        CAPTURE(n);
+        std::string why;
+        REQUIRE(find_feature(n) >= 0);
+        CHECK(supported(full, n, &why));
+        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), n, &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }

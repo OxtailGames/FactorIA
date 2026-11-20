@@ -515,7 +515,10 @@ inline constexpr MeshFragmentView kMeshFragmentViews[] = {
     {"fa_light_data", 24, 1, 1, 2,
      "M73.1a (today): RGBA32F, texelFetch with the nearest sampler 1: the lights, the clusters' light lists; later the "
      "decals, the sky's SH"},
-    {"fa_light_atlas", 25, 10, 1, 2, "M73.1b: light cookies and IES profiles, one RGBA8 atlas"},
+    {"fa_light_atlas", 25, 10, 1, 2,
+     "M73.1b (today): one RGBA16F atlas (src/light_atlas.h) with the LTC tables of the area lights in a reserved block "
+     "at its top "
+     "left (they take no unit of their own), then the light cookies and IES profiles; bilinear, clamped"},
     {"fa_lightmap", 26, 10, 1, 2, "M73.4a: the baked lightmap atlas (RGBA16F or RGBE8), UV2 of the mesh"},
     {"fa_decal_atlas", 27, 10, 1, 2,
      "M73.5b: the albedo/normal textures of the projected decals (their transforms are in fa_light_data)"},

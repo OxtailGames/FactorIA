@@ -145,12 +145,25 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
                  "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
                  "KHR_materials_anisotropy), stretched along the mesh's tangent."});
-    // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row answers false with "planned (M73)" until its package
-    // lands, then drops the `planned` text here. `needs` is what its pass asks of the GPU once built.
+    // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row of the table below answers false with "planned (M73)" until
+    // its package lands, then moves up to a row of its own. `needs` is what its pass asks of the GPU once built.
     t.push_back(
         {"clusteredLights", FeatureKind::Engine, kEveryGpu, "", nullptr,
          "Clustered forward lighting: up to 1024 lights in view at once (32 of them directional), each fragment "
          "reading only the lights of its cluster (docs/rendering/RENDERING_LIGHTING.md, \"Many lights\")."});
+    // The light atlas of M73.1b (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The light atlas"): one RGBA16F image that filters holds the
+    // LTC tables, the cookies and the IES profiles. Without such images the lights are drawn as point and spot lights, without them.
+    t.push_back({"areaLights", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "Rectangle, disc and tube area lights (Light.type area) with soft highlights, shaded with linearly "
+                 "transformed cosines; a rectangle and a disc emit from their front, a tube from all around. Without "
+                 "RGBA16F images that filter, an area light is drawn as a point light of the same energy."});
+    t.push_back(
+        {"lightCookies", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "Light cookies (Light.cookie): a texture projected by a spot light (perspective) or along a "
+         "directional light (orthographic, tiled over Light.size metres). A point light's cookie is not drawn."});
+    t.push_back({"iesProfiles", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "IES profiles (Light.ies, an .ies file of the project): the measured light distribution of a real "
+                 "lamp on a point or spot light, normalised to its peak so Light.intensity stays the brightness."});
     struct Planned {
         const char* name;
         const char* needs;
@@ -158,10 +171,6 @@ std::vector<FeatureDef> build_table() {
         const char* planned = "M73";  // nullptr once the package that draws it has landed
     };
     static const Planned kLighting[] = {
-        {"areaLights", "",
-         "Rectangle, disc and tube area lights with soft highlights (linearly transformed cosines; M73.1)."},
-        {"lightCookies", "", "Light cookies: a texture projected by a spot or point light (M73.1)."},
-        {"iesProfiles", "", "IES profiles: the measured light distribution of a real lamp (M73.1)."},
         {"cascadedShadows", "float32",
          "Cascaded shadow maps for the directional light (1 to 4 cascades fitted to the camera, stable, blended at the "
          "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",

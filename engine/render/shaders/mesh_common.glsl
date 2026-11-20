@@ -48,6 +48,7 @@
 // lookup, shared with the full-shader template) and light_loop.glsl (the standard loop and the custom-light hooks). All three are in
 // the template hash of the mesh kind.
 @include light_data.glsl
+@include ltc.glsl
 @include shadow_common.glsl
 @include light_loop.glsl
 @include brdf_layers.glsl
@@ -363,6 +364,12 @@ layout(binding=24) uniform texture2D fa_light_tex;
 @image_sample_type fa_light_tex unfilterable_float
 #define FA_LIGHT_TEX fa_light_tex
 #define FA_LIGHT_SMP fa_shadow_smp
+// The light atlas (light_data.glsl, src/light_atlas.h; view 25): the LTC tables of the area lights, the light cookies and the IES
+// profiles in one RGBA16F image, read bilinearly through the sky's linear clamp sampler (10, declared below). While no light needs it
+// the renderer binds the 1 x 1 white texture and the shader never reads it.
+layout(binding=25) uniform texture2D fa_light_atlas;
+#define FA_ATLAS_TEX fa_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
 // The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
 // mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
 // bound and used only while fa_env_sky.w is 1.
@@ -384,7 +391,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = unused, z = 1 on OpenGL backends
+    vec4 fa_counts;             // x = light count, y = texels per light of the light table (4, or 8 while a light has an area, a cookie
+                                // or an IES profile), z = 1 on OpenGL backends
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
     vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
     vec4 fa_time;               // x = seconds of game time since the scene started
@@ -600,6 +608,8 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 @include_block fa_layers_light
 @include_block fa_light_shared
 @include_block fa_light_hooks
+@include_block fa_ltc
+@include_block fa_area_light
 @end
 
 @block fa_fs_nolight

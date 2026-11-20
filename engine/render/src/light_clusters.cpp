@@ -180,7 +180,10 @@ int light_texture_rows(std::size_t texels) {
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
                         const ClusterLists* lists, LightTexture& out) {
     out.width = kLightTextureWidth;
-    const std::size_t lightTexels = lights.size() * std::size_t(kLightTexels);
+    out.stride = kLightTexels;
+    for (const LightData& l : lights)
+        if (l.hasExt) out.stride = kLightTexelsExt;
+    const std::size_t lightTexels = lights.size() * std::size_t(out.stride);
     const std::size_t clusterTexels = lists ? lists->first.size() : 0;
     const std::size_t indexTexels = lists ? (lists->indices.size() + 3) / 4 : 0;
     out.usedTexels = lightTexels + clusterTexels + indexTexels;
@@ -189,13 +192,17 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     float* t = out.texels.data();
     for (std::size_t i = 0; i < lights.size(); ++i) {
         const LightData& l = lights[i];
-        float* p = t + i * 16;
+        float* p = t + i * std::size_t(out.stride) * 4;
         for (int c = 0; c < 4; ++c) {
             p[c] = l.pos[c];
             p[4 + c] = l.color[c];
             p[8 + c] = l.dir[c];
         }
         p[12] = l.cosInner;
+        if (l.hasExt && out.stride == kLightTexelsExt) {
+            for (int k = 0; k < 4; ++k)
+                for (int c = 0; c < 4; ++c) p[16 + k * 4 + c] = l.ext[k][c];
+        }
     }
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);

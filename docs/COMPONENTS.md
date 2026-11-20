@@ -425,17 +425,17 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: directional \| point \| spot \| area | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings it, an area light shines like a point light of the same `range`. |
+| `type` | enum: directional \| point \| spot \| area | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Light color. |
 | `intensity` | float | `1.0` | Brightness multiplier. Range 0.0..1000.0. |
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
 | `castShadows` | bool | `false` | Cast shadows. Only directional lights cast shadows today (the first one that casts, with cascades: see SceneSettings.shadowCascades); the shadows of point and spot lights come with M73.2b. |
 | `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a. Range 0.0..89.0. (not released yet, on main after 0.32.0) |
-| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
-| `size` | vec2 | `[1.0,1.0]` | Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it. Range 0.001..1000.0. (not released yet, on main after 0.32.0) |
-| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
-| `ies` | asset (any) | `""` | An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (not released yet, on main after 0.32.0) |
+| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b. (not released yet, on main after 0.32.0) |
+| `size` | vec2 | `[1.0,1.0]` | [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it. Range 0.001..1000.0. (not released yet, on main after 0.32.0) |
+| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light does not project a cookie (a warning says so once). Area lights ignore it. Empty = none. Drawn since M73.1b; render.supports lightCookies. (not released yet, on main after 0.32.0) |
+| `ies` | asset (any) | `""` | An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (not released yet, on main after 0.32.0) |
 | `shadowResolution` | int | `0` | Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to 128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 for several. When the cascades do not fit the atlas (SceneSettings.shadowAtlasSize) they are halved, farthest first, down to 128. Range 0..4096. (not released yet, on main after 0.32.0) |
 | `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
 | `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the cascade's map. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
@@ -2911,6 +2911,7 @@ Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
 - .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the line; a 1D table is refused).
+- .ies: an IES photometric file (LM-63, type C) for Light.ies on a point or spot light, checked and copied to assets/lights/ (a malformed or unsupported file is an error that names the line; the result has the name, the angle counts and the peak candela).
 - .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true.
@@ -2918,7 +2919,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. Path the command reads. |
-| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/, assets/luts/ or assets/lights/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
@@ -7727,7 +7728,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights is drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies and iesProfiles are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -17940,7 +17941,7 @@ declare module "factoria" {
    */
   export interface LightComponent {
     /**
-     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings it, an area light shines like a point light of the same `range`.
+     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright.
      */
     type: "directional" | "point" | "spot" | "area";
     /**
@@ -17970,23 +17971,23 @@ declare module "factoria" {
      */
     innerAngle: number;
     /**
-     * Area lights only: the shape of the emitter. rectangle and disc face the entity's forward direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it.
+     * Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.
      * @since unreleased
      */
     shape: "rectangle" | "disc" | "tube";
     /**
-     * Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube. No effect yet: M73.1 brings it.
+     * [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it.
      * @since unreleased
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights project it through the cone, point lights through a cube layout. Empty = none. No effect yet: M73.1 brings it. (asset path: texture)
+     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light does not project a cookie (a warning says so once). Area lights ignore it. Empty = none. Drawn since M73.1b; render.supports lightCookies. (asset path: texture)
      * @since unreleased
      */
     cookie: string;
     /**
-     * An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the plain distribution. No effect yet: M73.1 brings it. (asset path: any)
+     * An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (asset path: any)
      * @since unreleased
      */
     ies: string;

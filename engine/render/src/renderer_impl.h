@@ -43,6 +43,7 @@
 #include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
+#include "light_atlas.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -213,6 +214,10 @@ struct Renderer::Impl {
     bool warnedNoLight = false;
     bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
     bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
+    bool warnedPointCookie = false;     // one warning for a Light.cookie on a point light (not drawn)
+    bool warnedAreaCookie = false;      // one warning for a Light.cookie / ies on a kind of light that does not use it
+    // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
+    LightAtlas lightAtlas;
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;

@@ -1103,10 +1103,13 @@ struct Light {
     // (the shadow fields are, since M73.2a) or names the package that brings it.
     float innerAngle =
         0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
-    LightShape shape = LightShape::Rectangle;  // M73.1: type area only
-    Vec2 size{1.0f, 1.0f};  // M73.1: type area only, metres (a tube uses x as its length and y as its thickness)
-    std::string cookie;     // M73.1: texture projected by a spot or point light
-    std::string ies;        // M73.1: IES profile (.ies) of the light's distribution
+    LightShape shape = LightShape::Rectangle;  // M73.1b: type area only
+    Vec2 size{
+        1.0f,
+        1.0f};  // M73.1b: type area (a tube uses x as its length and y as its thickness); a directional cookie's tile, metres
+    std::string
+        cookie;  // M73.1b: texture projected by a spot light (perspective) or a directional one (tiled); not by a point light
+    std::string ies;  // M73.1b: IES profile (.ies) of a point or spot light's distribution
     std::int32_t shadowResolution =
         0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
     float shadowBias = 0.0f;        // M73.2a: depth offset in metres; 0 = the engine's own

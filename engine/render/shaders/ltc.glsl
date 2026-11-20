@@ -1,13 +1,14 @@
 // Linearly Transformed Cosines for area lights: the integral of a polygonal light over the specular lobe of the engine's BRDF
-// (docs/design/ARCHITECTURE_AREA_LIGHTS.md). Not compiled on its own and not yet included by any template: a top file will
-// `@include ltc.glsl` and then `@include_block fa_ltc` in the fragment stage. The CPU reference of every function here is
+// (docs/design/ARCHITECTURE_AREA_LIGHTS.md). Not compiled on its own: mesh_common.glsl `@include`s this file and includes the block
+// fa_ltc in fa_fs_light (the main fragment shader of the engine's own meshes; light_loop.glsl's fa_area_shade calls it). The CPU reference of every function here is
 // tools/ltc/src/ltc_polygon.cpp (same algorithm, same polynomial; the tests compare it with brute force), and the table the lookup
 // reads is engine/render/src/ltc_tables.h, our own fit (tools/ltc).
 //
 // How a light is shaded, in the order of the calls:
-//   1. uv   = fa_ltc_uv(roughness, N.V)             where to read the two textures built from the generated header:
-//                                                    matrix  = kMatrix, RGBA32F, 64 x 64: (a, b, c, d) of M^-1
-//                                                    albedo  = kBrdf,   RG32F,   64 x 64: (magnitude, fresnel)
+//   1. uv   = fa_ltc_uv(roughness, N.V)             where to read the two tables, which the renderer bakes (light_atlas.h) from the
+//                                                  generated header into the light atlas (view 25, RGBA16F; no texture unit of their own):
+//                                                    matrix  = kMatrix, the 64 x 64 tile at texel (0, 0): (a, b, c, d) of M^-1
+//                                                    albedo  = kBrdf,   the 64 x 64 tile at texel (64, 0): (magnitude, fresnel)
 //                                                  both with bilinear filtering and clamp to edge; u = roughness axis, v = view axis
 //   2. t1   = fa_ltc_tangent(N, V)                  the frame of the table: x = V's side of N, z = N, y = z cross x
 //      p_i  = fa_ltc_local(t1, N, corner_i - P)     the light's corners relative to the shaded point P, in that frame
@@ -18,6 +19,11 @@
 // Winding: fa_ltc_quad returns a positive number when the corners p0..p3 run counter-clockwise seen from +z (from the side the
 // normal points to) in the local frame, a negative one for the other winding. The corners must be those of a convex polygon, in
 // order. A triangle is a quad with the last corner repeated (fa_ltc_triangle).
+//
+// Precision: this block must run in highp. Under fp16 (mediump) the guards below (1e-24, 1e-10, 1e-7) flush to zero and dot(a, a)
+// overflows past about 255 m. sokol-shdc emits `precision mediump float;` in its GLSL ES 3.00 output but qualifies every declaration
+// highp; a scan test of the generated header (engine/render/tests/light_atlas_tests.cpp) fails if a declaration of this block loses
+// the qualifier. Do not add `mediump` or `lowp` here.
 //
 // Horizon: M^-1 turns the polygon into the space where the lobe is a clamped cosine; the part under z = 0 there is cut away (an
 // edge that crosses it is clipped, the cut is closed by the arc along the horizon), so a light that dips below the surface's

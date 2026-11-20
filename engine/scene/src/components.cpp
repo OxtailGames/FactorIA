@@ -2048,8 +2048,9 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field(
             "type", &Light::type, {"directional", "point", "spot", "area"},
             "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. "
-            "area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights; until M73.1 brings "
-            "it, an area light shines like a point light of the same `range`.")
+            "area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse "
+            "term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it "
+            "lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright.")
         .field("color", &Light::color, "Light color.")
         .field("intensity", &Light::intensity, "Brightness multiplier.")
         .range(0, 1000)
@@ -2065,20 +2066,31 @@ void register_builtin_components(TypeRegistry& r) {
                "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
                "does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.")
         .range(0, 89)
-        .enum_field("shape", &Light::shape, {"rectangle", "disc", "tube"},
-                    "Area lights only: the shape of the emitter. rectangle and disc face the entity's forward "
-                    "direction; a tube is a line of light along the entity's X axis. No effect yet: M73.1 brings it.")
+        .enum_field(
+            "shape", &Light::shape, {"rectangle", "disc", "tube"},
+            "Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and "
+            "emit from their front, the side the entity's forward direction points to (nothing behind); a tube "
+            "is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.")
         .field("size", &Light::size,
-               "Area lights only: [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, "
-               "thickness] of a tube. No effect yet: M73.1 brings it.")
+               "[width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube "
+               "(area lights); of a directional light with a cookie, the metres one copy of the cookie covers along "
+               "the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other "
+               "lights ignore it.")
         .range(0.001f, 1000)
-        .asset_field("cookie", &Light::cookie, "texture",
-                     "A texture the light projects (window blinds, a leaf canopy, a flashlight's shape): spot lights "
-                     "project it through the cone, point lights through a cube layout. Empty = none. No effect yet: "
-                     "M73.1 brings it.")
+        .asset_field(
+            "cookie", &Light::cookie, "texture",
+            "A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light "
+            "projects it through its cone (the edge of the cone is the edge of the picture); a directional "
+            "light projects it straight along its forward direction, repeated every `size` metres. Its "
+            "colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 "
+            "texels. A point light does not project a cookie (a warning says so once). Area lights ignore it. "
+            "Empty = none. Drawn since M73.1b; render.supports lightCookies.")
         .asset_field("ies", &Light::ies, "any",
-                     "An IES profile (.ies file) with the measured light distribution of a real lamp. Empty = the "
-                     "plain distribution. No effect yet: M73.1 brings it.")
+                     "An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the "
+                     "measured light distribution of a real lamp, on a point or spot light. The profile's nadir "
+                     "points along the entity's forward direction. The table is divided by its peak, so `intensity` "
+                     "stays the brightness at the brightest direction and the file only shapes the light. Empty = the "
+                     "plain distribution. Drawn since M73.1b; render.supports iesProfiles.")
         .field("shadowResolution", &Light::shadowResolution,
                "Texels per side of each cascade's shadow map of this light, 0..4096 (a value under 128 is raised to "
                "128, rounded down to a power of two). 0 (default) = the engine picks: 2048 for one cascade, 1024 "

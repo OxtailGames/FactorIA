@@ -26,6 +26,7 @@ inline constexpr std::size_t kMaxClusterIndices =
     std::size_t(1) << 19;                        // list entries of a view; the last clusters lose lights past it
 inline constexpr int kLightTextureWidth = 1024;  // texels per row of the data texture (shaders/light_data.glsl)
 inline constexpr int kLightTexels = 4;           // texels of one light in the table
+inline constexpr int kLightTexelsExt = 8;        // ... in a view where a light has an area, a cookie or an IES profile
 
 // The camera of a view as the clusters need it. `viewProj` is the matrix the vertex stage multiplies with (so the tile of a fragment
 // is found with the same numbers on every backend, whatever its window or depth conventions); depths are distances along `forward`.
@@ -99,6 +100,7 @@ struct LightTexture {
     int height = 0;              // rows, a power of two (so the image is made again rarely)
     std::vector<float> texels;   // width * height RGBA32F texels
     std::size_t usedTexels = 0;  // texels that hold data
+    int stride = kLightTexels;   // texels per light: kLightTexelsExt when any light has LightData::hasExt (fa_counts.y)
     ClusterUniforms uniforms;
 };
 // Packs the light table (`lights`, directional first: `directional` of them), and when `lists` is not null the cluster table and the
