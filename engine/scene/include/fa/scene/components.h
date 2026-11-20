@@ -1108,6 +1108,33 @@ struct Decal {
     std::int32_t sortOrder = 0;   // decals draw in ascending order, a larger one on top
     std::int32_t layers = 0;      // bit mask of the MeshRenderer.decalLayer values that receive it; 0 = every layer
 };
+// M73.3b: a reflection probe captures the scene around its position into a small octahedral map (and its diffuse
+// spherical harmonics) that fills the engine's probe atlas (docs/rendering/RENDERING_LIGHTING.md, "Reflection probes").
+// The box (boxSize, boxOffset in the entity's local axes) is the region the probe lights; the mesh sampling of the atlas
+// arrives with M73.3c.
+enum class ProbeMode : std::int32_t { Baked, Realtime };
+enum class ProbeClear : std::int32_t { Sky, Color };
+enum class ProbeUpdate : std::int32_t { EveryFrame, TimeSliced, OnDemand };
+struct ReflectionProbe {
+    ProbeMode mode =
+        ProbeMode::Baked;  // baked: read from bakedMap (probe.bake); realtime: captured while the game runs
+    Vec3 boxSize{10.0f, 10.0f,
+                 10.0f};  // metres: the region the probe lights, in the entity's local axes (scale applies)
+    Vec3 boxOffset{0.0f, 0.0f, 0.0f};  // metres: where the box's centre is, from the entity's origin
+    float blendDistance = 1.0f;        // metres: the fade-out band inside the box edge
+    std::int32_t importance = 0;  // the probe with the larger importance wins where boxes overlap, and is evicted last
+    std::int32_t resolution = 128;             // texels per side of the probe's octahedral map: 32, 64, 128 or 256
+    float nearPlane = 0.1f;                    // metres: nearest distance the capture draws
+    float farPlane = 100.0f;                   // metres: farthest distance the capture draws
+    ProbeClear clear = ProbeClear::Sky;        // what the capture shows where no mesh is drawn
+    Color clearColor{0.0f, 0.0f, 0.0f, 1.0f};  // used with clear color
+    Json showTags = Json::array();  // culling mask like Camera.showTags: only entities with a tag are captured
+    Json hideTags = Json::array();  // entities with one of these tags (or a parent that has) are not captured
+    ProbeUpdate update = ProbeUpdate::TimeSliced;  // realtime only: every frame, one cube face per frame, or on demand
+    std::string bakedMap;       // project-relative .probe.json written by probe.bake (the manifest of the pages)
+    float intensity = 1.0f;     // multiplies what the probe reflects
+    bool boxProjection = true;  // M73.3c: correct the reflection for the box (parallax); stored for the mesh shader
+};
 // M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights"). A grid of probes over an axis-aligned box
 // of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.
 // lightmap.bake traces the light at every probe and stores it as spherical harmonics next to the lightmap pages.

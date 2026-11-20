@@ -652,6 +652,120 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.probes",
+         "The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.",
+         "Reads the state of the reflection probes (ReflectionProbe components, "
+         "docs/design/ARCHITECTURE_PROBES.md) after drawing a frame "
+         "when none is current. Result: {atlas: {size, format (\"RGBA16F\" or \"RGBA8\"), tiles, "
+         "usedTexels, reservedTexels, "
+         "capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, "
+         "probes: [{entity, mode, "
+         "update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, "
+         "lastFrame, facesDone | bakedMap, "
+         "hash?}]}. `state` is \"ready\", \"pending\" (waiting for its first capture), \"capturing\" "
+         "(facesDone of 6 faces drawn), "
+         "\"noRoom\" (the atlas has no tile for it: `message` says why), \"noBake\" (a baked probe with no "
+         "readable bakedMap: run "
+         "probe.bake) or \"failed\" (retried after 30 frames). `overLimit` counts the active probes beyond the "
+         "256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A "
+         "capture is asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. The atlas "
+         "is not read "
+         "by the meshes yet. The result is "
+         "{probes: [], atlas: null} while no ReflectionProbe has been drawn. Errors: `unavailable` without "
+         "graphics. Example: render.probes {}" FA_COMMAND_DETAILS
+         "The atlas of the realtime and baked probes is one 1024 x 1024 image (8 MB as RGBA16F); "
+         "`usedTexels` is what the tiles cover and "
+         "`reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {}, "render.probes");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            engine.render_now();
+            Json j = I.renderer->probe_report();
+            if (j.empty()) return Json::object({{"probes", Json::array()}, {"atlas", Json()}});
+            return j;
+        });
+
+    I.commands.add(
+        {"render.probe_refresh",
+         "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
+         "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
+         "out): "
+         "the one that an `onDemand` probe waits for, and a way to refresh a `timeSliced` or `everyFrame` probe after "
+         "the "
+         "scene around it changed. The capture is made in the next frames, a few cube faces each "
+         "(render.probes shows `facesDone` and `captures`; the faces per frame are the renderer's budget, 2 by "
+         "default), "
+         "so draw a few frames before reading it. Result: {refreshed: [entity ids], skipped: [{entity, reason}]}. "
+         "Without `entity`, a probe that has no tile yet is listed in `skipped` with the reason; with `entity` it is "
+         "an "
+         "error. Example: render.probe_refresh {\"entity\": \"lobby\"}" FA_COMMAND_DETAILS
+         "Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not "
+         "exist; `invalid_argument` when the named entity has no ReflectionProbe or is a baked one; "
+         "`unavailable` without graphics (graphics=false) or when the named probe has no tile in the atlas. The same "
+         "is "
+         "Renderer::probe_refresh in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The probe's entity (id or name). Default: every realtime probe."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.probe_refresh");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_arguments",
+                    std::string("render.probe_refresh: `entity` is a string (the probe's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass the probe as \"entity\": \"lobby\", or leave `entity` out to refresh every "
+                    "realtime probe. scene.list_entities shows the ids.");
+            const Entity named = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            std::vector<Entity> targets;
+            if (one) {
+                const std::string name = I.world.id_of(named);
+                const ReflectionProbe* rp = I.world.get<ReflectionProbe>(named);
+                if (!rp)
+                    throw CommandError("invalid_argument", "/entity: '" + name + "' has no ReflectionProbe component.",
+                                       "Add one first: scene.set_component {\"id\":\"" + name +
+                                           "\",\"component\":\"ReflectionProbe\"}.");
+                if (rp->mode != ProbeMode::Realtime)
+                    throw CommandError("invalid_argument",
+                                       "/entity: '" + name + "' is a baked probe: nothing is captured at run time.",
+                                       "Bake it again with probe.bake, or set ReflectionProbe.mode to realtime.");
+                targets.push_back(named);
+            } else {
+                I.world.each<ReflectionProbe>([&](Entity e, ReflectionProbe& rp) {
+                    if (rp.mode == ProbeMode::Realtime) targets.push_back(e);
+                });
+            }
+            engine.render_now();  // a probe added since the last frame is known to the renderer now
+            Json refreshed = Json::array(), skipped = Json::array();
+            for (Entity e : targets) {
+                const std::string name = I.world.id_of(e);
+                if (I.renderer->probe_refresh(e)) {
+                    refreshed.push_back(name);
+                } else if (one) {
+                    throw CommandError(
+                        "unavailable",
+                        "The probe '" + name + "' has no tile in the atlas, so there is nothing to refresh.",
+                        "render.probes says why (noRoom: the atlas is full of probes that matter more; failed: "
+                        "see its message). An inactive entity is not captured.");
+                } else {
+                    skipped.push_back(Json::object(
+                        {{"entity", name},
+                         {"reason", "no tile in the atlas (inactive, noRoom or failed: render.probes says which)"}}));
+                }
+            }
+            return Json::object({{"refreshed", refreshed}, {"skipped", skipped}});
+        });
+
+    I.commands.add(
         {"render.supports",
          "What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post "
          "effects.",
@@ -989,6 +1103,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.material_cost", capability_sets::reads()},
+                                                 {"render.probes", capability_sets::reads()},
+                                                 {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},

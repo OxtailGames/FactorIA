@@ -36,7 +36,7 @@ the file, the material and what is used instead. A material that sets no `transm
 - **Faces.** A glass mesh draws only the faces that look at the camera (back faces are culled), unless the entity is `doubleSided`: the inner wall of a
   closed ball would otherwise refract over its front.
 - **Order.** A transmissive mesh is drawn in the blended phase (with the meshes whose alpha is below 1 and the `blend` materials), far to near, after
-  the opaque ones.
+  the opaque ones. A mesh that mixes transmissive and opaque parts is drawn blended as a whole, the opaque parts too.
 
 ### How it costs
 
@@ -50,7 +50,7 @@ its place only in the opaque phase). Cost: one split of the main pass, one copy 
 - Many glass meshes in one frame cost one copy, not one each. Each camera of a split screen copies its own rectangle.
 - The render scale, the MSAA resolve, the render graph and the partial rectangles of split screens are respected: the copy reads the resolved picture of the
   camera's rectangle, in the scale it is drawn at.
-- `RenderStats` (`render.stats`): `transmissiveMeshes` (visible transmissive instances), `transmissionCopies` (copies made this frame) and
+- `RenderStats` (`game.render_stats`): `transmissiveMeshes` (visible transmissive instances), `transmissionCopies` (copies made this frame) and
   `transmissionPlain` (cameras that blended their glass plainly, see below).
 
 ### What it does not do
@@ -70,7 +70,7 @@ its place only in the opaque phase). Cost: one split of the main pass, one copy 
 If the shader of the copy or one of its images cannot be created (a GPU that refuses the atlas), the camera's transmissive draws are blended plainly: the mesh keeps
 its reflections and darkens what is behind it by what it lets through (tinted by the attenuation), with no refraction and no blur. `transmissionPlain` counts those
 cameras, the log says so once per picture size, and the frame is otherwise the normal one. `render.supports {"feature":"transmission"}` answers true on every GPU
-(the glass is always drawn, plainly in the worst case); `render.stats` tells which of the two happened.
+(the glass is always drawn, plainly in the worst case); `game.render_stats` tells which of the two happened.
 
 ## The material cost view
 

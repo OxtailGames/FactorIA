@@ -19,6 +19,7 @@
 #include "fa/core/math.h"
 #include "fa/core/video.h"
 #include "fa/render/lightmap_geometry.h"
+#include "fa/render/probe.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/light_probes.h"
 #include "fa/scene/lightmap_manifest.h"
@@ -978,6 +979,9 @@ struct CameraInfo : CameraGeometry {
     bool studio =
         false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
     float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
+    // A reflection probe capture with ReflectionProbe.clear = color: the picture's background is clearColor, no sky is drawn behind the
+    // meshes (the meshes are still lit by the sky). Only the probe captures set it.
+    bool noSky = false;
     // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
     // the camera is built; a camera without a PostProcess of its own gets one made of its Camera.bloom* and Camera.colorFilter fields.
     // Null when the world has no PostProcess and the camera no legacy bloom or filter field: the usual case costs one pointer, not a copy.
@@ -1015,6 +1019,20 @@ struct HdriAsset {
     bool retryPending = false;  // as LutAsset: the first failure is tried once more on the next ask
 };
 
+// A baked reflection probe (ReflectionProbe.bakedMap, probe.h): the manifest and its page, read and checked on the CPU (the renderer
+// uploads the page into its probe atlas). `ok` is false when the manifest or the page could not be read; `error` says why (what
+// `render.probes` shows). `serial` is different for every successful load, so a rebaked file is a different probe at the same path.
+struct ProbeBakeAsset {
+    std::string path, pagePath;
+    bool ok = false;
+    std::string error;
+    ProbeManifest manifest;
+    std::shared_ptr<const ImageF>
+        page;  // probe_page_width x probe_page_height, RGB linear light (fa/core/image_float.h)
+    std::uint64_t serial = 0;
+    bool retryPending = false;  // the first failure may be a pair being rewritten: the next ask reads once more
+};
+
 // Texture/mesh/font caches keyed by project-relative path.
 class Assets {
 public:
@@ -1026,6 +1044,9 @@ public:
     // The HDRI of a .hdr file, loaded on first use and cached like a LUT (a failed load too: one logged error, null from then on, until the
     // file changes on disk and reload() forgets it). Null for an empty path, a missing or malformed file, or a GPU that cannot filter RGBA16F.
     const HdriAsset* hdri(const std::string& path);
+    // The baked probe of a *.probe.json manifest, loaded on first use and cached (a failed one too, with `error`, until the file changes
+    // on disk and reload() forgets it). Null for an empty path; never null otherwise (check `ok`). No GPU object: the renderer uploads it.
+    const ProbeBakeAsset* probe_bake(const std::string& manifestPath);
     TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
     TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
@@ -1205,6 +1226,8 @@ private:
     void destroy_lut(LutAsset& l);
     std::unordered_map<std::string, std::unique_ptr<HdriAsset>> hdris_;
     std::uint64_t hdriSerial_ = 0;
+    std::unordered_map<std::string, std::unique_ptr<ProbeBakeAsset>> probeBakes_;
+    std::uint64_t probeBakeSerial_ = 0;
     void destroy_hdri(HdriAsset& h);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images

@@ -546,6 +546,28 @@ public:
     // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
     Json frame_graph_report() const;
 
+    // Reflection probes (ReflectionProbe; include/fa/render/probe.h, docs/design/ARCHITECTURE_PROBES.md). The renderer captures the realtime
+    // probes a few faces a frame, uploads the baked ones, and keeps every probe's tile in one atlas image that the meshes do not read yet.
+    // The report of the `render.probes` command: {atlas: {size, format, tiles, usedTexels, reservedTexels, ...}, sky: {...}, faceBudget,
+    // probes: [{entity, mode, state, tile, captures, lastFrame, ...}]}. Empty object before init() and while no probe exists.
+    Json probe_report() const;
+    // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
+    // realtime probe of this renderer.
+    bool probe_refresh(Entity probe);
+    // The most faces of realtime probes drawn in a frame, in all (1..12; default 2: a probe is complete every three frames).
+    void probe_set_budget(int faces);
+    // A synchronous capture of one probe, for probe.bake and tests: the six faces drawn at once into an image of their own (the atlas of
+    // the realtime probes is not touched), filtered like a realtime capture. `page` is the tile without its SH row (probe.h,
+    // probe_page_width x probe_page_height texels, RGB linear light, row 0 first), `sh` the nine coefficients. `intensity` is not applied
+    // (the component's intensity is a gain of the reader). Needs a half-float atlas; false with `error` otherwise.
+    struct ProbePage {
+        int resolution = 0;
+        int width = 0, height = 0;  // probe_page_width x probe_page_height
+        std::vector<float> rgb;     // width * height * 3, linear light, row 0 = the top row
+        float sh[9][3]{};
+    };
+    bool probe_capture(World& world, Entity probe, ProbePage& out, std::string* error = nullptr);
+
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
     // "r11g11b10", "sampledDepth", "computeShaders", "float32Targets"), an engine feature ("linearColor", "hdrOutput", and the
     // lighting rows of M73 such as "cascadedShadows", planned until their package lands; "clusteredLights" is drawn) or a post effect (the

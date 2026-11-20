@@ -777,6 +777,7 @@ void Assets::clear() {
     luts_.clear();
     for (auto& [k, h] : hdris_) destroy_hdri(*h);
     hdris_.clear();
+    probeBakes_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
@@ -985,6 +986,101 @@ const HdriAsset* Assets::hdri(const std::string& pathIn) {
                                    [&](const Failure& f) { return f.kind == "hdri" && f.path == key; }),
                     failures_.end());
     return &h;
+}
+
+const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    bool secondTry = false;
+    ProbeBakeAsset* slotPtr = nullptr;
+    if (auto it = probeBakes_.find(key); it != probeBakes_.end()) {
+        if (it->second->ok || !it->second->retryPending)
+            return it->second.get();  // a failed load stays: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<ProbeBakeAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        probeBakes_[key] = std::move(slot);
+    }
+    ProbeBakeAsset& b = *slotPtr;
+    auto fail = [&](const std::string& message, const std::string& hint) -> const ProbeBakeAsset* {
+        b.ok = false;
+        b.error = message;
+        note_failure("probe", key, message, hint);
+        return &b;
+    };
+    if (!fs::exists(key))
+        return fail("baked reflection probe " + missing_hint(key, fs::extension(key)),
+                    "Run probe.bake {\"entity\": ...} to bake the probe, or set ReflectionProbe.bakedMap to a "
+                    "*.probe.json of the project.");
+    // A pair being rewritten (probe.bake writes the page, then the manifest; an editor may still hold the file) is read once more on the
+    // next frame before it is an error.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;
+        b.retryPending = true;
+        b.ok = false;
+        b.error = what;
+        FA_WARN(
+            "render",
+            "baked reflection probe '{}' {}; trying once more on the next frame (a file that is still being written).",
+            key, what);
+        return true;
+    };
+    auto text = fs::read_text(key);
+    if (!text) {
+        if (retry_once("could not be read: " + text.error().message)) return &b;
+        return fail("baked reflection probe " + text.error().message, text.error().hint);
+    }
+    auto json = parse_json(*text, key);
+    if (!json) {
+        if (retry_once("did not parse: " + json.error().message)) return &b;
+        return fail("baked reflection probe " + json.error().message, json.error().hint);
+    }
+    auto manifest = probe_manifest_from_json(*json, key);
+    if (!manifest) return fail(manifest.error().message, manifest.error().hint);  // the same on the second try: final
+    const std::string pageKey = fs::normalize(manifest->page);
+    b.pagePath = pageKey.empty() ? manifest->page : pageKey;
+    auto bytes = fs::read_bytes(b.pagePath);
+    if (!bytes) {
+        if (retry_once("page '" + b.pagePath + "' could not be read: " + bytes.error().message)) return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "' " + bytes.error().message,
+                    "Bake the probe again (probe.bake): the manifest names a page that is not in the project.");
+    }
+    if (probe_hash_hex(*bytes) != manifest->hash) {
+        if (retry_once("page '" + b.pagePath + "' is not the one the manifest was written for (its hash differs)"))
+            return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath +
+                        "' does not match the manifest's hash " + manifest->hash,
+                    "The page was changed after the bake. Bake the probe again (probe.bake).");
+    }
+    auto image = decode_hdr(bytes->data(), bytes->size());
+    if (!image) {
+        if (retry_once("page '" + b.pagePath + "' did not decode: " + image.error().message)) return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "': " + image.error().message,
+                    image.error().hint);
+    }
+    if (image->width != probe_page_width(manifest->resolution) ||
+        image->height != probe_page_height(manifest->resolution))
+        return fail(
+            std::format("baked reflection probe '{}': the page is {} x {} texels, a map of resolution {} has {} x {}",
+                        key, image->width, image->height, manifest->resolution, probe_page_width(manifest->resolution),
+                        probe_page_height(manifest->resolution)),
+            "Bake the probe again (probe.bake).");
+    for (float& v : image->data)
+        v = v > 0.0f ? std::min(v, 65000.0f) : 0.0f;  // NaN and negative are 0; the atlas holds half floats
+    b.manifest = std::move(*manifest);
+    b.page = std::make_shared<const ImageF>(std::move(*image));
+    b.ok = true;
+    b.error.clear();
+    b.serial = ++probeBakeSerial_;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "probe" && f.path == key; }),
+                    failures_.end());
+    return &b;
 }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
@@ -2001,6 +2097,17 @@ void Assets::reload(const std::string& pathIn) {
         failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
                                        [&](const Failure& f) { return f.kind == "hdri" && f.path == path; }),
                         failures_.end());
+    }
+    // A baked probe: the manifest or its page changed (or is being rewritten by probe.bake): forgotten, the next frame reads the pair again.
+    for (auto pb = probeBakes_.begin(); pb != probeBakes_.end();) {
+        if (path == pb->first || (!pb->second->pagePath.empty() && path == pb->second->pagePath)) {
+            failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                           [&](const Failure& f) { return f.kind == "probe" && f.path == pb->first; }),
+                            failures_.end());
+            pb = probeBakes_.erase(pb);
+        } else {
+            ++pb;
+        }
     }
     if (lightmapSet_ || !lightmapSetPath_.empty()) {
         // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next

@@ -217,7 +217,7 @@ mesh: the ambient light, and what a metal or glossy surface reflects, come from 
 | `transmission`, `thickness`, `attenuationColor`, `attenuationDistance` | 0..1; m; colour; m | 0, 0, white, 0 | drawn (M73.6b): [page](RENDERING_TRANSMISSION.md) |
 | `subsurface`, `subsurfaceRadius`, `subsurfaceColor` | 0..1; 0..0.5 m; colour | 0, 0.01, (1, 0.4, 0.25) | drawn (M73.5), see "Subsurface scattering" |
 
-A value outside its range, or a name that is not one of the listed words, is refused where it is written (the scene file on load, the commands that set a component field, a script property write) with the field, the allowed range or words and a "did you mean" for a misspelt word.
+A value outside its range, or a name that is not one of the listed words, is refused where it is written (the scene file on load, a component-field command, a script property write) with the field, the allowed range or words and a "did you mean" for a misspelt word.
 
 ## Cascaded shadows of the sun (M73.2a)
 
@@ -297,16 +297,15 @@ fine detail to the shadow maps and does not replace them.
 - **Limits.** It sees only what the camera sees: a caster that is off screen, behind the view or hidden by another surface throws no
   contact shadow, and a thin object (thinner than half the ray) lets the light through; the ray stops at the edge of the screen. The
   prepass holds the opaque meshes only, so blended meshes cast none; a blended mesh, a mesh whose material is a full shader (`mode:
-  "full"`), and one with `receiveShadows` off get no contact shadow either, and the draws of transmission (M73.6b), which read the
-  screen's colour in the same slot, get none. Sprites and the 2D renderer are not affected.
+  "full"`), and one with `receiveShadows` off get no contact shadow either, and the glass of M73.6b get none. Sprites and the 2D renderer are not affected.
 - **GPUs.** `render.supports` with `{"feature": "contactShadows"}` follows the GPU's depth prepass, like the effects that need depth.
 
 ## The material layers (M73.6a)
 
 The standard mesh shading (every MeshRenderer without a custom material, and a custom material's `Surface`) has four layers on top of
-the base metal / roughness model. They are drawn on every backend (OpenGL, GLES3 and WebGL2, D3D11, Metal) with the same GGX model as the
-base; a material that leaves them at their defaults draws exactly the picture it drew before (the golden images did not change), and
-costs at most one uniform branch.
+the base metal / roughness model, drawn on every backend with the same GGX model as the base; a material that leaves them at their
+defaults draws exactly the picture it drew before, and costs at most one uniform branch. Transmission and volume (glass):
+[RENDERING_TRANSMISSION.md](RENDERING_TRANSMISSION.md).
 
 | Layer | Fields | What it does |
 |---|---|---|
@@ -316,10 +315,9 @@ costs at most one uniform branch.
 | Specular | `specular`, `ior` | The reflectance at normal incidence of a non-metal, `F0 = ((ior - 1) / (ior + 1))^2 * specular`: the default ior 1.5 and specular 1 give 0.04 exactly, so nothing changes; water is 1.33 (0.02), diamond 2.4 (0.17), `specular` 0 switches the dielectric reflection off. A metal's reflectance is its colour; the specular does not change it. |
 
 Image-based light (the sky or the `environmentMap`) gets the layers too, by approximation: the coat reflects the environment along the
-geometric normal with F0 0.04 (the pre-filtered mip of `clearcoatRoughness`); the sheen adds the environment along the normal at
-`sheenRoughness`, tinted by `sheenColor` and by a table of the sheen's directional albedo (a 7 x 9 table, worst error 0.06, mean 0.003;
-`tools/shaders/sheen_albedo.py` makes it); the anisotropic reflection bends the reflected direction toward the stretch (the bent normal
-of McAuley 2015). They are not the path-traced truth; they are right in the sense that matters, a layer reflects its sky and never adds energy.
+geometric normal with F0 0.04 (the mip of `clearcoatRoughness`); the sheen adds it at `sheenRoughness`, tinted by `sheenColor` and a table
+of the sheen's directional albedo (7 x 9, worst error 0.06; `tools/shaders/sheen_albedo.py` makes it); the anisotropic reflection bends
+the reflected direction toward the stretch (McAuley 2015). A layer reflects its sky and never adds energy.
 
 ### Layers from a glTF model
 
@@ -327,23 +325,25 @@ A model's `KHR_materials_clearcoat`, `KHR_materials_sheen`, `KHR_materials_aniso
 become the layers of its parts: the factors always (`clearcoatFactor`, `clearcoatRoughnessFactor`, `sheenColorFactor`,
 `sheenRoughnessFactor`, `anisotropyStrength`, `anisotropyRotation`, `specularFactor`, `specularColorFactor`, `ior`), clamped to the ranges of
 the table (a value outside is clamped and named). A `MeshRenderer` field that is not at its default replaces the model's value of
-that layer for the whole renderer, field by field (`materialColors` and the rest work as before); the packed textures below still
-modulate it.
-
+that layer for the whole renderer, field by field; the packed textures below still modulate it.
 The mesh shader has no texture unit free for more maps, so the textures of the extensions are packed at import into the free channels of
-the maps the part already binds. The packing is deterministic (bilinear resampling in fixed point, to the largest size among the sources of a map, at most
-4096 x 4096), and a channel with no texture is 255 so the factor alone decides:
+the maps the part already binds, deterministically (fixed-point bilinear resampling to the largest source size, at most 4096 x 4096);
+a channel with no texture is 255 so the factor alone decides:
 
 | Map the part binds | R | G | B | A |
 |---|---|---|---|---|
 | occlusion | the occlusion (255 if none) | `clearcoatTexture` R | `clearcoatRoughnessTexture` G | `sheenRoughnessTexture` A |
 | metallic-roughness | `anisotropyTexture` B (strength) | roughness (`metallicRoughnessTexture` G) | metallic (B) | `specularTexture` A |
 
-What does not fit is never dropped silently: the import writes a warning with the file, the material name and what is used instead.
-Not packed: `clearcoatNormalTexture` (the coat follows the geometric normal), `sheenColorTexture` (`sheenColorFactor` is used),
-`specularColorTexture` (`specularColorFactor` is used) and the direction (red and green) of `anisotropyTexture` (the direction is the
-tangent turned by `anisotropyRotation`); a texture file that cannot be read (`its factor alone is used`), and a set whose packed size would pass
-4096 x 4096. An editable mesh (`mesh.*` commands, a model converted to a mesh) keeps only the factors: its textures are not carried.
+What does not fit is never dropped silently: the import warns with the file, the material and what is used instead. Not packed:
+`clearcoatNormalTexture` (the coat follows the geometric normal), `sheenColorTexture` and `specularColorTexture` (their factors are used),
+the direction of `anisotropyTexture` (the tangent turned by `anisotropyRotation`), a texture file that cannot be read (its factor alone
+is used) and a set whose packed size would pass 4096 x 4096. An editable mesh (`mesh.*` commands) keeps only the factors.
+
+## Reflection probes (M73-P3b)
+
+A `ReflectionProbe` is captured into one atlas (realtime, or once with `probe.bake`); meshes read it from M73-P3c. Fields, commands and
+limits: [RENDERING_PROBES.md](RENDERING_PROBES.md) (`docs.read rendering-probes`).
 
 ## Lightmaps
 
@@ -577,7 +577,7 @@ until its step lands; then it follows the GPU (`cascadedShadows` does, `environm
 what is not drawn.
 
 `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles` (M73.1); `cascadedShadows`, `pointShadows`, `spotShadows`,
-`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
+`contactShadows` (M73.2, M73.2c: drawn; supported where the depth prepass can be made); `environmentMap`, `reflectionProbes`, `physicalSky` (M73.3; `environmentMap` and `physicalSky` are drawn; `reflectionProbes` is captured, read by meshes from M73-P3c); `lightmaps` (M73.4a, drawn), `lightProbes` (M73.4d, drawn: every backend);
 `volumetricFog` (M73.5, drawn: true wherever the GPU has RGBA16F render targets that blend and filter), `decals` (M73.5b, drawn), `subsurface` (M73.5, drawn: RGBA16F targets and the depth prepass), `realtimeGI` (M73.5); `clearCoat`, `sheen`, `anisotropy` (M73.6a, drawn: they follow the
 backend, which every one supports) and `transmission` (M73.6b, drawn).
 
