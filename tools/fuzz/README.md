@@ -15,7 +15,7 @@ looking for crashes, hangs, runaway memory and undefined behaviour. Full instruc
 
 Targets: `json` (parse_json), `json_schema` (validate_json and the schema helpers), `scene` (load_scene), `prefab`
 (entity_from_json), `pak` (PackReader::open_memory), `mcp_jsonrpc` (McpServer::handle_message, read-only capabilities, an
-empty project), `translations` (read_csv, read_xliff), and the decoders of project files: `image` (decode_image, image_size),
+empty project), `translations` (read_csv, read_xliff), and the decoders of project files: `image` (decode_image, image_size), `hdr` (decode_hdr, encode_hdr),
 `ktx2` (ktx2_size, decode_ktx2), `gltf` (parse_skeleton, read_gltf_mesh_bytes), `font` (rasterize_text with a font in memory),
 `audio` (decode_audio; the first byte picks the format: 0 .wav, 1 .ogg, 2 .mp3, 3 .qoa), `midi` (parse_midi, write_midi) and
 `soundfont` (Soundfont::from_memory, one rendered note). `ubsan_ignorelist.txt` keeps UBSan quiet inside `external/` (ASan is
