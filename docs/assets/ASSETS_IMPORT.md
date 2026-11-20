@@ -206,6 +206,7 @@ and next steps with the component settings to use. Each written file gets an `as
 | `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
 | `.mpg` `.mpeg` | Copied into `assets/video/` after the engine opened it (it must be MPEG-1 video; the size, length and frame rate are in `details`). |
 | `.cube` | Copied into `assets/luts/` after it was parsed (a 3D colour lookup table, 2 to 65 entries per side; a 1D table, a domain other than 0 to 1 or a wrong row count is an error with the line number; the size and title are in `details`). Set `PostProcess.colorGradingLut` to it (docs/RENDERING.md, "Colour grading with a LUT"). |
+| `.hdr` | Copied into `assets/hdri/` (kind `hdri`) after it was checked with the code the renderer loads it with: a Radiance panorama that is equirectangular (twice as wide as tall), at most 8192 x 4096 pixels (4096 x 2048 on WebAssembly), not cut short. A cube cross, a strip of faces or a light probe is an error that names the layout and how to convert it. A picture wider than 4096 is shrunk for the GPU when it is loaded. The sizes are in `details`. Set `SceneSettings.environmentMap` to it (docs/rendering/RENDERING_LIGHTING.md, "The environment map"). |
 | `.mp4` `.m4v` `.mov` `.webm` `.mkv` `.avi` | An `.mpg` in `assets/video/`, converted by ffmpeg (see "Video" below). |
 
 Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.psb`

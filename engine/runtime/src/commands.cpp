@@ -2273,7 +2273,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     // ------------------------------------------------------------------- assets
     I.commands.add({"assets.list",
                     "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, "
-                    "prefab, material, vfx, other (by file name).",
+                    "prefab, material, vfx, hdri, other (by file name).",
                     "Example: assets.list {\"folder\":\"assets\",\"extension\":\".png\"}",
                     parse_schema(R"({"type":"object","properties":{
                "folder":{"type":"string","default":"assets","description":"Project-relative folder."},

@@ -1567,6 +1567,7 @@ struct SceneSettings {
     std::string environmentMap;           // M73.3: HDR image of the surroundings ("" = the sky material or gradient)
     float environmentIntensity = 1.0f;    // M73.3
     float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
+    bool environmentBackground = true;    // M73.3: the environment map is also the background (no sky material set)
     SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
     std::string
         lightmaps;  // M73.4: the lightmap manifest of the scene (*.lightmap.json, written by lightmap.bake); "" = none

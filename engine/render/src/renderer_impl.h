@@ -53,6 +53,7 @@
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
+#include "renderer_hdri.h"
 #include "renderer_sky_phys.h"
 #include "shaders/sky.glsl.h"
 
@@ -94,6 +95,7 @@ struct Renderer::Impl {
     // attachment, which bloom composites into.
     Target gameTarget;
     PhysicalSky physSky;  // the physical sky's tables and programs (renderer_sky_phys.h)
+    HdriSky hdriSky;      // the program that draws SceneSettings.environmentMap (renderer_hdri.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines

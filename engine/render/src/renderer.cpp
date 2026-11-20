@@ -421,6 +421,7 @@ void Renderer::shutdown() {
         im.ssr.release();
         im.skyEnv.release();
         im.physSky.release();
+        im.hdriSky.release();
         im.sceneFx.release();
         im.fogFx.release();
         im.ramps.destroy();
