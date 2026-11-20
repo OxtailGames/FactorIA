@@ -219,3 +219,68 @@ TEST_CASE(
     CHECK(diff_images(farBaked, farRealtime, 0.0f).maxError == 0.0);
     CHECK(diff_images(farDark, farBaked, 0.0f).maxError > 0.1);
 }
+
+TEST_CASE("light probes: a disabled probeAnchor is the same as none (the bounds centre is used)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    std::filesystem::create_directories(g.projectDir / "scenes");
+    World w;
+    add_camera(w, {12, 0, 5}, {12, 0, 0});
+    w.settings().ambientLight = Color{0, 0, 0, 1};
+    Entity sphere = add_mesh(w, "sphere", {12, 0, 0}, Color::white(), {2, 2, 2});
+    write_probe_manifest(w, "anchoroff", sh_gray_with_x(0.5f, {2.5f, 0, 0}));
+    const Image none = g.render(w);  // 9 m outside the grid and no anchor: the sky's ambient (black)
+    Entity anchor = make(w, "anchor", {0, 0, 0});
+    w.get<MeshRenderer>(sphere)->probeAnchor = anchor;
+    CHECK(red_minus_blue(g.render(w).pixel(160 + 18, 90)) > 0.2f);  // enabled: lit by the probes at the anchor
+    w.set_active(anchor, false);
+    CHECK(diff_images(g.render(w), none, 0.0f).maxError == 0.0);  // disabled: as without an anchor
+}
+
+TEST_CASE("light probes: instances within a probe group share draws, and the shadow pass draws as without probes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    std::filesystem::create_directories(g.projectDir / "scenes");
+    constexpr int kCount = 48;
+    // 48 cubes 5 cm apart along x (2.4 m): every probe holds another light, so the light changes along the row. The sample
+    // points snap to a 0.25 m lattice, so the row has at most ten different keys.
+    auto draws = [&](bool probes, bool shadows) {
+        World w;
+        add_camera(w, {0, 2, 6}, {0, 0, 0});
+        w.settings().ambientLight = Color{0.1f, 0.1f, 0.1f, 1};
+        for (int i = 0; i < kCount; ++i)
+            add_mesh(w, "cube", {-1.2f + 0.05f * float(i), 0, 0}, Color::white(), {0.04f, 0.04f, 0.04f});
+        Entity light = add_light(w, LightMode::Realtime);
+        w.get<Light>(light)->castShadows = shadows;
+        if (probes) {
+            ProbeSet set;
+            LightProbeGroup comp;
+            comp.size = {6, 4, 6};
+            comp.spacing = 1.0f;
+            REQUIRE(add_probe_group(set, "group", comp, {0, 0, 0}).ok());
+            set.sh.resize(set.size());
+            for (std::size_t i = 0; i < set.size(); ++i)
+                set.sh[i] = sh_gray_with_x(0.1f + 0.2f * (set.positions[i].x + 3.0f), {0, 0, 0});
+            set.valid.assign(set.size(), 1);
+            const std::vector<std::uint8_t> bytes = encode_probe_set(set);
+            REQUIRE(fs::write_bytes("scenes/inst.lightmap.probes", bytes.data(), bytes.size()).ok());
+            LightmapManifest m;
+            m.uvVersion = kLightmapUvVersion;
+            m.settingsHash = "0123456789abcdef";
+            m.probes.file = "scenes/inst.lightmap.probes";
+            m.probes.count = int(set.size());
+            REQUIRE(fs::write_text("scenes/inst.lightmap.json", lightmap_manifest_to_json(m).dump(2)).ok());
+            w.settings().lightmaps = "scenes/inst.lightmap.json";
+        }
+        g.render(w);
+        return g.renderer.stats().drawCalls;
+    };
+    const int plainLit = draws(false, false), plainShadowed = draws(false, true);
+    const int probeLit = draws(true, false), probeShadowed = draws(true, true);
+    CHECK(plainShadowed > plainLit);                              // the shadow pass does draw
+    CHECK(probeLit < kCount / 3);                                 // far fewer than one draw per cube
+    CHECK(probeLit > plainLit);                                   // the light does differ along the row
+    CHECK(probeShadowed - probeLit == plainShadowed - plainLit);  // shadow draws: as without probes
+}

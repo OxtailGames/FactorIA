@@ -6,14 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.31](chang
 
 ## Unreleased
 
-- **Light probes and mixed lights (M73.4d):** a new `LightProbeGroup` component (a grid of probes and single points) is baked by
-  `lightmap.bake` in the same job, in its own phase `probes`, into spherical harmonics written next to the pages (`.probes`, listed in the
-  manifest's `probes` key and in the result, `lightmap.bake_status` and the Lightmap window; a probe inside geometry is flagged and ignored). A
-  mesh with no lightmap (`receiveGI`, not `unlit`; a skinned one too) gets the blend of the probes at its bounds centre, or at the new
-  `MeshRenderer.probeAnchor`, as its ambient and sky-diffuse light, through `fa_indirect_diffuse` and the `ambient()` hook; a scene without
-  probes is drawn bit for bit as before. A `baked` light no longer lights a mesh the probes cover (scaled by `1 - coverage`); `mixed`
-  lights stay realtime with only their bounce baked (the table is in docs/rendering/RENDERING_LIGHT_PROBES.md). New command
-  `render.light_probes`, `render.supports("lightProbes")` is drawn, and View > Lightmap > Show probes draws the probes in the viewport.
+- **Light probes (M73.4d):** `LightProbeGroup` probes are baked by `lightmap.bake`; a mesh without a lightmap gets their light, a `baked` light no longer lights it twice. docs/rendering/RENDERING_LIGHT_PROBES.md.
 - **Lightmap bake (M73.4c):** `lightmap.bake` (waits), `lightmap.bake_start`, `lightmap.bake_status` and `lightmap.bake_cancel` bake the open scene's `baked` and `mixed` lights, its sky (the environment map, the gradient or the ambient light) and its emissive and lit meshes into Radiance `.hdr` pages and a `.lightmap.json` manifest next to the scene, unwrapping the meshes that have no second UV set, and the renderer reads them at once (`SceneSettings.lightmaps` is set in memory: keep it with `scene.save` in a batch, or write it into the scene). The job reports a phase and progress, can be cancelled in every phase, writes the pages and then the manifest atomically (a file open on Windows gives an error that says what to close) and gives the same bytes with any number of threads. The editor has **View > Lightmap** (options, progress bar, Cancel, a summary of the pages, one undo step for the setting). The baker core now checks its input for NaN and infinity, derives its default ray offset from the texel size (not 10 cm in a kilometer-wide scene) and checks for cancel in the BVH build, the rasterizer, the denoiser and the gutter fill. Disc and Tube area lights are baked as rectangles. Docs: docs/rendering/RENDERING_LIGHTING.md, "Baking".
 - **Contact shadows (M73.2c):** `SceneSettings.contactShadows` and a new `Light.contactShadowLength` (metres, 0 = off, the default) add a
   short screen-space ray from each lit point toward the light, marched in the mesh shader against the depth prepass (12 steps, a thickness

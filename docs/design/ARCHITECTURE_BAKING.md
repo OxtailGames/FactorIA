@@ -148,12 +148,13 @@ interpolation), `sample_probes` in `lightmap_bake.cpp`, the `probes` phase in `t
   atomic writer and the same clean-up of old files. A bake with only probes (no receiver mesh) is valid; both empty is "nothing to bake".
 - **Interpolation.** `probe_light_at(set, p)`: per grid, trilinear over the eight corners with the invalid ones left out and renormalised, times a
   coverage that falls from 1 to 0 over one `spacing` outside the box; a point probe weighs `(1 - d / 5 m)^2`. The groups are summed by weight and
-  the mean SH is `ProbeLight.sh`, with `coverage = min(1, total weight)`. `probe_light_key` quantises SH and coverage to 1/4096 into a hash
-  (0 = none).
+  the mean SH is `ProbeLight.sh`, with `coverage = min(1, total weight)`. `probe_light_key` quantises SH and coverage to 1/1024 into a hash
+  (0 = none). `probe_point()` snaps the sample point to a 0.25 m lattice, so nearby meshes share one key and one instanced draw;
+  `build_batches` ignores the key for the shadow runs (the shadow pass never reads the SH).
 - **Where the per-draw SH lives.** The nine coefficients are `vec4 fa_probe_sh[9]` at the end of `fa_mesh_fs_params` (and its copy in
   `mesh_full_common.glsl`, which must stay the same size): `[k].xyz` is coefficient k, `[0].w` the coverage (0 = no probe). No texture unit is
   added (the mesh fragment shader uses all 16). The CPU computes `probe_light_at` for each `SceneMesh` in the `render.mesh_cull` job
-  (`RenderScene::probeLights_`, sized only when baked probes exist) at `probe_point()`: the `probeAnchor` entity's drawn position when alive, else
+  (`RenderScene::probeLights_`, sized only when baked probes exist) at `probe_point()`: the `probeAnchor` entity's drawn position when alive and active, else
   the centre of the mesh's bounds through its model matrix. Eligible: `receiveGI`, not `unlit`, no lightmap, and a material that is null or
   engine-shaded without compute buffers. `SceneMesh`, `MeshItem` and `SortFields` carry the pointer and `probeKey`, and `probeKey` is part of
   `material_key`, `order_key` and the `Rest` sort key, so the batcher merges only draws with the same SH. `fill_fs` writes the uniform (zeros when

@@ -21,8 +21,8 @@ std::uint64_t group_key(const LightProbeGroup& g, Vec3 pos) {
         const auto* b = static_cast<const unsigned char*>(p);
         for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 1099511628211ull;
     };
-    const float f[] = {g.size.x, g.size.y,   g.size.z,   g.spacing, g.offset.x,
-                       g.offset.y, g.offset.z, pos.x,      pos.y,     pos.z};
+    const float f[] = {g.size.x,   g.size.y,   g.size.z, g.spacing, g.offset.x,
+                       g.offset.y, g.offset.z, pos.x,    pos.y,     pos.z};
     mix(f, sizeof f);
     const char grid = g.grid ? 1 : 0;
     mix(&grid, 1);

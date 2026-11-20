@@ -176,7 +176,10 @@ struct MeshBatch {
     std::uint32_t mainFirst = 0, mainCount = 0;
     // The shadow runs of the batch, one per view that holds a caster of it, in ascending view order: runs[runFirst .. +runCount) of the
     // vector build_batches filled (the one the caller passed).
-    std::uint32_t runFirst = 0, runCount = 0;
+    // Neighbouring batches that differ only in their probe SH (MeshItem::probeKey) share one set of runs, held by the first of
+    // them (the others have runCount 0): the shadow pass never reads the SH. shadowEnd = the end (in `items`) of the casters
+    // of those runs.
+    std::uint32_t runFirst = 0, runCount = 0, shadowEnd = 0;
     // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each
     // instance, at mainData[mainExtra ..) (floats) for the visible items; the casters' are ShadowRun::extra. instanceVec4 is 0
     // for a batch without them.
