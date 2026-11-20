@@ -76,6 +76,19 @@ float oct_texel_weight(Vec2 e, int size) {
     return length(cross(dx, dz));
 }
 
+// ---- the capture camera of a face -------------------------------------------------------------------------------------------
+
+ProbeFace probe_face(int face) {
+    static const Vec3 kFwd[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const Vec3 kUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    const int f = std::clamp(face, 0, 5);
+    ProbeFace out;
+    out.fwd = kFwd[f];
+    out.up = kUp[f];
+    out.right = cross(out.fwd, out.up);
+    return out;
+}
+
 // ---- the tile ---------------------------------------------------------------------------------------------------------------
 
 int probe_resolution(int requested) {
