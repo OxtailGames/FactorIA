@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 
 ## Unreleased
 
+- **Realtime GI, the data side (M73-P5d-1):** a new `RealtimeGI` component (a box of probes, `spacing`, `probesPerFrame`, `resolution`, `hysteresis`,
+  `nearExclusion`, `maxDistance`, `backfaceTolerance`, tags; a wrong field is reported with its JSON pointer and the fix) makes the renderer capture a grid of
+  probes over a few frames with the reflection probes' six-face capture: each probe keeps the diffuse light that reaches it as nine spherical-harmonics
+  coefficients and a small octahedral map of the mean and mean squared distance of the surfaces around it (as fractions of `maxDistance`, so they fit a half float), blended into its old value by `hysteresis`, in a
+  band of 132 rows added to the probe atlas (no texture unit). The probes are refreshed in a fixed order, the longest ago first, within `probesPerFrame` (32
+  for all grids), and everything stays on the GPU. New command `render.gi_grid` lists each grid's probe count, progress, memory and the probes inside geometry.
+  No mesh is shaded with the grid yet (M73-P5d-2 does, and adds the extra bounces), so a scene looks the same with or without it, and a scene without a
+  `RealtimeGI` costs nothing. `render.supports` keeps `realtimeGI` planned. docs/rendering/RENDERING_LIGHT_PROBES.md and docs/design/ARCHITECTURE_PROBES.md.
 - **Glass and liquids (M73.6b):** `MeshRenderer.transmission` (0..1), `thickness` (metres), `attenuationColor` and `attenuationDistance` now draw: the mesh
   shows what is behind it, refracted by its `ior` and `thickness`, blurred by its `roughness`, tinted by `color` and by the Beer-Lambert attenuation of its
   volume. glTF models bring them (`KHR_materials_transmission`, `_volume`, `_ior`; the textures are not used and the import says so). When a visible draw is

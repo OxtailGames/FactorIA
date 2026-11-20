@@ -508,6 +508,28 @@ Light probes for moving objects: a grid of points that lightmap.bake fills with 
 | `points` | json | `[]` | Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. |
 | `showGizmo` | bool | `true` | The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game. |
 
+### RealtimeGI
+
+Not released yet (on main after 0.32.0).
+
+Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. This is the data side: the mesh shaders read the grid from M73.5d-2 on, until then the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[20.0,6.0,20.0]` | [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20]. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0]. |
+| `spacing` | float | `2.0` | Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2. Range 0.25..100.0. |
+| `probesPerFrame` | int | `2` | 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2. Range 1..32. |
+| `resolution` | int | `16` | Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much. Range 16..32. |
+| `intensity` | float | `1.0` | 0..16: multiplies the light the grid gives to the meshes (read by the shading, M73.5d-2). Changing it does not capture again. Default 1. Range 0.0..16.0. |
+| `bounce` | float | `1.0` | 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Used by the shading from M73.5d-2. Default 1. Range 0.0..1.0. |
+| `hysteresis` | float | `0.9` | 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves). Range 0.0..0.99. |
+| `nearExclusion` | float | `0.1` | Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1. Range 0.01..10.0. |
+| `maxDistance` | float | `30.0` | Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30. Range 1.0..1000.0. |
+| `backfaceTolerance` | float | `0.25` | 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25. Range 0.02..0.9. |
+| `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. |
+| `hideTags` | json | `[]` | Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. |
+
 ### Animator
 
 Since 0.2.0.
@@ -7836,6 +7858,18 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
+
+### `render.gi_grid`
+
+Not released yet (on main after 0.32.0).
+
+The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
+
+Capabilities: read
+
+Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is "updating" (probes not captured yet), "ready", "invalid" (`message` names the field and the fix), "noRoom" (more than `probeLimit` probes), "failed" (retried after 30 frames) or "unsupported" (no RGBA16F blending). `invalidProbes` counts the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call this to look, not every frame. Nothing is shaded with the grid yet (M73-P5d-2). {grids: [], atlas: null} while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} See docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
 
 ### `render.inspect`
 
@@ -18488,6 +18522,81 @@ declare module "factoria" {
     showGizmo: boolean;
   }
   /**
+   * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. This is the data side: the mesh shaders read the grid from M73.5d-2 on, until then the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface RealtimeGIComponent {
+    /**
+     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].
+     * @since unreleased
+     */
+    get offset(): Vec3;
+    set offset(value: Vec3Like);
+    /**
+     * Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2.
+     * @since unreleased
+     */
+    spacing: number;
+    /**
+     * 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2.
+     * @since unreleased
+     */
+    probesPerFrame: number;
+    /**
+     * Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much.
+     * @since unreleased
+     */
+    resolution: number;
+    /**
+     * 0..16: multiplies the light the grid gives to the meshes (read by the shading, M73.5d-2). Changing it does not capture again. Default 1.
+     * @since unreleased
+     */
+    intensity: number;
+    /**
+     * 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Used by the shading from M73.5d-2. Default 1.
+     * @since unreleased
+     */
+    bounce: number;
+    /**
+     * 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves).
+     * @since unreleased
+     */
+    hysteresis: number;
+    /**
+     * Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1.
+     * @since unreleased
+     */
+    nearExclusion: number;
+    /**
+     * Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30.
+     * @since unreleased
+     */
+    maxDistance: number;
+    /**
+     * 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25.
+     * @since unreleased
+     */
+    backfaceTolerance: number;
+    /**
+     * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    showTags: any;
+    /**
+     * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    hideTags: any;
+  }
+  /**
    * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
    * 
    * Category: 3D
@@ -22455,6 +22564,7 @@ declare module "factoria" {
     Decal: DecalComponent;
     ReflectionProbe: ReflectionProbeComponent;
     LightProbeGroup: LightProbeGroupComponent;
+    RealtimeGI: RealtimeGIComponent;
     Animator: AnimatorComponent;
     IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
@@ -22512,6 +22622,7 @@ declare module "factoria" {
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
     ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
     LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
+    RealtimeGI: { size?: Vec3Like; offset?: Vec3Like; spacing?: number; probesPerFrame?: number; resolution?: number; intensity?: number; bounce?: number; hysteresis?: number; nearExclusion?: number; maxDistance?: number; backfaceTolerance?: number; showTags?: any; hideTags?: any };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };

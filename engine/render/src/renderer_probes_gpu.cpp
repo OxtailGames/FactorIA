@@ -130,13 +130,14 @@ bool ProbeGpu::ready() {
     return true;
 }
 
-bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label) {
+bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label, int height) {
     destroy_atlas(a);
     if (!ready()) return false;
+    if (height <= 0) height = size;
     sg_image_desc d{};
     d.usage.color_attachment = true;
     d.width = size;
-    d.height = size;
+    d.height = height;
     d.pixel_format = format_;
     d.label = label;
     a.image = make_image(d);
@@ -147,6 +148,7 @@ bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label) {
     a.tex = texture_view(a.image, label);
     a.att = attachment_view(a.image, 0, label);
     a.size = size;
+    a.height = height;
     if (!valid(a.tex) || !valid(a.att)) {
         destroy_atlas(a);
         return false;
@@ -461,6 +463,7 @@ bool ProbeGpu::read_region_end(sg_image scratch, int w, int h, bool rgba8, std::
 }
 
 void ProbeGpu::release() {
+    release_gi();
     for (Scratch& s : scratch_) destroy_scratch(s);
     for (sg_pipeline& p : pipelines_) {
         if (p.id) sg_destroy_pipeline(p);

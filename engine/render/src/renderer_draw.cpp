@@ -2582,9 +2582,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if ((ctx.plan.view && !ctx.plan.customPost) || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1)
+    if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
+        ctx.camPx.h < 1)
         return false;
-    if (!(pp.needsDepth || pp.needsNormals || (debugView != DebugView::None && debugView != DebugView::Cascades)))
+    // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
+    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
+          (debugView != DebugView::None && debugView != DebugView::Cascades)))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -2612,7 +2615,8 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass = (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    ctx.debugPrepass =
+        !ctx.plan.gi && (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
     return true;
 }
 
@@ -2690,10 +2694,10 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
 
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
-void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces) {
     const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
     const std::vector<MeshItem>& items = ctx.opaque;
-    PassDesc pd = pass_into(t, "prepass");
+    PassDesc pd = pass_into(t, backFaces ? "prepass-back" : "prepass");
     pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
@@ -2727,7 +2731,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
                                                    skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}));
+                                                   custom ? mat->extras() : MeshExtras{}, backFaces));
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
@@ -3522,6 +3526,31 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
+        // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
+        if (plan.gi) {
+            pdsc.label = plan.name + "/prepass-back";
+            const ResourceId backRes = graph.create_transient(pdsc);
+            add(
+                "prepass-back", {}, {backRes},
+                [this, &ctx, backRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(backRes));
+                    if (t) prepass_pass(ctx, *t, true);
+                },
+                true);
+            GiFacePlan* gi = plan.gi;
+            gi->drawn = true;
+            add(
+                "gi-distance", {prepassRes, backRes}, {},
+                [this, prepassRes, backRes, gi](const PassContext& c) {
+                    const Target* front = transient_targets().get(c.handle(prepassRes));
+                    const Target* back = transient_targets().get(c.handle(backRes));
+                    if (front && back && front->texView.id && back->texView.id)
+                        probes.gpu.gi_dist(gpu, gi->distIndex, front->texView, back->texView, gi->maxDistance,
+                                           &probes.gi.drawCalls);
+                },
+                true);
+        }
     }
     // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
     // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the

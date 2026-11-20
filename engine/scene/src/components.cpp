@@ -2358,6 +2358,74 @@ void register_builtin_components(TypeRegistry& r) {
                "The editor draws every probe of this group as a small sphere coloured by the baked light it holds "
                "(grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.");
 
+    r.add<RealtimeGI>(
+         "RealtimeGI",
+         "Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world "
+         "(centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the "
+         "renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six "
+         "small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine "
+         "spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared "
+         "distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` "
+         "probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is "
+         "blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit "
+         "the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without "
+         "this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the "
+         "game runs. This is the data side: the mesh shaders read the grid from M73.5d-2 on, until then the commands "
+         "render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene "
+         "shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\".",
+         "3D")
+        .field("size", &RealtimeGI::size,
+               "[x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world "
+               "position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].")
+        .field(
+            "offset", &RealtimeGI::offset,
+            "[x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].")
+        .field("spacing", &RealtimeGI::spacing,
+               "Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving "
+               "the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 "
+               "m is usual for rooms. Default 2.")
+        .range(0.25, 100)
+        .field("probesPerFrame", &RealtimeGI::probesPerFrame,
+               "1..32: how many probes this grid refreshes a frame; each one draws the scene six times at "
+               "`resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. "
+               "All grids together refresh at most 32 a frame. Default 2.")
+        .range(1, 32)
+        .field("resolution", &RealtimeGI::resolution,
+               "Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an "
+               "error). 32 sees small bright lights better and costs about four times as much.")
+        .range(16, 32)
+        .field("intensity", &RealtimeGI::intensity,
+               "0..16: multiplies the light the grid gives to the meshes (read by the shading, M73.5d-2). Changing "
+               "it does not capture again. Default 1.")
+        .range(0, 16)
+        .field("bounce", &RealtimeGI::bounce,
+               "0..1: how much of the grid's own light the captures see, that is how many bounces the light makes "
+               "(0 = one bounce, 1 = as many as the frames allow). Used by the shading from M73.5d-2. Default 1.")
+        .range(0, 1)
+        .field("hysteresis", &RealtimeGI::hysteresis,
+               "0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of "
+               "each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces "
+               "the old value at once (flickers when the scene moves).")
+        .range(0, 0.99)
+        .field("nearExclusion", &RealtimeGI::nearExclusion,
+               "Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the "
+               "captures), so a prop right next to a probe does not paint it. Default 0.1.")
+        .range(0.01, 10)
+        .field("maxDistance", &RealtimeGI::maxDistance,
+               "Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than "
+               "this a ray shows the sky and counts as this distance. Default 30.")
+        .range(1, 1000)
+        .field("backfaceTolerance", &RealtimeGI::backfaceTolerance,
+               "0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction "
+               "of its directions hit the back of a surface before the front of any. Default 0.25.")
+        .range(0.02, 0.9)
+        .field("showTags", &RealtimeGI::showTags,
+               "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
+               "empty a capture draws only the entities that have one of these tags or a parent that does.")
+        .field("hideTags", &RealtimeGI::hideTags,
+               "Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the "
+               "captures (use it for the player or for particles). Default [].");
+
     r.add<Animator>(
          "Animator",
          "Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the "
