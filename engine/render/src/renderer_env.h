@@ -1,5 +1,6 @@
-// The sky environment (SceneSettings.skyMaterial, M72 P15): the sky a sky material draws is also what lights the
-// meshes. It is baked into two cube images the mesh programs sample (mesh_common.glsl: fa_environment(),
+// The sky environment (SceneSettings.skyMaterial, M72 P15; SceneSettings.skyModel physical, M73-P3d): the sky a sky material
+// or the physical sky draws is also what lights the meshes. The physical sky's sun moves all the time, so it also bakes in
+// slices (bake_slice, below; the rule that picks whole or sliced is in plan_env, renderer_draw.cpp). It is baked into two cube images the mesh programs sample (mesh_common.glsl: fa_environment(),
 // fa_ambient_light()):
 //
 //   prefiltered   a cube of kEnvSize x kEnvSize faces with kEnvLevels mips; mip k holds the sky convolved with the GGX
@@ -51,6 +52,7 @@ inline constexpr int kEnvIrrSize = 8;        // the faces of the irradiance cube
 inline constexpr int kEnvPyramid = 4;        // images S0..S3 (128, 64, 32, 16)
 inline constexpr double kEnvTimeStep = 0.1;  // seconds of game time between two bakes of an animated sky
 inline constexpr int kEnvPasses = 6 * (1 + (kEnvPyramid - 1) + 1 + (kEnvLevels - 1) + 1);  // 60
+inline constexpr int kEnvSlices = 3;  // bake_slice: calls per bake (24 + 18 + 18 passes)
 
 // The direction a pixel looks at is fwd + x * right + y * up (x, y: the clip position). `up` is already negated for
 // OpenGL.
@@ -87,6 +89,24 @@ public:
     // A pass that cannot be made leaves baked() false.
     void bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls);
 
+    // The same bake in kEnvSlices calls, one per frame (the physical sky, whose sun moves all the time: a whole bake is ~3.4 ms
+    // on a frame, a slice a third of that). The first call of a sequence (busy() false) draws the sky with `sky` and remembers
+    // `key`; the next two ignore both and finish the images from what the first made, so a sequence is the bake of ONE
+    // moment of the sky (it never mixes two). baked() and the old images stay valid meanwhile: the meshes see the old cubes
+    // until a slice replaces a part of them (the levels 0..2 on the second call, the rest and the irradiance on the third),
+    // which is at most a quarter of a degree of sun at a time (the caller starts a whole bake when more has changed). Only
+    // for an environment that baked once; the third call sets baked() and key().
+    void bake_slice(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls);
+    bool busy() const { return slice_ != 0; }
+    // A number the caller keeps with the bake that is running or done (the physical sky stores the hash of what a slice
+    // sequence must not span, and the sun's direction).
+    void set_tag(std::uint64_t key, const float sun[3]) {
+        tagKey_ = key;
+        for (int i = 0; i < 3; ++i) tagSun_[i] = sun[i];
+    }
+    std::uint64_t tag_key() const { return tagKey_; }
+    const float* tag_sun() const { return tagSun_; }
+
     // The views the mesh programs sample and their sampler; blank_view() is a 1x1 black cube, bound while no
     // environment is used (a program that declares the slot needs a valid view).
     sg_view prefiltered_view() const { return preTex_; }
@@ -110,6 +130,9 @@ private:
     void draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
               const char* label, int* drawCalls);
     void destroy_images();
+    void bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls);
+    void bake_levels(Gpu& gpu, int first, int last, int* drawCalls);
+    void bake_irradiance(Gpu& gpu, int* drawCalls);
 
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
     sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
@@ -132,6 +155,9 @@ private:
     sg_view blankTex_{};
     bool baked_ = false;
     std::uint64_t key_ = 0;
+    int slice_ = 0;  // bake_slice: the next call's part (0 = a new sequence, 1, 2)
+    std::uint64_t pendingKey_ = 0, tagKey_ = 0;
+    float tagSun_[3]{0.0f, 1.0f, 0.0f};
 };
 
 }  // namespace fa::render

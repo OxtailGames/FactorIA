@@ -79,8 +79,51 @@ package that draws a feature drops its `"M73"` text from the table.
 ## The new fields
 
 `Light`, `SceneSettings` and `MeshRenderer` (`engine/scene/include/fa/scene/components.h`, registered in `components.cpp`) got the fields
-listed in the user page, each with a doc string that says "No effect yet: M73.x brings it". They are plain reflected fields: range and
+listed in the user page, each with a doc string that says "No effect yet: M73.x brings it" (the package that draws the field removes it). They are plain reflected fields: range and
 enum checks come from the reflection (`field_from_json`), and a default is not written to a scene file, so old scenes and the saved
 form of an unchanged scene are the same. `LightType` gained `Area` (last, so the numbers of the others do not move); until M73.1 the
 renderer treats it as a point light (`renderer_draw.cpp`, `scene2d.cpp`). The M73.x package that makes a field work removes "No effect
 yet" from its doc string and updates the tables in RENDERING_LIGHTING.md.
+
+## The physical sky (M73-P3d)
+
+`SceneSettings.skyModel = physical` (user page: RENDERING_LIGHTING.md, "The physical sky"). The code is four files:
+
+- `src/physical_sky.h/.cpp`: the CPU half, plain `double`/`float` arithmetic with no GPU object (so the tests check it and every machine
+  agrees): the coefficients of the air in km (`sky_air`: Rayleigh from the molecular-scattering formula with the King factor, aerosols
+  from the turbidity-to-optical-depth law, ozone from its cross sections), the optical depth along a ray (`sky_optical_depth`, the same
+  quadratic-step march the GPU table uses), the colour factor of the sun light (`sky_sun_light_factor`: air times the cloud factor, relative
+  to a sun overhead), the clamped settings (`physical_sky_settings`: a script can write any number), the quantisation of the environment's
+  state and the hashes (keys) of each table, and the 8 `vec4` of the shader's block (`sky_shader_params`).
+- `shaders/sky_physical.glsl` (module `skyphys`, four programs): `transmittance` (128 x 64: the optical depth of the air towards the top of
+  the atmosphere, parameterised by the stable horizon cosine `muH = -sqrt(h(2R+h))/(R+h)` so it has no seam at the horizon), `multiscatter`
+  (32 x 32: the second order and onwards as a geometric series, 32 directions x 16 steps, psi = L / (1 - F)), `skyview` (128 x 128: the
+  sky radiance as a function of the elevation, concentrated at the horizon, and the azimuth relative to the sun, so the table does not turn
+  with the sun) and `sky` (the full-screen draw: the table, the sun disc with limb darkening, the clouds, the encoding to sRGB in a gamma
+  scene). Radiance is stored per unit of sun irradiance; `fs_sky` multiplies by the colour of the light, the exposure and pi (the engine's
+  lights are not divided by pi). The tables are drawn with `gl_FragCoord / size`, so the image is the same on GL, D3D11 and Metal.
+  Atmosphere maths is `highp` (GLES3 output marks every float `highp`), the tables are RGBA16F.
+- `src/renderer_sky_phys.h/.cpp` (`PhysicalSky`): owns the shaders, the four images, the pipelines and a sampler; `ready()` makes them on first
+  use and refuses (logging once) a GPU without RGBA16F render targets that filter; `update(slot, state)` draws the air tables when
+  `sky_air_key` changed and the sky view of the slot when `sky_view_key` (air + the sun's height) changed; `draw()` draws the sky into the open
+  pass. Slot 0 is the picture (the sun and the clock of the frame), slot 1 the environment (the quantised ones), so the environment never
+  depends on the frame rate.
+- `src/renderer_draw.cpp`: `collect_lights` finds the sun (lights[0] when directional) and multiplies it by the transmittance and cloud
+  factor (`skyTintsSun`); `plan_env` plans the bake for a physical sky as it does for a sky material, with the key `sky_env_key`; the frame graph
+  gets a `sky-view` pass (first job of the frame that shows the sky; the main pass reads its resource) and the `sky-env` pass calls
+  `PhysicalSky::update(1)` at the start of a bake.
+
+**Bake amortisation.** `Environment` (`renderer_env.h`) bakes in 60 passes: the sky into the cube, the pyramid, the GGX prefilter of the mips,
+the irradiance. `bake_slice` runs them in `kEnvSlices = 3` calls (24, 18, 18 passes), one per frame: the first draws the sky of that moment
+(the later slices finish the images from it, so a sequence never mixes two skies) and the old cubes stay valid until a slice replaces a part.
+`plan_env` decides per frame (`decide`): a whole bake when nothing was baked, when the static key (`sky_env_static_key`: air, sun colour,
+exposure, clouds' shape, linear flag) differs from the tag stored with the last bake, or when the sun's quantised direction is further than
+`kSkyBakeJump` (1/64 of a chord, about a degree) from it; a slice sequence when only the sun (a quarter of a degree steps) or the clouds'
+clock (2 s steps, only for drifting clouds) changed, or while a sequence is running. Everything that picks the work is a deterministic
+count of frames and quantised state, never time or the speed of the machine. The sun disc is left out of the environment bake (the
+light is the sun there: it would count twice).
+
+Not done here: clouds that cast per-point shadows on the ground (the sun light is tinted by the average of the cloud layer), the aerial
+perspective of the atmosphere on the meshes (fog is the fog), an observer that moves up through the air, a physical night sky (stars,
+moon). The tests are `engine/render/tests/physical_sky_tests.cpp` (the CPU half, the tables built when they should be, the amortisation,
+four goldens: noon, sunset, overcast, a metal sphere).

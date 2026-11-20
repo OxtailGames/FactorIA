@@ -28,6 +28,11 @@ struct ShadowRowsStats {
     int slots = 0, uploads = 0;
 };
 
+// How many times the physical sky drew its tables (renderer_sky_phys.h): the air's, the picture's view and the environment's.
+struct SkyBuilds {
+    int air = 0, view = 0, envView = 0;
+};
+
 }  // namespace render
 
 struct RendererTestAccess {
@@ -44,6 +49,7 @@ struct RendererTestAccess {
     static void force_output(Renderer& r, const HdrOutputInfo* info);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
+    static render::SkyBuilds sky_builds(Renderer& r);
 };
 
 namespace render {
@@ -55,6 +61,7 @@ inline Gpu* renderer_gpu(Renderer& r) { return RendererTestAccess::gpu(r); }
 inline const FrameGraph* renderer_frame_graph(Renderer& r) { return RendererTestAccess::frame_graph(r); }
 inline TransientPoolStats renderer_transient_stats(Renderer& r) { return RendererTestAccess::transient_stats(r); }
 inline ShadowRowsStats renderer_shadow_rows_stats(Renderer& r) { return RendererTestAccess::shadow_rows_stats(r); }
+inline SkyBuilds renderer_sky_builds(Renderer& r) { return RendererTestAccess::sky_builds(r); }
 // The images the post passes that read their own output of the frame before (fa_history) hold now.
 inline int renderer_post_history_images(Renderer& r) { return RendererTestAccess::post_history_images(r); }
 // The pixel format (sg_pixel_format as an int) of the images the final pass goes through when display-referred custom
