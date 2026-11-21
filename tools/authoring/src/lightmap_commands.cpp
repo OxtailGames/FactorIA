@@ -363,7 +363,7 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "`warnings` name everything that was approximated. Files: pages are written first, the manifest last; on "
          "Windows a file another program "
          "holds open cannot be replaced: close it and bake again, or use another `path`. "
-         "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\"."},
+         "docs/rendering/RENDERING_LIGHTMAPS.md, \"Baking\"."},
         [&I, reg](const Json& a) {
             Request req = read_request(I, a, "lightmap.bake");
             refuse_if_busy(*reg, req.manifestProject);

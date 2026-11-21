@@ -558,7 +558,7 @@ void Renderer::clear_asset_cache() {
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {
-    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() : 0;
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->decalAtlas.bytes : 0;
 }
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {
@@ -663,9 +663,10 @@ Json Renderer::light_probes_report(World& world, Entity entity) {
     const bool materialReads =
         !material || (material->ok && !material->full && material->buffers.empty() && material->uv1);
     LightmapUse lm;
-    if (lightmaps && mr->receiveGI && mr->lightmapScale > 0.0f && materialReads && !anim)
-        assets.lightmap_use(*lightmaps, world.id_of(entity), *mesh, mr->mesh.empty() ? std::string("cube") : mr->mesh,
-                            lm);
+    if (lightmaps && mr->receiveGI && mr->lightmapScale > 0.0f && materialReads && !anim) {
+        static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
+        assets.lightmap_use(*lightmaps, world.id_of(entity), *mesh, mr->mesh.empty() ? kCube : mr->mesh, lm);
+    }
     const bool eligible = set && set->baked() && mr->receiveGI && !mr->unlit && !lm.mesh &&
                           (!material || (material->ok && !material->full && material->buffers.empty()));
     ProbeLight light;

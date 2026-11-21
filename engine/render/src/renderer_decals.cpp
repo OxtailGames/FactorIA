@@ -37,7 +37,9 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
     const int mode = !linear ? 0 : (format != SG_PIXELFORMAT_RGBA8 ? 2 : 1);
     const std::uint64_t generation = assets->reload_generation();
     DecalAtlasState& a = decalAtlas;
-    const bool sameBuild = a.built && a.generation == generation && a.colorMode == mode;
+    // Only the reload of a texture the atlas holds (or refused) rebuilds it, not that of any other asset of the project.
+    const bool sameBuild = a.built && a.colorMode == mode && !assets->reloaded_any_of(a.generation, a.known);
+    if (sameBuild) a.generation = generation;
     if (sameBuild) {
         bool all = true;
         for (const std::string& p : pathsIn)

@@ -127,7 +127,7 @@ public:
     std::uint64_t image_id() const { return pre_.id; }
     sg_sampler sampler() const { return sampler_; }
     // The pixel format of the cubes (RGBA16F or RGBA8).
-    // With RGBA8 the SH texels hold clamp(c / 4, -1, 1) * 0.5 + 0.5 (fa_atlas.y = 1).
+    // With RGBA8 the SH texels hold clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255 (0 is the exact byte 128; fa_atlas.y = 1).
     sg_pixel_format format() const { return format_; }
     // Tests only: the next ready() makes the cubes RGBA8 as a GPU that cannot render to half floats gets them (call before ready()).
     static void force_rgba8_for_tests(bool force);

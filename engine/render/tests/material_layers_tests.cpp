@@ -44,7 +44,7 @@ PreparedTextureRef image_ref(Image img, const char* name) {
     PreparedTextureRef r;
     r.kind = Kind::Image;
     r.name = name;
-    r.image = std::move(img);
+    r.image = std::make_shared<const Image>(std::move(img));
     return r;
 }
 
@@ -167,9 +167,9 @@ TEST_CASE("layer textures: the clear coat and the sheen roughness go into the oc
                                                        occlusion, metalRough, warnings);
     CHECK(packed == 1);
     REQUIRE(occlusion.kind == Kind::Image);
-    CHECK(occlusion.image.width == 4);  // the largest of the sources
-    CHECK(occlusion.image.height == 4);
-    const Color px = occlusion.image.pixel(1, 2);
+    CHECK(occlusion.image->width == 4);  // the largest of the sources
+    CHECK(occlusion.image->height == 4);
+    const Color px = occlusion.image->pixel(1, 2);
     CHECK(std::lround(px.r * 255) == 100);  // R: the occlusion the map had
     CHECK(std::lround(px.g * 255) == 200);  // G: clearcoatTexture.R
     CHECK(std::lround(px.b * 255) == 50);   // B: clearcoatRoughnessTexture.G
@@ -181,7 +181,7 @@ TEST_CASE("layer textures: the clear coat and the sheen roughness go into the oc
     PreparedTextureRef occ2 = image_ref(solid(2, 2, 100, 7, 7, 255), "occ");
     PreparedTextureRef mr2;
     fa::render::pack_layer_textures(refs, "x", "<gltf-layers:t>", occ2, mr2, warnings);
-    CHECK(occ2.image.rgba == occlusion.image.rgba);
+    CHECK(occ2.image->rgba == occlusion.image->rgba);
 }
 
 TEST_CASE("layer textures: the anisotropy strength and the specular go into the metallic-roughness map") {
@@ -195,7 +195,7 @@ TEST_CASE("layer textures: the anisotropy strength and the specular go into the 
                                                        occlusion, metalRough, warnings);
     CHECK(packed == 2);
     REQUIRE(metalRough.kind == Kind::Image);
-    const Color px = metalRough.image.pixel(0, 0);
+    const Color px = metalRough.image->pixel(0, 0);
     CHECK(std::lround(px.r * 255) == 180);  // R: anisotropyTexture.B, the strength
     CHECK(std::lround(px.g * 255) == 120);  // G, B: roughness and metallic of the map
     CHECK(std::lround(px.b * 255) == 33);
@@ -211,7 +211,7 @@ TEST_CASE("layer textures: the anisotropy strength and the specular go into the 
     only.specular = image_ref(solid(1, 1, 0, 0, 0, 10), "spec");
     fa::render::pack_layer_textures(only, "x", "<gltf-layers:n>", none, mr2, warnings);
     REQUIRE(mr2.kind == Kind::Image);
-    const Color q = mr2.image.pixel(0, 0);
+    const Color q = mr2.image->pixel(0, 0);
     CHECK(std::lround(q.r * 255) == 255);
     CHECK(std::lround(q.g * 255) == 255);
     CHECK(std::lround(q.b * 255) == 255);
@@ -231,9 +231,9 @@ TEST_CASE("layer textures: the resampling is bilinear in fixed point, the same b
     std::vector<std::string> warnings;
     fa::render::pack_layer_textures(refs, "x", "<gltf-layers:r>", occlusion, metalRough, warnings);
     REQUIRE(occlusion.kind == Kind::Image);
-    REQUIRE(occlusion.image.width == 4);
+    REQUIRE(occlusion.image->width == 4);
     const int expected[4] = {0, 64, 191, 255};
-    for (int x = 0; x < 4; ++x) CHECK(int(occlusion.image.rgba[std::size_t(x) * 4 + 1]) == expected[x]);
+    for (int x = 0; x < 4; ++x) CHECK(int(occlusion.image->rgba[std::size_t(x) * 4 + 1]) == expected[x]);
 }
 
 TEST_CASE(
@@ -300,14 +300,14 @@ TEST_CASE("layer textures: a glTF model's extensions are read with its textures 
     CHECK(part.material.layersPacked == 3);
     // The occlusion map is now the composite: R = the model's occlusion, G = the clear coat texture, 255 elsewhere.
     REQUIRE(part.occlusion.kind == Kind::Image);
-    CHECK(part.occlusion.image.width == 4);
-    const Color o = part.occlusion.image.pixel(3, 3);
+    CHECK(part.occlusion.image->width == 4);
+    const Color o = part.occlusion.image->pixel(3, 3);
     CHECK(std::lround(o.r * 255) == 40);
     CHECK(std::lround(o.g * 255) == 220);
     CHECK(std::lround(o.b * 255) == 255);
     // The metallic-roughness map did not exist: the anisotropy strength (blue) is in R, the rest 255.
     REQUIRE(part.metalRough.kind == Kind::Image);
-    const Color m = part.metalRough.image.pixel(0, 0);
+    const Color m = part.metalRough.image->pixel(0, 0);
     CHECK(std::lround(m.r * 255) == 200);
     CHECK(std::lround(m.g * 255) == 255);
     // The report: file and material, what is not used and what is used instead.

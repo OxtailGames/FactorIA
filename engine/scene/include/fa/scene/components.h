@@ -1095,7 +1095,7 @@ struct MeshRenderer {
     bool receiveDecals = true;                       // M73.5b: Decal components project onto this mesh
     std::int32_t decalLayer = 0;  // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
 };
-// M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_LIGHTING.md,
+// M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_DECALS_FOG.md,
 // "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the
 // entity's forward (-Z) and faces +Z.
 struct Decal {
@@ -1136,7 +1136,7 @@ struct ReflectionProbe {
     float intensity = 1.0f;     // multiplies what the probe reflects
     bool boxProjection = true;  // correct the reflection for the box (parallax): a nearby wall reflects where it is
 };
-// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights"). A grid of probes over an axis-aligned box
+// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHT_PROBES.md). A grid of probes over an axis-aligned box
 // of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.
 // lightmap.bake traces the light at every probe and stores it as spherical harmonics next to the lightmap pages.
 struct LightProbeGroup {
@@ -1610,7 +1610,7 @@ enum class HdrOutput : std::int32_t { Off, Auto };
 enum class SkyModel : std::int32_t { Gradient, Physical };
 
 // SceneSettings.volumetricQuality: how many samples the volumetric fog takes and at what resolution (M73.5;
-// docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts").
+// docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts").
 enum class VolumetricQuality : std::int32_t { Low, Medium, High };
 
 // Scene-wide settings (stored in the scene file under "settings").

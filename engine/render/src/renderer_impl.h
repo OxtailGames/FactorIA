@@ -254,7 +254,7 @@ struct Renderer::Impl {
     };
     DecalAtlasState decalAtlas;
     std::vector<std::pair<sg_image, sg_view>> decalRetired;
-    bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false;
+    bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false, warnedDecalPaths = false;
     std::set<std::string> warnedDecalTextures;  // the textures reported as unreadable or left out (once each)
     // Makes sure the atlas holds `paths` (every texture of every Decal of the world); false when decals cannot be drawn with textures.
     bool ensure_decal_atlas(const std::vector<std::string>& paths, bool linear);

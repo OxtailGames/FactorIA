@@ -137,8 +137,8 @@ std::vector<FeatureDef> build_table() {
          "surface; "
          "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
          "material "
-         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTING.md, "
-         "\"Lightmaps\")."});
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes (docs/rendering/RENDERING_LIGHTMAPS.md, "
+         "\"With your own materials\")."});
     t.push_back(
         {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
          "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
@@ -198,8 +198,7 @@ std::vector<FeatureDef> build_table() {
          "lighting that a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives "
          "in place of the sky's ambient, interpolated on the CPU at the centre of its bounds (or at "
          "MeshRenderer.probeAnchor); lights with mode baked light those meshes only through the probes. The "
-         "feature needs nothing of the GPU (docs/rendering/RENDERING_LIGHTING.md, \"Light probes and mixed "
-         "lights\")."});
+         "feature needs nothing of the GPU (docs/rendering/RENDERING_LIGHT_PROBES.md)."});
     struct Planned {
         const char* name;
         const char* needs;

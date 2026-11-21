@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "material_cost.h"
 #include "renderer_xmit.h"
 
 using namespace fa;
@@ -106,6 +107,28 @@ int differing_pixels(const Image& a, const Image& b, int x0, int y0, int x1, int
 // ---------------------------------------------------------------------------------------------------------------------
 // The atlas layout (no GPU)
 // ---------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("transmission: the material cost of a mesh-less unlit renderer with transmission reports transmission off") {
+    // No mesh asset (it did not load) and no material: only the MeshRenderer's own fields count, and unlit never refracts.
+    MeshRenderer mr;
+    mr.transmission = 1.0f;
+    mr.unlit = true;
+    const Json off = fa::render::material_cost_report(mr, nullptr, nullptr, 0, 0);
+    bool found = false;
+    for (const Json& f : off["features"]) {
+        if (f["name"] != "transmission") continue;
+        found = true;
+        CHECK(f["active"] == false);
+        CHECK(f["extraPasses"] == 0);
+    }
+    CHECK(found);
+    CHECK(off["extraPasses"] == 0);
+    // The same renderer lit does refract.
+    mr.unlit = false;
+    const Json on = fa::render::material_cost_report(mr, nullptr, nullptr, 0, 0);
+    for (const Json& f : on["features"])
+        if (f["name"] == "transmission") CHECK(f["active"] == true);
+}
 
 TEST_CASE("transmission: the refraction atlas holds the picture and a half-size chain, at most five levels") {
     // 320 x 180: level 0 on the left, levels 1.. stacked in a column at its right.

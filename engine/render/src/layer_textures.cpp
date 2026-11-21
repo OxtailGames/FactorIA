@@ -25,30 +25,42 @@ struct Channel {
     int index = 0;  // 0 r .. 3 a
 };
 
-// Bilinear sample of channel `c` of `src` at the centre of destination pixel (x, y) of a w x h picture: integer arithmetic
-// with 8 bits of weight, so the result does not depend on the compiler or the CPU.
-std::uint8_t sample(const Channel& c, int x, int y, int w, int h) {
-    if (!c.image) return 255;
+// Where destination pixel `d` of `dn` pixels reads a source axis of `sn` pixels: the two source pixels and the weight (0..255) of the
+// second. The source coordinate (d + 0.5) * sn / dn - 0.5 in units of 1 / (2 dn); integer arithmetic with 8 bits of weight, so the
+// result does not depend on the compiler or the CPU.
+struct AxisTap {
+    int i0 = 0, i1 = 0, f = 0;
+};
+
+AxisTap axis_tap(int d, int dn, int sn) {
+    std::int64_t num = std::int64_t(2 * d + 1) * sn - dn;
+    if (num < 0) num = 0;
+    const std::int64_t den = std::int64_t(2) * dn;
+    AxisTap t;
+    t.i0 = int(num / den);
+    t.f = int((num % den) * 256 / den);
+    t.i1 = std::min(t.i0 + 1, sn - 1);
+    t.i0 = std::min(t.i0, sn - 1);
+    return t;
+}
+
+// The taps of every destination pixel along one axis (the divisions are made once per row and column, not once per pixel and channel).
+std::vector<AxisTap> axis_taps(int dn, int sn) {
+    std::vector<AxisTap> t{};
+    t.resize(std::size_t(dn));
+    for (int d = 0; d < dn; ++d) t[std::size_t(d)] = axis_tap(d, dn, sn);
+    return t;
+}
+
+// Bilinear sample of channel `c` of `src` at the centre of a destination pixel, from its taps.
+std::uint8_t sample(const Channel& c, const AxisTap& tx, const AxisTap& ty) {
     const Image& s = *c.image;
-    auto axis = [](int d, int dn, int sn, int& i0, int& i1, int& f) {
-        // source coordinate (d + 0.5) * sn / dn - 0.5, in units of 1 / (2 dn)
-        std::int64_t num = std::int64_t(2 * d + 1) * sn - dn;
-        if (num < 0) num = 0;
-        const std::int64_t den = std::int64_t(2) * dn;
-        i0 = int(num / den);
-        f = int((num % den) * 256 / den);
-        i1 = std::min(i0 + 1, sn - 1);
-        i0 = std::min(i0, sn - 1);
-    };
-    int x0, x1, fx, y0, y1, fy;
-    axis(x, w, s.width, x0, x1, fx);
-    axis(y, h, s.height, y0, y1, fy);
     auto at = [&](int px, int py) {
         return int(s.rgba[(std::size_t(py) * std::size_t(s.width) + std::size_t(px)) * 4 + std::size_t(c.index)]);
     };
-    const int top = at(x0, y0) * (256 - fx) + at(x1, y0) * fx;
-    const int bottom = at(x0, y1) * (256 - fx) + at(x1, y1) * fx;
-    return std::uint8_t((top * (256 - fy) + bottom * fy + 32768) >> 16);
+    const int top = at(tx.i0, ty.i0) * (256 - tx.f) + at(tx.i1, ty.i0) * tx.f;
+    const int bottom = at(tx.i0, ty.i1) * (256 - tx.f) + at(tx.i1, ty.i1) * tx.f;
+    return std::uint8_t((top * (256 - ty.f) + bottom * ty.f + 32768) >> 16);
 }
 
 Image compose(const Channel (&ch)[4], int w, int h) {
@@ -56,10 +68,17 @@ Image compose(const Channel (&ch)[4], int w, int h) {
     out.width = w;
     out.height = h;
     out.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+    std::vector<AxisTap> xs[4], ys[4];
+    for (int c = 0; c < 4; ++c)
+        if (ch[c].image) {
+            xs[c] = axis_taps(w, ch[c].image->width);
+            ys[c] = axis_taps(h, ch[c].image->height);
+        }
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
             std::uint8_t* p = &out.rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4];
-            for (int c = 0; c < 4; ++c) p[c] = sample(ch[c], x, y, w, h);
+            for (int c = 0; c < 4; ++c)
+                p[c] = ch[c].image ? sample(ch[c], xs[c][std::size_t(x)], ys[c][std::size_t(y)]) : std::uint8_t(255);
         }
     return out;
 }
@@ -76,11 +95,11 @@ struct Sources {
             case PreparedTextureRef::Kind::None: return nullptr;
             case PreparedTextureRef::Kind::Image:
                 label = r.name;
-                if (r.image.empty()) {
+                if (!r.image || r.image->empty()) {
                     why = "the embedded image is empty";
                     return nullptr;
                 }
-                return &r.image;
+                return r.image.get();
             case PreparedTextureRef::Kind::Missing:
                 label = r.name.empty() ? std::string("a texture") : r.name;
                 why = r.error.empty() ? std::string("the texture file is missing") : r.error;
@@ -211,7 +230,7 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
             PreparedTextureRef out;
             out.kind = Kind::Image;
             out.name = compositeName + ":occlusion";
-            out.image = compose(ch, w, h);
+            out.image = std::make_shared<const Image>(compose(ch, w, h));
             occlusion = std::move(out);
             packed |= 1;
         }
@@ -226,7 +245,7 @@ int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const s
             PreparedTextureRef out;
             out.kind = Kind::Image;
             out.name = compositeName + ":metalRough";
-            out.image = compose(ch, w, h);
+            out.image = std::make_shared<const Image>(compose(ch, w, h));
             metalRough = std::move(out);
             packed |= 2;
         }
