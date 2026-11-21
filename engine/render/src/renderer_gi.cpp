@@ -52,6 +52,25 @@ void Renderer::Impl::gi_collect(World& world) {
     }
 }
 
+// The grids the meshes of this frame read: those whose probes were all captured once (ready), as they stand after the last frame's captures,
+// so a grid that is still filling is never read (no flash). Their records go into the light data texture of every view of the frame
+// (upload_lights), a capture's views too: a face of a probe sees the grid times its `bounce`.
+void Renderer::Impl::gi_build_records(World& world) {
+    GiSystem& g = probes.gi;
+    g.records.clear();
+    g.shaded.clear();
+    if (g.grids.empty() || g.world != &world || g.sceneGeneration != world.scene_generation()) return;
+    const ProbeSystem& ps = probes;
+    if (g.unsupported || ps.gpu.rgba8() || !ps.atlas.valid() || ps.atlas.height < kGiAtlasHeight) return;
+    for (const auto& [id, gr] : g.grids) {
+        if (!gr.valid || gr.base < 0 || gr.captured < gr.layout.count) continue;
+        const std::size_t at = g.records.size();
+        g.records.resize(at + std::size_t(kGiRecordFloats));
+        gi_pack_record(gr.layout, gr.base, true, g.records.data() + at);
+        g.shaded.push_back(id);
+    }
+}
+
 void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
     ProbeSystem& ps = probes;
     GiSystem& g = ps.gi;
@@ -319,6 +338,7 @@ Json Renderer::gi_report() {
             o["progress"] = l.count > 0 ? round3(double(gr.captured) / double(l.count)) : 0.0;
             o["cycles"] = double(gr.cycles);
             o["capturesLastFrame"] = gr.lastFrameCaptures;
+            o["meshesRead"] = std::find(g.shaded.begin(), g.shaded.end(), id) != g.shaded.end();
             o["framesPerCycle"] = (l.count + gr.probesPerFrame - 1) / std::max(gr.probesPerFrame, 1);
             o["bytes"] = double(std::uint64_t(l.count) * std::uint64_t(kGiBlockW) * std::uint64_t(kGiBlockH) * 8u);
             if (haveBand && gr.base >= 0) {

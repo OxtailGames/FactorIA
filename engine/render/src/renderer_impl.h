@@ -500,6 +500,8 @@ struct Renderer::Impl {
     // The realtime GI grids (renderer_gi.cpp), a part of the same frame: gi_plan() runs inside probes_plan() once the atlas exists (it has the
     // band of probe blocks), gi_finish() inside probes_finish(). gi_collect() reads the RealtimeGI components (cheap when there are none).
     void gi_collect(World& world);
+    // The records of the ready grids the meshes of this frame read (probes_build_volumes calls it): GiSystem::records, upload_lights packs them.
+    void gi_build_records(World& world);
     void gi_plan(World& world, bool atlasRemade);
     void gi_finish();
     void gi_release();
