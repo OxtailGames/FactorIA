@@ -113,7 +113,7 @@
         "id": "video_section",
         "components": {
           "Panel": {
-            "size": [712, 476],
+            "size": [712, 424],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -228,13 +228,13 @@
         "id": "graphics_section",
         "components": {
           "Panel": {
-            "size": [712, 424],
+            "size": [712, 440],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
             "direction": "auto",
             "align": "start",
-            "spacing": 8
+            "spacing": 4
           }
         },
         "children": [
@@ -244,7 +244,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Effects quality",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -256,7 +256,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "2D lighting",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -269,7 +269,7 @@
                 "autoSize": true,
                 "label": "Bloom",
                 "key": "options.gfx.bloom",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -281,7 +281,7 @@
                 "autoSize": true,
                 "label": "Film grain",
                 "key": "options.gfx.grain",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -293,7 +293,7 @@
                 "autoSize": true,
                 "label": "Vignette",
                 "key": "options.gfx.vignette",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -305,7 +305,7 @@
                 "autoSize": true,
                 "label": "Chromatic aberration",
                 "key": "options.gfx.chromatic",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -317,7 +317,7 @@
                 "autoSize": true,
                 "label": "Outlines",
                 "key": "options.gfx.outline",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
@@ -329,7 +329,7 @@
                 "autoSize": true,
                 "label": "HDR output",
                 "key": "options.gfx.hdr",
-                "size": [560, 44],
+                "size": [560, 40],
                 "layer": 302
               }
             }
