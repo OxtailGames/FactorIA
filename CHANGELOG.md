@@ -7,6 +7,7 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 ## Unreleased
 
 - M74 P0: the shared API of the ambitious 2D lighting and effects. New components `ShadowCaster2D`, `GlobalIllumination2D`, `Water2D` and `DistortionZone2D`; new fields `Light2D.size`, `lightLayers`, `cookie`, `cookieRotationDeg`, `cookieScale`, `Sprite.emissive`, `emissiveIntensity`, `emissiveMap`, `lightLayers`, `rimColor`, `rimIntensity`, `rimWidth`, `normalFrom`, `heightMap`, `normalStrength`, `Shape2D.lightLayers` and `Tilemap.lightLayers`, `emissive`, `emissiveIntensity`; ten new `render.supports` rows (`2dSoftShadows`, `2dShadowCasters`, `2dEmission`, `2dLightLayers`, `2dLightCookies`, `2dRimLight`, `2dGeneratedNormals`, `2dGlobalIllumination`, `2dWater`, `spriteSceneColor`). Their defaults leave every existing scene as it was.
+- M74 P3a: the field of the 2D global illumination. With an enabled `GlobalIllumination2D` on a GPU with RGBA16F render targets, every 2D camera gets an emission image, an occluder/albedo image and a jump-flooding distance field covering the view plus `range`, at `resolutionScale` (sizes that depend only on the view and the settings, snapped to whole texels). Nothing is drawn, made or kept without the component, and the picture does not change yet: the cascades that light the scene come next. New command `render.gi2d_field` reports each field's size, texel size and world rectangle and can save the three images as PNGs. The contract the cascades read is in docs/design/ARCHITECTURE_RENDERING_GI2D.md.
 
 ## 0.33.0
 

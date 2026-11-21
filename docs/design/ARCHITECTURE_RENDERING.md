@@ -343,4 +343,5 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 [rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md); the effects, one bullet each, are on
 [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md).
 
+- **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).
