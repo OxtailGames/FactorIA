@@ -18,6 +18,8 @@
 #include "fa/scene/gltf_file.h"
 #include "fa/scene/material_layers.h"
 #include "fa/scene/skeleton.h"
+#include "decal_atlas.h"
+#include "fa/core/image_tools.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -769,6 +771,9 @@ void Assets::destroy_mesh(MeshAsset& m) {
 }
 
 void Assets::clear() {
+    for (auto& [k, g] : generatedNormals_)
+        if (g.tex) destroy_texture(*g.tex);
+    generatedNormals_.clear();
     for (auto& [k, v] : videoTextures_) destroy_texture(*v.tex);
     videoTextures_.clear();
     for (auto& [k, t] : textures_) destroy_texture(*t);
@@ -1261,6 +1266,47 @@ TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bo
     upload_texture(*t, img, mips);
     anonymous_.push_back(std::move(t));
     return anonymous_.back().get();
+}
+
+// Reads the source of a generated normal map and uploads the map into g.tex (made when missing, replaced in place otherwise, so the
+// pointers the 2D items hold stay valid). A source that cannot be read leaves g.tex null and logs the reason once.
+void Assets::make_generated_normal(const std::string& key, GeneratedNormal& g) {
+    auto img = project_decal_source().load(g.source);
+    if (!img || img->empty()) {
+        // (A map that was made before stays as it was: the 2D items hold its pointer.)
+        note_failure("normal-from", key,
+                     std::format("the normal map of '{}' cannot be generated: {}", g.source,
+                                 img ? std::string("the image is empty") : img.error().message),
+                     g.fromHeight
+                         ? "Set Sprite.heightMap to an existing grey image, or use normalFrom \"sprite\" or \"file\"."
+                         : "Set Sprite.texture to an existing image, or use normalFrom \"file\" with a normalMap.");
+        return;
+    }
+    const Image n = g.fromHeight ? normal_map_from_height_image(*img, double(g.strength))
+                                 : normal_map_from_sprite(*img, double(g.strength));
+    if (!g.tex) {
+        g.tex = std::make_unique<TextureAsset>();
+        g.tex->path = "normal:" + key;
+    } else {
+        destroy_texture(*g.tex);
+    }
+    upload_texture(*g.tex, n, true);
+}
+
+TextureAsset* Assets::generated_normal(const std::string& path, bool fromHeight, float strength) {
+    if (path.empty() || is_target_id(path) || is_runtime_id(path)) return nullptr;
+    const float k = std::isfinite(strength) ? std::clamp(strength, 0.0f, 16.0f) : 1.0f;
+    std::string src = fs::normalize(path);
+    if (src.empty()) src = path;
+    const std::string key =
+        std::string(fromHeight ? "height:" : "sprite:") + src + "@" + std::to_string(std::lround(double(k) * 1000.0));
+    if (auto it = generatedNormals_.find(key); it != generatedNormals_.end()) return it->second.tex.get();
+    GeneratedNormal g;
+    g.source = src;
+    g.fromHeight = fromHeight;
+    g.strength = k;
+    make_generated_normal(key, g);
+    return generatedNormals_.emplace(key, std::move(g)).first->second.tex.get();
 }
 
 std::string Assets::make_runtime_texture(const Image& img) {
@@ -2117,6 +2163,23 @@ void Assets::reload(const std::string& pathIn) {
         }
         load_texture(t->first);
     }
+    // M74: the normal maps generated from this picture are made again from the new one (in place: items hold their pointers); one
+    // whose picture could not be read before is forgotten, so the next frame that names it tries again.
+    for (auto g = generatedNormals_.begin(); g != generatedNormals_.end();) {
+        if (g->second.source != path) {
+            ++g;
+            continue;
+        }
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "normal-from" && f.path == g->first; }),
+                        failures_.end());
+        if (!g->second.tex) {
+            g = generatedNormals_.erase(g);
+            continue;
+        }
+        make_generated_normal(g->first, g->second);
+        ++g;
+    }
     if (auto l = luts_.find(path); l != luts_.end()) {  // forgotten: the next frame that names it loads the new file
         destroy_lut(*l->second);
         luts_.erase(l);
@@ -2199,6 +2262,8 @@ std::size_t Assets::texture_bytes() const {
     for (const auto& [k, t] : textures_)
         if (!t->placeholder && !t->atlas) total += t->bytes;
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
+    for (const auto& [k, g] : generatedNormals_)
+        if (g.tex) total += g.tex->bytes;
     for (const auto& [k, t] : runtime_) total += t->bytes;
     for (const auto& [k, l] : luts_) total += l->bytes;
     for (const auto& [k, h] : hdris_) total += h->bytes;

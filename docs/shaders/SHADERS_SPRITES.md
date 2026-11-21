@@ -70,7 +70,8 @@ so an empty `fragment()` draws exactly the engine's own pixels, and a snippet ch
 | 0 | the main texture times the tint |
 | 1, 2, 3 | the circle, the ring or the soft particle: tint colour, the alpha holding the coverage |
 | 4 | a glyph: the tint, the alpha holding the glyph's coverage |
-| 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights |
+| 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights (plus the rim light of a lit sprite) |
+| any mode | plus the item's emission (`Sprite.emissive`, `Tilemap.emissive`), added to the colour after the lighting |
 | 7 | the rounded rectangle, circle, outline or gradient of a `Shape2D` (its coverage, gradient and dithering included) |
 
 What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](../GAME_FEEL.md),
@@ -93,7 +94,12 @@ not depend on anything the lean program has not: `i.mode` is 0 in it.
 **Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
 0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
 to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh; the vertex stage reads them at views 8 to 11 and samplers 7
-to 10), the params block is binding 5 (4 in the vertex stage). A
+to 10), the params block is binding 5 (4 in the vertex stage). Views 12 and 13 are the engine's too (M74): the emissive map of an item
+and the atlas of the 2D light cookies (`fx_emissive_tex`, `fx_cookie_tex`); a material never uses them, they sit after its eight. The
+fragment block `quad_fs_params` also holds the emission (`fx_emit`, `fx_emit_uv`), the rim light (`fx_rim`, `fx_rim_uv`) and the lights'
+cookies (`light_cookie`, `light_cookie_xf`), which are names of the engine's program like the rest (a param or a texture cannot take
+them). `s.color` on arrival already includes the item's emission (`Sprite.emissive`, in the scene's HDR range) and the rim light of a
+lit sprite: they are added before `fragment()` runs, so it can keep, tint or drop them. A
 mesh material starts at view 6 and sampler 2: the numbers are not interchangeable, but `kind` decides them and you never
 write them. The slots are listed in `engine/render/src/render_internal.h` (`kMaterialSpriteFirstView`).
 

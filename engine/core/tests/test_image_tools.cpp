@@ -1,8 +1,11 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/image_tools.h"
@@ -221,4 +224,107 @@ TEST_CASE(
     CHECK_FALSE(discard_temporary_image(Json::object({{"base64", "AAAA"}, {"temporary", true}}), dir));
     std::error_code ec;
     stdfs::remove_all(dir, ec);
+}
+
+// ---- Normal maps made from a height field (M74) ----------------------------------------------------------------------
+
+namespace {
+
+// The kernel as tools/common wrote it before M74 moved it into the engine (the Canvas of assets.generate_texture): the reference
+// the shared kernel has to keep matching byte for byte.
+Image reference_normal_map(const std::vector<double>& height, int w, int h, bool tile, double strength) {
+    Image img;
+    img.width = w;
+    img.height = h;
+    img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+    auto h_at = [&](int x, int y) {
+        if (tile) {
+            x = ((x % w) + w) % w;
+            y = ((y % h) + h) % h;
+        } else {
+            x = std::clamp(x, 0, w - 1);
+            y = std::clamp(y, 0, h - 1);
+        }
+        return height[std::size_t(y) * std::size_t(w) + std::size_t(x)];
+    };
+    auto to_byte = [](double v) { return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5), 0.0, 255.0)); };
+    const double k = std::min(w, h) / 512.0;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const double dx = (h_at(x + 1, y) - h_at(x - 1, y)) * 0.5 * k;
+            const double dy = (h_at(x, y + 1) - h_at(x, y - 1)) * 0.5 * k;
+            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0, nz = 1.0;
+            const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+            std::uint8_t* o = &img.rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4];
+            o[0] = to_byte(nx / len * 0.5 + 0.5);
+            o[1] = to_byte(ny / len * 0.5 + 0.5);
+            o[2] = to_byte(nz / len * 0.5 + 0.5);
+            o[3] = 255;
+        }
+    return img;
+}
+
+std::vector<double> bumpy_field(int w, int h) {
+    std::vector<double> v(std::size_t(w) * std::size_t(h));
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            v[std::size_t(y) * std::size_t(w) + std::size_t(x)] =
+                0.5 + 0.35 * std::sin(double(x) * 0.31) * std::cos(double(y) * 0.23) +
+                0.1 * double((x * 7 + y * 13) % 5) / 5.0;
+    return v;
+}
+
+}  // namespace
+
+TEST_CASE("normal_map_from_height: the shared kernel gives the bytes tools/common wrote before, clamped and tiled") {
+    const int w = 48, h = 32;
+    const std::vector<double> field = bumpy_field(w, h);
+    for (bool tile : {false, true})
+        for (double strength : {0.0, 1.0, 3.5}) {
+            CAPTURE(tile);
+            CAPTURE(strength);
+            const Image got = normal_map_from_height(field, w, h, tile, strength);
+            const Image want = reference_normal_map(field, w, h, tile, strength);
+            REQUIRE(got.width == w);
+            REQUIRE(got.height == h);
+            CHECK(got.rgba == want.rgba);
+        }
+    // a flat map is (0.5, 0.5, 1) everywhere
+    const Image flat = normal_map_from_height(std::vector<double>(16, 0.3), 4, 4, false, 2.0);
+    CHECK(int(flat.rgba[0]) == 128);
+    CHECK(int(flat.rgba[1]) == 128);
+    CHECK(int(flat.rgba[2]) == 255);
+    // bad sizes give an empty image, never a read past the field
+    CHECK(normal_map_from_height(field, 0, 5, false, 1.0).empty());
+    CHECK(normal_map_from_height(std::vector<double>(3, 0.0), 4, 4, false, 1.0).empty());
+}
+
+TEST_CASE("normal_map_from_sprite: the silhouette is a bevel that faces outwards, an empty or opaque flat sprite stays "
+          "flat inside") {
+    // a 32x32 opaque square on a transparent 48x48 picture
+    Image sprite = solid(48, 48, 200, 200, 200);
+    for (int y = 0; y < 48; ++y)
+        for (int x = 0; x < 48; ++x)
+            if (x < 8 || x >= 40 || y < 8 || y >= 40) sprite.rgba[(std::size_t(y) * 48 + std::size_t(x)) * 4 + 3] = 0;
+    const Image n = normal_map_from_sprite(sprite, 8.0);
+    REQUIRE(n.width == 48);
+    auto px = [&](int x, int y) { return &n.rgba[(std::size_t(y) * 48 + std::size_t(x)) * 4]; };
+    CHECK(int(px(8, 24)[0]) < 124);   // the left edge faces left (-x)
+    CHECK(int(px(39, 24)[0]) > 132);  // the right edge faces right
+    CHECK(int(px(24, 8)[1]) > 132);   // the top edge faces up the picture (+y)
+    CHECK(int(px(24, 39)[1]) < 124);  // the bottom edge faces down
+    CHECK(int(px(0, 0)[2]) == 255);   // far outside: flat
+    // the same picture twice gives the same bytes
+    CHECK(normal_map_from_sprite(sprite, 8.0).rgba == n.rgba);
+    // a grey image as a height field: a ramp rising to the right tilts the normals to the left
+    Image ramp = solid(64, 64, 0, 0, 0);
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x) {
+            const auto v = std::uint8_t(x * 4);
+            std::uint8_t* o = &ramp.rgba[(std::size_t(y) * 64 + std::size_t(x)) * 4];
+            o[0] = o[1] = o[2] = v;
+        }
+    const Image rn = normal_map_from_height_image(ramp, 40.0);
+    CHECK(int(rn.rgba[(32 * 64 + 32) * 4]) < 120);
+    CHECK(int(rn.rgba[(32 * 64 + 32) * 4 + 1]) == 128);
 }

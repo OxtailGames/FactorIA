@@ -113,7 +113,7 @@ const std::vector<std::string>& template_file_names(const std::string& kind) {
         {"mesh-full",
          {"mesh_common.glsl", "light_data.glsl", "light_loop.glsl", "ltc.glsl", "shadow_common.glsl",
           "brdf_layers.glsl", "mesh_full_common.glsl"}},
-        {"sprite", {"color_space.glsl", "light_shadow.glsl", "quad_common.glsl"}},
+        {"sprite", {"color_space.glsl", "light_cookie.glsl", "light_shadow.glsl", "quad_common.glsl"}},
         {"sky", {"color_space.glsl", "sky_common.glsl"}},
         {"post", {"post_common.glsl"}},
         {"compute", {"compute_common.glsl"}}};
