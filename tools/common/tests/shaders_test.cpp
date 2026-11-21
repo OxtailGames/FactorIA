@@ -2018,13 +2018,15 @@ TEST_CASE("compile: the engine names a \"did you mean\" suggests are the ones th
     // the pages of the post and the full shaders document these names and no others: the lists are equal to them
     CHECK(list_of("post", false) == names_in("docs/shaders/SHADERS_POST.md"));
     CHECK(list_of("mesh", true) == names_in("docs/shaders/SHADERS_FULL.md"));
-    // SHADERS.md documents the mesh, sprite and sky names (and the lighting functions, which have their own list): each one is in it
-    const std::set<std::string> guide = names_in("docs/SHADERS.md");
+    // SHADERS.md and its examples and sprites pages document the mesh, sprite and sky names (and the lighting functions, which have their own list): each one is in it
+    std::set<std::string> guide = names_in("docs/SHADERS.md");
+    for (const char* part : {"docs/shaders/SHADERS_EXAMPLES.md", "docs/shaders/SHADERS_SPRITES.md"})
+        guide.merge(names_in(part));
     for (const char* kind : {"mesh", "sprite", "sky"})
         for (const std::string& name : list_of(kind, false)) {
             CAPTURE(kind);
             CHECK_MESSAGE(guide.count(name) == 1, name << " is suggested for a " << kind
-                                                       << " material but docs/SHADERS.md does not mention it");
+                                                       << " material but docs/SHADERS.md and its parts do not mention it");
         }
 }
 

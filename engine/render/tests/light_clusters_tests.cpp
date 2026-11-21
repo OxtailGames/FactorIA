@@ -432,3 +432,72 @@ TEST_CASE("clusters: a contact shadow length is in the y of the light's texel of
     pack_light_texture({sun, lamp, lamp2}, 1, v.cam, nullptr, plain);
     CHECK(plain.shadowBase < 0);
 }
+
+TEST_CASE("clusters: the realtime GI records come last in the data texture, after lights, clusters, shadows and decals") {
+    const View v = make_view(640, 360, false);
+    LightData sun;
+    sun.pos = {0.0f, 1.0f, 0.0f, 0.0f};
+    sun.color = {1.0f, 1.0f, 1.0f, 0.0f};
+    sun.rank = 0;
+    sun.contactLength = 1.0f;  // a contact length makes the shadow region exist without a shadow map
+    LightData lamp = local_light(1.0f, 2.0f, -10.0f, 15.0f);
+    const std::vector<LightData> table{sun, lamp};
+    // Two records of kGiRecordFloats floats, each float its own index (+ 0.5 so no one is a plain zero).
+    std::vector<float> gi(std::size_t(2 * kGiRecordFloats));
+    for (std::size_t i = 0; i < gi.size(); ++i) gi[i] = float(i) + 0.5f;
+    const std::size_t lightTexels = table.size() * std::size_t(kLightTexels);
+
+    // 1. Lights only: the records follow the lights (and the shadow region the contact length makes).
+    {
+        LightTexture none, withGi;
+        pack_light_texture(table, 1, v.cam, nullptr, none);
+        CHECK(none.giBase == -1);
+        pack_light_texture(table, 1, v.cam, nullptr, withGi, nullptr, nullptr, gi.data(), 2);
+        REQUIRE(withGi.giBase >= 0);
+        CHECK(std::size_t(withGi.giBase) == none.usedTexels);
+        CHECK(withGi.usedTexels == none.usedTexels + 8);  // four texels a grid
+        CHECK(std::size_t(withGi.giBase) >= lightTexels);
+        for (std::size_t i = 0; i < gi.size(); ++i) CHECK(withGi.texels[std::size_t(withGi.giBase) * 4 + i] == gi[i]);
+        // Everything before the records is what a view without a grid holds.
+        for (std::size_t i = 0; i < none.usedTexels * 4; ++i) CHECK(withGi.texels[i] == none.texels[i]);
+    }
+    // 2. Clusters and their lists, and a decal: the records come after all of them, and nothing else moves.
+    {
+        std::vector<LightSphere> spheres{{0, 0, 0, 0}, {1.0f, 2.0f, -10.0f, 15.0f}};
+        ClusterLists lists;
+        build_light_clusters(v.cam, v.grid, spheres, lists);
+        DecalPack decals;
+        decals.records.resize(1);
+        decals.lists.first.assign(lists.first.size(), 0);
+        decals.lists.count.assign(lists.first.size(), 0);
+        decals.lists.indices = {0};
+        for (const DecalPack* dp : {static_cast<const DecalPack*>(nullptr), static_cast<const DecalPack*>(&decals)}) {
+            INFO(dp ? "with a decal" : "no decals");
+            LightTexture none, withGi;
+            pack_light_texture(table, 1, v.cam, &lists, none, nullptr, dp);
+            pack_light_texture(table, 1, v.cam, &lists, withGi, nullptr, dp, gi.data(), 2);
+            CHECK(none.giBase == -1);
+            REQUIRE(withGi.giBase >= 0);
+            CHECK(std::size_t(withGi.giBase) == none.usedTexels);
+            CHECK(withGi.usedTexels == none.usedTexels + 8);
+            CHECK(std::size_t(withGi.giBase) > lightTexels + lists.first.size());
+            CHECK(withGi.shadowBase == none.shadowBase);
+            CHECK(withGi.uniforms.decalBase == none.uniforms.decalBase);
+            if (dp) CHECK(withGi.uniforms.decalBase > 0.0f);
+            for (std::size_t i = 0; i < none.usedTexels * 4; ++i) CHECK(withGi.texels[i] == none.texels[i]);
+            for (std::size_t i = 0; i < gi.size(); ++i)
+                CHECK(withGi.texels[std::size_t(withGi.giBase) * 4 + i] == gi[i]);
+        }
+    }
+    // 3. No records asked for: nothing is reserved, whether the pointer or the count says so.
+    {
+        LightTexture a, b, c;
+        pack_light_texture(table, 1, v.cam, nullptr, a);
+        pack_light_texture(table, 1, v.cam, nullptr, b, nullptr, nullptr, gi.data(), 0);
+        pack_light_texture(table, 1, v.cam, nullptr, c, nullptr, nullptr, nullptr, 2);
+        CHECK(b.giBase == -1);
+        CHECK(c.giBase == -1);
+        CHECK(b.usedTexels == a.usedTexels);
+        CHECK(c.usedTexels == a.usedTexels);
+    }
+}
