@@ -84,6 +84,7 @@ struct Own {
     }
     // The picture after the probes captured (the first frame captures, the next ones upload the filtered levels and read the atlas).
     Image settled(World& w, int frames = 4) {
+        r.probe_watch_mesh(w.find("sphere"));  // the renderer keeps the probe picks of this mesh only
         Image img;
         for (int i = 0; i < frames; ++i) img = frame(w);
         return img;
