@@ -5,6 +5,8 @@
 //   - the distance image (jump flooding) agrees with a brute-force search of the occupied texels, within 1.5 texels;
 //   - a camera that moves by less than a texel leaves the field where it was, and a larger move shifts it by whole texels;
 //   - without GlobalIllumination2D (or with enabled = false) the frame has no gi pass and no field keeps an image.
+// (M74-P3b: a field's sides are rounded up to a multiple of 32, and on GLCORE, D3D11 and Metal the GPU tests REQUIRE the RGBA16F targets
+// instead of returning when they are missing.)
 // The tolerances hold on llvmpipe and WARP as well as on a real GPU; no golden image is compared.
 #include "test_util.h"
 
@@ -51,7 +53,19 @@ struct Own {
         r.end_frame();
         g.gpu.end_frame();
     }
-    bool gi_ready() { return Gi2dSystem::float_targets_ok(); }
+    // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks them is a bug to see, not a
+    // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say so.
+    bool gi_ready() {
+        const bool ok = Gi2dSystem::float_targets_ok();
+        const sg_backend b = sg_query_backend();
+        if (b == SG_BACKEND_GLCORE || b == SG_BACKEND_D3D11 || b == SG_BACKEND_METAL_MACOS ||
+            b == SG_BACKEND_METAL_IOS) {
+            INFO("this backend must have RGBA16F render targets that blend and filter");
+            REQUIRE(ok);
+        }
+        if (!ok) MESSAGE("no RGBA16F targets on this GPU: the field is not drawn here");
+        return ok;
+    }
 };
 
 int gi_passes(Own& o) {
@@ -59,11 +73,13 @@ int gi_passes(Own& o) {
     int n = 0;
     if (!graph) return 0;
     for (const std::string& name : graph->order_names())
-        if (name.find("/gi-") != std::string::npos) ++n;
+        if (name.find("/gi-") != std::string::npos && name.find("emit") == std::string::npos &&
+            name.find("cascade") == std::string::npos && name.find("irradiance") == std::string::npos)
+            ++n;
     return n;
 }
 
-// Passes a field of `w` x `h` texels draws: emission, occluders, the seed, the step of 1 and one step for each power of two below the size.
+// The passes of the field itself (the cascades' are counted in gi2d_cascade_tests.cpp): emission, occluders, the seed, the step of 1 and one step for each power of two below the size.
 int expected_passes(int w, int h) {
     const int n = std::max(w, h);
     int p = 1;
@@ -158,8 +174,8 @@ TEST_CASE("gi2d geometry: the size depends on the view and the settings, never o
     s.resolutionScale = 1.0f;
     const Gi2dGeometry a = gi2d_geometry(Rect{-160, -90, 320, 180}, 1.0f, s);
     REQUIRE(a.valid);
-    CHECK(a.width == 386);  // ceil((320 + 64) / 1) + 2
-    CHECK(a.height == 246);
+    CHECK(a.width == 416);  // ceil((320 + 64) / 1) + 2 = 386, up to a multiple of 32
+    CHECK(a.height == 256);
     CHECK(a.texel == 1.0);
     CHECK(a.originX == -192.0);
     CHECK(a.originY == -122.0);
@@ -177,8 +193,8 @@ TEST_CASE("gi2d geometry: the size depends on the view and the settings, never o
     s.resolutionScale = 0.5f;
     const Gi2dGeometry half = gi2d_geometry(Rect{-160, -90, 320, 180}, 1.0f, s);
     CHECK(half.texel == 2.0);
-    CHECK(half.width == 194);
-    CHECK(half.height == 124);
+    CHECK(half.width == 224);   // 194, up to a multiple of 32
+    CHECK(half.height == 128);  // 124
     // The same input gives the same answer.
     const Gi2dGeometry again = gi2d_geometry(Rect{-160, -90, 320, 180}, 1.0f, s);
     CHECK(again.width == half.width);
@@ -197,6 +213,7 @@ TEST_CASE("gi2d geometry: a huge range is capped at 2048 texels, a view without 
     CHECK(g.height <= kGi2dMaxSize);
     CHECK(g.texel > 1.0);
     CHECK(g.bytes <= kGi2dMaxBytes);
+    CHECK(g.width % kGi2dSizeStep == 0);
     CHECK_FALSE(gi2d_geometry(Rect{0, 0, 0, 180}, 1.0f, s).valid);
     CHECK_FALSE(gi2d_geometry(Rect{0, 0, 320, 180}, 0.0f, s).valid);
     CHECK_FALSE(gi2d_geometry(Rect{0, 0, std::numeric_limits<float>::quiet_NaN(), 180}, 1.0f, s).valid);
@@ -205,6 +222,28 @@ TEST_CASE("gi2d geometry: a huge range is capped at 2048 texels, a view without 
     const Gi2dGeometry tiny = gi2d_geometry(Rect{0, 0, 1, 1}, 1.0f, s);
     REQUIRE(tiny.valid);
     CHECK(tiny.width >= kGi2dMinSize);
+    CHECK(tiny.width % kGi2dSizeStep == 0);
+    CHECK(tiny.height % kGi2dSizeStep == 0);
+}
+
+TEST_CASE("gi2d geometry: a zoom that adds a few texels keeps the size (no new images every frame), a whole step "
+          "changes it") {
+    Gi2dSettings s;
+    s.on = true;
+    s.range = 32.0f;
+    s.resolutionScale = 1.0f;
+    // Zooming out by 1 world unit a frame adds 1 texel a side: the size changes only when a multiple of 32 is crossed.
+    int changes = 0;
+    int last = 0;
+    for (int i = 0; i < 100; ++i) {
+        const float w = 320.0f + float(i);
+        const Gi2dGeometry g = gi2d_geometry(Rect{-w / 2, -90, w, 180}, 1.0f, s);
+        REQUIRE(g.valid);
+        CHECK(g.width % kGi2dSizeStep == 0);
+        if (g.width != last) ++changes;
+        last = g.width;
+    }
+    CHECK(changes <= 5);  // 100 texels of growth cross at most four multiples of 32 (plus the first size)
 }
 
 namespace {
@@ -242,22 +281,19 @@ TEST_CASE("gi2d field: the emission image holds what glows, the occluder image w
     REQUIRE(g.ok);
     Own o(g);
     REQUIRE(o.ok);
-    if (!o.gi_ready()) {
-        MESSAGE("no RGBA16F targets on this GPU: the field is not drawn here");
-        return;
-    }
+    if (!o.gi_ready()) return;
     World w;
     content_world(w);
     o.frame(w);
     const Gi2dFieldInfo info = renderer_gi2d_info(o.r, 0);
     REQUIRE(info.exists);
     REQUIRE(info.ready);
-    CHECK(info.width == 386);
-    CHECK(info.height == 246);
+    CHECK(info.width == 416);
+    CHECK(info.height == 256);
     CHECK(info.emitters == 2);
     CHECK(info.occluders >= 4);  // the box and the three solid tiles
     CHECK(gi_passes(o) == expected_passes(info.width, info.height));
-    CHECK(info.passes == expected_passes(info.width, info.height));
+    CHECK(info.passes > expected_passes(info.width, info.height));  // plus the emitter chain and the cascades
 
     FieldImage em;
     REQUIRE(read_field(o, 0, em));
@@ -478,6 +514,8 @@ TEST_CASE("gi2d field: the sizes are the same on every run and the report says w
     if (!o.gi_ready()) return;
     World w;
     content_world(w, 40.0f, 0.5f);
+    o.frame(
+        w);  // the first frame primes the bounce's history (more passes): the report of the next two is the one that repeats
     o.frame(w);
     const Json first = o.r.gi2d_field();
     o.frame(w);
@@ -487,15 +525,15 @@ TEST_CASE("gi2d field: the sizes are the same on every run and the report says w
     CHECK(first["fields"][0].dump() == second["fields"][0].dump());
     const Json& f = first["fields"][0];
     CHECK(f.value("ready", false));
-    CHECK(f.value("width", 0) == 202);   // ceil((320 + 80) / 2) + 2
-    CHECK(f.value("height", 0) == 132);  // ceil((180 + 80) / 2) + 2
+    CHECK(f.value("width", 0) == 224);   // ceil((320 + 80) / 2) + 2 = 202, up to a multiple of 32
+    CHECK(f.value("height", 0) == 160);  // ceil((180 + 80) / 2) + 2 = 132
     CHECK(f.value("texelSize", 0.0) == doctest::Approx(2.0));
-    CHECK(f["worldRect"].value("width", 0.0) == doctest::Approx(404.0));
+    CHECK(f["worldRect"].value("width", 0.0) == doctest::Approx(448.0));
     CHECK(f["worldRect"].value("x", 0.0) == doctest::Approx(-200.0));
     CHECK(first.value("supported", false));
 }
 
-TEST_CASE("gi2d field: the command's report writes the three images as PNG files") {
+TEST_CASE("gi2d field: the command's report writes the images as PNG files") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g);
@@ -511,22 +549,26 @@ TEST_CASE("gi2d field: the command's report writes the three images as PNG files
     INFO("report: " << report.dump());
     CHECK_FALSE(report.contains("error"));
     REQUIRE(report.contains("files"));
-    REQUIRE(report["files"].size() == 3);
+    REQUIRE(report["files"].size() == 4);  // the irradiance image (one texel a probe) is the fourth
     for (const char* name : {"emission", "occluders", "distance"}) {
         const std::string path = prefix + "-" + name + ".png";
         auto img = load_image(path);
         REQUIRE(img.ok());
-        CHECK(img.value().width == 386);
-        CHECK(img.value().height == 246);
+        CHECK(img.value().width == 416);
+        CHECK(img.value().height == 256);
     }
+    auto irr = load_image(prefix + "-irradiance.png");
+    REQUIRE(irr.ok());
+    CHECK(irr.value().width == 416 / 2);  // the medium quality's probe spacing is 2 texels
+    CHECK(irr.value().height == 256 / 2);
     // Row 0 of a PNG is the largest world y: the glowing sprite (y = 20) is above the box (y = -40).
     auto em = load_image(prefix + "-emission.png");
     auto oc = load_image(prefix + "-occluders.png");
     REQUIRE(em.ok());
     REQUIRE(oc.ok());
-    const int cx = int(std::floor(-60.5 + 192.0)), glowRow = 246 - 1 - int(std::floor(20.5 + 122.0));
+    const int cx = int(std::floor(-60.5 + 192.0)), glowRow = 256 - 1 - int(std::floor(20.5 + 122.0));
     CHECK(em.value().pixel(cx, glowRow).r > 0.9f);
-    const int boxRow = 246 - 1 - int(std::floor(-40.5 + 122.0));
+    const int boxRow = 256 - 1 - int(std::floor(-40.5 + 122.0));
     CHECK(oc.value().pixel(int(std::floor(0.5 + 192.0)), boxRow).a > 0.9f);
     // A job that does not exist is an error that says so; nothing is written for it.
     const Json bad = o.r.gi2d_field(prefix + "-x", "camera:9");

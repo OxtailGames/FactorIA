@@ -20,6 +20,16 @@ static_assert(UB_gi2d_gi2d_vs_params == 0 && UB_gi2d_gi2d_fs_params == 1, "the g
 static_assert(UB_gi2d_gi2d_full_vs_params == 0 && UB_gi2d_gi2d_seed_params == 1 && UB_gi2d_gi2d_jfa_params == 1,
               "the gi2d full-screen programs' uniform slots");
 static_assert(VIEW_gi2d_tex == 0 && SMP_gi2d_smp == 0, "the gi2d programs' view and sampler slots");
+static_assert(UB_gi2d_gi2d_seed_emit_params == 1 && UB_gi2d_gi2d_cascade_params == 1 &&
+                  UB_gi2d_gi2d_irradiance_params == 1,
+              "the cascade programs' uniform slots");
+static_assert(VIEW_gi2d_c_occ_dist == 0 && VIEW_gi2d_c_emit_dist == 1 && VIEW_gi2d_c_emission == 2 &&
+                  VIEW_gi2d_c_albedo == 3 && VIEW_gi2d_c_upper == 4 && VIEW_gi2d_c_hist == 5 && SMP_gi2d_c_near == 0 &&
+                  SMP_gi2d_c_lin == 1,
+              "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_r_cascade == 0 && VIEW_gi2d_r_occ_dist == 1 && VIEW_gi2d_r_emit_dist == 2 &&
+                  SMP_gi2d_r_near == 0,
+              "the irradiance program's view and sampler slots");
 
 constexpr sg_pixel_format kFormat = SG_PIXELFORMAT_RGBA16F;
 
@@ -47,6 +57,63 @@ void draw_fullscreen(Gi2dSystem& sys, Gpu& gpu, Gi2dSystem::Prog prog, const Pas
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     if (drawCalls) ++*drawCalls;
+}
+
+// One radiance cascade into `pd`: reads the two distance fields, the emission, the occluders, the cascade above and the history.
+struct CascadeViews {
+    sg_view occDist, emitDist, emission, albedo, upper, hist;
+};
+void draw_cascade(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, const CascadeViews& v, const float p[4][4],
+                  int* drawCalls) {
+    if (!pd.color.id) return;
+    Gpu::begin_pass(pd);
+    sg_apply_pipeline(sys.pipeline(Gi2dSystem::Prog::Cascade, pd.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_gi2d_c_occ_dist] = v.occDist;
+    b.views[VIEW_gi2d_c_emit_dist] = v.emitDist;
+    b.views[VIEW_gi2d_c_emission] = v.emission;
+    b.views[VIEW_gi2d_c_albedo] = v.albedo;
+    b.views[VIEW_gi2d_c_upper] = v.upper;
+    b.views[VIEW_gi2d_c_hist] = v.hist;
+    b.samplers[SMP_gi2d_c_near] = gpu.sampler(SamplerKind::Nearest);
+    b.samplers[SMP_gi2d_c_lin] = gpu.sampler(SamplerKind::LinearClamp);
+    sg_apply_bindings(&b);
+    apply_vec4(0, gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+    const sg_range r{p, sizeof(float) * 16};
+    sg_apply_uniforms(UB_gi2d_gi2d_cascade_params, &r);
+    sg_draw(0, 3, 1);
+    Gpu::end_pass();
+    if (drawCalls) ++*drawCalls;
+}
+
+// The irradiance image: the rays of every probe of cascade 0 averaged.
+void draw_irradiance(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, sg_view cascade0, sg_view occDist, sg_view emitDist,
+                     const float fs[4], int* drawCalls) {
+    if (!pd.color.id) return;
+    Gpu::begin_pass(pd);
+    sg_apply_pipeline(sys.pipeline(Gi2dSystem::Prog::Irradiance, pd.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_gi2d_r_cascade] = cascade0;
+    b.views[VIEW_gi2d_r_occ_dist] = occDist;
+    b.views[VIEW_gi2d_r_emit_dist] = emitDist;
+    b.samplers[SMP_gi2d_r_near] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    apply_vec4(0, gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+    apply_vec4(UB_gi2d_gi2d_irradiance_params, fs[0], fs[1], fs[2], fs[3]);
+    sg_draw(0, 3, 1);
+    Gpu::end_pass();
+    if (drawCalls) ++*drawCalls;
+}
+
+void destroy_images(Gi2dField& f) {
+    destroy_target(f.emission);
+    destroy_target(f.occluder);
+    destroy_target(f.distance);
+    destroy_target(f.irradiance[0]);
+    destroy_target(f.irradiance[1]);
+    f.irrValid = false;
 }
 
 // Clears `t` to zero and draws the gather's triangles into it, one draw call per batch.
@@ -105,18 +172,18 @@ void Gi2dSystem::begin_frame(bool keep) {
         if (s) s->used = keep;
 }
 
-Gi2dField* Gi2dSystem::acquire(int n, const Gi2dGeometry& g) {
-    if (n < 0 || n >= kGi2dMaxFields || !g.valid) return nullptr;
+Gi2dField* Gi2dSystem::acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp) {
+    if (n < 0 || n >= kGi2dMaxFields || !g.valid || !cp.ok) return nullptr;
     std::unique_ptr<Gi2dField>& slot = slots_[std::size_t(n)];
     if (!slot) slot = std::make_unique<Gi2dField>();
     Gi2dField& f = *slot;
     f.used = true;
     f.valid = false;
     f.passes = 0;
-    if (!f.emission.color.id || f.emission.w != g.width || f.emission.h != g.height) {
-        destroy_target(f.emission);
-        destroy_target(f.occluder);
-        destroy_target(f.distance);
+    if (!f.emission.color.id || f.emission.w != g.width || f.emission.h != g.height || f.irradiance[0].w != cp.gridW ||
+        f.irradiance[0].h != cp.gridH) {
+        // A new size: the images are made again and the bounce starts from nothing (no history is kept across sizes).
+        destroy_images(f);
         TargetDesc d;
         d.width = g.width;
         d.height = g.height;
@@ -127,10 +194,15 @@ Gi2dField* Gi2dSystem::acquire(int n, const Gi2dGeometry& g) {
         f.occluder = make_target(d);
         d.label = "gi2d-distance";
         f.distance = make_target(d);
-        if (!f.emission.valid() || !f.occluder.valid() || !f.distance.valid()) {
-            destroy_target(f.emission);
-            destroy_target(f.occluder);
-            destroy_target(f.distance);
+        d.width = cp.gridW;
+        d.height = cp.gridH;
+        d.label = "gi2d-irradiance-a";
+        f.irradiance[0] = make_target(d);
+        d.label = "gi2d-irradiance-b";
+        f.irradiance[1] = make_target(d);
+        if (!f.emission.valid() || !f.occluder.valid() || !f.distance.valid() || !f.irradiance[0].valid() ||
+            !f.irradiance[1].valid()) {
+            destroy_images(f);
             f.used = false;
             if (!warnedTargets_) {
                 warnedTargets_ = true;
@@ -142,17 +214,17 @@ Gi2dField* Gi2dSystem::acquire(int n, const Gi2dGeometry& g) {
             }
             return nullptr;
         }
+        f.irrCur = 0;
     }
     f.geom = g;
+    f.cascade = cp;
     return &f;
 }
 
 void Gi2dSystem::free_unused() {
     for (auto& s : slots_) {
         if (!s || s->used) continue;
-        destroy_target(s->emission);
-        destroy_target(s->occluder);
-        destroy_target(s->distance);
+        destroy_images(*s);
         s.reset();
     }
 }
@@ -160,9 +232,7 @@ void Gi2dSystem::free_unused() {
 void Gi2dSystem::free_images() {
     for (auto& s : slots_) {
         if (!s) continue;
-        destroy_target(s->emission);
-        destroy_target(s->occluder);
-        destroy_target(s->distance);
+        destroy_images(*s);
         s.reset();
     }
     warnedTargets_ = false;
@@ -186,6 +256,9 @@ bool Gi2dSystem::ready() {
     shaders_[0] = make_shader(gi2d_draw_shader_desc(backend), "gi2d_draw");
     shaders_[1] = make_shader(gi2d_seed_shader_desc(backend), "gi2d_seed");
     shaders_[2] = make_shader(gi2d_jfa_shader_desc(backend), "gi2d_jfa");
+    shaders_[3] = make_shader(gi2d_seed_emit_shader_desc(backend), "gi2d_seed_emit");
+    shaders_[4] = make_shader(gi2d_cascade_shader_desc(backend), "gi2d_cascade");
+    shaders_[5] = make_shader(gi2d_irradiance_shader_desc(backend), "gi2d_irradiance");
     bool ok = true;
     for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
     if (!ok) {
@@ -211,7 +284,8 @@ sg_pipeline Gi2dSystem::pipeline(Prog prog, const TargetFormat& format) {
     if (state_ <= 0) return {};
     sg_pipeline_desc d{};
     const bool draw = prog == Prog::DrawAdd || prog == Prog::DrawReplace;
-    d.shader = shaders_[draw ? 0 : prog == Prog::Seed ? 1 : 2];
+    static constexpr int kShaderOf[] = {0, 0, 1, 2, 3, 4, 5};  // by Prog
+    d.shader = shaders_[kShaderOf[int(prog)]];
     d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;
     if (draw) {
         d.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT2;
@@ -232,10 +306,9 @@ sg_pipeline Gi2dSystem::pipeline(Prog prog, const TargetFormat& format) {
     }
     d.sample_count = format.samples;
     d.cull_mode = SG_CULLMODE_NONE;  // the field's y flips on some backends, which turns every winding
-    d.label = prog == Prog::DrawAdd       ? "gi2d-emission"
-              : prog == Prog::DrawReplace ? "gi2d-occluder"
-              : prog == Prog::Seed        ? "gi2d-seed"
-                                          : "gi2d-jfa";
+    static constexpr const char* kLabels[] = {"gi2d-emission",  "gi2d-occluder", "gi2d-seed",      "gi2d-jfa",
+                                              "gi2d-seed-emit", "gi2d-cascade",  "gi2d-irradiance"};
+    d.label = kLabels[int(prog)];
     const sg_pipeline p = sg_make_pipeline(&d);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
         FA_ERROR("render", "failed to create pipeline '{}'", d.label);
@@ -304,34 +377,138 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         for (int s = p; s >= 1; s /= 2) steps.push_back(s);
     }
     const float size[2] = {float(w), float(h)};
-    ResourceId prev = graph.create_transient(named(td, name + "/gi2d-seed"));
-    const ResourceId seedRes = prev;
-    add("gi-seed", {plan.occluder}, {seedRes}, [=](const PassContext& c) {
-        const Target* out = tt->get(c.handle(seedRes));
-        if (!out) return;
-        PassDesc pd = pass_into(*out, "gi2d-seed");
-        pd.colorLoad = SG_LOADACTION_DONTCARE;
-        const float fs[4] = {size[0], size[1], 0.0f, 0.0f};
-        draw_fullscreen(*self, *g, Prog::Seed, pd, f->occluder.texView, fs, drawCalls);
-    });
-    for (std::size_t i = 0; i < steps.size(); ++i) {
-        const bool last = i + 1 == steps.size();
-        const ResourceId in = prev;
-        const ResourceId out =
-            last ? plan.distance : graph.create_transient(named(td, std::format("{}/gi2d-jfa-{}", name, i)));
-        const float fs[4] = {size[0], size[1], float(steps[i]), last ? 1.0f : 0.0f};
-        const std::string pass = last ? std::string("gi-distance") : std::format("gi-jfa-{}", steps[i]);
-        add(pass.c_str(), {in}, {out}, [=](const PassContext& c) {
-            const Target* src = tt->get(c.handle(in));
-            if (!src) return;
-            const Target* dst = last ? &f->distance : tt->get(c.handle(out));
-            if (!dst) return;
-            PassDesc pd = pass_into(*dst, "gi2d-jfa");
+    // One chain: `seedProg` turns the image `sourceTarget` (resource `source`) into seeds, the steps flood them and the last one writes
+    // `finalRes` (the nearest seed of every texel and its distance), into `finalTarget` when that is a persistent image and into a transient
+    // of the graph otherwise. `tag` names the passes ("gi" for the occluders, "gi-emit" for the emitters).
+    auto flood = [&](const char* tag, Prog seedProg, ResourceId source, const Target* sourceTarget, ResourceId finalRes,
+                     Target* finalTarget) {
+        ResourceId prev = graph.create_transient(named(td, std::format("{}/{}-seed", name, tag)));
+        const ResourceId seedRes = prev;
+        add(std::format("{}-seed", tag).c_str(), {source}, {seedRes}, [=](const PassContext& c) {
+            const Target* out = tt->get(c.handle(seedRes));
+            if (!out) return;
+            PassDesc pd = pass_into(*out, "gi2d-seed");
             pd.colorLoad = SG_LOADACTION_DONTCARE;
-            draw_fullscreen(*self, *g, Prog::Jfa, pd, src->texView, fs, drawCalls);
-            if (last) f->valid = true;
+            const float fs[4] = {size[0], size[1], 0.0f, 0.0f};
+            draw_fullscreen(*self, *g, seedProg, pd, sourceTarget->texView, fs, drawCalls);
         });
-        prev = out;
+        for (std::size_t i = 0; i < steps.size(); ++i) {
+            const bool last = i + 1 == steps.size();
+            const ResourceId in = prev;
+            const ResourceId out =
+                last ? finalRes : graph.create_transient(named(td, std::format("{}/{}-jfa-{}", name, tag, i)));
+            const float fs[4] = {size[0], size[1], float(steps[i]), last ? 1.0f : 0.0f};
+            const std::string pass = last ? std::string(tag) + "-distance" : std::format("{}-jfa-{}", tag, steps[i]);
+            add(pass.c_str(), {in}, {out}, [=](const PassContext& c) {
+                const Target* src = tt->get(c.handle(in));
+                if (!src) return;
+                const Target* dst = last && finalTarget ? finalTarget : tt->get(c.handle(out));
+                if (!dst) return;
+                PassDesc pd = pass_into(*dst, "gi2d-jfa");
+                pd.colorLoad = SG_LOADACTION_DONTCARE;
+                draw_fullscreen(*self, *g, Prog::Jfa, pd, src->texView, fs, drawCalls);
+                if (last && finalTarget == &f->distance) f->valid = true;
+            });
+            prev = out;
+        }
+    };
+    flood("gi", Prog::Seed, plan.occluder, &f->occluder, plan.distance, &f->distance);
+
+    // ---- The radiance cascades (gi2d.glsl, fs_cascade) ----
+    const Gi2dCascadePlan& cp = f->cascade;
+    if (cp.ok && cp.cascades > 0) {
+        // The nearest emitter: the same chain over the emission image, into a transient the cascades read.
+        const ResourceId emitDist = graph.create_transient(named(td, name + "/gi2d-emit-distance"));
+        flood("gi-emit", Prog::SeedEmit, plan.emission, &f->emission, emitDist, nullptr);
+
+        const float bounce = f->settings.bounce;
+        const int wr = f->irrCur ^ 1;  // written by this frame; the other one is last frame's (the bounce's history)
+        const int hr = f->irrCur;
+        Target* irrW = &f->irradiance[wr];
+        Target* irrH = &f->irradiance[hr];
+        plan.irradiance = imp(*irrW, "gi2d-irradiance");
+        const ResourceId histRes = imp(*irrH, "gi2d-irradiance-history");
+        plan.irradianceView = irrW->texView;
+        plan.intensity = f->settings.intensity;
+        plan.xf[0] = float(1.0 / (f->geom.texel * double(w)));
+        plan.xf[1] = float(1.0 / (f->geom.texel * double(h)));
+        plan.xf[2] = float(-f->geom.originX / (f->geom.texel * double(w)));
+        plan.xf[3] = float(-f->geom.originY / (f->geom.texel * double(h)));
+        // The history is last frame's irradiance, valid when it was made for the same texel size and the camera has moved by less than the
+        // field (the field's origin is snapped to whole texels, so the shift is a whole number of them).
+        const double shiftX = (f->geom.originX - f->histOriginX) / f->geom.texel;
+        const double shiftY = (f->geom.originY - f->histOriginY) / f->geom.texel;
+        const bool histOk = bounce > 0.0f && f->irrValid && f->histTexel == f->geom.texel &&
+                            std::fabs(shiftX) < double(w) && std::fabs(shiftY) < double(h);
+        const float shift[2] = {float(std::round(shiftX)), float(std::round(shiftY))};
+        const bool prime = bounce > 0.0f && !histOk;
+        f->primed = prime;
+        const int base = declared;
+        const int spacing0 = cp.spacing0, nsteps = cp.steps, ncas = cp.cascades;
+        double ends[kGi2dMaxCascades + 1] = {};
+        for (int i = 0; i <= kGi2dMaxCascades; ++i)
+            ends[i] = cp.interval_end(i - 1);  // ends[i] = the start of cascade i
+
+        // One chain of cascades into the irradiance image `outRes` / `outT`, from the top down, each merging the one above it. A ray that hits
+        // an occluder reads the light that reached it last frame from `histT` (resource `histIn`), shifted by `sh` texels, when `useHist`.
+        // `commit`: the last pass records that the image holds a finished frame (the next frame's history).
+        auto chain = [&](const char* tag, ResourceId outRes, Target* outT, ResourceId histIn, const Target* histT,
+                         bool useHist, const float sh[2], bool commit) {
+            ResourceId upper;
+            for (int i = ncas - 1; i >= 0; --i) {
+                const ResourceId res =
+                    graph.create_transient(named(td, std::format("{}/gi2d-{}-cascade-{}", name, tag, i)));
+                std::vector<ResourceId> reads{plan.distance, emitDist, plan.emission, plan.occluder};
+                if (upper.valid()) reads.push_back(upper);
+                if (useHist) reads.push_back(histIn);
+                float params[4][4] = {
+                    {float(w), float(h), float(w), float(h)},
+                    {float(spacing0 << i), float(ends[i]), float(ends[i + 1]), i == ncas - 1 ? 1.0f : 0.0f},
+                    {bounce, useHist ? 1.0f : 0.0f, sh[0], sh[1]},
+                    {float(nsteps), 0.0f, 0.0f, 0.0f}};
+                const ResourceId up = upper;
+                const std::string pass = std::format("{}-cascade-{}", tag, i);
+                add(pass.c_str(), std::move(reads), {res}, [=](const PassContext& c) {
+                    const Target* out = tt->get(c.handle(res));
+                    const Target* ed = tt->get(c.handle(emitDist));
+                    if (!out || !ed) return;
+                    const Target* upT = up.valid() ? tt->get(c.handle(up)) : nullptr;
+                    CascadeViews v;
+                    v.occDist = f->distance.texView;
+                    v.emitDist = ed->texView;
+                    v.emission = f->emission.texView;
+                    v.albedo = f->occluder.texView;
+                    v.upper = upT ? upT->texView : f->emission.texView;  // the top cascade never reads it
+                    v.hist = useHist && histT ? histT->texView : f->emission.texView;
+                    PassDesc pd = pass_into(*out, "gi2d-cascade");
+                    pd.colorLoad = SG_LOADACTION_DONTCARE;
+                    draw_cascade(*self, *g, pd, v, params, drawCalls);
+                });
+                upper = res;
+            }
+            const ResourceId cascade0 = upper;
+            const float irrParams[4] = {float(spacing0), float(w), float(h), 0.0f};
+            const std::string pass = std::format("{}-irradiance", tag);
+            add(pass.c_str(), {cascade0, plan.distance, emitDist}, {outRes}, [=](const PassContext& c) {
+                const Target* c0 = tt->get(c.handle(cascade0));
+                const Target* ed = tt->get(c.handle(emitDist));
+                if (!c0 || !ed) return;
+                PassDesc pd = pass_into(*outT, "gi2d-irradiance");
+                pd.colorLoad = SG_LOADACTION_DONTCARE;
+                draw_irradiance(*self, *g, pd, c0->texView, f->distance.texView, ed->texView, irrParams, drawCalls);
+                if (commit) {
+                    f->irrCur = outT == &f->irradiance[0] ? 0 : 1;
+                    f->irrValid = true;
+                    f->histTexel = f->geom.texel;
+                    f->histOriginX = f->geom.originX;
+                    f->histOriginY = f->geom.originY;
+                }
+            });
+        };
+        const float noShift[2] = {0.0f, 0.0f};
+        if (prime) chain("gi-prime", histRes, irrH, ResourceId{}, nullptr, false, noShift, false);
+        chain("gi", plan.irradiance, irrW, histRes, irrH, bounce > 0.0f, prime ? noShift : shift, true);
+        plan.cascadePasses = declared - base;
     }
     f->passes = declared;
     return declared;
@@ -382,9 +559,19 @@ Json Gi2dSystem::report(const std::string& backend) const {
         r["height"] = rounded(f->geom.world_h(), 1000.0);
         o["worldRect"] = std::move(r);
         o["capped"] = f->geom.capped;
-        o["bytes"] =
-            double(f->geom.bytes / 5u * 3u);  // the three images that stay; the other two are the frame's transients
+        o["bytes"] = double(
+            f->cascade.persistentBytes);  // the images that stay: the field's three and the two irradiance images
         o["passes"] = f->passes;
+        Json cas = Json::object();
+        cas["cascades"] = f->cascade.cascades;
+        cas["probeSpacing"] = f->cascade.spacing0;
+        cas["raysPerProbe"] = f->cascade.rays0;
+        cas["steps"] = f->cascade.steps;
+        cas["reachTexels"] = rounded(f->cascade.reach, 1.0);
+        cas["irradianceWidth"] = f->cascade.gridW;
+        cas["irradianceHeight"] = f->cascade.gridH;
+        cas["primed"] = f->primed;
+        o["cascades"] = std::move(cas);
         Json e = Json::object();
         e["sprites"] = f->stats.emissiveSprites;
         e["tiles"] = f->stats.emissiveTiles;
@@ -398,7 +585,7 @@ Json Gi2dSystem::report(const std::string& backend) const {
         c["skipped"] = f->stats.skippedCasters;
         o["occluders"] = std::move(c);
         o["dropped"] = f->stats.dropped;
-        total += f->geom.bytes / 5u * 3u;
+        total += f->cascade.persistentBytes;
         fields.push_back(std::move(o));
     }
     out["fields"] = std::move(fields);
