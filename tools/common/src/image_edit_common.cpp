@@ -876,9 +876,15 @@ std::string add_pixels_layer(const std::string& projectDir, const std::string& r
         doc["layers"].push_back(layer);
         return std::to_string(doc["layers"].size() - 1);
     }
+    // Layers with `clip: true` that follow rest on the layer above which they are clipped; the new layer goes above the whole
+    // chain, or it would become their clip base and change the picture.
+    int at = above->index + 1;
+    while (at < static_cast<int>(above->list->size()) &&
+           (*above->list)[static_cast<std::size_t>(at)].value("clip", false))
+        ++at;
     std::vector<int> path = above->path;
-    path.back() += 1;
-    above->list->insert(above->list->begin() + above->index + 1, layer);
+    path.back() = at;
+    above->list->insert(above->list->begin() + at, layer);
     return index_path_string(path);
 }
 

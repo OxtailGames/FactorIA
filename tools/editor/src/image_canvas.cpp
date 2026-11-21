@@ -87,7 +87,8 @@ void Editor::image_update_textures(ImageModel& m) {
         // the light: the mouse while it is over the picture (the last place it was kept), or a circle round the middle
         const float w = float(m.width()), h = float(m.height());
         if (u.litOrbit) {
-            const double a = ImGui::GetTime() * 0.8;
+            // 30 steps a second at most: the lamp stays put between steps, so the picture is lit and uploaded 30 times a second, not every frame
+            const double a = std::floor(ImGui::GetTime() * 30.0) / 30.0 * 0.8;
             const float radius = std::max(w, h) * 0.45f;
             u.litX = w * 0.5f + radius * float(std::cos(a));
             u.litY = h * 0.5f + radius * float(std::sin(a));

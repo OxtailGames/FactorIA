@@ -155,7 +155,8 @@ struct ImageUi {
     float litHeight = 40, litIntensity = 1;  // the lamp's height above the picture in pixels, and its strength
     float litX = -1, litY = -1;              // where the lamp is, in picture pixels (-1 = not placed yet)
     std::string litWhy;                      // why there is no lit picture ("" when there is one)
-    bool litDrawn = false;                   // the last frame drew it (autotest)
+    float litRowOverflow = 0;  // how far the Light row's last frame ran past the options bar, px (autotest)
+    bool litDrawn = false;     // the last frame drew it (autotest)
     ImageTexture litTex;
 
     // ---- textures
