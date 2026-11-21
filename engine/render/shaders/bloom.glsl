@@ -36,7 +36,7 @@ void main() {
 layout(binding=1) uniform bloom_bright_params {
     vec4 p;         // xy = one SOURCE texel in uv units, z = threshold, w = 1 / max(1 - threshold, 1/255)
     vec4 q;         // x = taps per axis: 2 (writes 1/2 res) or 4 (writes 1/4 res); the n x n source pixels are covered exactly,
-                    // y = half-width of the soft knee in units of the ramp (PostProcess.bloomKnee / 2; 0 = the hard start of the old Camera.bloom)
+                    // y = half-width of the soft knee in units of the ramp (PostProcess.bloomKnee / 2; 0 = a hard start: nothing below the threshold)
 };
 in vec2 uv;
 out vec4 frag_color;
