@@ -167,7 +167,11 @@ std::string Gi2dSystem::unsupported_message(const std::string& backend) {
 }
 
 void Gi2dSystem::begin_frame(bool keep) {
-    if (!keep) lastSettings = Gi2dSettings{};
+    if (!keep) {
+        lastSettings = Gi2dSettings{};
+        if (!giAsked_) reset_warnings();  // a scene without GI (or a new scene) warns again when it turns on
+        giAsked_ = false;
+    }
     for (auto& s : slots_)
         if (s) s->used = keep;
 }

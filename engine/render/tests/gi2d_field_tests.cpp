@@ -602,6 +602,35 @@ TEST_CASE("gi2d triangulation: a polygon is cut with a counted amount of work, n
     std::size_t budget = kGi2dMaxTriangulateWork;
     for (int i = 0; i < 100; ++i) CHECK(gi2d_triangulate(circle(32), &budget).size() == 30 * 3);
     CHECK(budget > kGi2dMaxTriangulateWork / 2);
+    // The last triangle costs no tests: a triangle with no budget left is still cut, and a polygon that spent it down to 0 is finished.
+    const std::vector<Vec2> tri = {{0, 0}, {1, 0}, {0, 1}};
+    std::size_t none = 0;
+    CHECK(gi2d_triangulate(tri, &none).size() == 3);
+    const std::vector<Vec2> quad = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+    std::size_t exact = 4;  // the four tests of the first ear spend it all; the last triangle needs none
+    CHECK(gi2d_triangulate(quad, &exact).size() == 6);
+}
+
+TEST_CASE("gi2d budget: warnings are said once per reason across cameras, and reset only by a frame without GI") {
+    Gi2dSystem sys;
+    // Two cameras failing for different reasons in the same frame, over several frames: each reason is said once.
+    int said = 0;
+    for (int frame = 0; frame < 5; ++frame) {
+        sys.begin_frame(false);
+        sys.note_gi_asked();
+        if (sys.budget_warn_once("reason A")) ++said;
+        if (sys.budget_warn_once("reason B")) ++said;
+    }
+    CHECK(said == 2);
+    // A frame in which one job has GI and another has none does not reset (the one without GI calls nothing).
+    sys.begin_frame(false);
+    sys.note_gi_asked();
+    CHECK_FALSE(sys.budget_warn_once("reason A"));
+    // A frame with no job asking for GI resets: the next frame with GI says them again.
+    sys.begin_frame(false);
+    sys.begin_frame(false);
+    CHECK(sys.budget_warn_once("reason A"));
+    CHECK(sys.budget_warn_once("reason B"));
 }
 
 TEST_CASE("gi2d budget: the fields of all the cameras of a frame share one budget, summed in 64 bits") {
@@ -705,8 +734,8 @@ TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the ca
     World w;
     camera_at(w, {0, 0, 0});
     add_gi2d(w, 32.0f, 1.0f);
-    // 270 x 270 cells of one unit, seen in the field's rectangle (416 x 256 texels) for the most part: over kGi2dMaxQuads.
-    Entity map = make(w, "sea", {-135, 135, 0});
+    // 400 x 400 cells (far over the 60,000 cap) of one unit, seen in the field's rectangle (416 x 256 texels) for the most part: over kGi2dMaxQuads.
+    Entity map = make(w, "sea", {-200, 200, 0});
     auto& tm = w.add<Tilemap>(map);
     tm.tileset = "assets/white16.png";
     tm.tileSize = {1, 1};
@@ -714,9 +743,9 @@ TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the ca
     tm.color = Color{0, 0, 0, 1};
     tm.emissive = Color{0.1f, 0.1f, 0.1f, 1};
     Json row = Json::array();
-    for (int c = 0; c < 270; ++c) row.push_back(0);
+    for (int c = 0; c < 400; ++c) row.push_back(0);
     Json rows = Json::array();
-    for (int r = 0; r < 270; ++r) rows.push_back(row);
+    for (int r = 0; r < 400; ++r) rows.push_back(row);
     set_tilemap_tiles(tm, rows);
     o.frame(w);
     const Json report = o.r.gi2d_field("", "");
