@@ -678,7 +678,8 @@ void register_builtin_components(TypeRegistry& r) {
                      "from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none.")
         .field("normalStrength", &Sprite::normalStrength,
                "Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image "
-               "says, above 1 exaggerates it.")
+               "says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one "
+               "image (an animated strength) a sprite gets the closest one already made.")
         .range(0, 16)
         .field(
             "skew", &Sprite::skew,

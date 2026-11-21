@@ -6428,7 +6428,7 @@ declare module "factoria" {
      */
     heightMap: string;
     /**
-     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it.
+     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made.
      * @since 0.34.0
      */
     normalStrength: number;

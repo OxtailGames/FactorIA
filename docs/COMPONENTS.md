@@ -83,7 +83,7 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `rimWidth` | float | `0.1` | Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin edge, 0.5 a wide glow. Range 0.01..1.0. (since 0.34.0) |
 | `normalFrom` | enum: file \| sprite \| height | `"file"` | Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` sets the relief of a generated map; `normalMap` is ignored with sprite and height. (since 0.34.0) |
 | `heightMap` | asset (texture) | `""` | Grey image laid out like `texture` (white = high, black = low) that the normals are generated from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none. (since 0.34.0) |
-| `normalStrength` | float | `1.0` | Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. Range 0.0..16.0. (since 0.34.0) |
+| `normalStrength` | float | `1.0` | Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made. Range 0.0..16.0. (since 0.34.0) |
 | `skew` | vec2 | `[0.0,0.0]` | Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds. (since 0.4.0) |
 | `meshColumns` | int | `0` | Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow. Range 0..128. (since 0.4.0) |
 | `meshRows` | int | `0` | Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad. Range 0..128. (since 0.4.0) |
@@ -17153,7 +17153,7 @@ declare module "factoria" {
      */
     heightMap: string;
     /**
-     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it.
+     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made.
      * @since 0.34.0
      */
     normalStrength: number;
