@@ -90,7 +90,7 @@ A light reads a caster when its bounding box touches the light's disc (radius). 
 - A light inside a caster's outline is not blocked by it (like a light inside a solid tile), whatever part of it is in reach.
 - When the row's work cap is reached in the middle of a caster, the segments tested before the cut, in the order of the
   outline, still shade; the ones after it, and every caster after it in entity order, block nothing for that light. A ray whose
-  far face was not reached starts its shadow at the near face. The same cut is made on every run and machine, and one warning
+  far face was not reached starts its shadow at the near face. The same cut is made on every run (a count, never time), and one warning
   per scene says so.
 - The same rule holds for the 512 casters a light reads and the 2048 a frame reads: the casters after the cap (in entity
   order) are not read at all, never half of one.
@@ -127,7 +127,7 @@ float render target; a GPU ray cast is a possible follow-up for scenes with hund
 
 - `render.supports` rows `2dSoftShadows` and `2dShadowCasters` are true wherever the renderer draws (they need nothing a
   backend might lack).
-- Warnings, each once per scene (a scene change lets them show again; the per-caster and per-texture ones share 64 places a scene, the others are never pushed out): a `spriteAlpha` caster without a `Sprite`, a texture whose alpha cannot be read,
+- Warnings, each once per scene (a different scene path lets them show again; the per-caster and per-texture ones share 64 places a scene, the others are never pushed out): a `spriteAlpha` caster without a `Sprite`, a texture whose alpha cannot be read,
   a polygon over 256 points, more than 2048 casters, a light that reaches more than 512 casters, a row over its work cap, more than 256 lights.
 - A caster on a hidden layer (an entity the camera's mask does not draw) casts no shadow in that camera's view, like a tile map.
 - Determinism: nothing in the rows depends on time or randomness; the same scene gives the same row on every run.

@@ -214,7 +214,8 @@ void assign_shadow_rows(World& world, Frame& f) {
             }
     }
 
-    // A light gets a row when a solid tile or a caster lies within its reach (the frame already holds at most kMaxLights2D lights).
+    // A light gets a row when a solid tile or a caster lies within its reach (the frame already holds at most
+    // kMaxLights2D lights).
     std::vector<LightWork> work;
     for (std::size_t i : asking) {
         const Light2DData& l = f.lights2d[i];

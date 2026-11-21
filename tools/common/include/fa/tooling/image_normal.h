@@ -42,12 +42,19 @@ void normal_map_normalize(Image& map, bool flatten);
 
 // A light for light_with_normal_map. Positions are in pixels of the picture (y down), `height` is how far above the picture a point light is.
 struct NormalLight {
-    bool point = true;                 // a lamp at (x, y, height) when true, else a light from a direction
-    double x = 0, y = 0, height = 32;  // point light
-    double azimuth = 135,
-           elevation = 45;  // directional light, as the `shade` operation: degrees, 0 = from the right, 90 = from above
-    double intensity = 1;   // 0..4
-    bool flipGreen = false;  // the map is DirectX style (green down)
+    // a lamp at (x, y, height) when true, else a light from a direction
+    bool point = true;
+    // point light
+    double x = 0;
+    double y = 0;
+    double height = 32;
+    // directional light, as the `shade` operation: degrees, 0 = from the right, 90 = from above
+    double azimuth = 135;
+    double elevation = 45;
+    // 0..4
+    double intensity = 1;
+    // the map is DirectX style (green down)
+    bool flipGreen = false;
 };
 // `base` lit by `normal`: every pixel's colour is multiplied by max(0, 1 + 2 intensity (n.L - L.z)), the formula of the `shade` operation,
 // so a flat surface keeps its colour. `normal` is read at the same pixel of `base` (outside it, or where it is transparent, the surface is

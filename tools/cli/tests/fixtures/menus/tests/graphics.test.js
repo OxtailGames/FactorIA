@@ -1,7 +1,7 @@
 // The graphics tab of the options (scripts/ui/options.js, scripts/settings.js): the quality button and the effect switches change
 // the PostProcess fields of the scene and are saved in storage. The scene's PostProcess is added here, so the test passes in any game.
 import { test, expect, game } from "factoria:test";
-import { world, storage, scene } from "factoria";
+import { world, storage, scene, i18n } from "factoria";
 import * as settings from "../scripts/settings.js";
 
 /** Opens the options of the menu scene on the Graphics tab with a gamepad; focus is on the tab. */
@@ -113,4 +113,37 @@ test("graphics settings: the 2D lighting choice reaches the next scene, and a pl
   expect(gi().enabled).toBe(false); // the scene's own value stands
   expect(gi().quality).toBe("high");
   expect(settings.lightingShown()).toBe("off");
+});
+
+test("graphics settings: a phone or a browser offers Off, Low and Medium, and a saved High becomes Medium there", () => {
+  expect(settings.lightingChoices("windows")).toEqual(["off", "low", "medium", "high"]);
+  for (const p of ["ios", "android", "web"]) expect(settings.lightingChoices(p)).toEqual(["off", "low", "medium"]);
+  const s = settings.load();
+  s.graphics.lighting2d = "high";
+  expect(settings.lightingChoice(s, "android")).toBe("medium");
+  expect(settings.lightingChoice(s, "macos")).toBe("high");
+  s.graphics.lighting2d = "low";
+  expect(settings.lightingChoice(s, "ios")).toBe("low");
+  s.graphics.lighting2d = null;
+  expect(settings.lightingChoice(s, "ios")).toBe(null);
+});
+
+test("graphics tab: the cycle starts from what the scene shows (disabled shows Off, the next is Low)", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: false, quality: "medium" } } });
+  expect(settings.lightingShown()).toBe("off");
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting
+  pad.tap("A");
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+});
+
+test("graphics tab: a scene without a GlobalIllumination2D says the lighting button has no effect there", () => {
+  const pad = openGraphics();
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A"); // a graphics change refreshes the tab
+  const note = world.find("graphics_note");
+  expect(note.active).toBe(true);
+  expect(note.get("Text").text).toBe(i18n.t("options.gfx.lightNote"));
 });

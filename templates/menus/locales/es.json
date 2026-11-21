@@ -76,7 +76,8 @@
       "outline": "Contornos",
       "hdr": "Salida HDR",
       "note": "Esta escena no tiene efectos de pantalla; tus elecciones valen para las escenas que sí los tienen.",
-      "hdrNote": "La salida HDR necesita una pantalla HDR y un backend gráfico que pueda mostrarla."
+      "hdrNote": "La salida HDR necesita una pantalla HDR y un backend gráfico que pueda mostrarla.",
+      "lightNote": "Esta escena no tiene iluminación 2D; el botón de iluminación 2D vale para las escenas que sí la tienen."
     },
     "volume": {
       "master": "General",

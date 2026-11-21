@@ -673,7 +673,8 @@ TEST_CASE("shadow lights: every one of the 256 lights a frame shades has its sha
 namespace {
 
 // A caster of 256 segments that all run from x = -100 to x = 100 just above a light at the origin: every segment spans about
-// 400 of the 1024 angles, so one caster costs about 98,000 segment-by-angle tests and eleven pass kMaxRowWork2D.
+// 400 of the 1024 angles, so one caster costs 66,000 to 121,000 segment-by-angle tests (the nearer the light, the more)
+// and twelve of them already pass kMaxRowWork2D; the tests use fourteen for margin.
 void add_zigzag(CasterSet& set, float y) {
     ShadowBody b;
     b.first = std::uint32_t(set.segs.size());
@@ -694,7 +695,7 @@ void add_zigzag(CasterSet& set, float y) {
 
 TEST_CASE("cast_casters: the per-row work cap cuts the same casters on every run") {
     CasterSet set;
-    for (int i = 0; i < 12; ++i) add_zigzag(set, 10.0f + float(i) * 8.0f);
+    for (int i = 0; i < 14; ++i) add_zigzag(set, 10.0f + float(i) * 8.0f);
     // The last caster is a box below the light: it is after the cut, so it must not block anything.
     const CasterSet below = one_box(-20, -30, 20, -20, false);
     ShadowBody boxBody = below.bodies[0];
@@ -719,7 +720,7 @@ TEST_CASE("cast_casters: the per-row work cap cuts the same casters on every run
     // The box alone is read in full: the cap, not the geometry, is what left the light unshadowed below.
     std::vector<float> alone = fresh_row(300);
     bool cutAlone = false;
-    cast_casters(set, {12}, 0, 0, 300, alone.data(), &cutAlone);
+    cast_casters(set, {14}, 0, 0, 300, alone.data(), &cutAlone);
     CHECK_FALSE(cutAlone);
     CHECK(alone[std::size_t(kShadowAngles) * 3 / 4] < 300);
 
@@ -731,10 +732,10 @@ TEST_CASE("cast_casters: the per-row work cap cuts the same casters on every run
         CHECK(work < 100);
     }
 
-    // Five of those casters are under half the cap: nothing is cut.
+    // Three of the zigzags (at most 121,000 tests each) are under half the cap: nothing is cut.
     std::vector<float> few = fresh_row(300);
     bool cutFew = false;
-    cast_casters(set, {0, 1, 2, 3, 4}, 0, 0, 300, few.data(), &cutFew);
+    cast_casters(set, {0, 1, 2}, 0, 0, 300, few.data(), &cutFew);
     CHECK_FALSE(cutFew);
 }
 
@@ -781,7 +782,7 @@ TEST_CASE("row work cap in a scene: warned once with a hint, again after a scene
     w.set_scene_path("scenes/a.json");
     lit_floor(w);
     Entity l = lamp(w, {0, 0, 0}, 300, 0.0f);
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 14; ++i) {
         Entity e = make(w, "zigzag", {0, float(i) * 8.0f, 0});
         auto& c = w.add<ShadowCaster2D>(e);
         c.shape = ShadowCaster2DShape::Polygon;
@@ -796,7 +797,7 @@ TEST_CASE("row work cap in a scene: warned once with a hint, again after a scene
     w.get<Transform>(l)->position.x = 1.0f;  // a new row: the cap is met again, the warning stays once
     g.render(w);
     CHECK(log.count("segment-by-angle tests") == 1);
-    w.set_scene_path("scenes/b.json");
+    w.set_scene_path("scenes/b.json");  // phase 2: a new scene meets the cap again, so the warning shows again
     w.get<Transform>(l)->position.x = 2.0f;
     g.render(w);
     CHECK(log.count("segment-by-angle tests") == 2);
