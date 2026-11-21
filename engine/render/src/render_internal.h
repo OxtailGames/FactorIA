@@ -664,8 +664,9 @@ constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaxMateri
 // The picture drawn so far, for a sprite material whose snippet calls fa_scene_color() (M74.4): the program declares this view
 // (and the engine's light_smp sampler) only then, so only the draws of such a material bind it (renderer_draw.cpp, water2d.h).
 constexpr int kMaterialSpriteSceneView = kQuadCookieView + 1;
-static_assert(kMaterialSpriteSceneView == 14 && kMaterialSpriteSceneView == kMaterialSpriteVsFirstView + kMaxMaterialTextures + 2,
-              "fa_scene_tex is binding 14 of shaders/quad_common.glsl, after the emissive map (12) and the cookie atlas (13)");
+static_assert(
+    kMaterialSpriteSceneView == 14 && kMaterialSpriteSceneView == kMaterialSpriteVsFirstView + kMaxMaterialTextures + 2,
+    "fa_scene_tex is binding 14 of shaders/quad_common.glsl, after the emissive map (12) and the cookie atlas (13)");
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
@@ -954,7 +955,7 @@ class QuadList {
 public:
     std::vector<Vertex2D> raw;
     std::vector<QuadItem> items;
-    std::vector<float> inst;  // the instanced values of the items that have them (QuadItem::instFirst)
+    std::vector<float> inst;    // the instanced values of the items that have them (QuadItem::instFirst)
     std::vector<Fx2D> effects;  // the built-in 2D effects of the items that have one (QuadItem::effect)
 
     void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,

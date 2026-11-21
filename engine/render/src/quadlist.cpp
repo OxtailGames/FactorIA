@@ -217,8 +217,9 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
             batches.back().fx == it.fx &&  // M74: emission, light layers and rim light make batches of their own
             (!it.fx.needs_full_program() ||
              batches.back().tex == it.tex) &&  // their uv transforms depend on the texture object
-            it.instances == 0 &&                             // a draw from buffers is one quad drawn N times: alone
-            batches.back().effect == 0 && it.effect == 0 &&  // an effect reads the picture drawn so far: alone
+            it.instances == 0 &&               // a draw from buffers is one quad drawn N times: alone
+            batches.back().effect == 0 &&
+            it.effect == 0 &&  // an effect reads the picture drawn so far: alone
             batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
