@@ -30,6 +30,11 @@ in a Debug build. Pixels with alpha 0 are left alone by the adjustments that qua
 | `gradientMap` | `stops` [{`at`, `color`}] (2-64, `at` not decreasing) | the colour of the gradient at the pixel's Rec. 709 luma |
 | `colorBalance` | `shadows`, `midtones`, `highlights`: [r, g, b] each -1..1 | adds 0.5 x weight x shift; weights from the luma l: shadows (1-l)^2, highlights l^2, midtones 4l(1-l) |
 | `threshold` | `level` 0..1 (0.5), `above` (white), `below` (black) | luma at or above `level` becomes `above` |
+| `normalMap` | `from` sprite or height (sprite), `strength` 0..32 (1), `source` (a PNG of the project), `tile` (false) | the pixels become a tangent-space normal map: [Normal maps](#normal-maps). This one and the four below work on the stored 8-bit pixels, like a PNG, and also change alpha |
+| `normalFlip` | `channel` y, x or both (y) | mirrors a component of a normal map (y: OpenGL to DirectX and back) |
+| `normalSmooth` | `radius` 0..16 (1), `tile` | blurs the vectors and makes them unit length again |
+| `normalStrength` | `amount` 0..8 (1) | scales the slopes: 2 is twice as steep, 0 is flat |
+| `normalize` | `flatten` (true) | every vector unit length; with `flatten` the layer ends opaque (a transparent pixel becomes flat) |
 
 `palette: "style"` is `style.palette` of `assets.json` ([ASSETS.md](../ASSETS.md)); with no style palette the render fails
 saying so. "Nearest colour" is the smallest Euclidean distance in **OKLab** (a perceptual space) by default, or in the stored RGB
@@ -241,3 +246,40 @@ pixel anti-aliased), lower values fade from `hardness * radius` to the edge. `er
 apply in order and the same input always gives the same pixels. `create: true` makes an empty pixels layer (at the top) when
 no layer has that name; `selection` limits where the strokes paint; a layer that is not a pixels layer is rasterized as in
 `image.edit`.
+
+### Normal maps
+
+A normal map is an ordinary layer of the document, so the tools above edit it, and a game lights a sprite with it
+(`Sprite.normalMap`, [RENDERING_2D_EMISSION.md](../rendering/RENDERING_2D_EMISSION.md), "Generated normals"). Its pixels are
+tangent-space normals: red is +X to the right, green is +Y UP the picture (OpenGL), blue is towards the viewer, and a flat area is
+`#8080ff`.
+
+1. **Make it.** `image.normal.generate {"path", "layer"?, "from"?, "strength"?, "tile"?, "name"?}` adds a canvas-sized pixels layer
+   that holds the normal map of the layer `layer` (its masks, adjustments and effects count) or of the whole picture. `from` is `sprite`
+   (default: a bevel from the transparent edge plus brightness times alpha) or `height` (the picture is a grey height map, white =
+   high). With `tile` false the bytes are exactly those the renderer makes for `Sprite.normalFrom` `sprite` or `height` with the same
+   `Sprite.normalStrength`, and `assets.generate_texture` writes. The new layer is **hidden** (`visible: false`): a normal map is
+   data, and shown it would cover the sprite, so `changed` is false and the baked picture does not change. Its name is `normal`
+   unless `name` says otherwise (a number is added when the name is taken); the result's `normalMap` object names the layer and what to do next.
+   The non-destructive way is the `normalMap` adjustment on a layer (or on an `adjustment` layer, which makes a map of everything below
+   it): the numbers stay editable. `image.normal.generate` makes pixels you can paint on.
+2. **Edit it.** Paint a slope with `image.paint` on that layer, giving each stroke `"normal": {"azimuth": 90, "tilt": 30}` instead of
+   `color` (azimuth in degrees counter-clockwise from +X: 0 right, 90 up the picture; tilt 0 = flat to 89). A soft edge or an opacity
+   under 1 blends colours, which leaves the unit length, so finish with the `normalize` adjustment. `normalSmooth` rounds a
+   relief, `normalStrength` makes it steeper or flatter, `normalFlip` turns an OpenGL map into a DirectX one, `normalMap` with
+   `source` builds the map from a separate grey height PNG. Each of them keeps every vector a valid one.
+3. **Use it.** `image.export {"path", "layer": "normal", "out": "assets/art/hero-n.png"}` writes that layer alone as a PNG (an export
+   takes a hidden layer too); set `Sprite.normalMap` to it. Or leave the file out and let the engine make the map when the scene
+   loads: `Sprite.normalFrom` = `sprite` or `height`.
+4. **Look at it.** The `shade` adjustment lights a picture from a normal map file, and the Image panel's **Light** row lights the
+   picture with the layer you pick, with a lamp that follows the mouse or circles ([EDITOR.md](../EDITOR.md), "Image panel").
+
+```json
+{"command": "image.normal.generate", "args": {"path": "assets/art/hero.image.json", "layer": "body", "from": "sprite", "strength": 2}}
+{"command": "image.paint", "args": {"path": "assets/art/hero.image.json", "layer": "normal",
+  "strokes": [{"points": [[8, 8], [8, 24]], "size": 3, "hardness": 1, "normal": {"azimuth": 0, "tilt": 40}}]}}
+{"command": "image.export", "args": {"path": "assets/art/hero.image.json", "layer": "normal", "out": "assets/art/hero-n.png"}}
+```
+
+The work happens in `fa/tooling/image_normal.h`; the Image panel's preview and the `shade` adjustment use the same formula
+(each pixel's colour times `max(0, 1 + 2 * intensity * (n . L - L.z))`), so a flat area keeps its colour.

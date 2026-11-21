@@ -28,6 +28,7 @@
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/tooling/image_doc.h"
+#include "fa/tooling/image_normal.h"
 #include "fa/tooling/image_paint.h"
 #include "fa/tooling/pixel_art.h"
 
@@ -145,6 +146,15 @@ public:
     // demand: call it once per frame.
     const Image& picture();
     std::uint64_t revision() const { return pictureRev_; }
+    // The picture lit by a layer used as its normal map (the panel's "Light" preview; nothing is written): the layer `normalLayer` (an
+    // index path) is drawn alone, as a Sprite.normalMap would be, and `light` shines on `picture()` through it with the formula of the
+    // `shade` operation (fa/tooling/image_normal.h). The picture and the normal map are kept until the document, the frame or the
+    // pictures change, so moving the light costs only the lighting pass over at most `maxSide` pixels on the long side. A stroke in
+    // progress shows in the picture at once and in the normal map when it ends. Empty (and `why` says why) when the layer does not exist
+    // or does not draw. Call it on the UI thread, once per frame.
+    const Image& lit_picture(const std::string& normalLayer, const NormalLight& light, int maxSide,
+                             std::string* why = nullptr);
+    std::uint64_t lit_revision() const { return litRev_; }  // changes when lit_picture() gives a different picture
     // Milliseconds the last composite took (the panel shows it in the status line; the autotest logs it).
     double last_composite_ms() const { return compositeMs_; }
     std::uint64_t composites() const { return composites_; }
@@ -397,6 +407,10 @@ private:
     std::uint64_t pictureRev_ = 0;
     double compositeMs_ = 0;
     std::uint64_t composites_ = 0;
+    // The light preview (lit_picture): the normal layer drawn alone, and the lit result, each with the key it was made for.
+    Image litNormal_, litOut_;
+    std::string litNormalKey_, litNormalError_, litOutKey_;
+    std::uint64_t litRev_ = 0;
     // The flattened layers under the one being edited (see recomposite).
     Image below_;
     std::map<std::string, Image> pics_;  // the stand-in pictures of one composite (see recomposite)

@@ -5,6 +5,7 @@
 #include <format>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/image_normal.h"
 #include "fa/tooling/style_guide.h"
 #include "fa/tooling/image_tile.h"
 #include "image_edit.h"
@@ -443,7 +444,7 @@ Json image_paint(const std::string& projectDir, const Json& a) {
         if (!st.is_object())
             arg_error(cmd, base, "a stroke is an object {points, size, color, ...}.",
                       "Example: {\"points\":[[4,4],[40,4]],\"size\":3,\"color\":\"#ff0000\"}.");
-        check_arg_keys(cmd, st, base, {"points", "size", "hardness", "color", "opacity", "erase", "spacing"});
+        check_arg_keys(cmd, st, base, {"points", "size", "hardness", "color", "normal", "opacity", "erase", "spacing"});
         if (!st.contains("points") || !st["points"].is_array() || st["points"].empty())
             arg_error(cmd, base + "/points",
                       "`points` is required: [[x, y], ...] in canvas pixels (one point is a dab).",
@@ -464,9 +465,24 @@ Json image_paint(const std::string& projectDir, const Json& a) {
         const double spacing = std::max(0.25, num(st, cmd, base, "spacing", 0.01, 512, std::max(1.0, size * 0.2)));
         const bool erase = st.contains("erase") && st["erase"] == true;
         Color col{0, 0, 0, 1};
-        if (!erase) {
+        if (st.contains("normal") && !st["normal"].is_null()) {
+            // a slope for a normal map: the colour that encodes it
+            const Json& nj = st["normal"];
+            if (st.contains("color"))
+                arg_error(cmd, base + "/normal", "a stroke has `color` or `normal`, not both.",
+                          "Use `color` for a picture and `normal` {azimuth, tilt} for a normal-map layer.");
+            if (!nj.is_object())
+                arg_error(cmd, base + "/normal",
+                          "`normal` is an object {azimuth, tilt}, got " + describe_json_value(nj) + ".",
+                          "Example: \"normal\":{\"azimuth\":90,\"tilt\":30} slopes 30 degrees up the picture.");
+            check_arg_keys(cmd, nj, base + "/normal", {"azimuth", "tilt"});
+            const double az = num(nj, cmd, base + "/normal", "azimuth", -360, 360, 0);
+            const double tilt = num(nj, cmd, base + "/normal", "tilt", 0, 89, 0);
+            col = normal_direction_color(az, tilt);
+        } else if (!erase) {
             if (!st.contains("color"))
-                arg_error(cmd, base + "/color", "a stroke needs `color` (or `erase: true`).",
+                arg_error(cmd, base + "/color",
+                          "a stroke needs `color` (or `normal` on a normal map, or `erase: true`).",
                           "Example: \"color\":\"#ff0000\".");
             col = colour_arg(cmd, st["color"], base + "/color");
         }
@@ -576,7 +592,9 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits "
             "the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what "
             "is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, "
-            "`stamps` and the picture as `$image`." FA_COMMAND_DETAILS "Example: "
+            "`stamps` and the picture as `$image`." FA_COMMAND_DETAILS
+            "`normal` {azimuth, tilt} replaces `color` to paint a slope on a "
+            "normal-map layer (docs/images/IMAGES_EFFECTS_COMMANDS.md, \"Normal maps\"). Example: "
             "{\"path\":\"assets/art/"
             "hero.image.json\",\"layer\":\"paint\",\"create\":true,\"strokes\":[{\"points\":[[4,4],[40,20]],\"size\":3,"
             "\"color\":\"#ff0000\"}]}";
@@ -591,6 +609,9 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "hardness":{"type":"number","minimum":0,"maximum":1,"default":1,"description":"1 = hard edge; lower fades from hardness*radius to the edge."},
             "color":{"description":"The paint colour (\"#rrggbb\", a CSS name or [r,g,b,a]). Not needed when erase is true."},
             "opacity":{"type":"number","minimum":0,"maximum":1,"default":1,"description":"Strength of the whole stroke."},
+            "normal":{"type":"object","description":"Paint a slope on a normal-map layer (image.normal.generate) instead of a colour: the stroke's colour becomes the normal that tilts `tilt` degrees away from the viewer towards `azimuth`. Not with `color`. A soft edge or opacity under 1 blends the colours, so run the normalize operation afterwards.","properties":{
+              "azimuth":{"type":"number","minimum":-360,"maximum":360,"default":0,"description":"Direction of the slope in degrees, counter-clockwise from +x: 0 = the surface faces right, 90 = up the picture, 180 = left, 270 = down."},
+              "tilt":{"type":"number","minimum":0,"maximum":89,"default":0,"description":"How far the surface leans, 0 = flat (facing the viewer) up to 89."}}},
             "erase":{"type":"boolean","default":false,"description":"Lower the alpha instead of painting."},
             "spacing":{"type":"number","minimum":0.01,"maximum":512,"description":"Pixels of arc length between stamps (default size/5, at least 1)."}}}},
           "bake":{"type":"boolean","default":true,"description":"Bake the document to its PNG after painting."}}})");

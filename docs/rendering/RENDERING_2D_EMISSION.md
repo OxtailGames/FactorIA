@@ -104,6 +104,8 @@ normal points at the light and nothing where it faces away. `rimWidth` is the wi
 `assets.generate_texture` uses to write a normal map file (`normal_map_from_height` in `fa/core/image_tools.h`), so the bytes are the same ones:
 a generated map and the file `assets.generate_texture` would write look the same. It is cached per texture and strength and made again, in place,
 when the texture file is reloaded. A source that cannot be read is logged once (what is wrong and how to fix it) and the sprite is lit flat.
+The same maps can be made, edited (paint a slope, smooth, flip a channel, change the strength) and previewed under a moving light as a
+layer of an image document, byte for byte the map above: [Normal maps](../images/IMAGES_EFFECTS_COMMANDS.md#normal-maps).
 `normalFrom` `sprite` and `height` ignore `normalMap`. A generated map is a normal-mapped sprite for the layers and the cost
 (the per-pixel path).
 

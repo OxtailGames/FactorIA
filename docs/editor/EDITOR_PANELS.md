@@ -68,6 +68,16 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
 - **Selections.** Plain drag replaces the selection, Shift adds, Alt subtracts and Shift+Alt intersects (the same as the operation
   menu). All (Ctrl+A), None (Ctrl+D), Invert, Grow, Shrink and Feather are buttons of the options bar. The selection is the stored
   selection `image.select` writes, so a command sees it too.
+- **Light** (the last row of the options bar). A preview of the picture lit by a normal map, to see what a normal-map edit does
+  without leaving the panel ([Normal maps](../images/IMAGES_EFFECTS_COMMANDS.md#normal-maps)). Turn **Light** on and pick the layer that holds the normal
+  map (it starts with the selected layer when that is hidden, else the first hidden one; `image.normal.generate` adds a hidden layer).
+  The canvas then draws the picture with every pixel multiplied by `max(0, 1 + 2 * strength * (n . L - L.z))`, the formula of the
+  `shade` adjustment, with a lamp that follows the mouse (a small marker shows it); **Orbit** circles it instead. **Height** is how
+  far above the picture the lamp is, **Strength** how strongly the normals change the colour and **Flip green** reads a DirectX map.
+  It is a look only: it writes nothing, adds no undo step and stays on while you paint on the normal layer (a stroke in progress
+  shows in the lit picture once it ends). The lit picture is made on the CPU from at most 640 pixels on the long side, so a big
+  document lights as fast as a small one; the preview says why when there is no picture to light (no layer picked, a layer with no
+  pixels...).
 - **Provider pictures.** Under the layer list, **Inpaint selection...** and **Generate layer...** ask for a prompt and make what
   `image.inpaint` and `image.generate_layer` make ([IMAGES.md](../IMAGES.md), "Pictures from a provider"): the plan (provider, selection,
   size) is made first, on the same thread as the call and before anything is paid for, so a mistake is shown under the panel as a
