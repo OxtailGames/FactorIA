@@ -5,6 +5,7 @@
 // picker over *.material.json with the material's build error under it, and materialParams is typed by `material.info`.
 #include <algorithm>
 #include <cfloat>
+#include <climits>
 #include <cmath>
 
 #include "editor_internal.h"
@@ -899,6 +900,45 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             }
             at_track(track, !disabled);
             tooltip(tip);
+            break;
+        }
+        case FieldWidget::LayerMask: {
+            // A bit mask of layers: one toggle per layer 0..7 (lit = the layer is in the mask) and the number below it, which
+            // also reaches layers 8..31 and takes -1 for every layer. A click flips ONE bit and keeps the others.
+            const std::int32_t mask =
+                cur.is_number()
+                    ? std::int32_t(std::clamp<long long>(std::llround(cur.get<double>()), INT32_MIN, INT32_MAX))
+                    : 0;
+            const ImGuiStyle& style = ImGui::GetStyle();
+            const float gap = style.ItemInnerSpacing.x;
+            const float side = std::clamp((ImGui::GetContentRegionAvail().x - gap * float(kLayerMaskToggles - 1)) /
+                                              float(kLayerMaskToggles),
+                                          18.0f, 40.0f);
+            for (int bit = 0; bit < kLayerMaskToggles; ++bit) {
+                ImGui::PushID(bit);
+                if (bit > 0) ImGui::SameLine(0.0f, gap);
+                const bool on = layer_mask_has(mask, bit);
+                const bool dim = mixed || !on;
+                if (!dim) ImGui::PushStyleColor(ImGuiCol_Button, style.Colors[ImGuiCol_ButtonActive]);
+                const std::string label = std::to_string(bit) + "##bit";
+                if (ImGui::Button(label.c_str(), ImVec2(side, 0.0f))) {
+                    out = layer_mask_with(mask, bit, !on);
+                    changed = true;
+                }
+                if (!dim) ImGui::PopStyleColor();
+                at_track(track + ".bit." + std::to_string(bit), !disabled);
+                tooltip("Layer " + std::to_string(bit) + (on ? " (in the mask)" : " (not in the mask)") + ": " + tip);
+                ImGui::PopID();
+            }
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            int v = mask;
+            if (ImGui::DragInt("##v", &v, 1.0f, 0, 0, mixed ? dash : "%d")) {
+                out = v;
+                changed = true;
+            }
+            at_track(track, !disabled);
+            tooltip(tip);
+            keep_step_alive();
             break;
         }
         case FieldWidget::EntityCombo: {
