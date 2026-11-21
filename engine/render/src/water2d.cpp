@@ -317,6 +317,14 @@ bool WaterFx::ready() {
     return true;
 }
 
+void WaterFx::warm(Gpu& gpu, const TargetFormat& gameFormat) {
+    if (!ready()) return;
+    copy_pipeline(
+        TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1});  // the format copy() draws the pooled image in
+    fx_pipeline(gameFormat, false);
+    fx_pipeline(gameFormat, true);
+}
+
 sg_pipeline WaterFx::copy_pipeline(const TargetFormat& format) {
     for (const PipelineEntry& e : copyPipelines_)
         if (e.format == format) return e.pipeline;

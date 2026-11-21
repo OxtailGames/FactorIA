@@ -119,4 +119,4 @@ layer of an image document, byte for byte the map above: [Normal maps](../images
 | Cookie cell | 256 x 256 pixels | a larger picture is scaled down into its cell |
 
 See also: [Rendering](../RENDERING.md), [PERFORMANCE.md](../PERFORMANCE.md) ("2D lights"), [SHADERS_SPRITES.md](../shaders/SHADERS_SPRITES.md).
-Design: docs/design/ARCHITECTURE_RENDERING.md ("2D light layers and emission"; repository only, not in the binary).
+Design: docs/design/ARCHITECTURE_RENDERING.md ("2D emission, light layers and cookies (M74.2)"; repository only, not in the binary).

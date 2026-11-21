@@ -55,8 +55,22 @@ std::vector<TextureAsset*> Renderer::Impl::plan_cookies(Frame& fr) {
     return cells;
 }
 
-// Copies each cookie of the frame into its cell. The pass runs before the light buffer pass and the main pass of the job.
+// Copies each cookie of the frame into its cell. The pass runs before the light buffer pass and the main pass of the job. The atlas keeps
+// its content from frame to frame (the copy is the same on every backend, the upside-down render target of OpenGL is undone by the cell's
+// negative v step in cookie_shader_data), so a frame whose cells hold the same textures as the last copy does nothing.
 void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
+    std::vector<std::uint64_t> stamp;
+    stamp.reserve(2 + cells.size() * 4);
+    stamp.push_back(cookieTarget.color.id);
+    stamp.push_back(assets ? assets->reload_generation() : 0);
+    for (const TextureAsset* t : cells) {
+        stamp.push_back(t ? t->gpu_view().id : 0);
+        stamp.push_back(t && t->atlas ? std::uint64_t(t->atlasX) : 0);
+        stamp.push_back(t && t->atlas ? std::uint64_t(t->atlasY) : 0);
+        stamp.push_back(t ? std::uint64_t(t->tex_fix(false, false)) : 0);
+    }
+    if (stamp == cookieStamp) return;
+    cookieStamp = std::move(stamp);
     PassDesc p = pass_into(cookieTarget, "light-cookies");
     p.colorLoad = SG_LOADACTION_CLEAR;
     p.clearColor = {0, 0, 0, 0};  // an empty cell lets no light through
