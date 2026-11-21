@@ -579,6 +579,7 @@ float light_item_width(float widget, const char* label) {
     return widget + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x;
 }
 // The widths of the Light row's controls, in order (the first one is the checkbox itself).
+// Keep in step with draw_image_light_row below (same controls, same order): they must change together.
 std::vector<float> light_row_widths(const ImageUi& u) {
     const float box = ImGui::GetFrameHeight();
     std::vector<float> w = {light_item_width(box, "Light")};
@@ -761,6 +762,7 @@ void Editor::draw_image_options(ImageModel& m) {
 }
 
 void Editor::draw_image_light_row(ImageModel& m) {
+    // The control list here is mirrored by light_row_widths / light_row_lines above: change them together.
     ImageUi& u = image_;
     // Next item on this line when `width` (label included) still fits in the options bar, else on a new line.
     const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
