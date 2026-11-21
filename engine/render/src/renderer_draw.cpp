@@ -4027,7 +4027,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             }
         }
     } else if (pp.colorFilter != 0 && ensure_filter_target()) {
-        // Only the colour filter (PostProcess.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
+        // Only the colour filter (PostProcess.colorFilterEnabled / colorFilterMode): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {

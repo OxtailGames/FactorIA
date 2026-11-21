@@ -470,7 +470,7 @@ Things to know:
 - `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
   window): `layers` (the camera's own PostProcess, then each volume the camera is inside, with
   its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
-  effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
+  effect that runs, `{value, from, strength}`. `from` is `own`, `volume:<entity id>` or `default`, so "why is the picture
   this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.
 - `postprocess.set {"id", "fields"}` writes fields of a PostProcess (added when the entity has none: on a Camera entity it is the
   camera's own stack, on an entity without a Camera a volume) and `postprocess.presets` lists the looks. `postprocess.apply_preset

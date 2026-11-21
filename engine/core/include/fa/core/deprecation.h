@@ -41,7 +41,7 @@ std::string deprecation_message(std::string_view kind, std::string_view key, con
 
 // A field a component lost after its deprecation ("Camera", "bloom"): "Camera.bloom was removed in 0.33.0: add a PostProcess ...", the
 // hint of the "Unknown field" error of a scene, a prefab or a patch that still holds it (replaces the did-you-mean, which cannot
-// guess a field that is gone). "" for a field that was never removed. The table is in deprecation.cpp: add a row with the removal.
+// guess a field that is gone). The field name is matched without regard to case. "" for a field that was never removed. The table is in deprecation.cpp: add a row with the removal.
 std::string removed_field_hint(std::string_view component, std::string_view field);
 
 class Deprecations {

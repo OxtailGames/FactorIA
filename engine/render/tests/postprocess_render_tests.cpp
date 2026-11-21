@@ -1,6 +1,6 @@
 // M71: the post-processing stack on the GPU (src/postprocess.h, post.glsl, exposure.glsl): the passes a frame declares (none when
 // nothing is on), the final pass (exposure, tonemap, the encode with a dither, the colour filter), the automatic exposure, the HUD drawn
-// over the final picture, the volumes, and the Camera.bloom* / Camera.colorFilter fields standing in for a PostProcess.
+// over the final picture, the volumes, and the PostProcess bloom and colour filter.
 #include "test_util.h"
 
 #include <algorithm>
