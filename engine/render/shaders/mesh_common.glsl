@@ -473,6 +473,9 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_rpb_bx;
     vec4 fa_rpb_by;
     vec4 fa_rpb_bz;
+    // The realtime GI grids (RealtimeGI; fa_gi_light below): their records are in the light data texture.
+    vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
+                                // below runs), z = 1 when the draw belongs to a capture (a probe's face: the grid's light is times its bounce)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -826,10 +829,123 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 // a lightmap costs one branch on a varying.
 layout(binding=26) uniform texture2D fa_lightmap;
 
-// The diffuse indirect light toward n: the baked texel of a lightmapped surface, else the ambient light or the sky's irradiance. It
-// replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale darkens it as it does
-// the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the sky's: a lightmap holds no
-// direction, so the ambient is never counted twice (the texel replaces the diffuse ambient only) and never missing.
+// ---- the realtime GI grids (RealtimeGI; docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the shading") ----
+// The records of the ready grids are in the light data texture from texel fa_gi.x, four texels each (gi.h, gi_pack_record): [0] origin.xyz and
+// spacing, [1] the probe counts per axis and their product, [2] the first block, blocks per band row, maxDistance and intensity, [3] bounce,
+// backface tolerance and ready. A probe's block is in the band of the probe atlas under its 1024 square (10 x 11 texels): the depth map (the
+// mean and the mean square of d / maxDistance, an octahedral map with a border), the nine coefficients of the SH of the light that reaches
+// it, and the meta texel (the share of back faces hit, 1 once captured).
+vec4 fa_gi_fetch(vec2 texel) {
+    return textureLod(sampler2D(fa_probe_atlas, fa_env_smp), texel / fa_atlas_size(), 0.0);
+}
+
+// The light of the grid whose record starts at texel `rec`, for a surface facing n at the fragment (v: toward the camera), as the light a sky
+// gives (irradiance / pi). `cover` is how much of the fragment the grid answers for: 1 inside its probes, fading to 0 over the half spacing
+// around them (the grid's box), and 0 where the eight probes around the point cannot see it.
+vec3 fa_gi_grid(int rec, vec3 n, vec3 v, out float cover) {
+    cover = 0.0;
+    vec4 r0 = fa_light_texel(rec);
+    vec4 r1 = fa_light_texel(rec + 1);
+    vec4 r2 = fa_light_texel(rec + 2);
+    vec4 r3 = fa_light_texel(rec + 3);
+    if (r3.z < 0.5 || fa_atlas_size().y < 1155.0) { return vec3(0.0); }  // not ready, or an atlas without the band
+    float spacing = max(r0.w, 1.0e-4);
+    vec3 cnt = r1.xyz;
+    vec3 rel = (fa_world_pos - r0.xyz) / spacing;                         // in probe units
+    vec3 inner = min(rel + vec3(0.5), cnt - vec3(0.5) - rel);             // the distance to the box's faces, in spacings
+    float edge = min(inner.x, min(inner.y, inner.z));
+    if (!(edge > 0.0)) { return vec3(0.0); }
+    float box = smoothstep(0.0, 1.0, clamp(edge * 2.0, 0.0, 1.0));
+    // The eight probes around the point and their trilinear weights (gi_neighbours).
+    vec3 g = clamp(rel, vec3(0.0), cnt - vec3(1.0));
+    vec3 i0 = min(floor(g), max(cnt - vec3(2.0), vec3(0.0)));
+    vec3 f = g - i0;
+    // The point seen from the probes: pushed along the normal (and a little toward the camera) so a surface does not see itself through
+    // the probe's own depth map.
+    vec3 pb = fa_world_pos + (n * 0.8 + v * 0.2) * (0.2 * spacing);
+    int bpr = int(r2.y + 0.5);
+    vec3 sh[9];
+    for (int k = 0; k < 9; ++k) { sh[k] = vec3(0.0); }
+    float wsum = 0.0;
+    // The bounds come from the record (its last texel is 0), not from constants: a driver that unrolled the eight probes and their nine
+    // coefficients made a shader with a discard (a clip material) too big for the Metal compiler.
+    int nProbes = 8 + int(r3.w);
+    int nCoef = 9 + int(r3.w);
+    for (int k = 0; k < nProbes; ++k) {
+        vec3 d = vec3(float(k & 1), float((k >> 1) & 1), float((k >> 2) & 1));
+        float tri = (d.x > 0.5 ? f.x : 1.0 - f.x) * (d.y > 0.5 ? f.y : 1.0 - f.y) * (d.z > 0.5 ? f.z : 1.0 - f.z);
+        if (!(tri > 0.0)) { continue; }
+        vec3 pr = min(i0 + d, cnt - vec3(1.0));
+        int blk = int(r2.x + pr.x + cnt.x * (pr.y + cnt.y * pr.z) + 0.5);
+        vec2 org = vec2(float(blk % bpr) * 10.0, 1024.0 + float(blk / bpr) * 11.0);
+        vec4 meta = fa_gi_fetch(org + vec2(9.5, 10.5));
+        if (meta.g < 0.5 || meta.r > r3.y) { continue; }  // not captured yet, or inside geometry
+        vec3 toPoint = pb - (r0.xyz + pr * spacing);
+        float dist = length(toPoint);
+        vec3 dir = toPoint / max(dist, 1.0e-4);
+        float w = tri;
+        // A probe behind the surface (it is on the other side of the normal) counts less.
+        float back = max(0.0001, (dot(-dir, n) + 1.0) * 0.5);
+        w *= back * back;
+        // Chebyshev's visibility test on the depth map: the moments are of d / maxDistance, so is the point's distance.
+        vec2 e = fa_oct_encode(dir);
+        vec2 mom = fa_gi_fetch(org + vec2(1.0) + (e * 0.5 + vec2(0.5)) * 8.0).rg;
+        float dn = dist / max(r2.z, 1.0e-4);
+        if (dn > mom.x) {
+            float variance = max(mom.y - mom.x * mom.x, 0.0);
+            float dd = dn - mom.x;
+            float cheb = variance / max(variance + dd * dd, 1.0e-12);
+            w *= cheb * cheb * cheb;
+        }
+        if (!(w > 0.0)) { continue; }
+        for (int c = 0; c < nCoef; ++c) { sh[c] += fa_gi_fetch(org + vec2(float(c) + 0.5, 10.5)).rgb * w; }
+        wsum += w;
+    }
+    if (!(wsum > 1.0e-5)) { return vec3(0.0); }
+    for (int c = 0; c < 9; ++c) { sh[c] /= wsum; }
+    // Every probe that sees the point little leaves the sky to the rest: the grid's say fades with the weight it found.
+    cover = box * smoothstep(0.0, 0.02, wsum);
+    float gain = r2.w * (fa_gi.z > 0.5 ? r3.x : 1.0);  // intensity, times bounce in a capture
+    return fa_sh_eval(sh, n) * gain;
+}
+
+// The light of the ready grids at the fragment: `left` is the part the grids do not answer for (1 = none reaches it). The first grid that
+// reaches the fragment takes its cover, the next ones what is left.
+vec3 fa_gi_light(vec3 n, out float left) {
+    left = 1.0;
+    vec3 acc = vec3(0.0);
+    vec3 v = normalize(fa_camera_pos.xyz - fa_world_pos);
+    int first = int(fa_gi.x + 0.5);
+    int count = int(fa_gi.y + 0.5);
+    for (int k = 0; k < count && k < 8; ++k) {
+        float c;
+        vec3 l = fa_gi_grid(first + 4 * k, n, v, c);
+        float share = c * left;
+        acc += l * share;
+        left -= share;
+        if (left < 0.001) { left = 0.0; break; }
+    }
+    return acc;
+}
+
+// The diffuse light of a fragment no baked data reaches: the realtime GI where a ready grid covers it, the ambient light (the reflection
+// probes' SH and the sky's) for the rest.
+vec3 fa_realtime_or_ambient(vec3 n) {
+    if (fa_gi.y > 0.5) {
+        float left;
+        vec3 gi = fa_gi_light(n, left);
+        if (left < 0.999) { return left > 0.0 ? gi + fa_ambient_light(n) * left : gi; }
+    }
+    return fa_ambient_light(n);
+}
+
+// The diffuse indirect light toward n, by order: the baked texel of a lightmapped surface; else the baked light probes where they cover
+// the point (blended with what follows by their coverage); else the realtime GI grid where a ready one covers it (blended with the ambient
+// over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe that reaches
+// the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale darkens
+// it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the reflection
+// probes' and the sky's: a lightmap holds no direction, so the ambient is never counted twice (the texel replaces the diffuse ambient
+// only) and never missing.
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
@@ -840,9 +956,11 @@ vec3 fa_indirect_diffuse(vec3 n) {
         // ambient where the probes only partly reach it.
         vec3 c[9];
         for (int k = 0; k < 9; k++) { c[k] = fa_probe_sh[k].xyz; }
-        return mix(fa_ambient_light(n), fa_sh_eval(c, n), clamp(cover, 0.0, 1.0));
+        vec3 baked = fa_sh_eval(c, n);
+        if (cover >= 1.0) { return baked; }
+        return mix(fa_realtime_or_ambient(n), baked, clamp(cover, 0.0, 1.0));
     }
-    return fa_ambient_light(n);
+    return fa_realtime_or_ambient(n);
 }
 
 #ifdef FA_SSS

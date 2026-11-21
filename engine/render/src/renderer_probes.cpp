@@ -130,6 +130,7 @@ void Renderer::Impl::probes_release() {
 }
 
 void Renderer::Impl::probes_build_volumes(World& world) {
+    gi_build_records(world);  // the realtime GI the meshes of this frame read (nothing while the world has no grid)
     probeVolumes.clear();
     const ProbeSystem& ps = probes;
     if (ps.entries.empty() || ps.world != &world || ps.sceneGeneration != world.scene_generation()) return;

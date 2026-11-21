@@ -1150,8 +1150,8 @@ struct LightProbeGroup {
 };
 // M73.5d: realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world that the renderer
 // captures a few at a time (the capture of a reflection probe, at 16 or 32 texels a face), each into a spherical-harmonics irradiance and
-// depth moments (docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination"). This is the data side: the meshes read the
-// grid from M73.5d-2 on; until then the commands render.gi_grid and render.probes show what it holds.
+// depth moments (docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination"). The lit meshes read the grid (the diffuse
+// light of the probes around each pixel, with a visibility test); the commands render.gi_grid and render.probes show what it holds.
 struct RealtimeGI {
     Vec3 size{20.0f, 6.0f, 20.0f};    // metres, the box of the grid; 0 on an axis = one layer of probes on it
     Vec3 offset{0.0f, 0.0f, 0.0f};    // metres: the box's centre relative to the entity's world position

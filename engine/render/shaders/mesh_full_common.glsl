@@ -199,6 +199,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_rpb_bx;
     vec4 fa_rpb_by;
     vec4 fa_rpb_bz;
+    // The realtime GI grids: see mesh_common.glsl.
+    vec4 fa_gi;
 };
 
 @include_block fa_inst_flags

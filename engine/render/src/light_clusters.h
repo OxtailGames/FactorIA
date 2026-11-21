@@ -147,15 +147,19 @@ struct LightTexture {
     // The first texel of the shadow region of the point and spot lights (local_shadows.h), after the cluster lists; -1 = none. The
     // fragment shader finds it in fa_shadow_lcfg.x (shaders/shadow_common.glsl).
     long long shadowBase = -1;
+    // The first texel of the realtime GI records (fa_gi.x; gi.h, gi_pack_record: four texels a grid), after everything else; -1 = none.
+    long long giBase = -1;
 };
 // Packs the light table (`lights`, directional first: `directional` of them), and when `lists` is not null the cluster table and the
 // lists after it, then (when `shadows` is not null and not empty) the shadow region of the local lights, then (when `decals` is not null)
-// the decal region. `camera` supplies the matrix rows and the forward axis. Sets height to the rows needed (at least 1). `decals` (only
+// the decal region, then (when `gi` is not null and `giCount` > 0) the records of the ready realtime GI grids, kGiRecordFloats floats each.
+// `camera` supplies the matrix rows and the forward axis. Sets height to the rows needed (at least 1). `decals` (only
 // with `lists`, on the same grid) adds the decal slots in z and w of each cluster texel; a view without decals has the same texels as
 // before M73.5b (z and w of a cluster texel are 0).
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
                         const ClusterLists* lists, LightTexture& out,
-                        const std::vector<LocalShadowRecord>* shadows = nullptr, const DecalPack* decals = nullptr);
+                        const std::vector<LocalShadowRecord>* shadows = nullptr, const DecalPack* decals = nullptr,
+                        const float* gi = nullptr, int giCount = 0);
 
 // The rows (a power of two) a texture of `texels` texels needs.
 int light_texture_rows(std::size_t texels);

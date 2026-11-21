@@ -78,9 +78,16 @@ renderer captures again while the game runs, a few probes a frame, so a moving l
 a second or two. The idea is the one of the DDGI grids of other engines: each probe keeps the diffuse light that reaches it and how far the walls
 around it are (so light does not leak through them), and a capture is blended into the old value so the light does not flicker.
 
-**Status.** Only the data side exists (M73-P5d-1): the grid is captured, kept on the GPU and reported by `render.gi_grid`, but no mesh is shaded with
-it yet, so a scene with a `RealtimeGI` looks exactly like the same scene without it (M73-P5d-2 adds the shading, and with it the extra bounces:
-a capture sees the grid's earlier light only once the meshes use it). `render.supports` lists `realtimeGI` as planned until then.
+**What the meshes read.** Every lit mesh whose point lies inside the probes of a ready grid gets its diffuse ambient light from the eight probes
+around it: the light each one keeps, weighted by how near it is, by whether the probe faces the surface and by a visibility test against the walls
+between (so a thin wall keeps the light of a room from leaking through it). The order of the diffuse light is: the lightmap texel; the baked light probes over the share
+they cover; the `RealtimeGI` grid; the reflection probes' light and the sky or `ambientLight`. A grid fades out over half a spacing outside its
+probes (a floor lying on the face of the box gets no light from it: let the box reach beyond the surfaces to light), and a grid that is not ready
+(it says `updating` in `render.gi_grid`, until every probe has been captured once) changes nothing: the frame is the one of a scene without it.
+`intensity` multiplies what the meshes take from the grid. The reflections stay the sky's and the reflection probes'. Because a capture draws the scene with
+the lighting the meshes have, the next capture of a probe sees the grid's earlier light, times `bounce`: that is the extra bounces, one more each time
+the probes are refreshed (`bounce` 0 makes the captures ignore the grid; the camera always sees it at full strength). Light from an emissive mesh
+or a light that moves reaches the walls in the time a cycle of the probes takes.
 
 1. Add a `RealtimeGI` component to an entity. `size` is the box (default 20 x 6 x 20 m, centred on the entity plus `offset`; 0 on an axis is one layer),
    `spacing` the distance between two probes (2 m: the default box has 11 x 4 x 11 = 484 probes; halving the spacing makes eight times as many).
@@ -94,7 +101,7 @@ a capture sees the grid's earlier light only once the meshes use it). `render.su
 4. Look at it with `factoria call render.gi_grid`: per grid the probe count, `captured` and `progress` (how many probes have a first capture),
    `cycles`, the memory (`bytes` of the grid, and the atlas's), the last frames' captures and the probes that lie **inside geometry**
    (`invalidProbes`, with their positions: a probe whose rays mostly hit the back of a surface is invalid, and the shading will ignore it, as with
-   baked probes; move the grid or the spacing). A wrong component (a field out of its range, too many probes) has state `invalid` with the field and
+   baked probes; move the grid or the spacing). `meshesRead` says whether the lit meshes read the grid (it is `ready`). A wrong component (a field out of its range, too many probes) has state `invalid` with the field and
    the fix in `message`.
 
 Cost: a scene without a `RealtimeGI` pays nothing (no pass, no image, the same bytes). With one, the probe atlas grows by 132 rows (about 1 MB) and each
@@ -105,7 +112,6 @@ of the opaque meshes: transparent surfaces and particles show in the light of a 
 
 ## Not done yet
 
-Baked probes are not updated at run time (a moving light or a destroyed wall does not change them: bake again, or use a `RealtimeGI` grid, which
-is not shaded yet), there is no occlusion of the
+Baked probes are not updated at run time (a moving light or a destroyed wall does not change them: bake again, or use a `RealtimeGI` grid), there is no occlusion of the
 probe by geometry between the probe and the object (a probe on the other side of a thin wall still counts: put the grid where the object
-is, or add points), and no reflection from a probe (reflections come from the sky and the reflection probes).
+is, or add points; a `RealtimeGI` grid does test it), and no reflection from a realtime grid (reflections come from the sky and the reflection probes).

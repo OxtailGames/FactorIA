@@ -7,14 +7,22 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 ## Unreleased
 
 - **Reflection probes are read by the meshes (M73-P3c):** a lit mesh inside the box of a `ReflectionProbe` now reflects it: up to two probes per mesh (the larger `importance`, then the smaller box, then the nearer capture) plus the sky, blended by how deep the mesh is inside each box over `blendDistance` (weights in steps of 1/32, so meshes that reflect the same still share a draw), with the roughness level of the filtered map, box projection when `boxProjection` is on, and the probe's spherical harmonics as the diffuse ambient where no lightmap or light probe covers the surface. The sky is entry 0 of the same atlas, which replaces the sky's cube at the mesh fragment view 14 (no new texture unit; a scene with a sky material and no probe now keeps the 8 MB atlas too). A scene with no probe in reach draws the same pixels and the same draw calls as before. `render.supports("reflectionProbes")` is true wherever the renderer draws, `render.probes` takes an `entity` and tells which probes that mesh reflected and how much of each, and the editor draws the box of the selected probe. A probe is read from the frame after its capture is complete; the captures themselves see the sky only (no bounce). Docs: docs/rendering/RENDERING_PROBES.md and docs/design/ARCHITECTURE_PROBES.md ("What P5d-2 can use").
+- **Realtime GI, the shading (M73-P5d-2):** lit meshes now read a ready `RealtimeGI` grid: the diffuse ambient light of a pixel is the light of the eight
+  probes around it, weighted by distance, by whether the probe faces the surface and by a Chebyshev visibility test on the probe's depth map (a thin wall keeps
+  the light of one side from the other), times `intensity`. The order of the diffuse light is the lightmap texel, the baked light probes over their coverage, the
+  grid (fading out over half a spacing outside its probes, so the box must reach past the surfaces it lights), then the reflection probes' light and the sky;
+  the specular light is unchanged. `bounce` works: a capture multiplies the grid's light by it, so the next refresh of a probe sees one more bounce (0 = the
+  captures ignore the grid), while the camera sees it at full strength. A grid that is still filling changes nothing, a world without a `RealtimeGI` draws the
+  same frames as before, and no draw call or texture unit is added (the records are in the light data texture, the fragment block grew by one vec4).
+  `render.gi_grid` reports `meshesRead` per grid and `render.supports` lists `realtimeGI` as drawn. Every material twin was regenerated.
+  docs/rendering/RENDERING_LIGHT_PROBES.md and docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the shading".
 - **Realtime GI, the data side (M73-P5d-1):** a new `RealtimeGI` component (a box of probes, `spacing`, `probesPerFrame`, `resolution`, `hysteresis`,
   `nearExclusion`, `maxDistance`, `backfaceTolerance`, tags; a wrong field is reported with its JSON pointer and the fix) makes the renderer capture a grid of
   probes over a few frames with the reflection probes' six-face capture: each probe keeps the diffuse light that reaches it as nine spherical-harmonics
   coefficients and a small octahedral map of the mean and mean squared distance of the surfaces around it (as fractions of `maxDistance`, so they fit a half float), blended into its old value by `hysteresis`, in a
   band of 132 rows added to the probe atlas (no texture unit). The probes are refreshed in a fixed order, the longest ago first, within `probesPerFrame` (32
   for all grids), and everything stays on the GPU. New command `render.gi_grid` lists each grid's probe count, progress, memory and the probes inside geometry.
-  No mesh is shaded with the grid yet (M73-P5d-2 does, and adds the extra bounces), so a scene looks the same with or without it, and a scene without a
-  `RealtimeGI` costs nothing. `render.supports` keeps `realtimeGI` planned. docs/rendering/RENDERING_LIGHT_PROBES.md and docs/design/ARCHITECTURE_PROBES.md.
+  A scene without a `RealtimeGI` costs nothing. docs/rendering/RENDERING_LIGHT_PROBES.md and docs/design/ARCHITECTURE_PROBES.md.
 - **Glass and liquids (M73.6b):** `MeshRenderer.transmission` (0..1), `thickness` (metres), `attenuationColor` and `attenuationDistance` now draw: the mesh
   shows what is behind it, refracted by its `ior` and `thickness`, blurred by its `roughness`, tinted by `color` and by the Beer-Lambert attenuation of its
   volume. glTF models bring them (`KHR_materials_transmission`, `_volume`, `_ior`; the textures are not used and the import says so). When a visible draw is
