@@ -17,6 +17,7 @@
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/particle_store.h"
+#include "fa/scene/postprocess.h"
 #include "fa/scene/sprite_animator.h"
 #include "fa/scene/world.h"
 #include "../../core/tests/golden_check.h"
@@ -175,6 +176,33 @@ inline Entity make(World& w, const char* name, Vec3 pos = {}) {
     Entity e = w.create(name);
     w.get<Transform>(e)->position = pos;
     return e;
+}
+
+// The PostProcess of the camera entity, added when it has none.
+inline PostProcess& camera_post(World& w, Entity cam) {
+    if (PostProcess* p = w.get<PostProcess>(cam)) return *p;
+    return w.add<PostProcess>(cam);
+}
+
+// Bloom on the camera's PostProcess with a hard knee: the picture the removed Camera.bloom fields drew.
+inline PostProcess& set_bloom(World& w, Entity cam, bool on, float threshold = 0.7f, float intensity = 1.2f,
+                              float radius = 20.0f, bool screenSpace = true) {
+    PostProcess& p = camera_post(w, cam);
+    p.bloomEnabled = on;
+    p.bloomKnee = 0.0f;
+    p.bloomThreshold = threshold;
+    p.bloomIntensity = intensity;
+    p.bloomRadius = radius;
+    p.bloomScreenSpace = screenSpace;
+    return p;
+}
+
+// The accessibility colour filter on the camera's PostProcess (None switches it off).
+inline PostProcess& set_color_filter(World& w, Entity cam, ColorFilter f) {
+    PostProcess& p = camera_post(w, cam);
+    p.colorFilterEnabled = f != ColorFilter::None;
+    p.colorFilterMode = f;
+    return p;
 }
 
 }  // namespace fa::test

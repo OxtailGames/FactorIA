@@ -115,23 +115,9 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     }
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear || viewSize != nullptr;
-    // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
-    // and the colour filter, exactly as before.
-    PostProcess legacy;
-    const bool useLegacy = legacy_post_of_camera(cam, legacy);
-    // A PostProcess of the camera's own wins over the deprecated fields: said once, or "bloom: true" would do nothing without a word.
-    if (useLegacy && best) {
-        const PostProcess* own = world.get<PostProcess>(best);
-        if (own && own->enabled && world.active_in_hierarchy(best) && warnedLegacyIgnored.insert(best.bits()).second)
-            FA_WARN("render",
-                    "Camera '{}' has Camera.bloom or Camera.colorFilter set and a PostProcess of its own: the "
-                    "deprecated fields are ignored. "
-                    "Hint: set bloomEnabled / colorFilterEnabled on the PostProcess (or remove the PostProcess).",
-                    world.id_of(best));
-    }
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
-    if (!postBypass && (useLegacy || world.any<PostProcess>())) {
-        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+    if (!postBypass && world.any<PostProcess>()) {
+        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci));
         for (const Error& err : stack->customErrors)
             if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
@@ -1070,7 +1056,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // One frame: the cameras drawn in depth order (each into its viewport rectangle: its own culling, 2D lights, 3D lights, clear)
 // and then, when the cameras do not fill the screen together with a single full-screen camera, the screen-space items
 // (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text) once over the whole screen. A game with one
-// camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
+// camera and no viewport is one job that draws all of it in one pass, as before. Bloom and PostProcess.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
@@ -1114,7 +1100,6 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;
-        warnedLegacyIgnored.clear();
         warnedCustomPass.clear();
     }
 

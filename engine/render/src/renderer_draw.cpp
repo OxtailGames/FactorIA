@@ -83,7 +83,7 @@ struct Renderer::Impl::DrawContext {
     const CameraInfo& post;
     JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
     // plan_job: the viewports and clears of this job
-    // hudAfterBloom: the screen-space items are drawn over the glowing game target (Camera.bloomScreenSpace false, no final pass).
+    // hudAfterBloom: the screen-space items are drawn over the glowing game target (PostProcess.bloomScreenSpace false, no final pass).
     // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
     bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
     PostPlan
@@ -3161,7 +3161,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 }
 
 // ---- main pass ----
-// Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
+// PostProcess.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
 // glows it, and a second pass (hud_pass) draws the screen-space groups (HUD) on top, so the HUD never glows.
 // With MSAA the multisampled image must survive every pass but the last one (STORE): the next pass loads it, and with
 // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
@@ -3453,7 +3453,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 }
 
 // ---- HUD pass: screen-space groups over the finished frame ----
-// Camera.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
+// PostProcess.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
 // (exposure, tonemap, linear colour) draws them over its result in hudTarget, in display space ("hud-over-post"). Either way they are
 // never glowed, tonemapped or exposed.
 // Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
@@ -3487,7 +3487,7 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
 // the shadow map, the main pass, and in the last job of the frame the post-processing stack of the frame (the postCams' plans, postprocess.h): bloom (its
-// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
+// stages), the HUD over the bloom (PostProcess.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
 // output encode), the HUD over it (`hud-over-post`) and the colour filter. A frame without a stack declares none of them. The targets
 // that outlive the frame (the game target or the view's image, the light buffer, the shadow map, the final images: present() and
 // capture() sample them after the graph ran) are imported; the bloom levels and the exposure measure are transients of the pool. The game target, the light buffer and the shadow map
@@ -4027,7 +4027,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             }
         }
     } else if (pp.colorFilter != 0 && ensure_filter_target()) {
-        // Only the colour filter (Camera.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
+        // Only the colour filter (PostProcess.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {

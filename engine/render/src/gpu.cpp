@@ -717,9 +717,9 @@ bool Gpu::bloom_ready() {
         }
         bloomState_ = -1;
         FA_ERROR("render",
-                 "Camera.bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
+                 "PostProcess bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
                  "(see the sokol log lines above). The game renders without bloom. Hint: update the graphics driver "
-                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.bloom to false.");
+                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or switch PostProcess.bloomEnabled off.");
         return false;
     }
     bloomState_ = 1;
@@ -772,9 +772,9 @@ bool Gpu::colorfilter_ready() {
         colorfilter_shader_ = {};
         colorfilterState_ = -1;
         FA_ERROR("render",
-                 "Camera.colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
+                 "PostProcess colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
                  "backend (see the sokol log lines above). The game renders without the filter. Hint: update the "
-                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.colorFilter to \"none\".");
+                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or switch PostProcess.colorFilterEnabled off.");
         return false;
     }
     colorfilterState_ = 1;

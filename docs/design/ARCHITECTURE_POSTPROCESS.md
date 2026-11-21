@@ -108,7 +108,7 @@ display output.
   (`bloom.h`, now with a soft knee in `q.y` of the bright pass and a lens dirt texture in the composite) -> `exposure-luma` /
   `exposure-adapt` (`AutoExposure`) -> `post` (exposure, tonemap, the sRGB encode, a one-step interleaved-gradient-noise dither, and
   the colour filter, in one fragment shader) -> `hud-over-post` -> `color-filter`. Four cases, by `plan.last`: (1) no conversion and
-  no HUD after: the filter alone is `color-filter` (post.glsl with `convert` 0, the old filter's maths); (2) legacy
+  no HUD after: the filter alone is `color-filter` (post.glsl with `convert` 0, the old filter's maths); (2)
   `bloomScreenSpace = false` without conversion: `hud-over-bloom`, then `color-filter`; (3) conversion and no screen-space items: one
   `post` pass game -> `filterTarget` with the filter fused in; (4) conversion with screen-space items: `post` game -> `hudTarget` (a
   game-like target made on demand by `ensure_hud_target`: same MSAA and depth, so the HUD pipelines draw into it), `hud-over-post`,
@@ -125,10 +125,9 @@ display output.
   `Impl::postSerial`, the count of the game's frames: `capture_world` calls `begin_frame_graph(false)` and does not advance it, so
   a capture neither resets the exposure nor, with `framePost` false, reads or writes the motion-blur matrices; `capture_camera` too) take the target at once;
   a target that cannot be made leaves the exposure manual for 300 frames (`kRetryFrames`) and then tries again, dt 0 leaves it as it is, and it needs the
-  RGBA16F scene format (else one warning and the exposure stays manual). The legacy fields: `build_camera` builds an implicit
-  `PostProcess` from the sanitised `Camera.bloom*` and `colorFilter` (knee 0, no dirt) and `resolve_post_stack` uses it when the
-  camera has no enabled `PostProcess` of its own, so `CameraInfo::bloom` and `colorFilter` are always derived from the stack
-  (`bloom_from_stack`); the six fields are in `api_since.json` "deprecated.components". The HDR output (`hdr_encode.h`): the frame
+  RGBA16F scene format (else one warning and the exposure stays manual). `CameraInfo::bloom` and `colorFilter` are always derived from the
+  stack (`bloom_from_stack`); the six bloom and colour filter fields of `Camera` that 0.31.0 deprecated were removed in 0.33.0 (a scene
+  that still has them fails to load, `removed_field_hint` in `deprecation.h` gives the text). The HDR output (`hdr_encode.h`): the frame
   takes `OutputTarget` (`select_output` of the last `update_output` answer: encode, headroom, paper white) when it starts;
   an extended one (an HDR encode, headroom above 1, a float display format) makes the final pass run `tonemap_hdr` (`p.z`
   and `h` of post.glsl, without a colour filter) and write sRGB-encoded values past 1, and `present_params` decodes them in

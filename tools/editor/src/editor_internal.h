@@ -444,7 +444,7 @@ public:
         atShareEnv_;  // the autotest: a fake transport and a config folder of its own, no network
     void draw_audio_panel();
     // Post-processing panel (postfx_panel.cpp; View > Post-processing): the stack a camera draws in the order the effects run, with
-    // each effect's switch, fields, the source of each value (the camera's own PostProcess, a volume, the deprecated Camera fields),
+    // each effect's switch, fields, the source of each value (the camera's own PostProcess, a volume),
     // and what this renderer draws (render.supports); edits and the preset buttons are postprocess.set / postprocess.apply_preset
     // calls through edit_command (one undo step each) on the camera's own PostProcess or on a volume; the A/B checkbox switches
     // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
