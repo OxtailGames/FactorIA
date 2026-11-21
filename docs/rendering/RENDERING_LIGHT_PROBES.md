@@ -86,7 +86,7 @@ probes (a floor lying on the face of the box gets no light from it: let the box 
 (it says `updating` in `render.gi_grid`, until every probe has been captured once) changes nothing: the frame is the one of a scene without it.
 `intensity` multiplies what the meshes take from the grid. The reflections stay the sky's and the reflection probes'. Because a capture draws the scene with
 the lighting the meshes have, the next capture of a probe sees the grid's earlier light, times `bounce`: that is the extra bounces, one more each time
-the probes are refreshed (`bounce` 0 makes the captures ignore the grid; the camera always sees it at full strength). Light from an emissive mesh
+the probes are refreshed (`bounce` 0 makes the captures of the grid's probes ignore the grid; the camera and the captures of a ReflectionProbe always see it at full strength). Light from an emissive mesh
 or a light that moves reaches the walls in the time a cycle of the probes takes.
 
 1. Add a `RealtimeGI` component to an entity. `size` is the box (default 20 x 6 x 20 m, centred on the entity plus `offset`; 0 on an axis is one layer),

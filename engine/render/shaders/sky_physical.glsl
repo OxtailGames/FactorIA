@@ -67,6 +67,13 @@ vec3 sky_extinction(float h) {
     return q[5].xyz * exp(-h / HR) + vec3((q[5].w + q[6].x) * exp(-h / HM)) + q[7].xyz * rho_o(h);
 }
 
+// 1 - exp(-x) without the cancellation: for a small x (a short step in thin air) 1 - exp(-x) loses its digits in fp32, so the series
+// x - x^2 / 2 + x^3 / 6 takes over below 0.02 (its next term is 1e-9 of x there).
+vec3 sky_one_minus_exp(vec3 x) {
+    vec3 series = x * (1.0 - x * (0.5 - x * (1.0 / 6.0)));
+    return mix(vec3(1.0) - exp(-x), series, vec3(lessThan(x, vec3(0.02))));
+}
+
 float phase_r(float c) { return 3.0 / (16.0 * PI) * (1.0 + c * c); }
 float phase_m(float c) {
     float g = q[6].y;
@@ -185,8 +192,9 @@ void main() {
             vec3 sc = sky_scatter(hp);
             vec3 st = exp(-ext * dt);
             vec3 sun_in = sun_trans(hp, mup) * sc / (4.0 * PI);
-            l2 += tv * (sun_in - sun_in * st) / ext;
-            f += tv * (sc - sc * st) / ext;
+            vec3 gain = sky_one_minus_exp(ext * dt) / ext;
+            l2 += tv * sun_in * gain;
+            f += tv * sc * gain;
             tv *= st;
         }
         if (d.y < muh) {  // the ray ends on the ground: it adds what the ground sends back
@@ -262,7 +270,7 @@ void main() {
         vec3 sm_ = vec3(q[5].w * exp(-hp / HM));
         vec3 st = exp(-ext * dt);
         vec3 s = sun_trans(hp, mup) * (sr * pr + sm_ * pm) + sky_multi(hp, mup) * (sr + sm_);
-        l += tv * (s - s * st) / ext;
+        l += tv * s * (sky_one_minus_exp(ext * dt) / ext);
         tv *= st;
     }
     if (ground) {

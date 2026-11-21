@@ -49,7 +49,7 @@ float fa_contact_shadow(int li, vec3 world, vec3 gn, vec3 l, float dist) {
         vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
         vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
         if (uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0) { break; }  // off screen: nothing is known there
-        ivec2 px = ivec2(uv * fa_ct_a.zw);
+        ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);  // uv < 1 can still round up to the size
         vec4 scene = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
         if (scene.a < 0.5) { continue; }  // no mesh at this pixel (the sky)
         float delta = (dot(fa_ct_fwd.xyz, p) + fa_ct_fwd.w) - scene.r;  // > 0: the point is behind the visible surface

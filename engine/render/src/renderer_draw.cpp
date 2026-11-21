@@ -1787,10 +1787,10 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     fu.fa_ambient[3] =
         float(tex.stride);  // texels per light (light_data.glsl: fa_light_base); fa_counts.y is the decal region
     if (tex.giBase >= 0) {
-        // The grids' records (mesh_common.glsl fa_gi): a face of a capture (Frame::noProbes) sees the grid's light times its bounce.
+        // The grids' records (mesh_common.glsl fa_gi): a face of a grid's own capture (Frame::giCapture) sees the grid's light times its bounce.
         fu.fa_gi[0] = float(tex.giBase);
         fu.fa_gi[1] = float(giCount);
-        fu.fa_gi[2] = fr.noProbes ? 1.0f : 0.0f;
+        fu.fa_gi[2] = fr.giCapture ? 1.0f : 0.0f;
     }
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
@@ -2285,8 +2285,10 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
     fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
     // Contact shadows: an opaque mesh that receives shadows with a program of the engine's template (a full shader has none; a blended or
-    // transmissive draw has no prepass at the screen slot).
-    fu.fa_ct_a[0] = (ctx.contactOn && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
+    // transmissive draw has no prepass at the screen slot). The shadow and prepass passes run before the main pass sets ctx.screenView, so
+    // they (and a main pass whose prepass image is missing) draw with it off: the slot there holds the white image, not a prepass.
+    fu.fa_ct_a[0] =
+        (ctx.contactOn && ctx.screenView.id && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}

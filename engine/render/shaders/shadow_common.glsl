@@ -35,16 +35,18 @@ layout(binding=7) uniform fa_shadows {
     vec4 fa_shadow_lcfg;        // x = 1 + the first texel of the local lights' shadow region of the light data texture (0 = none)
 };
 
-// A rotation per pixel that no neighbour shares (interleaved gradient noise): the same on every backend and in every frame, so a still
-// picture never shimmers. The kernels are fixed tables of the Vogel disk, never random.
+// A rotation per pixel that no neighbour shares (interleaved gradient noise): the same in every frame, so a still picture never shimmers.
+// It is a function of gl_FragCoord, whose y runs the other way on OpenGL than on Metal and D3D11, so the pattern (not its quality) is
+// mirrored between those backends. The kernels are the Vogel disk, never random.
 float fa_shadow_noise() {
     return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
 }
-// Point k of n of the unit disk, turned by phi.
-vec2 fa_shadow_vogel(int k, int n, float phi) {
-    float r = sqrt((float(k) + 0.5) / float(n));
-    float a = float(k) * 2.39996323 + phi;
-    return vec2(cos(a), sin(a)) * r;
+// The Vogel disk: point k of n is at radius sqrt((k + 0.5) / n) and angle k * golden angle + phi. The loops below step through it by turning
+// the direction (cos, sin) by the golden angle (cos = FA_VOGEL_STEP.x, sin = FA_VOGEL_STEP.y) instead of calling cos and sin for every tap;
+// they start from (cos phi, sin phi), computed once per pixel.
+const vec2 FA_VOGEL_STEP = vec2(-0.7373688782616119, 0.675490294061441);
+vec2 fa_shadow_vogel_turn(vec2 d) {
+    return vec2(d.x * FA_VOGEL_STEP.x - d.y * FA_VOGEL_STEP.y, d.y * FA_VOGEL_STEP.x + d.x * FA_VOGEL_STEP.y);
 }
 // The end of cascade i (a vector is not indexed by a variable: legacy targets cannot flatten it).
 float fa_shadow_split_at(int i) {
@@ -75,6 +77,7 @@ float fa_shadow_filter(vec2 uv, vec4 rect, float zr, float texel_m, float unit, 
         return (zr <= fa_shadow_fetch(uv, rect, conv)) ? 1.0 : 0.0;
     }
     float phi = fa_shadow_noise() * 6.2831853;
+    vec2 dir = vec2(cos(phi), sin(phi));  // the first tap's direction; the taps turn it by the golden angle
     float radius = 1.5;  // pcf: a small fixed blur, in texels
     if (mode == 2) {
         // PCSS: find the casters in front of the receiver, take their mean depth, and size the blur by the distance to them.
@@ -85,21 +88,24 @@ float fa_shadow_filter(vec2 uv, vec4 rect, float zr, float texel_m, float unit, 
         float sum = 0.0;
         float cnt = 0.0;
         for (int i = 0; i < 16; i++) {
-            vec2 o = fa_shadow_vogel(i, 16, phi) * search;
-            float d = fa_shadow_fetch(uv + o * texel_uv, rect, conv);
-            if (d < zr - length(o) * plane) { sum += d; cnt += 1.0; }
+            float r = sqrt((float(i) + 0.5) / 16.0) * search;
+            float d = fa_shadow_fetch(uv + dir * (r * texel_uv), rect, conv);
+            if (d < zr - r * plane) { sum += d; cnt += 1.0; }
+            dir = fa_shadow_vogel_turn(dir);
         }
         if (cnt < 0.5) { return 1.0; }
         float mean_d = sum / cnt;
         float penumbra_m = max(zr - mean_d, 0.0) * unit * (k < 0.0 ? -k / max(mean_d, 0.05) : k);
         radius = clamp(penumbra_m / texel_m, 1.5, 16.0);
+        dir = vec2(cos(phi), sin(phi));  // the search turned it: the filter starts again from the pixel's rotation
     }
     float lit = 0.0;
     int taps = mode == 2 ? 24 : 16;
     for (int i = 0; i < taps; i++) {
-        vec2 o = fa_shadow_vogel(i, taps, phi) * radius;
-        float d = fa_shadow_fetch(uv + o * texel_uv, rect, conv);
-        lit += (zr - length(o) * plane <= d) ? 1.0 : 0.0;
+        float r = sqrt((float(i) + 0.5) / float(taps)) * radius;
+        float d = fa_shadow_fetch(uv + dir * (r * texel_uv), rect, conv);
+        lit += (zr - r * plane <= d) ? 1.0 : 0.0;
+        dir = fa_shadow_vogel_turn(dir);
     }
     return lit / float(taps);
 }
