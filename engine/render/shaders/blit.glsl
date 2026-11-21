@@ -7,6 +7,8 @@
 @vs vs
 layout(binding=0) uniform blit_vs_params {
     vec4 flip;      // x = 1 when the source render target has its origin at the bottom (OpenGL)
+    vec4 region;    // the part of the source to copy, in uv (xy = origin, zw = size); zw = 0: the whole source (a cookie packed in an
+                    // atlas, M74, copies only its own part)
 };
 layout(location=0) in vec2 pos;
 out vec2 uv;
@@ -15,6 +17,7 @@ void main() {
     float v_top_down = 0.5 - pos.y * 0.5;
     float v_bottom_up = 0.5 + pos.y * 0.5;
     uv = vec2(pos.x * 0.5 + 0.5, mix(v_top_down, v_bottom_up, flip.x));
+    if (region.z > 0.0) { uv = region.xy + uv * region.zw; }
 }
 @end
 

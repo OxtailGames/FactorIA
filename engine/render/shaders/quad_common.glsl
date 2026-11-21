@@ -126,6 +126,7 @@ flat in vec4 fa_inst_v2;
 @end
 
 @include light_shadow.glsl
+@include light_cookie.glsl
 @include color_space.glsl
 
 @vs vs
@@ -243,6 +244,14 @@ layout(binding=1) uniform quad_fs_params {
     vec4 fa_time;              // x = seconds of game time since the scene started
     vec4 fa_target;            // xy = 1 / the size of the render target in pixels, z = 1 when render targets have their origin at the
                                // bottom (OpenGL), which flips screen_uv.y so that it runs down on every backend
+    // M74 (docs/rendering/RENDERING_2D_EMISSION.md). The emission, rim light and cookies of the quads; all 0 for a batch without them.
+    vec4 fx_emit;              // rgb = the HDR light the item gives out, added after the lighting; w = 0 none, 1 = no emissive map,
+                               //     2, 3, 4 = the emissive map, decoded with fa_tex_fix mode w - 2
+    vec4 fx_emit_uv;           // emissive map uv = uv * xy + zw
+    vec4 fx_rim;               // rgb = rim colour * intensity; w = 1 when the item has a rim light (lit sprites)
+    vec4 fx_rim_uv;            // xy = the rim's width in uv units along u and v
+    vec4 light_cookie[16];     // per light: its cookie cell in the atlas (light_cookie.glsl), w = 0 no cookie
+    vec4 light_cookie_xf[16];  // per light: the cookie's projection (light_cookie.glsl)
 };
 @end
 
@@ -311,6 +320,8 @@ layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D normal_tex;   // lit quads: the normal map (a 1x1 image when unused)
 layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer path: the point lights added up (light.glsl)
 layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
+layout(binding=12) uniform texture2D fx_emissive_tex;   // M74: the emissive map of an item that has one (a 1x1 white image otherwise)
+layout(binding=13) uniform texture2D fx_cookie_tex;     // M74: the cookie atlas (a 1x1 white image when no light has a cookie)
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
 layout(binding=2) uniform sampler shadow_smp;     // nearest
@@ -329,9 +340,18 @@ in float world_z;
 out vec4 frag_color;
 
 @include_block light_shadow
+@include_block light_cookie
 @include_block color_space
 
 @include_block fa_quad_fs_common
+
+// The cookie of light i at the world offset `d` (world - light) of a point light: 1 without one.
+float cookie_att(int i, vec2 d) {
+    vec4 cell = light_cookie[i];
+    if (cell.w == 0.0) { return 1.0; }
+    vec3 cc = cookie_coord(cell, light_cookie_xf[i], d);
+    return cookie_value(textureLod(sampler2D(fx_cookie_tex, light_smp), cc.xy, 0.0)) * cc.z;
+}
 
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
@@ -365,11 +385,51 @@ vec3 lit_color(vec4 base, float mode) {
             att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
             l = vec3(d, lp.z) / max(length(vec3(d, lp.z)), 0.0001);
             if (light_shadow_v[i].x >= 0.0) { att *= light_shadow(light_shadow_v[i].x, -d, lp.w); }
+            att *= cookie_att(i, -d);
         }
         float ndl = use_normal ? max(dot(n, l), 0.0) : 1.0;
         total += lc.rgb * (att * ndl);
     }
     return base.rgb * total;
+}
+
+// The rim light of a lit sprite (Sprite.rimIntensity): the alpha of the picture is sampled `fx_rim_uv` away to the left, right, above and
+// below, which says how close the edge is and where it points (the alpha falls towards the outside); every light of the loop adds its
+// own contribution where the edge faces it. Only the first 16 lights are read, as in the per-pixel path.
+vec3 rim_color(float a0, float mode) {
+    vec2 w = fx_rim_uv.xy;
+    float al = texture(sampler2D(tex, smp), uv - vec2(w.x, 0.0)).a;
+    float ar = texture(sampler2D(tex, smp), uv + vec2(w.x, 0.0)).a;
+    float au = texture(sampler2D(tex, smp), uv - vec2(0.0, w.y)).a;
+    float ad = texture(sampler2D(tex, smp), uv + vec2(0.0, w.y)).a;
+    float edge = a0 * (1.0 - min(min(al, ar), min(au, ad)));
+    // Outward in the picture's (right, up) axes; v runs down.
+    vec2 o = vec2(al - ar, ad - au);
+    float ol = length(o);
+    float a = params.y;
+    vec2 t = vec2(cos(a), sin(a));
+    vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
+    vec2 out_w = (o.x * t + o.y * b) / max(ol, 1e-4);
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 16; i++) {
+        if (float(i) >= lit.x) { break; }
+        vec4 lp = light_pos[i];
+        vec4 lc = light_color[i];
+        vec2 to_l;
+        float att = 1.0;
+        if (lp.w < 0.0) {
+            to_l = lp.xy / max(length(lp.xy), 1e-4);
+        } else {
+            vec2 d = lp.xy - world_xy;
+            float dist = length(d);
+            att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
+            to_l = d / max(dist, 1e-4);
+            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow(light_shadow_v[i].x, -d, lp.w); }
+            att *= cookie_att(i, -d);
+        }
+        sum += lc.rgb * (att * max(dot(out_w, to_l), 0.0));
+    }
+    return sum * fx_rim.rgb * edge;
 }
 
 // Mode 7: the colour and alpha of one pixel of a rounded rectangle / circle, with its gradient and soft edge.
@@ -443,6 +503,7 @@ void main() {
     } else if (mode > 4.5) {
         vec4 base = tex_color(uv) * color;
         frag_color = vec4(lit_color(base, mode), base.a);
+        if (fx_rim.w > 0.5) { frag_color.rgb += rim_color(base.a, mode); }
     } else if (mode > 3.5) {
         frag_color = vec4(color.rgb, color.a * texture(sampler2D(tex, smp), uv).r);
     } else {
@@ -460,6 +521,14 @@ void main() {
             cov = t * t * (3.0 - 2.0 * t);
         }
         frag_color = vec4(shade ? lit_color(color, 5.0) : color.rgb, color.a * cov);
+    }
+    // M74: the light the item gives out, added after the lighting (and shaded by nothing), in the scene's own HDR range.
+    if (fx_emit.w > 0.5) {
+        vec3 e = fx_emit.rgb;
+        if (fx_emit.w > 1.5) {
+            e *= fa_tex_fix(texture(sampler2D(fx_emissive_tex, smp), uv * fx_emit_uv.xy + fx_emit_uv.zw).rgb, fx_emit.w - 2.0);
+        }
+        frag_color.rgb += e;
     }
     // The material's fragment() (an empty one in the engine's own program) sees what the mode drew, before the flash, the multiply
     // conversion and the fog.

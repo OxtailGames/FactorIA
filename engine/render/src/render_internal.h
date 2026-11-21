@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <memory>
@@ -151,11 +152,27 @@ constexpr int kShadowAngles = 1024;
 // One Light2D as the quad shader reads it. pos: xyz + w = radius (point, xyz = position with z the height) or -1
 // (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent; extra: x = the row of
 // the light's shadows in the shadow texture (-1 = none), y = 1 when the Light2D asked for shadows.
+//
+// M74: `layers` is Light2D.lightLayers (a visual receives the light when its own mask shares a bit); `cookieTex` is Light2D.cookie
+// (null = none) with its turn in radians and its size as a multiple of the light's diameter; `cookieCell` is the cell of the cookie
+// atlas the renderer gave it this frame (-1 = none; Renderer::Impl::plan_cookies).
+struct TextureAsset;
 struct Light2DData {
     float pos[4];
     float color[4];
     float extra[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
+    std::int32_t layers = -1;
+    TextureAsset* cookieTex = nullptr;
+    float cookieRot = 0.0f;
+    float cookieScale = 1.0f;
+    int cookieCell = -1;
 };
+// The cookie atlas (M74): kCookieGrid x kCookieGrid cells of kCookieCell texels, one per distinct cookie texture of the frame.
+constexpr int kCookieGrid = 4, kCookieCell = 256;
+constexpr int kMaxCookies2D = kCookieGrid * kCookieGrid;
+// Distinct light buffers of one frame (M74 light layers): visuals whose layer masks reach different sets of lights read different
+// buffers. The default scene (every light on every layer) has one.
+constexpr int kMaxLightBuffers2D = 4;
 
 // One corner of a point light's quad in the light buffer pass (light.glsl): the same values at the four corners.
 struct LightVertex {
@@ -163,8 +180,11 @@ struct LightVertex {
     float pos[4];     // xy position, z height, w radius
     float color[4];   // rgb * intensity, w falloff
     float shadow[4];  // x = shadow row or -1
+    float cookie
+        [4];  // M74: x, y, z = the cookie's cell in the atlas (u origin, v origin, v step: negative on OpenGL), w = u step; 0 = none
+    float cookieXf[4];  // M74: x, y = cos and sin of the cookie's turn, z = 1 / the cookie's width in world units
 };
-static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
+static_assert(sizeof(LightVertex) == 88, "LightVertex is 22 floats");
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -486,6 +506,9 @@ constexpr int kMaxMaterialParams = 16,
 //          vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
+// The quad program's own emissive map and cookie atlas (M74) sit after the material's textures, vertex copies included (views 12 and
+// 13): the sprite materials' views 4..11 stay where they were. Both use the samplers the engine's views use (smp, light_smp).
+constexpr int kQuadEmissiveView = 12, kQuadCookieView = 13;
 // The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes
 // from 7.
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
@@ -823,6 +846,28 @@ TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, A
 // ---------------------------------------------------------------------------
 // Batches (CPU side, before upload)
 // ---------------------------------------------------------------------------
+// What a 2D item adds to the plain picture (M74, docs/rendering/RENDERING_2D_EMISSION.md): emission, the light layers that reach it, rim
+// light. Batches only merge with an equal one, so a scene that sets none of it keeps the batches it always had. Colours are in the scene's
+// colour space already (sRGB picks converted) and multiplied by their intensity.
+struct QuadFx {
+    float emissive[3] = {0, 0, 0};  // HDR light added after the lighting; all 0 = none
+    std::int32_t layers = 1;        // lit items: the Light2D.lightLayers bits that reach the item (Sprite.lightLayers)
+    TextureAsset* emissiveMap =
+        nullptr;               // multiplies `emissive` per pixel, laid out like the item's texture; null = none
+    float rim[3] = {0, 0, 0};  // rim light colour * intensity; all 0 = none (lit sprites)
+    float rimUv[2] = {0, 0};   // the rim's width in the texture's uv units along u and v
+    bool has_emissive() const { return emissive[0] > 0.0f || emissive[1] > 0.0f || emissive[2] > 0.0f; }
+    bool has_rim() const { return rim[0] > 0.0f || rim[1] > 0.0f || rim[2] > 0.0f; }
+    // True when the batch needs the full quad program (it adds emission or a rim): never the lean plain one.
+    bool needs_full_program() const { return has_emissive() || has_rim(); }
+    bool operator==(const QuadFx& o) const {
+        return std::memcmp(emissive, o.emissive, sizeof emissive) == 0 && layers == o.layers &&
+               emissiveMap == o.emissiveMap && std::memcmp(rim, o.rim, sizeof rim) == 0 &&
+               std::memcmp(rimUv, o.rimUv, sizeof rimUv) == 0;
+    }
+    bool operator!=(const QuadFx& o) const { return !(*this == o); }
+};
+
 struct QuadItem {
     int layer = 0;
     float secondary = 0;  // larger = drawn earlier
@@ -842,6 +887,7 @@ struct QuadItem {
     const MaterialUse* use = nullptr;  // QuadList::set_material(): the item's material (null = the built-in programs)
     std::uint32_t instFirst = 0;       // use->instVec4 > 0: where the item's instanced values start in QuadList::inst
     int instances = 0;                 // QuadList::set_buffer_draw(): > 0 draws the item's one quad this many times
+    QuadFx fx;                         // QuadList::set_fx(): emission, light layers, rim light
 };
 
 struct QuadBatch {
@@ -870,10 +916,12 @@ struct QuadBatch {
     // floats): use->instVec4 * 4 floats for each of the batch's vertices, so the quads of one batch may all differ in
     // those values.
     std::size_t instFirst = 0;
+    // M74: the emission, light layers and rim of the items of the batch; batches only merge with an equal QuadFx.
+    QuadFx fx;
 };
 
-// `instances` sits in the padding after `lit`, so the struct stays 80 bytes (88 with the int after `instFirst`).
-static_assert(sizeof(QuadBatch) <= 80, "QuadBatch grew: keep new 32-bit fields next to the other small ones");
+// `instances` sits in the padding after `lit`; the M74 QuadFx adds 56 bytes.
+static_assert(sizeof(QuadBatch) <= 144, "QuadBatch grew: keep new 32-bit fields next to the other small ones");
 
 // Collects quads for one render space, then sorts and flattens them.
 class QuadList {
@@ -894,6 +942,12 @@ public:
     // Marks the item opened by begin_item() as opaque: every pixel its quads cover is replaced, at full alpha (an opaque
     // picture with an opaque tint, such as a Video's). It is drawn without blending when its blend mode is Alpha.
     void set_opaque() { cur_.opaque = true; }
+    // Gives the item opened by begin_item() an emission, a rim light and the light layers that reach it (QuadFx). An item with an
+    // emission or a rim is never drawn by the lean plain program.
+    void set_fx(const QuadFx& fx) {
+        cur_.fx = fx;
+        if (fx.needs_full_program()) cur_.plain = false;
+    }
     // Marks the item opened by begin_item() as flashing (feel.h): flatten() turns its quads into the shader's "flash" variant
     // (mode + 32), which draws the picture's alpha in `packedColor`'s rgb by `packedColor`'s alpha. Not for the SDF shape mode
     // (it uses color2 for its gradient: Shape2D mixes the colour on the CPU) nor glyphs.
@@ -1050,7 +1104,13 @@ public:
     // The baked probe of a *.probe.json manifest, loaded on first use and cached (a failed one too, with `error`, until the file changes
     // on disk and reload() forgets it). Null for an empty path; never null otherwise (check `ok`). No GPU object: the renderer uploads it.
     const ProbeBakeAsset* probe_bake(const std::string& manifestPath);
-    TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
+    TextureAsset* texture(const std::string& path);  // never null (placeholder on failure)
+    // M74 (Sprite.normalFrom): the normal map made from the picture of `path` (`fromHeight` false: its silhouette and brightness, see
+    // normal_map_from_sprite) or from the grey image `path` read as a height field (normal_map_from_height_image), at `strength`.
+    // Made once, when first asked, and cached per source and strength; made again in place when the source file is reloaded (the
+    // pointer stays valid). Null (flat) for an empty path, a render target or runtime texture, or a file that cannot be read (one
+    // logged failure with the reason).
+    TextureAsset* generated_normal(const std::string& path, bool fromHeight, float strength);
     TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
     // Answers the render-target ids ("target:<name>", Camera.renderTarget): the resolver returns the live texture of the target or
@@ -1240,6 +1300,16 @@ private:
     void destroy_hdri(HdriAsset& h);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
+    // generated_normal(): the maps made, by "sprite:" / "height:" + source path + "@" + strength in thousandths; `tex` is null for a source
+    // that could not be read.
+    struct GeneratedNormal {
+        std::unique_ptr<TextureAsset> tex;
+        std::string source;  // the normalised path of the picture it was made from
+        bool fromHeight = false;
+        float strength = 1.0f;
+    };
+    std::unordered_map<std::string, GeneratedNormal> generatedNormals_;
+    void make_generated_normal(const std::string& key, GeneratedNormal& g);
     struct VideoTexture {
         std::weak_ptr<VideoDecoder> decoder;
         std::unique_ptr<TextureAsset> tex;

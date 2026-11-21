@@ -19,9 +19,9 @@ set(FA_TEMPLATE_FILES_MESH mesh_common.glsl light_data.glsl light_loop.glsl ltc.
 # A mesh material in "full" mode (its own vertex and fragment stage, docs/shaders/SHADERS_FULL.md) is built from mesh_common.glsl's blocks plus
 # mesh_full_common.glsl; its twin carries this hash (no snippet twin is made stale by a change to the full-shader template).
 set(FA_TEMPLATE_FILES_MESH_FULL mesh_common.glsl light_data.glsl light_loop.glsl ltc.glsl shadow_common.glsl brdf_layers.glsl mesh_full_common.glsl)
-# The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
-# change to either one changes the sprite hash.
-set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
+# The sprite template @includes color_space.glsl, light_cookie.glsl and light_shadow.glsl (the other programs that use them include them too), so a
+# change to any of them changes the sprite hash.
+set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_cookie.glsl light_shadow.glsl quad_common.glsl)
 # The sky template @includes color_space.glsl (fa_scene_rgb), so a change to it changes the sky hash too.
 set(FA_TEMPLATE_FILES_SKY color_space.glsl sky_common.glsl)
 set(FA_TEMPLATE_FILES_POST post_common.glsl)
