@@ -338,7 +338,7 @@
             "id": "graphics_note",
             "components": {
               "Text": {
-                "text": "This scene has no screen effects; your choices apply to the scenes that do.",
+                "text": "No screen effects here; your choice applies to scenes that have them.",
                 "fontSize": 18,
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",
