@@ -204,7 +204,7 @@ std::vector<std::uint16_t> bake_cookie_cube_tile(const Image& image) {
         rgba[2] = float(p[2]) / 255.0f * a;
         rgba[3] = a;
     };
-    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kPiD = 3.14159265358979323846;
     for (int f = 0; f < kCubeFaces; ++f) {
         const int ox = (f % 3) * t, oy = (f / 3) * t;
         for (int y = 0; y < t; ++y)
@@ -217,8 +217,8 @@ std::vector<std::uint16_t> bake_cookie_cube_tile(const Image& image) {
                 const double len = std::sqrt(double(d.x) * d.x + double(d.y) * d.y + double(d.z) * d.z);
                 const double lon = std::atan2(double(d.x), -double(d.z));  // 0 straight ahead (-Z), growing toward +X
                 const double lat = std::asin(std::clamp(double(d.y) / len, -1.0, 1.0));
-                const double sx = (0.5 + lon / (2.0 * kPi)) * double(sw) - 0.5;
-                const double sy = (0.5 - lat / kPi) * double(sh) - 0.5;
+                const double sx = (0.5 + lon / (2.0 * kPiD)) * double(sw) - 0.5;
+                const double sy = (0.5 - lat / kPiD) * double(sh) - 0.5;
                 const int x0 = int(std::floor(sx)), y0 = int(std::floor(sy));
                 const float fx = float(sx - double(x0)), fy = float(sy - double(y0));
                 float c00[4], c10[4], c01[4], c11[4];

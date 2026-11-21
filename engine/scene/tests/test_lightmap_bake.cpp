@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -760,7 +761,7 @@ TEST_CASE("lightmap bake: the memory estimate counts 320 bytes per triangle") {
 }
 
 TEST_CASE("lightmap bake: non-finite rotation, soft radius and light sizes are refused with their field") {
-    const float nan = std::nanf(""), inf = 1e30f * 1e30f;
+    const float nan = std::nanf(""), inf = std::numeric_limits<float>::infinity();
     BakeSettings st = fast_settings();
     {
         BakeScene sc = cornell();
@@ -858,9 +859,9 @@ namespace {
 template <class F>
 std::vector<float> sky_cube(int size, F radiance, std::vector<Vec3>* dirs = nullptr,
                             std::vector<double>* weights = nullptr) {
-    static const float kFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-    static const float kRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
-    static const float kUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    static const float kFaceFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const float kFaceRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
+    static const float kFaceUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
     std::vector<float> out;
     double total = 0.0;
     if (dirs) dirs->clear();
@@ -870,7 +871,7 @@ std::vector<float> sky_cube(int size, F radiance, std::vector<Vec3>* dirs = null
             for (int x = 0; x < size; ++x) {
                 const double u = (2.0 * x + 1.0) / size - 1.0, v = 1.0 - (2.0 * y + 1.0) / size;
                 double d[3];
-                for (int i = 0; i < 3; ++i) d[i] = kFwd[f][i] + u * kRight[f][i] + v * kUp[f][i];
+                for (int i = 0; i < 3; ++i) d[i] = kFaceFwd[f][i] + u * kFaceRight[f][i] + v * kFaceUp[f][i];
                 const double len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
                 const Vec3 dir{float(d[0] / len), float(d[1] / len), float(d[2] / len)};
                 const Vec3 c = radiance(dir);

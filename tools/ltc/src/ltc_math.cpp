@@ -47,16 +47,16 @@ void det_sincos(double x, double& s, double& c) {
 }
 
 double det_exp(double x) {
-    constexpr double kLn2 = 0.69314718055994530942;
-    const double k = std::floor(x / kLn2 + 0.5);
-    const double r = x - k * kLn2;
+    constexpr double kLn2d = 0.69314718055994530942;
+    const double k = std::floor(x / kLn2d + 0.5);
+    const double r = x - k * kLn2d;
     double e = 1.0;
     for (int n = 17; n >= 1; --n) e = 1.0 + e * r / static_cast<double>(n);
     return std::ldexp(e, static_cast<int>(k));
 }
 
 double det_log(double x) {
-    constexpr double kLn2 = 0.69314718055994530942;
+    constexpr double kLn2d = 0.69314718055994530942;
     int e = 0;
     double m = std::frexp(x, &e);  // m in [0.5, 1)
     if (m < 0.70710678118654752440) {
@@ -67,7 +67,7 @@ double det_log(double x) {
     const double s2 = s * s;
     double t = 0.0;
     for (int k = 14; k >= 0; --k) t = t * s2 + 1.0 / static_cast<double>(2 * k + 1);
-    return static_cast<double>(e) * kLn2 + 2.0 * s * t;
+    return static_cast<double>(e) * kLn2d + 2.0 * s * t;
 }
 
 double det_atan2(double y, double x) {
