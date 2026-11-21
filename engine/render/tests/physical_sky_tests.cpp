@@ -181,6 +181,13 @@ TEST_CASE("physical sky: the environment's state is quantised, so a frame rate d
     // Quantising twice changes nothing.
     const PhysicalSkyState qq = sky_quantised(q);
     CHECK(sky_env_key(qq) == sky_env_key(q));
+    // An animated sun colour or exposure moves in steps: a change of a thousandth is the same static key (no whole bake per frame).
+    PhysicalSkyState tint = st;
+    tint.sunColor[0] += 0.001f;
+    tint.s.exposure += 0.001f;
+    CHECK(sky_env_static_key(sky_quantised(tint)) == sky_env_static_key(q));
+    tint.sunColor[0] += 0.05f;
+    CHECK(sky_env_static_key(sky_quantised(tint)) != sky_env_static_key(q));
     // A still sky keeps the clock at 0: its environment never depends on the time.
     PhysicalSkyState still = st;
     still.s.windX = still.s.windZ = 0.0f;

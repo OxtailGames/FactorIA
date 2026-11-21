@@ -79,7 +79,10 @@ struct DebugViewScope {
 TEST_CASE("cascaded shadows: four cascades shadow the ground near the camera and far from it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("cascadedShadows")) return;
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
     World w;
     const Entity sun = long_scene(w, 4);
     const Image shadowed = g.render(w);
@@ -94,10 +97,36 @@ TEST_CASE("cascaded shadows: four cascades shadow the ground near the camera and
 }
 
 TEST_CASE(
+    "cascaded shadows: the atlas made for one cascade grows when a later frame asks for four, and nothing is lost") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
+    World w;
+    const Entity sun = long_scene(w, 1);
+    g.render(w);
+    CHECK(g.renderer.stats().shadowCasters > 0);
+    w.settings().shadowCascades = 4;  // a bigger atlas: the old one is retired after the frame
+    const Image grown = g.render(w);
+    const RenderStats withShadows = g.renderer.stats();
+    CHECK(withShadows.shadowCasters == 13);
+    const Image again = g.render(w);  // the retired atlas is gone and the frame after it is the same
+    CHECK(differing(grown, again, 0, 180) == 0);
+    w.get<Light>(sun)->castShadows = false;
+    const Image plain = g.render(w);
+    CHECK(differing(grown, plain, 110, 180) > 300);
+}
+
+TEST_CASE(
     "cascaded shadows: the same scene gives the same picture twice, and a cascade costs a pass with its casters") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("cascadedShadows")) return;
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
     World w;
     long_scene(w, 3);
     const Image a = g.render(w);
@@ -114,7 +143,10 @@ TEST_CASE(
 TEST_CASE("cascaded shadows: PCSS widens the edge with the distance to the caster, hard and pcf differ from it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("cascadedShadows")) return;
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
     World w;
     add_camera(w, {0, 6, 9}, {0, 0.5f, 0});
     w.settings().ambientLight = Color{0.1f, 0.1f, 0.12f, 1};
@@ -141,7 +173,10 @@ TEST_CASE("cascaded shadows: PCSS widens the edge with the distance to the caste
 TEST_CASE("cascaded shadows: render.debug_view cascades tints the ground by cascade") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("cascadedShadows")) return;
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
     World w;
     long_scene(w, 2);
     w.settings().shadowDistance = 60;

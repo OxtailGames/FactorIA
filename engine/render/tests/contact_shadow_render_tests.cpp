@@ -172,9 +172,14 @@ TEST_CASE("contact shadows: a point light's ray and a second sun that has none")
     CHECK(d.lighter == 0);
     CHECK(compare(lit, plain).any >
           0);  // the lamp lights the scene: the comparison above is not against an empty change
-    // An area light is marched from its centre like a point light.
+    // An area light is marched toward the point of its emitter like a point light: the same ray shades the floor behind the box.
     l.type = LightType::Area;
+    l.contactShadowLength = 0.0f;
+    const Image areaPlain = g.render(s.w);
+    l.contactShadowLength = 2.0f;
     const Image area = g.render(s.w);
     CHECK(g.renderer.stats().contactShadowLights == 1);
-    (void)area;
+    const Diff da = compare(area, areaPlain);
+    CHECK(da.darker > 20);
+    CHECK(da.lighter == 0);
 }
