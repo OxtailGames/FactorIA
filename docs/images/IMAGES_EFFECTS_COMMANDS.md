@@ -31,7 +31,7 @@ in a Debug build. Pixels with alpha 0 are left alone by the adjustments that qua
 | `colorBalance` | `shadows`, `midtones`, `highlights`: [r, g, b] each -1..1 | adds 0.5 x weight x shift; weights from the luma l: shadows (1-l)^2, highlights l^2, midtones 4l(1-l) |
 | `threshold` | `level` 0..1 (0.5), `above` (white), `below` (black) | luma at or above `level` becomes `above` |
 | `normalMap` | `from` sprite or height (sprite), `strength` 0..32 (1), `source` (a PNG of the project), `tile` (false) | the pixels become a tangent-space normal map: [Normal maps](#normal-maps). This one and the four below work on the stored 8-bit pixels, like a PNG, and also change alpha |
-| `normalFlip` | `channel` y, x or both (y) | mirrors a component of a normal map (y: OpenGL to DirectX and back) |
+| `normalFlip` | `channel` y, x or both (y) | mirrors a component of a normal map (y: OpenGL to DirectX and back); each byte p becomes 255 - p, so it is its own inverse and a flat 128 becomes 127 |
 | `normalSmooth` | `radius` 0..16 (1), `tile` | blurs the vectors and makes them unit length again |
 | `normalStrength` | `amount` 0..8 (1) | scales the slopes: 2 is twice as steep, 0 is flat |
 | `normalize` | `flatten` (true) | every vector unit length; with `flatten` the layer ends opaque (a transparent pixel becomes flat) |
@@ -265,7 +265,7 @@ tangent-space normals: red is +X to the right, green is +Y UP the picture (OpenG
    it): the numbers stay editable. `image.normal.generate` makes pixels you can paint on.
 2. **Edit it.** Paint a slope with `image.paint` on that layer, giving each stroke `"normal": {"azimuth": 90, "tilt": 30}` instead of
    `color` (azimuth in degrees counter-clockwise from +X: 0 right, 90 up the picture; tilt 0 = flat to 89). A soft edge or an opacity
-   under 1 blends colours, which leaves the unit length, so finish with the `normalize` adjustment. `normalSmooth` rounds a
+   under 1 blends colours, which takes the vectors off unit length, so finish with the `normalize` adjustment. `normalSmooth` rounds a
    relief, `normalStrength` makes it steeper or flatter, `normalFlip` turns an OpenGL map into a DirectX one, `normalMap` with
    `source` builds the map from a separate grey height PNG. Each of them keeps every vector a valid one.
 3. **Use it.** `image.export {"path", "layer": "normal", "out": "assets/art/hero-n.png"}` writes that layer alone as a PNG (an export

@@ -27,7 +27,8 @@ Image make_normal_map(const Image& src, const std::string& from, double strength
 // from +x, so 0 = right, 90 = up the picture, 180 = left, 270 = down). Opaque. This is the colour to paint a slope with.
 Color normal_direction_color(double azimuthDegrees, double tiltDegrees);
 
-// Edits that keep a map a normal map. Pixels with alpha 0 are left alone. Every result is re-encoded from unit vectors.
+// Edits that keep a map a normal map. Pixels with alpha 0 are left alone. Every result is re-encoded from unit vectors, except
+// normalFlip, which maps each byte p to 255 - p (so it is its own inverse; a flat 128 becomes 127).
 // Mirrors the X (red) and / or the Y (green) component: flipping Y turns an OpenGL map into a DirectX one and back, flipping twice gives
 // the same bytes.
 void normal_map_flip(Image& map, bool flipX, bool flipY);
@@ -41,11 +42,12 @@ void normal_map_normalize(Image& map, bool flatten);
 
 // A light for light_with_normal_map. Positions are in pixels of the picture (y down), `height` is how far above the picture a point light is.
 struct NormalLight {
-    bool point = true;                    // a lamp at (x, y, height) when true, else a light from a direction
-    double x = 0, y = 0, height = 32;     // point light
-    double azimuth = 135, elevation = 45;  // directional light, as the `shade` operation: degrees, 0 = from the right, 90 = from above
-    double intensity = 1;                  // 0..4
-    bool flipGreen = false;                // the map is DirectX style (green down)
+    bool point = true;                 // a lamp at (x, y, height) when true, else a light from a direction
+    double x = 0, y = 0, height = 32;  // point light
+    double azimuth = 135,
+           elevation = 45;  // directional light, as the `shade` operation: degrees, 0 = from the right, 90 = from above
+    double intensity = 1;   // 0..4
+    bool flipGreen = false;  // the map is DirectX style (green down)
 };
 // `base` lit by `normal`: every pixel's colour is multiplied by max(0, 1 + 2 intensity (n.L - L.z)), the formula of the `shade` operation,
 // so a flat surface keeps its colour. `normal` is read at the same pixel of `base` (outside it, or where it is transparent, the surface is

@@ -74,8 +74,8 @@ one. An edit writes the document (and the layer's PNG) as it happens; the baked 
   The canvas then draws the picture with every pixel multiplied by `max(0, 1 + 2 * strength * (n . L - L.z))`, the formula of the
   `shade` adjustment, with a lamp that follows the mouse (a small marker shows it); **Orbit** circles it instead. **Height** is how
   far above the picture the lamp is, **Strength** how strongly the normals change the colour and **Flip green** reads a DirectX map.
-  It is a look only: it writes nothing, adds no undo step and stays on while you paint on the normal layer (a stroke in progress
-  shows in the lit picture once it ends). The lit picture is made on the CPU from at most 640 pixels on the long side, so a big
+  It is a look only: it writes nothing, adds no undo step and stays on while you paint on the normal layer (a stroke in progress on the normal layer, or an operation you are still previewing there,
+  shows in the lit picture once it is applied; the rest of the picture is live). The lit picture is made on the CPU from at most 640 pixels on the long side, so a big
   document lights as fast as a small one; the preview says why when there is no picture to light (no layer picked, a layer with no
   pixels...).
 - **Provider pictures.** Under the layer list, **Inpaint selection...** and **Generate layer...** ask for a prompt and make what

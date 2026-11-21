@@ -46,6 +46,7 @@ void Editor::at_section_I2(AtScript& at) {
         struct Is {
             size_t undo = 0;
             int mark = 0;
+            float winW = 0, winH = 0;
         };
         auto is = std::make_shared<Is>();
         const std::string docPath = "assets/at-image.image.json";
@@ -305,6 +306,23 @@ void Editor::at_section_I2(AtScript& at) {
             at_check(int(image_.model->lit_revision()) != is->mark && image_.litX > 26.0f && image_.litY > 24.0f,
                      "...and again at the other corner");
         });
+        snap("editor_image_light.png");
+        // a narrow panel: the row wraps onto a second line instead of running out of the options bar
+        step(2, [this, is] {
+            ImGuiWindow* w = ImGui::FindWindowByName("Image");
+            if (w) {
+                is->winW = w->Size.x;
+                is->winH = w->Size.y;
+            }
+            ImGui::SetWindowSize("Image", ImVec2(520, 520));
+        });
+        step(4, [this, is] {
+            at_check(image_.litRowOverflow <= 1.0f,
+                     "the Light row fits a narrow Image panel (it wraps), overflow px: " +
+                         std::to_string(image_.litRowOverflow));
+            if (is->winW > 0) ImGui::SetWindowSize("Image", ImVec2(is->winW, is->winH));
+        });
+        step(4, [] {});
         click_widget("img:light:orbit");
         step(2, [this, is] {
             at_check(image_.litOrbit, "Orbit turned on");
