@@ -226,6 +226,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.layer.move`](commands/assets.md#imagelayermove-modifies-state): Move a layer to another position in its list, or into another group (or back to the top level), and bake. _Since 0.16.0._
 - [`image.layer.remove`](commands/assets.md#imagelayerremove-modifies-state): Remove a layer (and the children of a group) from an image document and bake. _Since 0.16.0._
 - [`image.layer.set`](commands/assets.md#imagelayerset-modifies-state): Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake. _Since 0.16.0._
+- [`image.normal.generate`](commands/assets.md#imagenormalgenerate-modifies-state): Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export. _Not released yet._
 - [`image.paint`](commands/assets.md#imagepaint-modifies-state): Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked. _Since 0.16.0._
 - [`image.palette`](commands/assets.md#imagepalette-modifies-state): Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to. _Since 0.16.0._
 - [`image.palette.move`](commands/assets.md#imagepalettemove-modifies-state): Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change. _Since 0.16.0._

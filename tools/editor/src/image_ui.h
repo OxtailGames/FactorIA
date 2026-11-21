@@ -70,6 +70,10 @@ struct ImageProviderEstimate {
     }
 };
 
+// The lit preview is drawn from at most this many pixels on the picture's long side (the lighting pass runs on the CPU for every move of the
+// light, so it costs the same for a 4096 px picture as for this one).
+inline constexpr int kLitMaxSide = 640;
+
 struct ImageUi {
     std::unique_ptr<ImageModel> model;
     std::string openError;  // why the document the user asked for could not be opened
@@ -142,6 +146,17 @@ struct ImageUi {
     int layersBefore = 0;                             // autotest bookkeeping
     std::size_t providerUndo = 0;                     // autotest bookkeeping
     std::uint64_t providerChecked = ~std::uint64_t(0);
+
+    // ---- the light preview (a normal-map layer lighting the picture; nothing is saved)
+    bool lit = false;                        // the canvas shows the picture lit by the layer `litLayer`
+    std::string litLayer;                    // index path of the layer that holds the normal map
+    bool litOrbit = false;                   // the lamp circles the picture instead of following the mouse
+    bool litFlipGreen = false;               // the map is DirectX style (green down)
+    float litHeight = 40, litIntensity = 1;  // the lamp's height above the picture in pixels, and its strength
+    float litX = -1, litY = -1;              // where the lamp is, in picture pixels (-1 = not placed yet)
+    std::string litWhy;                      // why there is no lit picture ("" when there is one)
+    bool litDrawn = false;                   // the last frame drew it (autotest)
+    ImageTexture litTex;
 
     // ---- textures
     ImageTexture picture, selectionTint;

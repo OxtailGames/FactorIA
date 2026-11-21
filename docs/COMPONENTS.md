@@ -5251,6 +5251,26 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 | `set` | object | yes | The fields to change, e.g. {"opacity":0.5,"visible":false}. null removes a field. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
+### `image.normal.generate` (modifies state)
+
+Not released yet (on main after 0.33.0).
+
+Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export.
+
+Capabilities: read, writeProject
+
+Adds a pixels layer (hidden: a normal map is data, shown it would cover the sprite) the size of the canvas that holds a normal map of `layer` (by name or index path; without it, of the picture as it is now). `from` "sprite" (default) bevels the outline and the brightness of the picture, as Sprite.normalFrom = sprite does at run time; "height" reads the picture as a grey height map, white = high, as normalFrom = height. `strength` 0..32 (default 1) is the relief, Sprite.normalStrength; `tile` wraps the border for a seamless texture (the renderer clamps it, so leave it off for a sprite). With the same picture and strength the bytes are the ones the renderer makes. The layer is an ordinary PNG layer: image.paint with a `normal` {azimuth, tilt} stroke paints slopes, the normalSmooth, normalFlip, normalStrength and normalize operations (added to the layer, or to an adjustment layer above it) keep it a valid map, image.export with `layer` writes the PNG a Sprite.normalMap uses. Red = +X right, green = +Y UP the picture, blue = +Z towards the viewer; flat = (128,128,255). One undo step. Example: {"path":"assets/art/hero.image.json","layer":"hero","strength":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `layer` | any | no | The layer to make the normal map from, by name or index path ("1/0"). Its masks, adjustments and effects count. Default: the whole picture as it is now (hidden layers do not count). |
+| `from` | string ["sprite","height"] | no | sprite: a bevel from the distance to the transparent edge plus brightness times alpha (Sprite.normalFrom = sprite). height: the picture is a grey height map, white = high, alpha ignored (Sprite.normalFrom = height). Default "sprite". |
+| `strength` | number | no | Relief: 0 is flat, 1 the default, larger is steeper (Sprite.normalStrength). Default 1. |
+| `tile` | boolean | no | Wrap the border so a tiling texture has no seam. Off matches the renderer, which clamps the border. Default false. |
+| `name` | string | no | Name of the new layer; a number is added when the name is taken. Default "normal". |
+| `bake` | boolean | no | Also draw the PNG (default true). The picture does not change: the new layer is hidden. Default true. |
+
 ### `image.paint` (modifies state)
 
 Since 0.16.0.
@@ -5261,7 +5281,7 @@ Capabilities: read, writeProject
 
 Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`.
 
-Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to paint on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+`normal` {azimuth, tilt} replaces `color` to paint a slope on a normal-map layer (docs/images/IMAGES_EFFECTS_COMMANDS.md, "Normal maps"). Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to paint on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
