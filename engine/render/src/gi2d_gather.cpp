@@ -265,10 +265,10 @@ Gi2dCascadePlan gi2d_cascade_plan(GI2DQuality q, const Gi2dGeometry& g, bool mob
             "Hint: lower GlobalIllumination2D.range or resolutionScale (quality \"{}\" does not change the memory "
             "much).{}",
             g.width, g.height, (p.totalBytes + (1u << 20) - 1) >> 20, budget >> 20, name,
-            mobile ? " On a phone or a browser the defaults (range 512, resolutionScale 0.5) are over this budget on a "
-                     "view of "
-                     "1920 x 1080 pixels: use range 128 or resolutionScale 0.25."
-                   : "");
+            mobile
+                ? " On a phone or a browser, on a view of 1920 x 1080 pixels the defaults (range 512, resolutionScale "
+                  "0.5) are over this budget, and range 128 or resolutionScale 0.25 fit."
+                : "");
         return p;
     }
     p.ok = true;
@@ -334,7 +334,7 @@ std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts, std::s
         }
         if (!clipped || ++guard > n) break;
     }
-    if (idx.size() == 3 && left > 0) out.insert(out.end(), {idx[0], idx[1], idx[2]});
+    if (idx.size() == 3) out.insert(out.end(), {idx[0], idx[1], idx[2]});
     return out;
 }
 

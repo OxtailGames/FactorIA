@@ -17,6 +17,7 @@
 // frames (TargetPool maxIdleFrames, 4) before it destroys it: the memory of the last field is released a few frames after GI turns off.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -201,11 +202,12 @@ struct Gi2dField {
     Gi2dGeometry geom;
     Gi2dSettings settings;
     std::string job;  // the job of the camera it was last drawn for ("camera:0")
-    std::string
-        histJob;  // the job and camera the irradiance history was made for: another one taking the slot starts from the priming chain
-    std::uint64_t camera = 0,
-                  histCamera =
-                      0;  // the bits of the Camera entity of the last job drawn in this slot, and of the history's
+    // The job the irradiance history was made for: another job taking the slot starts from the priming chain.
+    std::string histJob;
+    // The bits of the Camera entity of the last job drawn in this slot.
+    std::uint64_t camera = 0;
+    // The Camera entity the irradiance history was made for (with histJob).
+    std::uint64_t histCamera = 0;
     bool used = false;    // asked for in this frame (begin_frame clears it)
     bool valid = false;   // the passes ran: the images hold a finished field
     int passes = 0;       // the passes of the last frame (emission, occluders, seed, jump steps, cascades, irradiance)
@@ -260,16 +262,28 @@ public:
 
     // Teaching message of a GPU without float targets, logged once; returns the sentence (also for the command).
     static std::string unsupported_message(const std::string& backend);
-    // The warnings already logged (each once per reason): `budgetWhy` is the sentence of the budget warning (a new reason, such as another
-    // quality, range or size, warns again). reset_warnings runs when the scene has no GI for a frame, and when the images are freed.
+    // The warnings already logged (each once per reason): `budgetWhys` holds the sentences of the budget warnings already said (several
+    // cameras can fail for different reasons in one frame; a new reason, such as another quality, range or size, warns again).
+    // reset_warnings runs when no job of a frame asked for GI (see note_gi_asked), and when the images are freed.
     bool warned_unsupported = false, warned_dropped = false;
-    std::string budgetWhy;
+    std::vector<std::string> budgetWhys;
+    // True the first time `why` is seen since the last reset (the caller logs it); bounded, so reasons that keep changing cannot grow it.
+    bool budget_warn_once(const std::string& why) {
+        if (std::find(budgetWhys.begin(), budgetWhys.end(), why) != budgetWhys.end() || budgetWhys.size() >= 16)
+            return false;
+        budgetWhys.push_back(why);
+        return true;
+    }
+    // A job of this frame has an enabled GlobalIllumination2D. begin_frame(false) resets the warnings when the frame before had none, so a
+    // frame that mixes a job with GI and one without keeps its warnings.
+    void note_gi_asked() { giAsked_ = true; }
     void reset_warnings() {
         warned_unsupported = warned_dropped = false;
-        budgetWhy.clear();
+        budgetWhys.clear();
     }
 
 private:
+    bool giAsked_ = false;
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
