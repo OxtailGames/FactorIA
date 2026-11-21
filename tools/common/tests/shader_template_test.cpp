@@ -78,7 +78,9 @@ TEST_CASE(
     // the mesh template's files are in both lists on purpose.
     {
         std::string list;
-        const std::string kind = "mesh-full";  // a named argument: GCC 14 -Wdangling-reference flags a temporary one
+        // named arguments: GCC 14 -Wdangling-reference flags a reference bound to a call that takes a temporary
+        const std::string kind = "mesh-full", meshKind = "mesh";
+        const auto& meshNames = shaders_detail::template_file_names(meshKind);
         for (const std::string& name : shaders_detail::template_file_names(kind)) {
             CAPTURE(name);
             std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
@@ -87,7 +89,6 @@ TEST_CASE(
             std::string content = text.str();
             content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
             list += name + "\n" + sha256_hex(content) + "\n";
-            const auto& meshNames = shaders_detail::template_file_names("mesh");
             if (std::find(meshNames.begin(), meshNames.end(), name) == meshNames.end()) seen.push_back(name);
         }
         // the mesh template's four files plus mesh_full_common.glsl
