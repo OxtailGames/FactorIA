@@ -420,7 +420,7 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 
 ## `render.gi2d_field` (modifies state)
 
-Not released yet (on main after 0.33.0).
+Since 0.34.0.
 
 The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs.
 

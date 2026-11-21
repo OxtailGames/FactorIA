@@ -1354,7 +1354,7 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 
 ## `image.normal.generate` (modifies state)
 
-Not released yet (on main after 0.33.0).
+Since 0.34.0.
 
 Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export.
 

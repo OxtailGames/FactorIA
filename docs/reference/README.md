@@ -9,13 +9,13 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [2D](components/2d.md)
 
 - [Bone2D](components/2d.md#bone2d): A bone of a 2D skeleton, on a plain entity of the hierarchy (docs/ANIMATION.md, "Bones and IK"). _Since 0.7.0._
-- [DistortionZone2D](components/2d.md#distortionzone2d): A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. _Not released yet._
-- [GlobalIllumination2D](components/2d.md#globalillumination2d): Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. _Not released yet._
+- [DistortionZone2D](components/2d.md#distortionzone2d): A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. _Since 0.34.0._
+- [GlobalIllumination2D](components/2d.md#globalillumination2d): Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. _Since 0.34.0._
 - [IK2D](components/2d.md#ik2d): Inverse kinematics for a chain of Bone2D entities: put it on the LAST bone (the hand, the foot) and name a `target`; every fixed step, after the animators have posed the bones and before the frame is drawn, the bones from this one up through its parents are turned so the tip of this bone reaches the target entity's position, within each bone's minAngle / maxAngle. _Since 0.7.0._
 - [Light2D](components/2d.md#light2d): A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. _Since 0.2.0._
 - [Parallax](components/2d.md#parallax): Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. _Since 0.2.0._
 - [ParticleEmitter](components/2d.md#particleemitter): Emits short-lived particles (smoke, sparks, explosions, fire, trails).
-- [ShadowCaster2D](components/2d.md#shadowcaster2d): Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. _Not released yet._
+- [ShadowCaster2D](components/2d.md#shadowcaster2d): Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. _Since 0.34.0._
 - [Shape2D](components/2d.md#shape2d): Untextured 2D primitive for prototypes, UI panels and debug visuals.
 - [Sprite](components/2d.md#sprite): Draws a textured (or solid color) quad.
 - [SpriteAnimator](components/2d.md#spriteanimator): Flipbook animation over a grid sprite sheet.
@@ -24,7 +24,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Tilemap](components/2d.md#tilemap): A grid of tiles drawn from a tileset texture; tile index -1 is empty.
 - [Tint](components/2d.md#tint): Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. _Since 0.4.0._
 - [Vfx](components/2d.md#vfx): A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect documents"): plays the effect document `effect` (a *.vfx.json that bundles emitters, a light flash, sounds and commands such as a camera shake on one timeline). _Since 0.17.0._
-- [Water2D](components/2d.md#water2d): A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. _Not released yet._
+- [Water2D](components/2d.md#water2d): A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. _Since 0.34.0._
 
 ### [3D](components/3d.md)
 
@@ -226,7 +226,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.layer.move`](commands/assets.md#imagelayermove-modifies-state): Move a layer to another position in its list, or into another group (or back to the top level), and bake. _Since 0.16.0._
 - [`image.layer.remove`](commands/assets.md#imagelayerremove-modifies-state): Remove a layer (and the children of a group) from an image document and bake. _Since 0.16.0._
 - [`image.layer.set`](commands/assets.md#imagelayerset-modifies-state): Change fields of one layer (name, visible, opacity, blend, x, y, clip, masks, adjustments, effects, its kind's fields) and bake. _Since 0.16.0._
-- [`image.normal.generate`](commands/assets.md#imagenormalgenerate-modifies-state): Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export. _Not released yet._
+- [`image.normal.generate`](commands/assets.md#imagenormalgenerate-modifies-state): Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export. _Since 0.34.0._
 - [`image.paint`](commands/assets.md#imagepaint-modifies-state): Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked. _Since 0.16.0._
 - [`image.palette`](commands/assets.md#imagepalette-modifies-state): Show or change the palette and the colour ramps that indexed pixel-art layers of an image document are locked to. _Since 0.16.0._
 - [`image.palette.move`](commands/assets.md#imagepalettemove-modifies-state): Move one colour of an image document's palette to another position; the pixels follow it, so the picture does not change. _Since 0.16.0._
@@ -429,7 +429,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
-- [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Not released yet._
+- [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Since 0.34.0._
 - [`render.gi_grid`](commands/game.md#rendergi_grid): The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry. _Since 0.33.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Since 0.33.0._
