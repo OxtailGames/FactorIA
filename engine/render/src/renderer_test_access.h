@@ -24,9 +24,9 @@ struct TransientPoolStats {
     int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
 };
 // The ring of images that hold the shadow rows of the 2D lights: how many it holds now and how many images were made
-// since the renderer was.
+// since the renderer was, and how many sprite contours of ShadowCaster2D were extracted from alpha (shadow2d.h).
 struct ShadowRowsStats {
-    int slots = 0, uploads = 0;
+    int slots = 0, uploads = 0, contours = 0;
 };
 
 // How many times the physical sky drew its tables (renderer_sky_phys.h): the air's, the picture's view and the environment's.

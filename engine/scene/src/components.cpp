@@ -849,7 +849,8 @@ void register_builtin_components(TypeRegistry& r) {
          "lights "
          "(directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap "
          "with "
-         "occludesLight cast shadows (at most 32 shadow-casting lights per frame). "
+         "occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the "
+         "256 lights a frame shades), soft with `size`. "
          "The light sits at the entity's position (Transform) and ignores layers.",
          "2D")
         .enum_field("type", &Light2D::type, {"point", "directional"},
@@ -879,20 +880,22 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 90)
         .field(
             "castShadows", &Light2D::castShadows,
-            "Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far "
-            "side of a "
+            "Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block "
+            "this light, so the far side of a "
             "wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it "
             "are in "
             "shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the "
             "next "
-            "frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per "
-            "frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. "
-            "Default false.")
+            "frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a "
+            "shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen "
+            "by lightLayers. Directional lights cast no shadows. Default false.")
         .field("size", &Light2D::size,
                "Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard "
                "edges. Larger = an area light: shadows get a penumbra that widens with the distance from the "
-               "occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle. Only "
-               "matters with castShadows.")
+               "occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about "
+               "2 x size x (d - b) / b world units wide, where b is the distance from the light to the occluder and "
+               "d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the "
+               "light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.")
         .range(0, 100000)
         .field("lightLayers", &Light2D::lightLayers,
                "Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a "
@@ -916,8 +919,9 @@ void register_builtin_components(TypeRegistry& r) {
          "Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with "
          "occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from "
          "`shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation "
-         "and scale). The caster does not darken itself unless selfShadow is true. Which lights it blocks is set "
-         "by lightLayers.",
+         "and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is "
+         "not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: "
+         "docs/rendering/RENDERING_2D_SHADOWS.md.",
          "2D")
         .enum_field("shape", &ShadowCaster2D::shape, {"spriteAlpha", "polygon", "box"},
                     "The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose "
@@ -1680,7 +1684,11 @@ void register_builtin_components(TypeRegistry& r) {
                "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap "
                "needs no "
                "`lit` itself to cast. Default false.")
-        .field("lightLayers", &Tilemap::lightLayers, light_layers_doc_2d("tilemap").c_str())
+        .field("lightLayers", &Tilemap::lightLayers,
+               (light_layers_doc_2d("tilemap") +
+                " With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D "
+                "with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.")
+                   .c_str())
         .field("emissive", &Tilemap::emissive,
                "Light the tiles give out, added after the lighting so they show in a dark scene. Colour components "
                "are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with "

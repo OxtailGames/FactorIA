@@ -11,6 +11,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
 #include "frame.h"
+#include "shadow2d.h"
 
 namespace fa::render {
 
@@ -43,6 +44,7 @@ struct Occluder {
     Mat4 inv;                    // world -> the tilemap's local space (Parallax included: it is drawn there)
     Vec3 axisX, axisY;           // the world axes in local space: inv applied to (1,0,0) and (0,1,0)
     float m[4] = {1, 0, 0, -1};  // local -> cell space (tilemap_local_to_cell): the same walk for squares and diamonds
+    std::int32_t layers = 1;     // Tilemap.lightLayers: it blocks the lights that share a bit with it
     std::vector<int> solid;      // tile indices that block light, sorted
     CellRect area;               // the cells `flags` covers
     std::vector<std::uint8_t> flags;
@@ -143,8 +145,10 @@ const std::vector<Dir>& directions() {
 struct LightWork {
     std::size_t light = 0;  // index in Frame::lights2d
     float px = 0, py = 0, radius = 0;
+    std::int32_t layers = -1;  // Light2D.lightLayers: the tiles and casters that block it
     std::vector<std::pair<std::size_t, CellRect>>
-        windows;  // occluder, cells (never empty, with a solid tile in at least one)
+        windows;                        // occluder, cells (never empty, with a solid tile in at least one)
+    std::vector<std::uint32_t> bodies;  // ShadowCaster2D in reach (shadow2d.h)
 };
 
 }  // namespace
@@ -173,13 +177,18 @@ void assign_shadow_rows(World& world, Frame& f) {
         if (o.solid.empty()) return;
         std::sort(o.solid.begin(), o.solid.end());
         o.tm = &tm;
+        o.layers = tm.lightLayers;
         tilemap_local_to_cell(tm, o.m);
         o.inv = visual_world_matrix(world, e).inverse();
         o.axisX = o.inv.transform_dir({1.0f, 0.0f, 0.0f});
         o.axisY = o.inv.transform_dir({0.0f, 1.0f, 0.0f});
         occluders.push_back(std::move(o));
     });
-    if (occluders.empty()) return;
+    ShadowCache local;  // no cache kept: every row is made now
+    ShadowCache& cache = f.shadowCache ? *f.shadowCache : local;
+    CasterSet casters;
+    gather_shadow_casters(world, f, cache.contours, casters);
+    if (occluders.empty() && casters.empty()) return;
 
     // The cells every asking light can reach, per occluder: one grid of solid flags is read for all of them.
     for (Occluder& o : occluders) {
@@ -214,10 +223,22 @@ void assign_shadow_rows(World& world, Frame& f) {
         w.px = l.pos[0];
         w.py = l.pos[1];
         w.radius = l.pos[3];
+        w.layers = l.shadowLayers;
         bool solid = false;
+        bool cut = false;
+        casters_in_reach(casters, w.px, w.py, w.radius, w.layers, w.bodies, cut);
+        solid = !w.bodies.empty();
+        if (cut && f.warnedShadows2d && !*f.warnedShadows2d) {
+            *f.warnedShadows2d = true;
+            FA_WARN("render",
+                    "A Light2D reaches more than {} ShadowCaster2D; the ones after the first {} (in entity order) do "
+                    "not block it. Hint: use a smaller radius, set lightLayers on the casters so far ones skip this "
+                    "light, or merge casters",
+                    kMaxCasterBodiesPerLight, kMaxCasterBodiesPerLight);
+        }
         for (std::size_t k = 0; k < occluders.size(); ++k) {
             const Occluder& o = occluders[k];
-            if (o.area.empty()) continue;
+            if (o.area.empty() || (o.layers & w.layers) == 0) continue;
             const CellRect win = o.window(w.px, w.py, w.radius);
             if (win.empty()) continue;
             w.windows.push_back({k, win});
@@ -232,17 +253,14 @@ void assign_shadow_rows(World& world, Frame& f) {
     if (over > 0 && f.warnedShadows2d && !*f.warnedShadows2d) {
         *f.warnedShadows2d = true;
         FA_WARN("render",
-                "{} Light2D with castShadows reach a solid tile of a Tilemap with occludesLight, but a frame gives "
-                "shadows to at "
-                "most {} lights: the {} ranked last shine through walls. Hint: set castShadows on fewer lights (the "
-                "ones that "
-                "light the most of the view come first), or give the others a smaller radius",
+                "{} Light2D with castShadows reach a solid tile of a Tilemap with occludesLight or a ShadowCaster2D, "
+                "but a frame gives shadows to at most {} lights: the {} ranked last shine through walls. Hint: set "
+                "castShadows on fewer lights (the ones that light the most of the view come first), or give the "
+                "others a smaller radius",
                 int(work.size()) + over, kMaxShadowLights2D, over);
     }
     if (work.empty()) return;
 
-    ShadowCache local;  // no cache kept: every row is made now
-    ShadowCache& cache = f.shadowCache ? *f.shadowCache : local;
     Hasher all;
     const std::vector<Dir>& dirs = directions();
     for (LightWork& w : work) {
@@ -250,6 +268,8 @@ void assign_shadow_rows(World& world, Frame& f) {
         h.add(w.px);
         h.add(w.py);
         h.add(w.radius);
+        h.add(w.bodies.size());
+        for (std::uint32_t bi : w.bodies) h.add(casters.bodies[bi].hash);
         for (const auto& [k, win] : w.windows) {
             const Occluder& o = occluders[k];
             h.bytes(o.inv.m, sizeof(float) * 16);
@@ -270,8 +290,10 @@ void assign_shadow_rows(World& world, Frame& f) {
                 const Vec3 q = o.inv.transform_point({w.px, w.py, 0.0f});
                 origin.push_back({o.m[0] * q.x + o.m[1] * q.y, o.m[2] * q.x + o.m[3] * q.y});
             }
+            std::vector<float> casterRow(std::size_t(kShadowAngles), w.radius);
+            if (!w.bodies.empty()) cast_casters(casters, w.bodies, w.px, w.py, w.radius, casterRow.data());
             for (int i = 0; i < kShadowAngles; ++i) {
-                float best = w.radius;
+                float best = casterRow[std::size_t(i)];
                 for (std::size_t n = 0; n < w.windows.size(); ++n) {
                     const Occluder& o = occluders[w.windows[n].first];
                     const float lx = dirs[std::size_t(i)].c * o.axisX.x + dirs[std::size_t(i)].s * o.axisY.x;

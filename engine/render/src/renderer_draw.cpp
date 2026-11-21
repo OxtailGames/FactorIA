@@ -2516,6 +2516,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
             std::memcpy(v.pos, l.pos, sizeof(float) * 4);
             std::memcpy(v.color, l.color, sizeof(float) * 4);
             v.shadow[0] = l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
+            v.shadow[1] = l.shadowSize;
             lv.push_back(v);
         }
     }
@@ -2987,6 +2988,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         const float row = fr.lights2d[i].extra[0];
         litUniforms.light_shadow_v[i][0] =
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
+        litUniforms.light_shadow_v[i][1] = fr.lights2d[i].shadowSize;
     }
     // The camera's stack fog on the world's quads (shaders/quad.glsl): each batch fades to the fog colour, an additive one to nothing and a
     // multiplying one to 1 (the colour that changes nothing), by the quad's own distance. Only the full program reads it.

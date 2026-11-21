@@ -303,6 +303,8 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[2] = std::max(l.height, 0.0f);
             c.data.pos[3] = l.radius;
             c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
+            c.data.shadowSize = std::isfinite(l.size) ? std::max(l.size, 0.0f) : 0.0f;
+            c.data.shadowLayers = l.lightLayers;
             c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
             if (useView) {
                 // The light must reach the rectangle itself; "inside" is its bounding square against the view.
