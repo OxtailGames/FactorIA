@@ -102,6 +102,32 @@ vertex (`scene2d_shared_tests.cpp` compares them with a fresh `Scene2D` per came
 per frame, before the first gather. The `render.gather_sprites` and `render.gather_particles` thresholds count what a camera builds,
 not what it copies. A `Scene2D` keeps pointers to the lists of the Frames of its round, so the renderer reserves those vectors.
 
+**2D emission, light layers and cookies (M74.2).** User page: docs/rendering/RENDERING_2D_EMISSION.md. A `QuadItem` carries a `QuadFx`
+(`render_internal.h`: the emission colour times its intensity in the scene's colour space, the emissive map, the rim colour and width in
+uv units, and the receiver's `lightLayers`); `QuadList::flatten` splits batches by it (`operator==`), and an item whose fx
+`needs_full_program()` (emission or rim) never takes the lean `fs_plain` program. `fs` adds the emission after the lighting and before the
+material's `fragment()`, the rim loops the first 16 lights of the frame. The layers rule, `(light.lightLayers & receiver.lightLayers) != 0`, is
+`light_reaches` (`light_layers.h`), applied in the two places lit visuals read lights: (1) the light buffer, flat visuals only
+(`lit.z` 1): `plan_light_layers` finds the distinct receiver masks of the visuals in view and the set of point lights each reaches, one
+buffer per distinct SET (masks that reach the same lights share), so the default scene (every light -1, every receiver 1) plans exactly
+one buffer holding every point light and `light_pass` runs as it did; a mask that reaches no point light is `kNoPoint` (`lit.z` 2: ambient
+and directional lights only); past `kMaxLightBuffers2D` = 4 buffers the extra masks are `kLoop`, one warning per scene, and read the
+per-pixel loop. The buffers are one RGBA16F image per set (`ensure_light_target(scale, buffers)`), all drawn by the one `light-buffer`
+graph node, which writes buffer 0's resource (the others are not resources of the graph of their own: the node draws all of them, and the draws that read them come after the node). (2) The per-pixel
+loop (`lit.z` 0: normal-mapped visuals, the `kLoop` masks, the rim): `draw_group`'s `lit_layers(mask)` rewrites `litUniforms` for a batch
+whose mask differs from the last one, zeroing the colours of the lights that do not reach it (and taking the directional lights that
+do not reach it out of `flat_ambient`), so the shader needs no per-light mask test and the default scene rewrites nothing. Cookies:
+`assign_cookie_cells` gives every distinct cookie texture of the frame a cell of a 4x4 atlas of 256 px cells (`kMaxCookies2D` = 16; the
+rest are dropped with one warning), the `light-cookies` graph node copies each picture into its cell with the blit program (`blit_keep`, a
+viewport per cell, the blit's `region` uniform for a texture packed in an export's atlas), and `light_cookie.glsl`
+(`cookie_coord` / `cookie_value`, included by `light.glsl` and `quad_common.glsl`) multiplies the attenuation of the light in both paths.
+`cookie_shader_data` hands over the cell and the projection (a negative v step on OpenGL, whose render targets are stored upside down).
+The quad program's two extra views (12 emissive map, 13 cookie atlas) sit after the material's two sets so no material slot moved.
+`Sprite.normalFrom` makes its normal map in `Assets::generated_normal` with the kernel of `fa/core/image_tools.h` (the one
+`assets.generate_texture` writes files with), cached per source and strength and rebuilt in place on reload, so the pointers items hold
+stay valid. Tests: `emission2d_tests.cpp` (pixels, goldens `2d_emission_bloom` and `2d_cookie`, the plan and the cell assignment without
+a GPU), `test_image_tools.cpp` (the kernel against the old tools output).
+
 **The render scene.** The 3D world is gathered ONCE per frame, not once per camera job (`RenderScene`, `render_scene.h/.cpp`):
 `Renderer::Impl::render` builds it after the render targets exist and before any job, and the cameras, the render-target
 cameras and the CameraViews all read it. Per active `MeshRenderer` it holds the drawn matrix, the resolved mesh, texture,
@@ -343,4 +369,5 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 [rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md); the effects, one bullet each, are on
 [rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md).
 
+- **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).

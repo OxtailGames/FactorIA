@@ -28,7 +28,9 @@ generated top file with the built-in source modulo the user block; the render te
   (`kMaterialSpriteFirstView`, `kMaterialSpriteFirstSampler` in `fa/tooling/shaders.h` and `engine/render/src/render_internal.h`;
   a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`; a
   sprite has its second set at views 8.. and samplers 7.. (`kMaterialSpriteVsFirstView`, `kMaterialSpriteVsFirstSampler`),
-  declared as `fa_vs_<name>` the way a mesh's are, so a sprite `vertex()` samples a material texture at mip 0).
+  declared as `fa_vs_<name>` the way a mesh's are, so a sprite `vertex()` samples a material texture at mip 0). Since M74 views 12
+  (`fx_emissive_tex`, the emissive map of an item) and 13 (`fx_cookie_tex`, the cookie atlas of the 2D lights) are the engine's too, after
+  the material's two sets, so they never move a material's slots; the buffers still start at 16.
   `fa_time` and
   `fa_target` are members of the fragment block `quad_fs_params`, and `fa_time` of the vertex block `vs_params`: the renderer
   fills them for a material's draws, and in the engine's own programs they stay zero and unread (the lean program has no
@@ -39,7 +41,7 @@ generated top file with the built-in source modulo the user block; the render te
   sprite; `"pbr"`/`"unlit"` and `doubleSided` mean nothing to a sprite and are ignored.
 - **Tooling.** `generate_material_shader` sets `GeneratedShader::kind`, includes `quad_common.glsl`, defines
   `FA_MATERIAL` (and `FA_HAS_VERTEX`) and lists the programs `quad`, `quad_plain`; the cache key, the twin's `template`
-  and the compile all use the hash of the kind (the sprite one covers `color_space.glsl`, `light_shadow.glsl` and
+  and the compile all use the hash of the kind (the sprite one covers `color_space.glsl`, `light_cookie.glsl`, `light_shadow.glsl` and
   `quad_common.glsl`). The error hints name `fragment()`, `QuadInput` and its fields. Export writes
   `<name>.material.json.<dialect>.shader` as for any kind.
 - **Names.** The unprefixed names of the 2D program (vertex inputs, varyings, textures, samplers, uniform blocks and their
