@@ -325,8 +325,9 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
     static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
-                                          sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb",
-                                                    "fa_instance_index"},
+                                          sprite = {"fa_time",       "fa_target",         "fa_sample_main",
+                                                    "fa_scene_rgb",  "fa_instance_index", "fa_scene_color",
+                                                    "fa_world_to_uv"},
                                           sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
                                           post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
                                                   "fa_history_valid", "fa_scene_rgb", "fa_time"},
@@ -548,7 +549,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
                               ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv), "
                                 "fa_history(uv), fa_history_valid and fa_time."
                           : is_sprite(ctx.material)
-                              ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                              ? "; the ones a snippet may use are fa_time, fa_sample_main(), fa_scene_rgb(), "
+                                "fa_scene_color(uv) and fa_world_to_uv(p)."
                           : is_sky(ctx.material)
                               ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")

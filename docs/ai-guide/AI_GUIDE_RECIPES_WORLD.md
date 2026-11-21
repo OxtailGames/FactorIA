@@ -1,6 +1,6 @@
 # AI guide: recipes for the world
 
-Part of [AI guide](../AI_GUIDE.md): recipes 9.9 to 9.21: 3D scenes, save data, levels, particles, patrol AI, 3D cameras and physics, glow, sweeps.
+Part of [AI guide](../AI_GUIDE.md): recipes 9.9 to 9.21.1: 3D scenes, save data, levels, particles, patrol AI, 3D cameras and physics, glow, sweeps, 2D water and glass.
 
 ### 9.9 3D scene with a light and fog
 
@@ -456,3 +456,22 @@ export default class Dash extends Behaviour {
 - **Not for** testing a spot (`from === to` returns `null`; use `overlapBox` / `overlapCircle`), ground checks (`isGrounded`) or walls (`isTouching`).
 - From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
 - A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
+
+### 9.21.1 Water, heat haze and glass in 2D: the picture drawn so far
+
+`Water2D` is a pool that refracts what is under its surface and mirrors what is above it; `DistortionZone2D` bends the picture inside a rectangle (heat over a brazier); a sprite material that calls `fa_scene_color(uv)` reads the picture too (frosted glass, a lens). Nothing is on until you add one, and a frame without one pays nothing.
+
+```json
+{ "id": "pool", "components": {
+    "Transform": { "position": [640, 190, 0] },
+    "Water2D": { "size": [760, 220], "tint": [0.08, 0.3, 0.42, 0.5], "reflection": 0.7, "refraction": 5, "waveAmplitude": 2.5, "waveLength": 70, "waveSpeed": 0.6 } } },
+{ "id": "haze", "components": {
+    "Transform": { "position": [1100, 470, 0] },
+    "DistortionZone2D": { "size": [130, 170], "strength": 3 } } }
+```
+
+- **The top edge of the area is the surface**, so put the entity half the height under the line you want (a pool 220 high with its surface at y 300 is at y 190). The reflection only shows what is on screen: put the lanterns where the mirror image falls inside the picture.
+- **Layers decide what is under the water.** `Water2D.layer` is 10 and `DistortionZone2D.layer` 20: sprites on lower layers are refracted and reflected, sprites on higher layers (the player in front of the pool, a log floating on it) are drawn over it untouched. Two readers one after the other share one copy of the picture and do not see each other; a sprite on a layer between them separates them.
+- **Cost.** Each run of readers costs one copy of the camera's rectangle, at most 8 per camera and frame (the log says so once past that; `game.render_stats` has `sceneCopies`). `render.supports {"feature":"2dWater"}` is true on every backend.
+- **Your own look.** `Water2D.material` / `DistortionZone2D.material` take a sprite material that reads `fa_scene_color(i.screen_uv + ...)` and `fa_world_to_uv(vec3(x, y, 0))`; the component's fields arrive as the params of the same names that the material declares. A material that does not build draws the area magenta (`materialFallbacks` names it). The waves follow the engine clock, so a replay shows the same water.
+- Full reference: `docs.read rendering-2d-water`; the material API: `docs.read shaders-sprites`, "The scene colour". A scene to copy: `examples/lantern-keep/scenes/cellar_pool.scene.json` (if you got it with `project.create {example: "lantern-keep"}`).

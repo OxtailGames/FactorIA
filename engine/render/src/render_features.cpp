@@ -297,13 +297,14 @@ std::vector<FeatureDef> build_table() {
          "M74"},
         {"2dWater", "",
          "Water2D and DistortionZone2D: a reflective, refractive water area with waves and a rectangle that distorts "
-         "what is behind it, drawn from the scene's colour (M74). Every backend.",
-         "M74"},
+         "what is behind it, drawn from the picture drawn so far in the camera (a copy of it, made only when one of "
+         "them is in view). Every backend.",
+         nullptr},
         {"spriteSceneColor", "",
-         "The colour of the scene drawn so far as an input of a sprite material (a copy of the picture taken before "
-         "the sprite is drawn), which Water2D, DistortionZone2D and refracting sprite materials read (M74). Every "
-         "backend.",
-         "M74"}};
+         "fa_scene_color(uv) in a sprite material: the colour of the picture drawn so far in the camera (the "
+         "renderer copies the camera's rectangle before the first such draw and again only where needed, at most 8 "
+         "times per camera). Every backend.",
+         nullptr}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,

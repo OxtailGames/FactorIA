@@ -47,6 +47,7 @@ Json RenderStats::to_json() const {
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
+                {"sceneCopies", sceneCopies},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
                 {"materialResolves", materialResolves},
@@ -419,6 +420,7 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.ssr.release();
         im.xmit.release();
+        im.waterFx.release();
         im.skyEnv.release();
         im.probes_release();
         im.physSky.release();

@@ -971,6 +971,11 @@ MaterialRef Assets::sprite_material(const std::string& path, const Json& overrid
     return kind_material(path, overrides, MaterialKind::Sprite);
 }
 
+MaterialRef Assets::sprite_material_once(const std::string& path, const Json& overrides) {
+    if (path.empty()) return {};
+    return resolve_kind_material(path, overrides, MaterialKind::Sprite);
+}
+
 MaterialRef Assets::post_material(const std::string& path, const Json& overrides) {
     return kind_material(path, overrides, MaterialKind::Post);
 }
