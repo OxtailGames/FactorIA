@@ -29,8 +29,8 @@ TEST_CASE("shader template: the bundled files are engine/render/shaders/*_common
     }
     // and the files the templates @include (the sprite template reads the colour-space and 2D shadow helpers, the mesh template
     // the light data and the light loop; shadow_common.glsl ends in _common.glsl)
-    for (const char* included : {"color_space.glsl", "light_shadow.glsl", "light_data.glsl", "light_loop.glsl",
-                                 "ltc.glsl", "brdf_layers.glsl"})
+    for (const char* included : {"color_space.glsl", "light_shadow.glsl", "light_cookie.glsl", "light_data.glsl",
+                                 "light_loop.glsl", "ltc.glsl", "brdf_layers.glsl"})
         onDisk.push_back(std::string("engine/render/shaders/") + included);
     std::sort(onDisk.begin(), onDisk.end());
     REQUIRE_FALSE(onDisk.empty());

@@ -270,24 +270,26 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         {"2dEmission", "",
          "Emission of 2D visuals: Sprite.emissive, emissiveMap and Tilemap.emissive glow after the lighting and feed "
-         "the HDR bloom (M74). Every backend; the bloom needs RGBA16F targets as usual.",
-         "M74"},
+         "the HDR bloom, on lit and unlit visuals alike. Every backend; the bloom needs RGBA16F targets as usual.",
+         nullptr},
         {"2dLightLayers", "",
          "Light layers of 2D lighting: a Light2D lights only the Sprite, Shape2D and Tilemap whose lightLayers share a "
-         "bit with its own, and a ShadowCaster2D blocks only the lights it shares a bit with (M74). Every backend.",
-         "M74"},
+         "bit with its own, in the light buffer and in the per-pixel path (one light buffer per distinct set of lights "
+         "in "
+         "view, at most 4). Every backend.",
+         nullptr},
         {"2dLightCookies", "",
-         "Light2D.cookie: a texture the light shines through, turned by cookieRotationDeg and sized by cookieScale "
-         "(M74). Every backend.",
-         "M74"},
+         "Light2D.cookie: a texture the light shines through, turned by cookieRotationDeg and sized by cookieScale; "
+         "several lights have one at once, up to 16 distinct textures per frame. Every backend.",
+         nullptr},
         {"2dRimLight", "",
          "Sprite rim light (rimColor, rimIntensity, rimWidth): a bright edge on the side of a lit sprite that faces a "
-         "light (M74). Every backend.",
-         "M74"},
+         "light. Every backend.",
+         nullptr},
         {"2dGeneratedNormals", "",
          "Normal maps generated for lit sprites: Sprite.normalFrom sprite (from the sprite's alpha and luminance) or "
-         "height (from Sprite.heightMap), with normalStrength (M74). Every backend.",
-         "M74"},
+         "height (from Sprite.heightMap), with normalStrength, made once when the sprite loads. Every backend.",
+         nullptr},
         {"2dGlobalIllumination", "half",
          "2D global illumination by radiance cascades (GlobalIllumination2D): light bounces off coloured surfaces and "
          "emissive visuals light the scene (M74). It needs RGBA16F render targets that blend and filter: GL, GLES3 "

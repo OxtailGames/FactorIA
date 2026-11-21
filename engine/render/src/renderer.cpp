@@ -424,6 +424,7 @@ void Renderer::shutdown() {
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
+        im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
         im.sssFx.release();
@@ -1104,6 +1105,8 @@ void Renderer::Impl::render(World& world, float dt) {
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();
         warnedLights2d = false;
+        warnedCookies2d = false;
+        warnedLightBuffers2d = false;
         warnedShadows2d = false;
         warnedSpriteMesh = false;
         warnedGradientStops = false;

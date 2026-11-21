@@ -65,7 +65,7 @@ file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/s
 # The mesh template's lighting files (light_data.glsl, light_loop.glsl, ltc.glsl, brdf_layers.glsl; shadow_common.glsl
 # matches the glob above) too.
 list(APPEND FA_EMBED_SHADER_TEMPLATES ${FA_ROOT}/engine/render/shaders/color_space.glsl
-    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl ${FA_ROOT}/engine/render/shaders/light_data.glsl
+    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl ${FA_ROOT}/engine/render/shaders/light_cookie.glsl ${FA_ROOT}/engine/render/shaders/light_data.glsl
     ${FA_ROOT}/engine/render/shaders/light_loop.glsl ${FA_ROOT}/engine/render/shaders/ltc.glsl
     ${FA_ROOT}/engine/render/shaders/brdf_layers.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
