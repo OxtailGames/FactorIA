@@ -323,7 +323,7 @@ void Gpu::shutdown() {
     if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
     if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
     pacerSrc_ = pacerDst_ = {};
-    pacedFrame_ = 0;
+    pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
                          &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {

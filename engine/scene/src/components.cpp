@@ -2382,7 +2382,9 @@ void register_builtin_components(TypeRegistry& r) {
          "3D")
         .field("size", &RealtimeGI::size,
                "[x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world "
-               "position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].")
+               "position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside "
+               "the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces "
+               "it lights. Default [20, 6, 20].")
         .field(
             "offset", &RealtimeGI::offset,
             "[x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].")

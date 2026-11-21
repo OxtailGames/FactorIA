@@ -1,4 +1,4 @@
-// docs/SHADERS.md, docs/shaders/SHADERS_FULL.md and docs/shaders/SHADERS_LIGHTING.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
+// docs/SHADERS.md, docs/shaders/SHADERS_EXAMPLES.md, SHADERS_SPRITES.md, docs/shaders/SHADERS_FULL.md and docs/shaders/SHADERS_LIGHTING.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
 // that path in a scratch project; the blocks that hold a material (`"format": "factoria.material/1"`) must pass the schema
 // and the material checks, and compile for every dialect with the real sokol-shdc (SOKOL_SHDC or `factoria setup shaders`;
 // skipped with a message where it is not installed, failed instead with FA_REQUIRE_SHDC=1 as in CI).
@@ -20,7 +20,8 @@ namespace stdfs = std::filesystem;
 namespace {
 
 // The pages whose worked examples are built here, relative to docs/.
-constexpr const char* kPages[] = {"SHADERS.md", "shaders/SHADERS_FULL.md", "shaders/SHADERS_LIGHTING.md"};
+constexpr const char* kPages[] = {"SHADERS.md", "shaders/SHADERS_EXAMPLES.md", "shaders/SHADERS_SPRITES.md",
+                                  "shaders/SHADERS_FULL.md", "shaders/SHADERS_LIGHTING.md"};
 
 struct DocFile {
     std::string path, lang, text;
