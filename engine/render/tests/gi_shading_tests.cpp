@@ -191,7 +191,8 @@ Entity build_red_room(World& w, bool withGi, int perFrame) {
 
 }  // namespace
 
-TEST_CASE("realtime GI shading: a white floor beside a red wall turns red once the grid is ready, and not a frame before") {
+TEST_CASE(
+    "realtime GI shading: a white floor beside a red wall turns red once the grid is ready, and not a frame before") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_gi(g)) {
@@ -297,7 +298,8 @@ float dark_face_light(Own& o, World& w, const Divider& d) { return face_light(o,
 
 }  // namespace
 
-TEST_CASE("realtime GI shading: a thin divider keeps the light of the probes before it from the surface behind it, along every axis") {
+TEST_CASE("realtime GI shading: a thin divider keeps the light of the probes before it from the surface behind it, "
+          "along every axis") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_gi(g)) {
@@ -331,7 +333,8 @@ TEST_CASE("realtime GI shading: a thin divider keeps the light of the probes bef
                 REQUIRE(settle(o, w, d.gi));
                 leaky = dark_face_light(o, w, d);
             }
-            INFO("near face " << bright << ", far face " << clean << ", far face of a grid that cannot see the divider " << leaky);
+            INFO("near face " << bright << ", far face " << clean << ", far face of a grid that cannot see the divider "
+                              << leaky);
             // The near face is lit by the probes before the divider.
             CHECK(bright > 0.08f);
             // The grid that cannot see the divider leaks a large share of that light to the far face...
@@ -342,7 +345,8 @@ TEST_CASE("realtime GI shading: a thin divider keeps the light of the probes bef
     }
 }
 
-TEST_CASE("realtime GI shading: bounce scales the grid's own light in the captures, the meshes drawn see it unchanged") {
+TEST_CASE(
+    "realtime GI shading: bounce scales the grid's own light in the captures, the meshes drawn see it unchanged") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_gi(g)) {
@@ -362,7 +366,8 @@ TEST_CASE("realtime GI shading: bounce scales the grid's own light in the captur
         const Json report = o.r.gi_report();
         const Json* grid = grid_of(report, w.id_of(d.gi));
         REQUIRE(grid != nullptr);
-        const int probe = 1 + 3 * (2 + 5 * 0);  // (1, 2, 0) of a 3 x 5 x 2 grid: the middle of the axis the panel lies along
+        const int probe =
+            1 + 3 * (2 + 5 * 0);  // (1, 2, 0) of a 3 x 5 x 2 grid: the middle of the axis the panel lies along
         const GiTexel t = gi_block_origin(grid->value("firstBlock", 0) + probe);
         std::vector<float> texels;
         std::string error;
@@ -504,8 +509,8 @@ TEST_CASE("realtime GI shading: a lightmapped mesh and a mesh the baked light pr
                 without = middle(o.picture(w));
             }
         }
-        INFO("lightmapped, no grid: " << without.r << " " << without.g << " " << without.b << ", with a ready grid: " << with.r << " "
-                                      << with.g << " " << with.b);
+        INFO("lightmapped, no grid: " << without.r << " " << without.g << " " << without.b
+                                      << ", with a ready grid: " << with.r << " " << with.g << " " << with.b);
         CHECK(without.r > 0.1f);
         CHECK(without.g < 0.02f);
         CHECK(std::fabs(with.r - without.r) < 0.01f);
@@ -528,7 +533,8 @@ TEST_CASE("realtime GI shading: a lightmapped mesh and a mesh the baked light pr
     }
 }
 
-TEST_CASE("realtime GI shading: a mesh outside the grid's box, or a world whose grid is gone, is drawn as without the component") {
+TEST_CASE("realtime GI shading: a mesh outside the grid's box, or a world whose grid is gone, is drawn as without the "
+          "component") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!half_float_gi(g)) {

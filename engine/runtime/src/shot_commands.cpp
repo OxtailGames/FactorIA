@@ -722,7 +722,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "\"invalid\" (`message` names the field and the fix), \"noRoom\" (more than `probeLimit` probes), "
          "\"failed\" (retried after 30 frames) or \"unsupported\" (no RGBA16F blending). `invalidProbes` counts "
          "the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call "
-         "this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the renderer supports it). {grids: [], atlas: null} "
+         "this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the "
+         "renderer supports it). {grids: [], atlas: null} "
          "while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} "
          "See docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\"." FA_COMMAND_DETAILS
          "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x "

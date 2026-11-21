@@ -864,13 +864,22 @@ vec3 fa_gi_grid(int rec, vec3 n, vec3 v, out float cover) {
     // the probe's own depth map.
     vec3 pb = fa_world_pos + (n * 0.8 + v * 0.2) * (0.2 * spacing);
     int bpr = int(r2.y + 0.5);
-    vec3 sh[9];
-    for (int k = 0; k < 9; ++k) { sh[k] = vec3(0.0); }
+    // The cosine-convolved SH basis toward n (fa_sh_eval's constants): the irradiance of a probe is the sum of its nine coefficients times
+    // these, so the probes are blended after the product and no array of coefficients is kept.
+    float b0 = 0.282094792;
+    float b1 = 0.325735008 * n.y;
+    float b2 = 0.325735008 * n.z;
+    float b3 = 0.325735008 * n.x;
+    float b4 = 0.273137108 * n.x * n.y;
+    float b5 = 0.273137108 * n.y * n.z;
+    float b6 = 0.078847891 * (3.0 * n.z * n.z - 1.0);
+    float b7 = 0.273137108 * n.x * n.z;
+    float b8 = 0.136568554 * (n.x * n.x - n.y * n.y);
+    vec3 acc = vec3(0.0);
     float wsum = 0.0;
-    // The bounds come from the record (its last texel is 0), not from constants: a driver that unrolled the eight probes and their nine
-    // coefficients made a shader with a discard (a clip material) too big for the Metal compiler.
+    // The bound comes from the record (its last texel is 0), not from a constant: a driver that unrolled the eight probes made a shader
+    // with a discard (a clip material) too big for the Metal compiler.
     int nProbes = 8 + int(r3.w);
-    int nCoef = 9 + int(r3.w);
     for (int k = 0; k < nProbes; ++k) {
         vec3 d = vec3(float(k & 1), float((k >> 1) & 1), float((k >> 2) & 1));
         float tri = (d.x > 0.5 ? f.x : 1.0 - f.x) * (d.y > 0.5 ? f.y : 1.0 - f.y) * (d.z > 0.5 ? f.z : 1.0 - f.z);
@@ -898,15 +907,19 @@ vec3 fa_gi_grid(int rec, vec3 n, vec3 v, out float cover) {
             w *= cheb * cheb * cheb;
         }
         if (!(w > 0.0)) { continue; }
-        for (int c = 0; c < nCoef; ++c) { sh[c] += fa_gi_fetch(org + vec2(float(c) + 0.5, 10.5)).rgb * w; }
+        vec2 shRow = org + vec2(0.5, 10.5);
+        vec3 irr = fa_gi_fetch(shRow).rgb * b0 + fa_gi_fetch(shRow + vec2(1.0, 0.0)).rgb * b1 + fa_gi_fetch(shRow + vec2(2.0, 0.0)).rgb * b2 +
+                   fa_gi_fetch(shRow + vec2(3.0, 0.0)).rgb * b3 + fa_gi_fetch(shRow + vec2(4.0, 0.0)).rgb * b4 +
+                   fa_gi_fetch(shRow + vec2(5.0, 0.0)).rgb * b5 + fa_gi_fetch(shRow + vec2(6.0, 0.0)).rgb * b6 +
+                   fa_gi_fetch(shRow + vec2(7.0, 0.0)).rgb * b7 + fa_gi_fetch(shRow + vec2(8.0, 0.0)).rgb * b8;
+        acc += irr * w;
         wsum += w;
     }
     if (!(wsum > 1.0e-5)) { return vec3(0.0); }
-    for (int c = 0; c < 9; ++c) { sh[c] /= wsum; }
     // Every probe that sees the point little leaves the sky to the rest: the grid's say fades with the weight it found.
     cover = box * smoothstep(0.0, 0.02, wsum);
     float gain = r2.w * (fa_gi.z > 0.5 ? r3.x : 1.0);  // intensity, times bounce in a capture
-    return fa_sh_eval(sh, n) * gain;
+    return max(acc / wsum, vec3(0.0)) * gain;
 }
 
 // The light of the ready grids at the fragment: `left` is the part the grids do not answer for (1 = none reaches it). The first grid that
@@ -931,34 +944,32 @@ vec3 fa_gi_light(vec3 n, out float left) {
 // The diffuse light of a fragment no baked data reaches: the realtime GI where a ready grid covers it, the ambient light (the reflection
 // probes' SH and the sky's) for the rest.
 vec3 fa_realtime_or_ambient(vec3 n) {
-    if (fa_gi.y > 0.5) {
-        float left;
-        vec3 gi = fa_gi_light(n, left);
-        if (left < 0.999) { return left > 0.0 ? gi + fa_ambient_light(n) * left : gi; }
-    }
-    return fa_ambient_light(n);
+    vec3 gi = vec3(0.0);
+    float left = 1.0;
+    if (fa_gi.y > 0.5) { gi = fa_gi_light(n, left); }
+    if (left <= 0.0) { return gi; }
+    return gi + fa_ambient_light(n) * left;
 }
 
 // The diffuse indirect light toward n, by order: the baked texel of a lightmapped surface; else the baked light probes where they cover
-// the point (blended with what follows by their coverage); else the realtime GI grid where a ready one covers it (blended with the ambient
-// over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe that reaches
-// the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale darkens
-// it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the reflection
+// the point (blended with the ambient light by their coverage); else the realtime GI grid where a ready one covers it (blended with the
+// ambient over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe that
+// reaches the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale
+// darkens it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the reflection
 // probes' and the sky's: a lightmap holds no direction, so the ambient is never counted twice (the texel replaces the diffuse ambient
 // only) and never missing.
+// The grid's code is inlined at ONE call site: Apple's Metal compiler crashes on a clip material (graph with a discard) that has it at two,
+// or that blends its result with the baked SH after the fact.
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
     }
-    float cover = fa_probe_sh[0].w;
-    if (cover > 0.0) {
-        // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the sky's
-        // ambient where the probes only partly reach it.
+    if (fa_probe_sh[0].w > 0.0) {
+        // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the ambient
+        // light where the probes only partly reach it.
         vec3 c[9];
         for (int k = 0; k < 9; k++) { c[k] = fa_probe_sh[k].xyz; }
-        vec3 baked = fa_sh_eval(c, n);
-        if (cover >= 1.0) { return baked; }
-        return mix(fa_realtime_or_ambient(n), baked, clamp(cover, 0.0, 1.0));
+        return mix(fa_ambient_light(n), fa_sh_eval(c, n), clamp(fa_probe_sh[0].w, 0.0, 1.0));
     }
     return fa_realtime_or_ambient(n);
 }
