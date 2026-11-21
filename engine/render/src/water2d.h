@@ -67,20 +67,20 @@ public:
     // Copies the camera's rectangle of `game` (its texture view, resolved when multisampled): (x, row, w, h) in image rows of the game
     // image. Must be called outside any pass. On success `handle` is the pooled image (give it back with TransientTargets::pool.release) and
     // `view` its texture view; false (nothing held) when the shader or the image could not be made.
-    bool copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, std::uint64_t& handle,
-              sg_view& view);
+    bool copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
+              std::uint64_t& handle, sg_view& view);
 
     // What draw() needs of the camera and the frame.
     struct DrawEnv {
-        sg_buffer vertices{};           // the frame's quad stream
+        sg_buffer vertices{};  // the frame's quad stream
         const Mat4* viewProj = nullptr;
         const SceneMap* map = nullptr;
-        sg_view scene{};                // the copy
+        sg_view scene{};  // the copy
         float time = 0.0f;
-        float targetInv[2]{};           // 1 / the size of the render target in pixels
-        bool gl = false;                // render targets are bottom-up (OpenGL)
+        float targetInv[2]{};  // 1 / the size of the render target in pixels
+        bool gl = false;       // render targets are bottom-up (OpenGL)
         bool depthTest = false;
-        TargetFormat format;            // of the pass drawn in
+        TargetFormat format;  // of the pass drawn in
     };
     // Draws the built-in effect `fx` as the one quad at `firstQuad` of the stream, inside a pass. False when it could not be drawn.
     bool draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const DrawEnv& env);
