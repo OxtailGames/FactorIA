@@ -532,9 +532,11 @@ struct GlobalIllumination2D {
     bool enabled = true;
     GI2DQuality quality = GI2DQuality::Medium;
     float intensity = 1.0f;
-    float bounce = 0.5f;           // 0..1 light bounced off coloured surfaces
-    float range = 512.0f;          // world units a bounce of light travels
-    float resolutionScale = 0.5f;  // fraction of the picture size the GI is computed at
+    float bounce = 0.5f;  // 0..1 how much of its last frame's irradiance, times its colour, a blocker bounces back
+    float range =
+        512.0f;  // world units around the view that the field covers (emitters and occluders beyond do not count)
+    float resolutionScale =
+        0.5f;  // field texels per screen pixel (the field is computed at this fraction of the picture's size)
 };
 
 // M74: a reflective, refractive water area; its top edge is the surface.

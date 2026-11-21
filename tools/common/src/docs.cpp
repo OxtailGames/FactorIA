@@ -304,6 +304,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"rendering-2d-emission",
          "Rendering, part: 2D emission, light layers, cookies, rim light and generated normal maps (M74.2).",
          aud({kGameAi})},
+        {"rendering-2d-gi",
+         "Rendering, part: 2D global illumination with radiance cascades (GlobalIllumination2D): quality, cost, "
+         "limits.",
+         aud({kGameAi})},
         {"rendering-2d-shadows",
          "Rendering, part: soft 2D shadows (Light2D.size), ShadowCaster2D, light layers and the shadow caps (M74.1).",
          aud({kGameAi})},

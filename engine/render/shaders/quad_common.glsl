@@ -15,7 +15,7 @@
 // not take any of them (parse_material refuses them: tools/common/src/shaders_generate.cpp, template_globals reads this file and
 // its @includes, so a new global here is covered without a list to update). What a snippet may use is the contract below
 // and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb(), and (fragment stage only) fa_scene_color(uv) with fa_world_to_uv(p):
-// the picture drawn so far in the camera job (view 14, `fa_scene_tex`, declared by the program only when the snippet calls it; the
+// the picture drawn so far in the camera job (view 15, `fa_scene_tex`, declared by the program only when the snippet calls it; the
 // renderer then copies the target before the item, docs/rendering/RENDERING_2D_WATER.md).
 //
 // Bindings. Uniform blocks: vertex 0 vs_params (+ 4 for the material's vertex-stage block), fragment 1 quad_fs_params (+ 5 for
@@ -259,6 +259,10 @@ layout(binding=1) uniform quad_fs_params {
                                // rectangle, y down); the copy is the camera's rectangle of the target
     vec4 fa_world_uv[3];       // rows of the camera's view-projection already turned into screen_uv: u = row0 . p / row2 . p,
                                // v = row1 . p / row2 . p for p = (world x, y, z, 1)
+    // M74-P3b (docs/rendering/RENDERING_2D_GI.md): the irradiance of the 2D GI cascades. gi_p.x = GlobalIllumination2D.intensity, 0 = none
+    // (every unlit batch, and every frame without GI); gi_xf: the image's uv = world * xy + zw.
+    vec4 gi_xf;
+    vec4 gi_p;
 };
 @end
 
@@ -347,7 +351,11 @@ layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer pat
 layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
 layout(binding=12) uniform texture2D fx_emissive_tex;   // M74: the emissive map of an item that has one (a 1x1 white image otherwise)
 layout(binding=13) uniform texture2D fx_cookie_tex;     // M74: the cookie atlas (a 1x1 white image when no light has a cookie)
-layout(binding=14) uniform texture2D fa_scene_tex; // fa_scene_color(): the picture drawn so far (declared by the program only when the snippet calls it)
+layout(binding=14) uniform texture2D fx_gi_tex;         // M74-P3b: the irradiance of the GI cascades (a 1x1 white image without them)
+layout(binding=15) uniform texture2D fa_scene_tex; // fa_scene_color(): the picture drawn so far (declared by the program only when the snippet calls it)
+// Fragment-stage texture views of `fs` at most: tex, normal_tex, light_tex, shadow_tex (4) + a sprite material's own textures (4,
+// kMaxMaterialTextures) + fx_emissive_tex, fx_cookie_tex, fx_gi_tex, fa_scene_tex (4) = 12, under the 16 GLES3 / WebGL2 guarantee (the
+// vertex copies of the material's textures, views 8-11, belong to the vertex stage). fs_plain declares fewer.
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
 layout(binding=2) uniform sampler shadow_smp;     // nearest
@@ -379,6 +387,15 @@ float cookie_att(int i, vec2 d) {
     return cookie_value(textureLod(sampler2D(fx_cookie_tex, light_smp), cc.xy, 0.0)) * cc.z;
 }
 
+// The irradiance image's value at this fragment's world position, premultiplied by its validity (the probes inside an occluder hold none),
+// so the weighted bilinear filter never darkens a neighbour; nothing outside the field.
+vec3 gi_irradiance() {
+    vec2 g = world_xy * gi_xf.xy + gi_xf.zw;
+    vec4 e = textureLod(sampler2D(fx_gi_tex, light_smp), g, 0.0);
+    bool inside = g.x >= 0.0 && g.y >= 0.0 && g.x <= 1.0 && g.y <= 1.0;
+    return inside && e.a > 0.02 ? e.rgb / e.a * gi_p.x : vec3(0.0);
+}
+
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
     bool use_normal = lit.y > 0.5;
@@ -392,6 +409,7 @@ vec3 lit_color(vec4 base, float mode) {
     // One return at the end: fxc warns (X4000, logged at run time on D3D11) about an early return before the loop.
     bool flat_lit = !use_normal && lit.z > 0.5;
     vec3 total = flat_lit ? flat_ambient.rgb : ambient.rgb;
+    if (gi_p.x > 0.0) { total += gi_irradiance(); }  // M74-P3b: the light the 2D GI cascades bring to this point (times the albedo below)
     if (flat_lit && lit.z < 1.5) {
         // A flat surface faces every light head on, so each light adds color * falloff and they add up: the light buffer
         // already holds that sum (gl_FragCoord is the pixel of the same target, in the same orientation).
@@ -601,7 +619,7 @@ void main() {
 // engine's own plain program (no FA_MATERIAL) has no uniform block at all.
 @fs fs_plain
 layout(binding=0) uniform texture2D tex;
-layout(binding=14) uniform texture2D fa_scene_tex;
+layout(binding=15) uniform texture2D fa_scene_tex;
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;
 
