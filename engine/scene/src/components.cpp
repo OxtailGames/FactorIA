@@ -1973,8 +1973,8 @@ void register_builtin_components(TypeRegistry& r) {
                "scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface "
                "(16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the "
                "bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into "
-               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "
-               "\"Lightmaps\").")
+               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "
+               "\"Baking\").")
         .range(0, 100)
         .field("contributeGI", &MeshRenderer::contributeGI,
                "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
@@ -2215,7 +2215,7 @@ void register_builtin_components(TypeRegistry& r) {
          "mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as "
          "the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The "
          "textures of all the "
-         "decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, \"Decals\".",
+         "decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, \"Decals\".",
          "3D")
         .asset_field("albedo", &Decal::albedo, "texture",
                      "The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the "
@@ -2338,7 +2338,7 @@ void register_builtin_components(TypeRegistry& r) {
          "scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the "
          "back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is "
          "lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. "
-         "docs/rendering/RENDERING_LIGHTING.md, \"Light probes and mixed lights\".",
+         "docs/rendering/RENDERING_LIGHT_PROBES.md.",
          "3D")
         .field(
             "size", &LightProbeGroup::size,
@@ -4477,7 +4477,7 @@ void register_builtin_components(TypeRegistry& r) {
                "An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F "
                "render targets draws no volumetric fog and keeps its analytic one (render.supports {\"feature\": "
                "\"volumetricFog\"}); a scene with no light and no ambient is a black medium. "
-               "docs/rendering/RENDERING_LIGHTING.md, \"Volumetric fog and light shafts\".")
+               "docs/rendering/RENDERING_DECALS_FOG.md, \"Volumetric fog and light shafts\".")
         .field("volumetricDensity", &SceneSettings::volumetricDensity,
                "Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light "
                "reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air "
@@ -4521,7 +4521,7 @@ void register_builtin_components(TypeRegistry& r) {
                      "(and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient "
                      "light, and lights with mode baked stop lighting it. \"\" (default) = no lightmap. A missing "
                      "or invalid manifest is reported (render.assets) and the scene is drawn without it. "
-                     "docs/rendering/RENDERING_LIGHTING.md, \"Lightmaps\".");
+                     "docs/rendering/RENDERING_LIGHTMAPS.md.");
 }
 
 void ensure_builtin_components() {

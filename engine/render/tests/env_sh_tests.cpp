@@ -406,6 +406,32 @@ TEST_CASE("sky SH on the GPU: the baked SH is the same on an RGBA8 environment, 
     CHECK(worst < 0.03);
 }
 
+TEST_CASE("sky SH on the GPU: a black sky reads back exactly zero on an RGBA8 environment") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    // Zero is the byte 128 of the encoding (clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255), so a sky with no light does not tint the ambient.
+    const Setup black = [](World& w) {
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().skyMaterial = "materials/skygrad.material.json";
+        w.settings().skyMaterialParams = Json::object(
+            {{"zenith", Json::array({0.0, 0.0, 0.0, 1.0})}, {"ground", Json::array({0.0, 0.0, 0.0, 1.0})}});
+    };
+    struct Force {
+        Force() { Environment::force_rgba8_for_tests(true); }
+        ~Force() { Environment::force_rgba8_for_tests(false); }
+    };
+    Force force;
+    OwnRenderer own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    double worst = 0.0;
+    for (const Vec3& n : probe_normals()) {
+        const Vec3 c = gpu_ambient([&](World& w) { return own.draw(w); }, black, n);
+        worst = std::max({worst, double(c.x), double(c.y), double(c.z)});
+    }
+    CHECK(worst == 0.0);
+}
+
 TEST_CASE("sky SH on the GPU: the shaders hold the nine coefficients in highp on GLES3 and WebGL2") {
     // The environment's own fragment shader: every declaration is highp (a mobile GPU's mediump is fp16, and the sum of a thousand
     // taps of a sky of 60000 overflows it).

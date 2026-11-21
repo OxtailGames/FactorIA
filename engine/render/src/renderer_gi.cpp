@@ -192,8 +192,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
                 const std::uint64_t key = kGiViewKeyBit | std::uint64_t(index);
                 Frame& fr = g.frames.emplace_back();
                 probe_face_frame(fr, world, rp, position, face, res);
-                fr.giCapture =
-                    true;  // this face sees the grid's light times its bounce (a ReflectionProbe's capture does not)
+                // This face sees the grid's light times its bounce (a ReflectionProbe's capture does not).
+                fr.giCapture = true;
                 GiFacePlan& fp = g.plans.emplace_back();
                 fp.distIndex = index;
                 fp.maxDistance = gr.layout.maxDistance;
