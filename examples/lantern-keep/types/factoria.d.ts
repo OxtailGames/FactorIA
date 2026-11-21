@@ -7523,7 +7523,7 @@ declare module "factoria" {
      */
     instanceBounds: number;
     /**
-     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTING.md, "Lightmaps").
+     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking").
      * @since unreleased
      */
     lightmapScale: number;
@@ -7736,7 +7736,7 @@ declare module "factoria" {
     contactShadowLength: number;
   }
   /**
-   * A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_LIGHTING.md, "Decals".
+   * A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, "Decals".
    * 
    * Category: 3D
    * @since unreleased
@@ -7876,7 +7876,7 @@ declare module "factoria" {
     boxProjection: boolean;
   }
   /**
-   * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHTING.md, "Light probes and mixed lights".
+   * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHT_PROBES.md.
    * 
    * Category: 3D
    * @since unreleased
@@ -11890,7 +11890,7 @@ declare module "factoria" {
     get cloudWind(): Vec2;
     set cloudWind(value: Vec2Like);
     /**
-     * Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_LIGHTING.md, "Volumetric fog and light shafts".
+     * Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts".
      * @since unreleased
      */
     volumetricFog: boolean;
@@ -11930,7 +11930,7 @@ declare module "factoria" {
      */
     volumetricQuality: "low" | "medium" | "high";
     /**
-     * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTING.md, "Lightmaps". (asset path: any)
+     * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (asset path: any)
      * @since unreleased
      */
     lightmaps: string;

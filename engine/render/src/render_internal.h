@@ -2,11 +2,13 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -359,9 +361,10 @@ struct PreparedTexture {
 };
 struct PreparedTextureRef {  // one texture slot of a glTF material
     enum class Kind { None, Path, Image, Missing } kind = Kind::None;
-    std::string path;         // Path: the project path of the image file
-    std::string name;         // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
-    Image image;              // Image
+    std::string path;  // Path: the project path of the image file
+    std::string name;  // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
+    std::shared_ptr<const Image>
+        image;                // Image (shared: every part of a material holds the same composite, not a copy)
     std::string error, hint;  // Missing
 };
 // The textures of the layer extensions of one glTF material, as the file names them (None = the material has none).
@@ -1129,8 +1132,11 @@ public:
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
-    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and is rebuilt when it changes.
+    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and asks whether one of its own
+    // textures was reloaded since a generation (`paths` are normalised keys). True too when the log of the last reloads no longer reaches
+    // back to `since`, so a doubt rebuilds the atlas and never leaves a stale one.
     std::uint64_t reload_generation() const { return reloadGeneration_; }
+    bool reloaded_any_of(std::uint64_t since, const std::set<std::string>& paths) const;
     void clear();
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
@@ -1151,6 +1157,8 @@ public:
                       const std::string& meshName, LightmapUse& out);
     // A buffer of at least `vertices` zero uv pairs: the uv1 attribute of the engine's own mesh program of a mesh that has no lightmap
     // (the program always declares it). Grows; the buffer of an earlier call may be destroyed by a later one, so ask again every draw.
+    // `vertices` must be the part's own vertex count (SubMesh::vertexCount, the whole shared buffer for a lightmap mesh): the draw reads uv1
+    // at every index of the part, so an index at or past `vertices` would read past the zeros.
     sg_buffer zero_uv1(std::size_t vertices);
 
     // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
@@ -1252,6 +1260,9 @@ private:
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
     std::uint64_t reloadGeneration_ = 0;
+    // The paths of the latest reloads: entry i belongs to generation reloadLogBase_ + i + 1 (the file, and the texture a twin file belongs to).
+    std::vector<std::array<std::string, 2>> reloadLog_;
+    std::uint64_t reloadLogBase_ = 0;
     std::map<std::string, ProceduralMesh> procedural_;  // "mesh:N" -> its GPU copy
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;

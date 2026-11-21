@@ -1617,8 +1617,19 @@ void Renderer::Impl::collect_decals(DrawContext& ctx) {
     static const Vec3 kLo{-0.5f, -0.5f, -0.5f}, kHi{0.5f, 0.5f, 0.5f};
     world.each<Decal>([&](Entity e, Decal& d) {
         if (!entity_active(world, e)) return;
-        for (const std::string* p : {&d.albedo, &d.normal})
-            if (!p->empty() && paths.size() < render::kMaxDecalTextures) paths.insert(decal_path_key(*p));
+        for (const std::string* p : {&d.albedo, &d.normal}) {
+            if (p->empty()) continue;
+            if (paths.size() < render::kMaxDecalTextures) {
+                paths.insert(decal_path_key(*p));
+            } else if (!warnedDecalPaths && !paths.count(decal_path_key(*p))) {
+                warnedDecalPaths = true;
+                FA_WARN("render",
+                        "The Decals of the world name more than {} different textures: the ones past that are not in "
+                        "the atlas and "
+                        "their decals are not drawn. Hint: share textures between decals or use fewer of them.",
+                        render::kMaxDecalTextures);
+            }
+        }
         const Mat4 m = world.world_matrix(e);
         if (!box_in_frustum(fr.cam.viewProj, ctx.z01, kLo, kHi, m)) return;
         if (ctx.decals.size() >= std::size_t(render::kMaxDecals)) {

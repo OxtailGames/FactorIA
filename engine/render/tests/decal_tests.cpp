@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <string>
@@ -16,6 +18,7 @@
 #include "fa/core/jobs.h"
 
 #include "decal_atlas.h"
+#include "fa_test_paths.h"
 #include "light_clusters.h"
 
 using namespace fa;
@@ -507,4 +510,22 @@ TEST_CASE("decal atlas: build_decal_atlas copies each tile with a gutter that re
     const DecalAtlasImage again = build_decal_atlas({"missing.png", "broken.png", "b.png", "a.png"}, src, 4096);
     CHECK(again.image.rgba == built.image.rgba);
     CHECK(again.layout.width == built.layout.width);
+}
+
+TEST_CASE(
+    "decal atlas: the max LOD literal of light_data.glsl is kDecalMaxLod, and the gutter holds its bilinear tap") {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/shaders/light_data.glsl", std::ios::binary);
+    const std::string glsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE_FALSE(glsl.empty());
+    // The line of fa_decal_tile: "... , 0.0, 3.0);  // 3 = kDecalMaxLod (decal_atlas.h) ...".
+    const std::size_t at = glsl.find("kDecalMaxLod");
+    REQUIRE(at != std::string::npos);
+    const std::size_t lineStart = glsl.rfind('\n', at) + 1;
+    const std::string line = glsl.substr(lineStart, at - lineStart);
+    const std::size_t clampAt = line.find("0.0, ");
+    REQUIRE(clampAt != std::string::npos);
+    const float literal = std::strtof(line.c_str() + clampAt + 5, nullptr);
+    CHECK(literal == float(kDecalMaxLod));
+    // A bilinear tap at level L reaches 1.5 * 2^L pixels of level 0.
+    CHECK(1.5f * std::ldexp(1.0f, kDecalMaxLod) <= float(kDecalGutter));
 }

@@ -204,9 +204,10 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         // full-shader material, one drawn from compute buffers and one without the channel do not, and are lit as without a lightmap.
         const bool materialReads =
             !sm.material || (sm.material->ok && !sm.material->full && sm.material->buffers.empty() && sm.material->uv1);
-        if (lightmaps && mr.receiveGI && mr.lightmapScale > 0.0f && materialReads)
-            assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh,
-                                mr.mesh.empty() ? std::string("cube") : mr.mesh, sm.lm);
+        if (lightmaps && mr.receiveGI && mr.lightmapScale > 0.0f && materialReads) {
+            static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
+            assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh, mr.mesh.empty() ? kCube : mr.mesh, sm.lm);
+        }
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
         const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
