@@ -15,6 +15,7 @@
 #include "fa/scene/tilemap.h"
 #include "light_layers.h"
 #include "render_internal.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -459,6 +460,8 @@ TEST_CASE(
     // The page: a 64 x 64 camera far away whose picture is a white block on its left half (black elsewhere).
     Entity pageCam = make(w, "page-cam", {1000, 0, 0});
     Camera& pc = w.add<Camera>(pageCam);
+    pc.depth =
+        -1;  // cameras render in ascending depth: the page is drawn before the main camera (depth 0) whose light copies it
     pc.renderTarget = "cookiePage";
     pc.renderTargetSize = Vec2{64.0f, 64.0f};
     pc.orthoSize = 32.0f;
@@ -729,4 +732,23 @@ TEST_CASE("generated normals: normalFrom sprite and height draw exactly what the
     draw(SpriteNormalFrom::Height, "", "assets/nohere.png", 1.0f);
     CHECK(log.count("nohere.png") >= 1);
     CHECK(red(missing, 160, 90) > 0.05f);
+}
+
+TEST_CASE(
+    "generated normals: an animated strength keeps a bounded number of maps per picture, answered with the closest") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save(solid(16, 16, Color::white()), "assets/gn_src.png");
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    const std::size_t before = assets.generated_normal_count();
+    std::vector<render::TextureAsset*> made;
+    for (int i = 0; i < 100; ++i) {
+        render::TextureAsset* t = assets.generated_normal("assets/gn_src.png", false, 0.5f + float(i) * 0.1f);
+        REQUIRE(t != nullptr);
+        made.push_back(t);
+    }
+    CHECK(assets.generated_normal_count() - before == std::size_t(render::Assets::kMaxNormalVariants));
+    // Past the bound a strength is answered with the closest one made: the 8 first (0.5 .. 1.2) are kept, so the large ones all get the last.
+    CHECK(made[90] == made[99]);
+    assets.clear();
 }

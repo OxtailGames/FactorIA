@@ -1303,6 +1303,15 @@ TextureAsset* Assets::generated_normal(const std::string& path, bool fromHeight,
     std::vector<GeneratedNormalMemo>& memo = generatedNormalMemo_[path];
     for (const GeneratedNormalMemo& m : memo)
         if (m.fromHeight == fromHeight && m.milli == milli) return m.entry->tex.get();
+    // A strength that changes every frame (an animated one) must not grow the maps without end: a path keeps at most
+    // kMaxNormalVariants of them, and past that the one asked is answered with the closest strength already made.
+    if (int(memo.size()) >= kMaxNormalVariants) {
+        const GeneratedNormalMemo* best = nullptr;
+        for (const GeneratedNormalMemo& m : memo)
+            if (m.fromHeight == fromHeight && (!best || std::labs(m.milli - milli) < std::labs(best->milli - milli)))
+                best = &m;
+        if (best) return best->entry->tex.get();
+    }
     std::string src = fs::normalize(path);
     if (src.empty()) src = path;
     const std::string key = std::string(fromHeight ? "height:" : "sprite:") + src + "@" + std::to_string(milli);
