@@ -472,6 +472,40 @@ void Editor::at_section_L(AtScript& at) {
         });
         snap("editor_inspector_error.png");
 
+        // 3b. A light-layer mask is toggles, one per layer: a click flips one bit (one undo step) and keeps the others.
+        step(2, [this, he] {
+            he->undo = undo_depth();
+            inspScrollTo_ = "Shape2D.lightLayers";
+        });
+        step(3, [] {});
+        step(4, [this] {
+            at_check(at_visible("insp:Shape2D.lightLayers.bit.0") && at_visible("insp:Shape2D.lightLayers.bit.7"),
+                     "Shape2D.lightLayers shows one toggle for each of the layers 0..7 inside the Inspector window");
+            at_check(at_visible("insp:Shape2D.lightLayers"), "...and the number next to them");
+        });
+        snap("editor_inspector_layer_mask.png");
+        click("insp:Shape2D.lightLayers.bit.2");
+        step(4, [this, he] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 5, "clicking the toggle of layer 2 adds it to the mask (1 -> 5)");
+            at_check(undo_depth() == he->undo + 1, "...as ONE undo step");
+        });
+        click("toolbar:undo");
+        step(4, [this, he] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 1 && undo_depth() == he->undo, "Undo takes the toggle back");
+        });
+        click("insp:Shape2D.lightLayers.bit.0");
+        step(4, [this] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 0, "clicking a lit toggle takes its layer out of the mask (1 -> 0)");
+        });
+        click("toolbar:undo");
+        step(4, [this] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 1, "...and Undo puts it back");
+        });
+
         // 4. Add and remove a component.
         click("insp:add");
         step(3, [this] {

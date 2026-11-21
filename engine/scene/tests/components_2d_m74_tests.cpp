@@ -1,6 +1,7 @@
-// M74-P0: the components and fields of the ambitious 2D lighting and effects (soft shadows, shadow casters, emission, light layers,
-// cookies, rim light, generated normals, 2D global illumination, water, distortion). They are reflected, validated, saved and loaded
-// here; the packages M74.1 .. M74.4 draw them. Their defaults keep the look of every older scene.
+// M74-P0: the components and fields of the ambitious 2D lighting and effects (soft shadows, shadow casters, emission,
+// light layers, cookies, rim light, generated normals, 2D global illumination, water, distortion). They are reflected,
+// validated, saved and loaded here; the packages M74.1 .. M74.4 draw them. Their defaults keep the look of every older
+// scene.
 #include <doctest.h>
 
 #include <string>
@@ -65,7 +66,11 @@ TEST_CASE("m74 2d fields: the defaults keep the look of a scene made before M74"
     CHECK(s.emissive.b == 0.0f);
     CHECK(s.emissiveIntensity == 1.0f);
     CHECK(s.lightLayers == 1);
+    CHECK(s.emissiveMap.empty());
     CHECK(s.rimIntensity == 0.0f);
+    CHECK(s.rimWidth == 0.1f);
+    CHECK(s.heightMap.empty());
+    CHECK(s.normalMap.empty());
     CHECK(s.normalFrom == SpriteNormalFrom::File);
     CHECK(s.normalStrength == 1.0f);
     CHECK(Shape2D().lightLayers == 1);
@@ -82,6 +87,22 @@ TEST_CASE("m74 2d fields: the defaults keep the look of a scene made before M74"
     CHECK(gi.enabled);
     CHECK(gi.quality == GI2DQuality::Medium);
     CHECK(gi.resolutionScale == 0.5f);
+    const Water2D wa;
+    CHECK(wa.size.x == 256.0f);
+    CHECK(wa.size.y == 128.0f);
+    CHECK(wa.reflection == 0.5f);
+    CHECK(wa.refraction == 4.0f);
+    CHECK(wa.waveAmplitude == 2.0f);
+    CHECK(wa.waveLength == 64.0f);
+    CHECK(wa.waveSpeed == 1.0f);
+    CHECK(wa.layer == 10);
+    CHECK(wa.material.empty());
+    const DistortionZone2D dz;
+    CHECK(dz.size.x == 128.0f);
+    CHECK(dz.size.y == 128.0f);
+    CHECK(dz.strength == 1.0f);
+    CHECK(dz.layer == 20);
+    CHECK(dz.material.empty());
 }
 
 TEST_CASE("m74 2d fields: an old scene loads unchanged and saves without any of the new keys") {
@@ -214,4 +235,70 @@ TEST_CASE("m74 2d fields: contradictions between fields are reported with a poin
     const std::string text = report.summary();
     CHECK(text.find("Water2D/size") != std::string::npos);
     CHECK(text.find("ShadowCaster2D/points") != std::string::npos);
+}
+
+TEST_CASE("m74 2d fields: a size of 0 is an error that names the field, the value and the fix") {
+    World w;
+    const Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[
+      {"id":"sea","components":{"Water2D":{"size":[0,100]}}},
+      {"id":"haze","components":{"DistortionZone2D":{"size":[64,-3.5]}}}]})");
+    const LoadReport report = load_scene(w, scene, "zero.scene.json");
+    CHECK_FALSE(report.ok());
+    int found = 0;
+    for (const LoadMessage& m : report.messages) {
+        if (m.severity != LoadMessage::Severity::Error) continue;
+        INFO(m.pointer, ": ", m.message, " ", m.hint);
+        if (m.pointer.find("Water2D/size") != std::string::npos) {
+            ++found;
+            CHECK(m.message.find("Water2D.size is [0, 100]") != std::string::npos);
+            CHECK(m.message.find("'sea'") != std::string::npos);
+            CHECK(m.message.find("0.000000") == std::string::npos);
+            CHECK(m.hint.find("\"size\": [256, 128]") != std::string::npos);
+        }
+        if (m.pointer.find("DistortionZone2D/size") != std::string::npos) {
+            ++found;
+            CHECK(m.message.find("DistortionZone2D.size is [64, -3.5]") != std::string::npos);
+            CHECK(m.message.find("'haze'") != std::string::npos);
+        }
+    }
+    CHECK(found == 2);
+}
+
+TEST_CASE("m74 2d fields: settings that have no effect are warned about with the entity and the fix") {
+    World w;
+    const Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[
+      {"id":"flat","components":{"Sprite":{"normalFrom":"sprite","rimIntensity":1.5}}},
+      {"id":"both","components":{"Sprite":{"lit":true,"normalFrom":"height","heightMap":"h.png","normalMap":"n.png"}}},
+      {"id":"sun","components":{"Light2D":{"type":"directional","cookie":"c.png"}}},
+      {"id":"lamp","components":{"Light2D":{"cookie":"c.png"}}},
+      {"id":"fine","components":{"Sprite":{"lit":true,"normalFrom":"sprite"}}}]})");
+    const LoadReport report = load_scene(w, scene, "noeffect.scene.json");
+    REQUIRE(report.ok());
+    auto find = [&](const char* pointerPart) -> const LoadMessage* {
+        for (const LoadMessage& m : report.messages)
+            if (m.severity == LoadMessage::Severity::Warning && m.pointer.find(pointerPart) != std::string::npos)
+                return &m;
+        return nullptr;
+    };
+    const LoadMessage* from = find("Sprite/normalFrom");
+    REQUIRE(from != nullptr);
+    CHECK(from->message.find("'flat'") != std::string::npos);
+    CHECK(from->hint.find("lit") != std::string::npos);
+    const LoadMessage* rim = find("Sprite/rimIntensity");
+    REQUIRE(rim != nullptr);
+    CHECK(rim->message.find("1.5") != std::string::npos);
+    const LoadMessage* nm = find("Sprite/normalMap");
+    REQUIRE(nm != nullptr);
+    CHECK(nm->message.find("'both'") != std::string::npos);
+    CHECK(nm->hint.find("normalFrom") != std::string::npos);
+    const LoadMessage* cookie = find("Light2D/cookie");
+    REQUIRE(cookie != nullptr);
+    CHECK(cookie->message.find("'sun'") != std::string::npos);
+    int cookieWarnings = 0, fromWarnings = 0;
+    for (const LoadMessage& m : report.messages) {
+        if (m.pointer.find("Light2D/cookie") != std::string::npos) ++cookieWarnings;
+        if (m.pointer.find("Sprite/normalFrom") != std::string::npos) ++fromWarnings;
+    }
+    CHECK(cookieWarnings == 1);
+    CHECK(fromWarnings == 1);
 }

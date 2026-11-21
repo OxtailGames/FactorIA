@@ -34,7 +34,7 @@ and the strip above the area is empty. Put the entity's `position.y` half a heig
 
 | Field | Values | Default | What it does |
 |---|---|---|---|
-| `size` | world units | 256 x 128 | Width and depth of the water. A size of 0 draws nothing. |
+| `size` | world units | 256 x 128 | Width and depth of the water. Both sides must be above 0: a scene with a size of 0 (or less) fails to load with an error that names the entity, the value and the fix; a size set by a script at run time draws nothing. |
 | `tint` | colour, alpha 0..1 | (0.2, 0.5, 0.7, 0.5) | The colour of the body of water: `alpha` is how much of it replaces the picture below the surface. Deep water also darkens, up to 35 % at the bottom. |
 | `reflection` | 0..1 | 0.5 | How much of the mirror image of what is above the surface is mixed in. It fades with depth (60 % less at the bottom) and where the mirrored point would be outside the camera's rectangle. |
 | `refraction` | pixels, 0..256 | 4 | How far the waves push the picture below the surface about. 0 = no bending. |
@@ -69,7 +69,7 @@ The same for a zone, with the params `size` (vec2) and `strength` (float); the q
 
 ## DistortionZone2D
 
-A rectangle of `size` world units centred on the entity. Inside it the picture is read with a travelling ripple that bends by up to `strength` pixels;
+A rectangle of `size` world units centred on the entity (both sides above 0, checked like the water's). Inside it the picture is read with a travelling ripple that bends by up to `strength` pixels;
 the ripple fades out over the last 30 % towards the edge, so the zone has no visible border. `strength` 0 is the picture as it is. The ripple moves with
 the engine clock. For a screen-wide effect use the camera's transient effects (`rendering-screen-effects`); the zone is for a place in the world.
 

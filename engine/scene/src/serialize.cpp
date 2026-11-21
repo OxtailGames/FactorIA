@@ -1,6 +1,7 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <set>
@@ -616,27 +617,53 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
         }
         // M74: the 2D lighting and effects components (their numbers are range-checked by reflection; these are the
         // contradictions between fields).
+        const std::string who = "'" + world_.id_of(e) + "'";
         if (const Sprite* sp = world_.get<Sprite>(e)) {
             if (sp->normalFrom == SpriteNormalFrom::Height && sp->heightMap.empty())
                 warn(cptr + "/Sprite/heightMap",
-                     "Sprite.normalFrom is \"height\" but heightMap is empty, so the sprite is flat",
+                     "Sprite.normalFrom is \"height\" on " + who + " but heightMap is empty, so the sprite is flat",
                      "Set \"heightMap\" to a grey image laid out like the texture, or use \"normalFrom\": \"sprite\" "
                      "or \"file\".");
+            if (sp->normalFrom != SpriteNormalFrom::File && !sp->lit)
+                warn(cptr + "/Sprite/normalFrom",
+                     "Sprite.normalFrom is \"" +
+                         std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") + "\" on " +
+                         who + " but Sprite.lit is false, so no normals are used and the setting has no effect",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalFrom.");
+            if (!sp->normalMap.empty() && sp->normalFrom != SpriteNormalFrom::File)
+                warn(cptr + "/Sprite/normalMap",
+                     "Sprite.normalMap is set on " + who + " while normalFrom is \"" +
+                         std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") +
+                         "\", so the normal map file is ignored",
+                     "Set \"normalFrom\": \"file\" to use normalMap, or remove normalMap.");
+            if (sp->rimIntensity > 0.0f && !sp->lit)
+                warn(cptr + "/Sprite/rimIntensity",
+                     "Sprite.rimIntensity is " + std::format("{:g}", sp->rimIntensity) + " on " + who +
+                         " but Sprite.lit is false, so no rim light is drawn",
+                     "Set \"lit\": true and add a Light2D entity, or set rimIntensity to 0.");
         }
+        if (const Light2D* li = world_.get<Light2D>(e)) {
+            if (li->type == Light2DType::Directional && !li->cookie.empty())
+                warn(cptr + "/Light2D/cookie",
+                     "Light2D.cookie is \"" + li->cookie + "\" on " + who +
+                         " but the light is directional, so the cookie is ignored",
+                     "Set \"type\": \"point\" to shine through the cookie, or remove cookie.");
+        }
+        // A size is printed in the short number format ("0", "-3.5"), not as 0.000000.
         auto positive_size = [&](const char* comp, const Vec2& size) {
             if (!(size.x > 0.0f) || !(size.y > 0.0f))
                 error(cptr + "/" + comp + "/size",
-                      std::string(comp) + ".size is [" + std::to_string(size.x) + ", " + std::to_string(size.y) +
-                          "], but both sides must be above 0",
-                      "Write a size in world units, for example \"size\": [256, 128].");
+                      std::string(comp) + ".size is [" + std::format("{:g}", size.x) + ", " +
+                          std::format("{:g}", size.y) + "] on " + who + ", but both sides must be above 0",
+                      "Write a size in world units, for example \"size\": [256, 128], or remove the component.");
         };
         if (const ShadowCaster2D* sc = world_.get<ShadowCaster2D>(e)) {
             if (sc->shape == ShadowCaster2DShape::Box) positive_size("ShadowCaster2D", sc->size);
             if (sc->shape == ShadowCaster2DShape::Polygon) {
                 if (sc->points.size() % 2 != 0 || (sc->points.size() > 0 && sc->points.size() < 6))
                     error(cptr + "/ShadowCaster2D/points",
-                          "ShadowCaster2D.points has " + std::to_string(sc->points.size()) +
-                              " numbers, but a polygon needs an x and a y for each of at least 3 points",
+                          "ShadowCaster2D.points has " + std::to_string(sc->points.size()) + " numbers on " + who +
+                              ", but a polygon needs an x and a y for each of at least 3 points",
                           "Write [x0, y0, x1, y1, x2, y2, ...], for example [-16, -16, 16, -16, 0, 16].");
             }
         }

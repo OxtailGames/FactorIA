@@ -40,6 +40,39 @@ TEST_CASE("inspector: every field kind gets a widget, and its arity matches the 
     }
 }
 
+TEST_CASE("inspector: the lightLayers fields are bit masks drawn as layer toggles") {
+    World world;  // registers the built-in components
+    for (const char* type : {"Sprite", "Shape2D", "Tilemap", "Light2D", "ShadowCaster2D"}) {
+        const TypeInfo* t = TypeRegistry::global().find(type);
+        REQUIRE_MESSAGE(t != nullptr, type);
+        bool found = false;
+        for (const FieldInfo& f : t->fields)
+            if (f.name == "lightLayers") {
+                found = true;
+                CHECK(widget_for(f) == FieldWidget::LayerMask);
+                CHECK(widget_arity(FieldWidget::LayerMask) == 1);
+                CHECK(std::string(widget_name(FieldWidget::LayerMask)) == "layer_mask");
+            }
+        CHECK_MESSAGE(found, type);
+    }
+    // Other ints (a draw layer, a count) keep the number box.
+    const TypeInfo* sprite = TypeRegistry::global().find("Sprite");
+    REQUIRE(sprite != nullptr);
+    for (const FieldInfo& f : sprite->fields)
+        if (f.name == "layer") CHECK(widget_for(f) == FieldWidget::DragInt);
+    // A click flips one bit and keeps the rest, the bits without a toggle and the sign bit included.
+    CHECK(layer_mask_with(1, 2, true) == 5);
+    CHECK(layer_mask_with(5, 0, false) == 4);
+    CHECK(layer_mask_with(-1, 3, false) == -9);
+    CHECK(layer_mask_with(0, 31, true) == INT32_MIN);
+    CHECK(layer_mask_with(INT32_MIN, 31, false) == 0);
+    CHECK(layer_mask_with(7, 40, true) == 7);
+    CHECK(layer_mask_has(-1, 31));
+    CHECK(layer_mask_has(4, 2));
+    CHECK_FALSE(layer_mask_has(4, 1));
+    CHECK_FALSE(layer_mask_has(4, 32));
+}
+
 TEST_CASE("inspector: the widget of every registered field is built from the field's own metadata") {
     // Nothing in the registry may fall through: runtime-only fields are hidden, the rest has a widget with a drag speed.
     World world;  // registers the built-in components
