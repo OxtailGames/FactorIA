@@ -235,6 +235,9 @@ TEST_CASE("water2d: runs of reading draws that are apart each get their own copy
     MaterialScope scope;
     auto frame = [&](int runs) {
         World w;
+        // The renderer is shared by the whole file and says the cap once per scene: this scene path is the one of this case alone, so
+        // the case does not depend on which case ran before it.
+        w.set_scene_path("scenes/water2d-scene-copy-cap.json");
         camera2d(w);
         block(w, {0, 0, 0}, {300, 160}, Color{1, 0, 0, 1}, -5);
         for (int i = 0; i < runs; ++i) {

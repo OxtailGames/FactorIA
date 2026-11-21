@@ -294,6 +294,8 @@ void gather_lights(World& world, Frame& f) {
         float inside = 1.0f;  // share of the light's bounding square (2 * radius) that is inside the view
         float intensity = 0.0f;
         float dist2 = 0.0f;  // squared distance to the camera
+        const std::string* cookie =
+            nullptr;  // Light2D.cookie of a point light that has one (the component outlives this function)
     };
     std::vector<Candidate> found;
     const Vec2 cam = f.cam.position.xy();
@@ -326,13 +328,10 @@ void gather_lights(World& world, Frame& f) {
             c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
             c.data.shadowSize = std::isfinite(l.size) ? std::max(l.size, 0.0f) : 0.0f;
             if (!l.cookie.empty()) {
-                // A cookie that cannot be loaded is logged by the assets (with suggestions); the light then shines without it.
-                TextureAsset* ct = f.assets->texture(l.cookie);
-                if (ct && !ct->placeholder) {
-                    c.data.cookieTex = ct;
-                    c.data.cookieRot = radians(l.cookieRotationDeg);
-                    c.data.cookieScale = std::isfinite(l.cookieScale) ? std::clamp(l.cookieScale, 0.01f, 100.0f) : 1.0f;
-                }
+                // Loaded below, only for the lights that are kept (a light out of view or over the budget never loads its picture).
+                c.cookie = &l.cookie;
+                c.data.cookieRot = radians(l.cookieRotationDeg);
+                c.data.cookieScale = std::isfinite(l.cookieScale) ? std::clamp(l.cookieScale, 0.01f, 100.0f) : 1.0f;
             }
             c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
             if (useView) {
@@ -363,7 +362,14 @@ void gather_lights(World& world, Frame& f) {
     const int total = int(found.size());
     // The off-view lights come last and shade nothing on screen, so they never take a place.
     found.resize(std::size_t(std::min(inViewCount, kMaxLights2D)));
-    for (const Candidate& c : found) f.lights2d.push_back(c.data);
+    for (Candidate& c : found) {
+        if (c.cookie) {
+            // A cookie that cannot be loaded is logged by the assets (with suggestions); the light then shines without it.
+            TextureAsset* ct = f.assets->texture(*c.cookie);
+            if (ct && !ct->placeholder) c.data.cookieTex = ct;
+        }
+        f.lights2d.push_back(c.data);
+    }
     if (f.stats) {
         f.stats->lights2d += int(f.lights2d.size());
         f.stats->lights2dDropped += total - int(f.lights2d.size());

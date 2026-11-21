@@ -21,6 +21,14 @@ the cameras of the frame, and a four-camera frame costs about four times a one-c
 one more job over the whole screen, and the post effects run once. A game with one full-screen camera is unchanged. Budget two or
 three cameras on phones, and give the lights a radius that stays in one view so each camera keeps only the lights that reach it.
 
+GPU memory of the 2D lights: the light buffer holds 8 bytes a pixel (RGBA16F; 4 where the GPU can only blend RGBA8), at `SceneSettings.lightScale`
+of the picture's size in each direction, so it costs about `width x height x lightScale^2 x 8` bytes. One buffer is made for a scene whose
+lights are on every layer, and one more (at most 4 in all, `kMaxLightBuffers2D`) for each distinct set of lights that the visuals in view reach
+through `lightLayers`: at 4K (3840 x 2160) with `lightScale` 1 that is 63 MiB a buffer and 253 MiB for four, with `lightScale` 0.5 it is 16 MiB a
+buffer and 63 MiB for four. A frame whose lights have a `cookie` adds one 1024 x 1024 RGBA8 atlas (4 MiB, 16 cells of 256 x 256); it is
+copied again only when the cookies of the frame, or one of their files, change. A cookie that is a live texture (`target:<name>` of a
+camera, or a compute image) changes every frame, so a frame with one copies the atlas every frame.
+
 What the budget is:
 
 | | Limit | Beyond it |
@@ -28,6 +36,7 @@ What the budget is:
 | Cameras drawn per frame (`Camera.viewport`, split screen) | 8: the lowest `depth`s | the others are not drawn, one warning |
 | Lights that shade a frame (`lights2d`) | 256: directional first, then the point lights whose radius reaches the camera view | the rest is counted in `lights2dDropped`, one warning per scene |
 | Lights that cast shadows (`lights2dShadowed`) | 256 (the lights a frame shades), and only lights with a solid tile of an `occludesLight` Tilemap or a `ShadowCaster2D` within their radius | the lights over 256 are left out of the frame, one warning per scene |
+| Copies of the picture drawn so far (`Water2D`, `DistortionZone2D`, sprite materials that call `fa_scene_color()`), per camera | 8: each run of reading draws that follows other draws makes one (`sceneCopies` of `game.renderStats()` is the sum over the cameras) | the runs after the 8th read the last copy and do not see what was drawn between, one warning per scene |
 | `ShadowCaster2D` read per frame, and per light | 2048 per frame in entity order; 512 per light's row; 256 segments each | the others block no light, one warning |
 | Lights on a lit sprite or tile WITH a normal map | the first 16 of the order above (its shading depends on each light's direction) | the others still light flat surfaces |
 

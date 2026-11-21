@@ -342,6 +342,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
     t.asset.height = h;
+    t.asset.live = true;
     return &t.asset;
 }
 
@@ -577,6 +578,7 @@ void Renderer::Impl::trim_shadow_rows() {
 
 void Renderer::Impl::destroy_light_resources() {
     destroy_target(cookieTarget);
+    cookieStamp.clear();
     for (ShadowRowsSlot& s : shadowRowsRing) {
         if (s.view.id) sg_destroy_view(s.view);
         if (s.img.id) sg_destroy_image(s.img);

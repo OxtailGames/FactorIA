@@ -183,8 +183,8 @@ struct LightVertex {
     float pos[4];     // xy position, z height, w radius
     float color[4];   // rgb * intensity, w falloff
     float shadow[4];  // x = shadow row or -1, y = Light2D.size (world units, 0 = hard shadow edges)
-    float cookie
-        [4];  // M74: x, y, z = the cookie's cell in the atlas (u origin, v origin, v step: negative on OpenGL), w = u step; 0 = none
+    // M74: x, y, z = the cookie's cell in the atlas (u origin, v origin, v step: negative on OpenGL), w = u step; 0 = none
+    float cookie[4];
     float cookieXf[4];  // M74: x, y = cos and sin of the cookie's turn, z = 1 / the cookie's width in world units
 };
 static_assert(sizeof(LightVertex) == 88, "LightVertex is 22 floats");
@@ -218,6 +218,9 @@ struct TextureAsset {
     sg_view view{};
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
+    // A picture something draws into every frame (a camera's render target or view, a compute image): its contents change
+    // under the same view id, so a copy of it made once is stale (the 2D light cookie atlas copies it every frame).
+    bool live = false;
     sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
     std::size_t bytes = 0;                          // GPU memory of all mip levels
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
@@ -509,9 +512,9 @@ constexpr int kMaxMaterialParams = 16,
 //          vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
-// The quad program's own emissive map, cookie atlas (M74) and GI irradiance image (M74-P3b) sit after the material's textures, vertex copies
-// included (views 12, 13 and 14; the scene colour of fa_scene_color is 15, below): the sprite materials' views 4..11 stay where they were. They use the samplers the engine's views use
-// (smp, light_smp).
+// The quad program's own emissive map, cookie atlas (M74) and GI irradiance image (M74-P3b) sit after the material's textures,
+// vertex copies included (views 12, 13 and 14; the scene colour of fa_scene_color is 15, below): the sprite materials' views
+// 4..11 stay where they were. They use the samplers the engine's views use (smp, light_smp).
 constexpr int kQuadEmissiveView = 12, kQuadCookieView = 13, kQuadGiView = 14;
 // The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes
 // from 7.
@@ -949,7 +952,7 @@ struct QuadBatch {
     QuadFx fx;
 };
 
-// `instances` sits in the padding after `lit`; the M74 QuadFx adds 56 bytes.
+// `instances` sits in the padding after `lit`; the M74 QuadFx adds 48 bytes.
 static_assert(sizeof(QuadBatch) <= 144, "QuadBatch grew: keep new 32-bit fields next to the other small ones");
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -1351,6 +1354,13 @@ private:
     };
     std::unordered_map<std::string, GeneratedNormal> generatedNormals_;
     void make_generated_normal(const std::string& key, GeneratedNormal& g);
+    // generated_normal() answers from here without building a key: by the path as asked, then kind and strength (thousandths).
+    struct GeneratedNormalMemo {
+        bool fromHeight;
+        long milli;
+        const GeneratedNormal* entry;
+    };
+    std::unordered_map<std::string, std::vector<GeneratedNormalMemo>> generatedNormalMemo_;
     struct VideoTexture {
         std::weak_ptr<VideoDecoder> decoder;
         std::unique_ptr<TextureAsset> tex;
