@@ -261,7 +261,8 @@ TEST_CASE("water2d: runs of reading draws that are apart each get their own copy
     }
 }
 
-TEST_CASE("water2d: Water2D reflects what is above its surface and refracts what is below, and only what is drawn before it") {
+TEST_CASE("water2d: Water2D reflects what is above its surface and refracts what is below, and only what is drawn "
+          "before it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -303,8 +304,8 @@ TEST_CASE("water2d: the tint, the layers and the clock") {
         a.waveSpeed = speed;
         a.refraction = 6.0f;
         a.reflection = 0.0f;
-        block(w, {0, -20, 0}, {160, 20}, Color{1, 0, 0, 1}, 0);   // seen through the water
-        block(w, {0, -20, 0}, {20, 20}, Color{0, 1, 0, 1}, 20);   // above the water's layer: drawn over it
+        block(w, {0, -20, 0}, {160, 20}, Color{1, 0, 0, 1}, 0);  // seen through the water
+        block(w, {0, -20, 0}, {20, 20}, Color{0, 1, 0, 1}, 20);  // above the water's layer: drawn over it
         for (int i = 0; i < steps; ++i) w.advance_clock(1.0 / 60.0);
         return g.render(w);
     };
@@ -343,6 +344,46 @@ TEST_CASE("water2d: a hidden or empty water draws nothing and costs no copy") {
     CHECK(g.renderer.stats().sceneCopies == 0);
 }
 
+TEST_CASE("water2d: a Water2D or DistortionZone2D wholly outside the view makes no copy and no extra draw") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    // The same scene with the area at `x`: far outside the 320 x 180 view (x = 1000), or in it (x = 0).
+    auto frame = [&](bool zone, float x, int& drawCalls) {
+        World w;
+        camera2d(w);
+        block(w, {0, 0, 0}, {80, 40}, Color{1, 0, 0, 1});
+        if (zone) {
+            Entity e = make(w, "haze", {x, 0, 0});
+            w.add<DistortionZone2D>(e).size = {60, 40};
+        } else {
+            water(w, {x, 0, 0}, {100, 50});
+        }
+        g.render(w);
+        drawCalls = g.renderer.stats().drawCalls;
+        return g.renderer.stats().sceneCopies;
+    };
+    int bare = 0, outside = 0, inside = 0;
+    {
+        World w;
+        camera2d(w);
+        block(w, {0, 0, 0}, {80, 40}, Color{1, 0, 0, 1});
+        g.render(w);
+        bare = g.renderer.stats().drawCalls;
+    }
+    for (const bool zone : {false, true}) {
+        CAPTURE(zone);
+        CHECK(frame(zone, 1000.0f, outside) == 0);
+        CHECK(outside == bare);  // nothing is drawn, so no split pass either
+        CHECK(frame(zone, 0.0f, inside) == 1);
+        CHECK(inside > bare);
+        // Just past the edge of the view (x in -160..160): the area is 100 (water) or 60 (zone) wide, so half of that is its reach.
+        const float half = zone ? 30.0f : 50.0f;
+        CHECK(frame(zone, 160.0f + half + 2.0f, outside) == 0);
+        CHECK(frame(zone, 160.0f + half - 2.0f, inside) == 1);
+    }
+}
+
 TEST_CASE("water2d: Water2D.material receives the fields as params and replaces the built-in look") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -358,9 +399,10 @@ TEST_CASE("water2d: Water2D.material receives the fields as params and replaces 
     a.refraction = 0.0f;
     const Image img = g.render(w);
     CHECK(g.renderer.stats().sceneCopies == 1);
-    near(img.pixel(px(0), py(0)), 1.0f, 0.0f, 0.0f);   // inside: the tint of the component
+    near(img.pixel(px(0), py(0)), 1.0f, 0.0f, 0.0f);  // inside: the tint of the component
     near(img.pixel(px(0), py(-10)), 1.0f, 0.0f, 0.0f);
-    near(img.pixel(px(0), py(60)), 0.0f, 1.0f, 0.0f);   // above the area (the surface is its top edge, y = 30): the background
+    near(img.pixel(px(0), py(60)), 0.0f, 1.0f,
+         0.0f);  // above the area (the surface is its top edge, y = 30): the background
     near(img.pixel(px(80), py(0)), 0.0f, 1.0f, 0.0f);
     // The fixture declares size, tint, reflection, refraction, waveAmplitude, waveLength, waveSpeed and strength; the ones a Water2D has
     // all arrived (no "unknown param" warning) and the material's own `strength` kept its default.
@@ -414,7 +456,7 @@ TEST_CASE("water2d: golden image of a cellar pool with a lantern and a heat haze
     camera2d(w);
     block(w, {0, 0, 0}, {320, 180}, Color{0.12f, 0.1f, 0.16f, 1}, -10);  // the wall
     block(w, {0, 30, 0}, {320, 6}, Color{0.35f, 0.25f, 0.2f, 1}, -9);    // a ledge
-    for (int i = 0; i < 4; ++i)                                           // lanterns
+    for (int i = 0; i < 4; ++i)                                          // lanterns
         block(w, {-105.0f + 70.0f * float(i), 62, 0}, {10, 14}, Color{1.0f, 0.78f, 0.35f, 1}, 0);
     block(w, {-60, 20, 0}, {16, 30}, Color{0.2f, 0.45f, 0.25f, 1}, 0);  // a plant on the edge
     Entity pool = make(w, "pool", {0, -30, 0});
@@ -426,7 +468,7 @@ TEST_CASE("water2d: golden image of a cellar pool with a lantern and a heat haze
     a.waveAmplitude = 1.5f;
     a.waveLength = 40.0f;
     block(w, {20, -30, 0}, {26, 12}, Color{0.8f, 0.3f, 0.2f, 1}, 0);  // a fish under the surface
-    block(w, {75, -2, 0}, {18, 8}, Color{0.6f, 0.55f, 0.5f, 1}, 20);   // a log floating on it
+    block(w, {75, -2, 0}, {18, 8}, Color{0.6f, 0.55f, 0.5f, 1}, 20);  // a log floating on it
     Entity haze = make(w, "haze", {110, 60, 0});
     DistortionZone2D& z = w.add<DistortionZone2D>(haze);
     z.size = {50, 60};
@@ -452,4 +494,3 @@ TEST_CASE("water2d: the supports rows of the features are drawn, not planned") {
         CHECK(found);
     }
 }
-

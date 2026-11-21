@@ -90,7 +90,8 @@ struct Area {
 bool area_of(const Mat4& m, Vec2 size, bool surfaceAtTop, Area& a) {
     const float sx = std::sqrt(m.at(0, 0) * m.at(0, 0) + m.at(0, 1) * m.at(0, 1));
     const float sy = std::sqrt(m.at(1, 0) * m.at(1, 0) + m.at(1, 1) * m.at(1, 1));
-    if (!(sy > 1e-6f) || !(sx > 1e-6f) || !std::isfinite(size.x) || !std::isfinite(size.y) || size.x <= 0.0f || size.y <= 0.0f)
+    if (!(sy > 1e-6f) || !(sx > 1e-6f) || !std::isfinite(size.x) || !std::isfinite(size.y) || size.x <= 0.0f ||
+        size.y <= 0.0f)
         return false;
     a.up = {m.at(1, 0) / sy, m.at(1, 1) / sy};
     a.width = size.x * sx;
@@ -129,10 +130,36 @@ void add_param(const MaterialAsset& m, Json& out, const char* name, const float*
 void emit_quad(QuadList& list, const Area& a, float left, float right, float top, float bottom) {
     const Vec2 side{a.up.y, -a.up.x};
     auto vert = [&](float across, float along, float u, float v) {
-        return Vertex2D{a.origin.x + side.x * across + a.up.x * along, a.origin.y + side.y * across + a.up.y * along,
-                        a.z, u, v, 0xFFFFFFFFu, float(kModeTextured), 0.0f};
+        return Vertex2D{a.origin.x + side.x * across + a.up.x * along,
+                        a.origin.y + side.y * across + a.up.y * along,
+                        a.z,
+                        u,
+                        v,
+                        0xFFFFFFFFu,
+                        float(kModeTextured),
+                        0.0f};
     };
     list.quad(vert(left, top, 0, 0), vert(left, bottom, 0, 1), vert(right, bottom, 1, 1), vert(right, top, 1, 0));
+}
+
+// True when the quad of an area (its corners from `left` to `right` across and `bottom` to `top` along its up axis) lies wholly outside
+// the view of an orthographic camera: the item is then not made at all, so an off-screen pond neither splits the pass nor copies the
+// picture (the sprites, shapes and tilemaps cull the same way). A perspective camera, or a view without a size, never culls.
+bool outside_view(const Frame& f, const Area& a, float left, float right, float top, float bottom) {
+    const Rect view = f.cam.visible;
+    if (f.cam.perspective || !(view.w > 0.0f) || !(view.h > 0.0f)) return false;
+    const Vec2 side{a.up.y, -a.up.x};
+    float minX = 0, maxX = 0, minY = 0, maxY = 0;
+    for (int c = 0; c < 4; ++c) {
+        const float across = (c & 1) ? right : left, along = (c & 2) ? top : bottom;
+        const float x = a.origin.x + side.x * across + a.up.x * along;
+        const float y = a.origin.y + side.y * across + a.up.y * along;
+        minX = c == 0 ? x : std::min(minX, x);
+        maxX = c == 0 ? x : std::max(maxX, x);
+        minY = c == 0 ? y : std::min(minY, y);
+        maxY = c == 0 ? y : std::max(maxY, y);
+    }
+    return maxX < view.x || minX > view.x + view.w || maxY < view.y || minY > view.y + view.h;
 }
 
 }  // namespace
@@ -143,9 +170,7 @@ void gather_water_fx(World& world, Frame& f) {
     if (!anyWater && !anyZone) return;
     Assets& assets = *f.assets;
     QuadList& list = f.world;
-    auto secondary = [&](const Mat4& m) {
-        return f.cam.perspective ? length(m.translation() - f.cam.position) : 0.0f;
-    };
+    auto secondary = [&](const Mat4& m) { return f.cam.perspective ? length(m.translation() - f.cam.position) : 0.0f; };
 
     if (anyWater)
         world.each<Water2D>([&](Entity e, Water2D& w) {
@@ -162,6 +187,7 @@ void gather_water_fx(World& world, Frame& f) {
             // moving surface), plus a unit for the antialiased edge.
             const float rise = amplitude + 1.0f;
             const float half = a.width * 0.5f;
+            if (outside_view(f, a, -half, half, rise, -a.height)) return;
             list.begin_item(w.layer, secondary(m), assets.white(), SamplerKind::Nearest);
             if (!w.material.empty()) {
                 // The material draws the area: its quad's uv run 0..1 across the area (u left to right, v from the surface down), v is
@@ -226,6 +252,7 @@ void gather_water_fx(World& world, Frame& f) {
             if (!area_of(m, z.size, false, a)) return;
             const float strength = finite_clamp(z.strength, 0.0f, 100.0f, 1.0f);
             const float hw = a.width * 0.5f, hh = a.height * 0.5f;
+            if (outside_view(f, a, -hw, hw, hh, -hh)) return;
             list.begin_item(z.layer, secondary(m), assets.white(), SamplerKind::Nearest);
             if (!z.material.empty()) {
                 const MaterialAsset* mat = assets.material(z.material);
@@ -279,10 +306,11 @@ bool WaterFx::ready() {
         copyShader_ = {};
         fxShader_ = {};
         state_ = -1;
-        FA_ERROR("render",
-                 "Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() are not drawn: their shaders failed to "
-                 "compile for this graphics backend (see the sokol log lines above). Hint: update the graphics driver (Mesa: try "
-                 "LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render", "Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() are not "
+                           "drawn: their shaders failed to "
+                           "compile for this graphics backend (see the sokol log lines above). Hint: update the "
+                           "graphics driver (Mesa: try "
+                           "LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
     state_ = 1;
@@ -305,9 +333,9 @@ sg_pipeline WaterFx::copy_pipeline(const TargetFormat& format) {
     d.label = "scene-copy";
     sg_pipeline p = sg_make_pipeline(&d);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
-        FA_ERROR("render",
-                 "failed to create the pipeline that copies the picture for Water2D / DistortionZone2D / fa_scene_color(): those items "
-                 "are not drawn. Hint: see the sokol log lines above.");
+        FA_ERROR("render", "failed to create the pipeline that copies the picture for Water2D / DistortionZone2D / "
+                           "fa_scene_color(): those items "
+                           "are not drawn. Hint: see the sokol log lines above.");
         if (p.id) sg_destroy_pipeline(p);
         p = {};
     }
@@ -342,9 +370,9 @@ sg_pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
     d.label = "water2d";
     sg_pipeline p = sg_make_pipeline(&d);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
-        FA_ERROR("render",
-                 "failed to create the pipeline of Water2D / DistortionZone2D for this render target format: they are not drawn. "
-                 "Hint: see the sokol log lines above.");
+        FA_ERROR("render", "failed to create the pipeline of Water2D / DistortionZone2D for this render target format: "
+                           "they are not drawn. "
+                           "Hint: see the sokol log lines above.");
         if (p.id) sg_destroy_pipeline(p);
         p = {};
     }
