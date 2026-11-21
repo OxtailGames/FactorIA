@@ -107,7 +107,8 @@ void save_half_cookie(const char* path) {
 
 // ------------------------------------------------------------------------------------------------------- emission
 
-TEST_CASE("emission: a lit sprite glows with no light at all, an unlit one adds it to its colour, black emits nothing") {
+TEST_CASE(
+    "emission: a lit sprite glows with no light at all, an unlit one adds it to its colour, black emits nothing") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save_white();
@@ -137,7 +138,8 @@ TEST_CASE("emission: a lit sprite glows with no light at all, an unlit one adds 
     CHECK(near(img.pixel(100, 90), Color{0, 0, 0, 1}, 0.03f));
 }
 
-TEST_CASE("emission: emissiveMap says where the sprite glows, a tilemap glows too, and it adds to what the lights give") {
+TEST_CASE(
+    "emission: emissiveMap says where the sprite glows, a tilemap glows too, and it adds to what the lights give") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save_white();
@@ -185,7 +187,7 @@ TEST_CASE("emission: a value over 1 feeds the bloom, a value of 1 on a plain spr
     };
     const Image dim = halo(0.3f), one = halo(1.0f), hot = halo(6.0f);
     // the glow beside the rectangle (it covers x 140..179): 8 pixels to its right
-    CHECK(red(dim, 188, 90) < 0.02f);               // below the bloom threshold: no halo
+    CHECK(red(dim, 188, 90) < 0.02f);  // below the bloom threshold: no halo
     CHECK(red(hot, 188, 90) > red(one, 188, 90) + 0.05f);
     CHECK(red(hot, 188, 90) > 0.15f);
     // the rectangle itself is clamped to white on the screen
@@ -252,7 +254,8 @@ TEST_CASE("light layers: a light lights a receiver only when their masks share a
     CHECK(red(img, 220, 90) < 0.02f);
 }
 
-TEST_CASE("light layers: more distinct masks than buffers fall back to the per-pixel loop and still obey the rule, with one warning") {
+TEST_CASE("light layers: more distinct masks than buffers fall back to the per-pixel loop and still obey the rule, "
+          "with one warning") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save_white();
@@ -402,7 +405,8 @@ TEST_CASE("light layers: plan_light_layers shares a buffer between masks that re
 
 // ----------------------------------------------------------------------------------------------------- cookies
 
-TEST_CASE("cookies: the picture shapes the light in the light's own space, turns with cookieRotationDeg, several at once") {
+TEST_CASE(
+    "cookies: the picture shapes the light in the light's own space, turns with cookieRotationDeg, several at once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save_white();
@@ -435,7 +439,7 @@ TEST_CASE("cookies: the picture shapes the light in the light's own space, turns
     save(dot, "assets/cookie_dot.png");
     w.get<Light2D>(a)->cookie = "assets/cookie_dot.png";
     img = g.render(w);
-    CHECK(red(img, 160 - 100, 90) > 0.9f);       // under the lamp: inside the square
+    CHECK(red(img, 160 - 100, 90) > 0.9f);        // under the lamp: inside the square
     CHECK(red(img, 160 - 100 + 20, 90) < 0.03f);  // 20 units out: black
     // ... and four times the scale makes the square four times as wide
     w.get<Light2D>(a)->cookieScale = 4.0f;
@@ -599,7 +603,7 @@ TEST_CASE("rim light: the edge that faces a light glows in rimColor, the far edg
     // the square covers x 144..175 (inner edge pixels 145 and 174)
     Image img = g.render(w);
     const Color left = img.pixel(145, 90), right = img.pixel(174, 90), mid = img.pixel(160, 90);
-    CHECK(left.r - left.g > 0.15f);   // the edge towards the lamp is red
+    CHECK(left.r - left.g > 0.15f);    // the edge towards the lamp is red
     CHECK(right.r - right.g < 0.03f);  // the one away from it is plain grey
     CHECK(mid.r - mid.g < 0.03f);
     // without a lamp there is nothing to rim
@@ -662,7 +666,8 @@ TEST_CASE("generated normals: normalFrom sprite and height draw exactly what the
     const Image fromSprite = draw(SpriteNormalFrom::Sprite, "", "", 1.5f);
     float worst = 0;
     for (int y = 0; y < 180; ++y)
-        for (int x = 0; x < 320; ++x) worst = std::max(worst, std::fabs(fromFile.pixel(x, y).r - fromSprite.pixel(x, y).r));
+        for (int x = 0; x < 320; ++x)
+            worst = std::max(worst, std::fabs(fromFile.pixel(x, y).r - fromSprite.pixel(x, y).r));
     CHECK(worst < 0.01f);
     // and it is not the flat picture: the bevel is brighter on the side towards the lamp
     const Image flat = draw(SpriteNormalFrom::File, "", "", 1.0f);
@@ -673,7 +678,8 @@ TEST_CASE("generated normals: normalFrom sprite and height draw exactly what the
     const Image heightGen = draw(SpriteNormalFrom::Height, "", "assets/height48.png", 2.0f);
     worst = 0;
     for (int y = 0; y < 180; ++y)
-        for (int x = 0; x < 320; ++x) worst = std::max(worst, std::fabs(heightFile.pixel(x, y).r - heightGen.pixel(x, y).r));
+        for (int x = 0; x < 320; ++x)
+            worst = std::max(worst, std::fabs(heightFile.pixel(x, y).r - heightGen.pixel(x, y).r));
     CHECK(worst < 0.01f);
     // a heightMap that is not there: one error, the sprite is lit flat
     ProblemLog log;

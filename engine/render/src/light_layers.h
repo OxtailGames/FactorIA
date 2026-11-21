@@ -28,10 +28,11 @@ struct LightLayerPlan {
         std::int32_t layers = 1;  // the receiver mask
         int buffer = 0;           // an index into `buffers`, or kLoop, or kNoPoint
     };
-    std::vector<Mask> masks;                    // every distinct receiver mask asked for, in the order first asked
-    std::vector<std::vector<int>> buffers;      // per buffer, the indices (into the frame's lights) of the point lights it holds
-    bool overflowed = false;                    // a mask did not get a buffer (the cap)
-    int buffer_of(std::int32_t layers) const;   // the Mask::buffer of `layers`; kLoop when the mask was never planned
+    std::vector<Mask> masks;  // every distinct receiver mask asked for, in the order first asked
+    std::vector<std::vector<int>>
+        buffers;              // per buffer, the indices (into the frame's lights) of the point lights it holds
+    bool overflowed = false;  // a mask did not get a buffer (the cap)
+    int buffer_of(std::int32_t layers) const;  // the Mask::buffer of `layers`; kLoop when the mask was never planned
 };
 
 // `lights`: the frame's Light2D, `receivers`: the layer masks of the lit visuals without a normal map (repeats welcome).

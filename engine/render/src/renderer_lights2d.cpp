@@ -19,8 +19,9 @@ bool Renderer::Impl::ensure_cookie_target() {
     d.colorFormat = SG_PIXELFORMAT_RGBA8;
     cookieTarget = make_target(d);
     if (!cookieTarget.valid()) {
-        FA_ERROR("render", "Cannot create the {}x{} atlas of the 2D light cookies; the lights shine without their cookies", d.width,
-                 d.height);
+        FA_ERROR("render",
+                 "Cannot create the {}x{} atlas of the 2D light cookies; the lights shine without their cookies",
+                 d.width, d.height);
         destroy_target(cookieTarget);
         cookieTargetFailed = true;
         return false;
@@ -34,8 +35,10 @@ std::vector<TextureAsset*> Renderer::Impl::plan_cookies(Frame& fr) {
     if (dropped > 0 && !warnedCookies2d) {
         warnedCookies2d = true;
         FA_WARN("render",
-                "{} more distinct Light2D.cookie textures than the {} the 2D lights can use in one frame: those lights shine without their "
-                "cookie. Hint: give lights that share a shape the same cookie file (a cookie is one atlas cell per distinct texture), or "
+                "{} more distinct Light2D.cookie textures than the {} the 2D lights can use in one frame: those lights "
+                "shine without their "
+                "cookie. Hint: give lights that share a shape the same cookie file (a cookie is one atlas cell per "
+                "distinct texture), or "
                 "pack several shapes in one picture and use cookieScale.",
                 dropped, kMaxCookies2D);
     }
