@@ -57,9 +57,11 @@ that draws. `render.probes` shows what the renderer holds. How it is built: docs
   and a probe that is `noRoom`, `noBake` or still `pending` is skipped (the sky fills in). The faces of a capture read the sky only (no
   reflection of another probe).
 - **The diffuse light** of a lit mesh comes, in order: from its baked lightmap texel; else from the baked light probes that cover it
-  (`LightProbeGroup`); else from the nine spherical-harmonics coefficients of the probes that reach it (blended by their shares with the
-  sky's); else from the sky (a sky material's) or `ambientLight`. The first one that covers the fragment wins; a probe never adds to a
-  lightmap. The reflection probes' specular part still applies on a lightmapped surface (a lightmap holds no reflections), and a
+  (`LightProbeGroup`) over the share they cover (the share they leave goes to the sky and the reflection probes' SH, not to a `RealtimeGI` grid); else from a ready `RealtimeGI` grid where its probes surround the point (it fades out
+  over half a probe spacing outside them); else from the nine spherical-harmonics coefficients of the reflection probes that reach it
+  (blended by their shares with the sky's); else from the sky (a sky material's) or `ambientLight`. The first one that covers the
+  fragment wins and what it does not cover goes to the next; a probe never adds to a lightmap. The specular part stays the reflection
+  probes' and the sky's whatever gives the diffuse part. The reflection probes' specular part still applies on a lightmapped surface (a lightmap holds no reflections), and a
   lightmapped mesh's `fa_baked_keep` lights (baked into its lightmap) are not added again, as before. A mixed or custom material's
   `ambient()` receives the same value as `ambientColor`.
 - **`render.probes`** lists the atlas (`size`, `format`, `tiles`, texels used and reserved), the sky's entry and each probe: `entity`

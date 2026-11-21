@@ -236,6 +236,10 @@ struct GiSystem {
     std::uint64_t totalCaptures = 0;
     int drawCalls = 0;
     bool unsupported = false;  // gi_ready() said no (logged once)
+    // What the meshes read this frame (renderer_gi.cpp, gi_build_records): the records of the ready grids, kGiRecordFloats floats each in
+    // the order of `grids`, packed into the light data texture of every view; `shaded` holds the grids' ids. Empty = no mesh reads a grid.
+    std::vector<float> records;
+    std::vector<std::uint64_t> shaded;
 };
 
 // The probes of a renderer.

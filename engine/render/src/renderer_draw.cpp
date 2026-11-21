@@ -1656,8 +1656,13 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
     ctx.fuScene.fa_counts[1] = 0.0f;
     ctx.fuScene.fa_ambient[3] = 0.0f;  // the light table's stride: 0 = 4 texels per light
-    if ((lights.empty() && ctx.decals.empty()) || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 ||
-        ctx.camPx.h < 1)
+    for (int c = 0; c < 4; ++c)
+        ctx.fuScene.fa_gi[c] = 0.0f;  // no realtime GI grid (its records come with the table, below)
+    // The records of the ready realtime GI grids (renderer_gi.cpp): packed after everything else, so a frame without one is unchanged.
+    const GiSystem& gis = probes.gi;
+    const int giCount = int(gis.records.size() / std::size_t(kGiRecordFloats));
+    if ((lights.empty() && ctx.decals.empty() && giCount == 0) || (ctx.opaque.empty() && ctx.blended.empty()) ||
+        ctx.camPx.w < 1 || ctx.camPx.h < 1)
         return;
     int directional = 0;
     while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
@@ -1773,13 +1778,20 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     }
     LightTexture tex;
     pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex,
-                       records.empty() ? nullptr : &records, haveDecals ? &decalPack : nullptr);
+                       records.empty() ? nullptr : &records, haveDecals ? &decalPack : nullptr,
+                       giCount > 0 ? gis.records.data() : nullptr, giCount);
     ctx.localShadowBase = tex.shadowBase;
     ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
     ctx.fuScene.fa_counts[1] = tex.uniforms.decalBase;
     mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
     fu.fa_ambient[3] =
         float(tex.stride);  // texels per light (light_data.glsl: fa_light_base); fa_counts.y is the decal region
+    if (tex.giBase >= 0) {
+        // The grids' records (mesh_common.glsl fa_gi): a face of a capture (Frame::noProbes) sees the grid's light times its bounce.
+        fu.fa_gi[0] = float(tex.giBase);
+        fu.fa_gi[1] = float(giCount);
+        fu.fa_gi[2] = fr.noProbes ? 1.0f : 0.0f;
+    }
     const ClusterUniforms& u = tex.uniforms;
     for (int c = 0; c < 4; ++c) {
         fu.fa_cl_vpx[c] = u.vpx[c];

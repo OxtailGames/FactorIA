@@ -677,17 +677,19 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-TEST_CASE(
-    "features: the lighting rows of M73 are planned until their package lands and never claim what is not drawn") {
-    const char* const rows[] = {"realtimeGI"};
+TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for RGBA16F render targets that blend") {
+    REQUIRE(find_feature("realtimeGI") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("realtimeGI"))].kind == FeatureKind::Engine);
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
-    for (const char* n : rows) {
-        CAPTURE(n);
-        REQUIRE(find_feature(n) >= 0);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
         std::string why;
-        CHECK_FALSE(supported(full, n, &why));
-        CHECK(why == "planned (M73)");
-        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+        CHECK(supported(gpu(b, true, true, true, true, true), "realtimeGI", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        // Without RGBA16F targets the probes capture into an RGBA8 atlas that cannot hold the grid's distances: the answer names it.
+        CHECK_FALSE(supported(gpu(b, false, true, true, true, true), "realtimeGI", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
     }
     // reflection probes (M73-P3c) are sampled by the mesh shader and ask nothing of the GPU (an RGBA8 atlas where half floats cannot be
     // rendered): supported on every backend that draws, never "planned".

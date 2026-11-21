@@ -7916,7 +7916,7 @@ declare module "factoria" {
     showGizmo: boolean;
   }
   /**
-   * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. This is the data side: the mesh shaders read the grid from M73.5d-2 on, until then the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+   * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
    * 
    * Category: 3D
    * @since unreleased
@@ -7950,12 +7950,12 @@ declare module "factoria" {
      */
     resolution: number;
     /**
-     * 0..16: multiplies the light the grid gives to the meshes (read by the shading, M73.5d-2). Changing it does not capture again. Default 1.
+     * 0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing it does not capture again. Default 1.
      * @since unreleased
      */
     intensity: number;
     /**
-     * 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Used by the shading from M73.5d-2. Default 1.
+     * 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen always see the grid at full strength. Default 1.
      * @since unreleased
      */
     bounce: number;
