@@ -28,7 +28,7 @@ picture (`$image`). The schema is `schemas/image.schema.json`; `$schema` may poi
 
 ## Pages
 
-- [Images: effects, baking and commands](images/IMAGES_EFFECTS_COMMANDS.md): Adjustments and effects, baking and staleness, and the commands.
+- [Images: effects, baking and commands](images/IMAGES_EFFECTS_COMMANDS.md): Adjustments and effects, baking and staleness, the commands, and normal maps (`image.normal.generate`, the `normal*` adjustments, painting a slope, the PNG for `Sprite.normalMap`).
 - [Images: pixel art](images/IMAGES_PIXEL_ART.md): Pixel art drawing, palettes and tools.
 - [Images: frames, tags and tiles](images/IMAGES_FRAMES_TILES.md): Animation frames and tags, tiles.
 

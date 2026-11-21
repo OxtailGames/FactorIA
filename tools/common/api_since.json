@@ -1355,6 +1355,7 @@
     "image.layer.move": "0.16.0",
     "image.layer.remove": "0.16.0",
     "image.layer.set": "0.16.0",
+    "image.normal.generate": "unreleased",
     "image.paint": "0.16.0",
     "image.palette": "0.16.0",
     "image.palette.move": "0.16.0",
