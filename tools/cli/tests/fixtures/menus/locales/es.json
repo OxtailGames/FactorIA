@@ -38,7 +38,7 @@
         "medium": "media",
         "high": "alta"
       },
-      "bloom": "Bloom", "grain": "Grano de película", "vignette": "Viñeta", "chromatic": "Aberración cromática", "outline": "Contornos", "hdr": "Salida HDR", "note": "Esta escena no tiene efectos de pantalla; tus elecciones valen para las escenas que sí los tienen.", "hdrNote": "La salida HDR necesita una pantalla HDR y un backend gráfico que pueda mostrarla.", "lightNote": "Esta escena no tiene iluminación 2D; el botón de iluminación 2D vale para las escenas que sí la tienen."},
+      "bloom": "Bloom", "grain": "Grano de película", "vignette": "Viñeta", "chromatic": "Aberración cromática", "outline": "Contornos", "hdr": "Salida HDR", "note": "Sin efectos de pantalla aquí; tu elección vale en escenas que los tengan.", "hdrNote": "HDR necesita una pantalla HDR y un backend gráfico compatible.", "lightNote": "Sin iluminación 2D aquí; el botón vale en escenas que la tengan."},
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
     "binding": "{action}: {button}",

@@ -144,8 +144,16 @@ export function applySubtitles(s = load()) {
   if (captions) captions.active = s.subtitles;
 }
 
+let supportsOverride = null;
+
+/** For tests: answer renderSupports(feature) with `fn(feature)` instead of asking the renderer; null puts the renderer back. */
+export function overrideRenderSupports(fn) {
+  supportsOverride = fn;
+}
+
 /** Whether this renderer can do `feature` (render.supports: "hdrOutput", "bloom", ...); false when there is no renderer to ask (tests without graphics). */
 export function renderSupports(feature) {
+  if (supportsOverride) return supportsOverride(feature) === true;
   try {
     return fa.call("render.supports", { feature }).supported === true;
   } catch {
@@ -223,12 +231,12 @@ export function applyLighting2D(s = load()) {
 }
 
 /** What the "2D lighting" row shows: the player's choice, else the scene's own GlobalIllumination2D (its quality, or "off" when disabled), else "off". */
-export function lightingShown(s = load()) {
-  const choice = lightingChoice(s);
+export function lightingShown(s = load(), platform = game.platform) {
+  const choice = lightingChoice(s, platform);
   if (choice) return choice;
   const gi = lightingEntities()[0]?.get("GlobalIllumination2D");
   if (!gi || !gi.enabled) return "off";
-  return lightingChoices().includes(gi.quality) ? gi.quality : "medium"; // "high" is not offered on a phone or in a browser
+  return lightingChoices(platform).includes(gi.quality) ? gi.quality : "medium"; // "high" is not offered on a phone or in a browser
 }
 
 /** Whether the "2D lighting" row can matter in this scene: it has a Sprite, or the player's settings recorded a lighting choice. A 3D scene has neither. */
