@@ -52,7 +52,7 @@ point light (six faces from its centre, "Shadows of point and spot lights"), and
 the emitter: a larger `size` gives a softer shadow, `shadowSoftness` scales it. This is an approximation: the shadow is cast from the
 centre of the emitter, so a very large panel close to a wall shows a sharper edge than a true area light would, and the penumbra of a
 tube is as wide along its length as across it. The six faces are cheap, but an area light with `pcss` and no `shadowResolution` gets a
-smaller shadow map the larger it is (down to 64 texels a face), so set `shadowResolution` for a big emitter whose shadow you look at closely.
+smaller shadow map the larger it is (down to 64 texels a face; like any other light it also shrinks as the camera goes away, never above the distance-based size), so set `shadowResolution` for a big emitter whose shadow you look at closely.
 A material with a clear coat, sheen or anisotropy layer gets the area light for its base layer and the light of a point at the nearest
 spot of the emitter for the other layers. A material with its own `lighting()` or `light()` hook and a full shader get the light of
 ONE point of the emitter, the one nearest to where the reflection of the view hits it (nearest to the surface when it misses), so the
@@ -142,7 +142,7 @@ mirror under a blue sky with a few clouds shows both, and a sun that sets turns 
 - **The light tints with the sky** (`skyTintsSun`, on by default): the colour of the light is multiplied by what the air lets through of
   a sun at that height, relative to a sun overhead, so a sun on the horizon is orange and weak and a sun below it gives no light, and
   by what the clouds let through on average (`cloudCoverage`, `cloudDensity`: up to 92 % less under a full heavy overcast). The colour
-  you chose for the light is the colour at noon. Switch it off to keep the light exactly as authored. Limits: the clouds shade the sun
+  you chose for the light is the colour at noon. While the light's colour is 0 (the sun below the horizon with `skyTintsSun`, or an intensity of 0) the sun casts no shadow. The sun's colour and the exposure that key the sky environment are rounded to 1/256, so an animated sun rebuilds the environment only when a step changes. Switch it off to keep the light exactly as authored. Limits: the clouds shade the sun
   light as one number for the whole scene (a cloud over the camera does not cast a moving shadow on the ground), the sun's shadow map
   is not changed, and the ambient light of the clouds' shade is the baked sky, not a per-pixel term.
 - **Where it sits.** Where a sky material draws the sky (`skyMaterial`), the material wins and the physical sky is not drawn. A camera
@@ -338,7 +338,9 @@ a channel with no texture is 255 so the factor alone decides:
 What does not fit is never dropped silently: the import warns with the file, the material and what is used instead. Not packed:
 `clearcoatNormalTexture` (the coat follows the geometric normal), `sheenColorTexture` and `specularColorTexture` (their factors are used),
 the direction of `anisotropyTexture` (the tangent turned by `anisotropyRotation`), a texture file that cannot be read (its factor alone
-is used) and a set whose packed size would pass 4096 x 4096. An editable mesh (`mesh.*` commands) keeps only the factors.
+is used) and a set whose packed size would pass 4096 x 4096. An editable mesh (`mesh.*` commands) keeps only the factors. The textures of the
+extensions are read together with the model file: a change to one of those image files shows after the model reloads, and they are not in the
+load trace (`render.assets`).
 
 ## Reflection probes (M73-P3b)
 
@@ -381,7 +383,8 @@ spreads red furthest, then green, then blue: skin). Start with `subsurface` 0.5.
 - **What scatters.** Opaque meshes drawn by the engine's own shader. A mesh with `material`, an `unlit` mesh and a transparent one draw as before.
 - **Cost and limits.** Two fullscreen passes of 15 taps over the camera's rectangle plus one more draw of each scattering mesh; a radius over 40 pixels is
   clamped (a mesh very close to the camera scatters less); no temporal history; the images are not multisampled (a pixel of the silhouette is slightly
-  off). A scene with no `subsurface` is bit for bit unchanged, and costs nothing.
+  off). The scattered change is added and subtracted in two draws, so on an 8-bit or R11G11B10 scene colour a change below 1/255 per channel is lost and
+  very faint scattering can band. A scene with no `subsurface` is bit for bit unchanged, and costs nothing.
 - **Where the GPU cannot.** Without RGBA16F render targets, or if the images cannot be made, the meshes draw with no scattering (one log line) and
   `render.supports` says `subsurface` is false. `game.render_stats` reports `subsurfaceCameras` and `subsurfaceDraws`.
 

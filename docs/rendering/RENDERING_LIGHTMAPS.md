@@ -19,8 +19,11 @@ is drawn exactly as without lightmaps.
 
 **Lightmap UVs.** A lightmap needs every triangle to have its own place in the unit square. The model's second UV set (glTF
 `TEXCOORD_1`) is used when every part has it (it must be inside 0..1 without overlap: author it that way); any other mesh, the
-primitives included, gets a generated unwrap (xatlas, with a gutter between the charts), the same on every platform and run and kept in
-memory with the mesh (nothing is written next to the model). A mesh with more than 250,000 triangles and no `TEXCOORD_1` cannot be
+primitives included, gets a generated unwrap (xatlas, with a gutter between the charts): the same mesh gives the same unwrap on every run
+of one build (single-threaded, no seed, the engine's own trigonometry), and it is kept in memory with the mesh (nothing is written next to
+the model). Another compiler or platform is not guaranteed to give the same bits, and the manifest stores a hash of the geometry with its
+unwrap UVs: when it differs, the entity is reported as `lightmap-stale` and drawn without a lightmap until it is baked again on that
+build. A project that ships to several platforms should give its meshes their own `TEXCOORD_1`, which every build reads as it is. A mesh with more than 250,000 triangles and no `TEXCOORD_1` cannot be
 unwrapped: give it one or use a lower-poly mesh for the bake. The unwrap splits vertices along the seams of its charts, so a
 lightmapped entity is drawn from vertices of its own, and it is not batched with other entities.
 
@@ -67,7 +70,7 @@ lightmaps); only those with `receiveGI` on, `lightmapScale` above 0 and no `unli
 being written fails with the path and what to close (a Windows file open in another program cannot be replaced; close it and call again,
 or pass another `path`); the files of a failed bake are removed. After a good bake the pages of the same name that the new manifest no
 longer uses are deleted. The entities' squares are packed into pages of at most `maxPageSize` texels (up to 256 pages), `texelsPerMeter`
-per metre of surface, with a gutter of `dilatePasses` texels (default 4, 0..64): the empty texels around each baked piece are filled with the mean of the filled ones next to them, one texel further per pass, so bilinear filtering does not bleed. Texels farther than that from a piece stay empty (black), so a mesh whose UVs are read past the gutter shows dark edges.
+per metre of surface, with a gutter of `dilatePasses` texels (default 4, 0..64): the empty texels around each baked piece are filled with the mean of the filled ones next to them, one texel further per pass, so bilinear filtering does not bleed. Texels farther than that from a piece stay empty (black), so a mesh whose UVs are read past the gutter shows dark edges. Only the border of each chart is extended: the seams between two charts are not stitched, so a seam can show a step of light.
 
 **It shows at once.** The bake asks the renderer to read the manifest again and, with `apply` (the default), sets `SceneSettings.lightmaps`
 to it **in memory**: a later `factoria call` starts a new engine from the files, so keep the setting with `scene.save` in the same batch

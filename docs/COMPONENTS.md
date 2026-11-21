@@ -402,27 +402,27 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (since 0.16.0) |
 | `instances` | int | `0` | 0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the material reads from compute buffers (the material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and places each instance; the entity's Transform is the base every instance is placed relative to (fa_model in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast shadows and enter the depth prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why. Range 0..16777216. (since 0.32.0) |
 | `instanceBounds` | float | `0.0` | For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen. Range 0.0..1000000.0. (since 0.32.0) |
-| `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking"). Range 0.0..100.0. (not released yet, on main after 0.32.0) |
-| `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (not released yet, on main after 0.32.0) |
-| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well. (not released yet, on main after 0.32.0) |
-| `probeAnchor` | entity |  | The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty. (not released yet, on main after 0.32.0) |
-| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen). (not released yet, on main after 0.32.0) |
-| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own. Range -1.0..1.0. (not released yet, on main after 0.32.0) |
-| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
-| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own. Range 1.0..3.0. (not released yet, on main after 0.32.0) |
-| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md). Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale. Range 0.0..1000.0. (not released yet, on main after 0.32.0) |
-| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint. (not released yet, on main after 0.32.0) |
-| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0). Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
-| `subsurface` | float | `0.0` | Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `subsurfaceRadius` | float | `0.01` | Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
-| `subsurfaceColor` | color | `[1.0,0.4,0.25,1.0]` | How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0. (not released yet, on main after 0.32.0) |
-| `receiveDecals` | bool | `true` | true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b. (not released yet, on main after 0.32.0) |
-| `decalLayer` | int | `0` | 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b. Range 0..15. (not released yet, on main after 0.32.0) |
+| `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking"). Range 0.0..100.0. (since 0.33.0) |
+| `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (since 0.33.0) |
+| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well. (since 0.33.0) |
+| `probeAnchor` | entity |  | The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty. (since 0.33.0) |
+| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it. Range 0.0..1.0. (since 0.33.0) |
+| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value. Range 0.0..1.0. (since 0.33.0) |
+| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen). (since 0.33.0) |
+| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value. Range 0.0..1.0. (since 0.33.0) |
+| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own. Range -1.0..1.0. (since 0.33.0) |
+| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation. Range -360.0..360.0. (since 0.33.0) |
+| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own. Range 0.0..1.0. (since 0.33.0) |
+| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own. Range 1.0..3.0. (since 0.33.0) |
+| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md). Range 0.0..1.0. (since 0.33.0) |
+| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale. Range 0.0..1000.0. (since 0.33.0) |
+| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint. (since 0.33.0) |
+| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0). Range 0.0..100000.0. (since 0.33.0) |
+| `subsurface` | float | `0.0` | Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md. Range 0.0..1.0. (since 0.33.0) |
+| `subsurfaceRadius` | float | `0.01` | Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0. Range 0.0..0.5. (since 0.33.0) |
+| `subsurfaceColor` | color | `[1.0,0.4,0.25,1.0]` | How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0. (since 0.33.0) |
+| `receiveDecals` | bool | `true` | true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b. (since 0.33.0) |
+| `decalLayer` | int | `0` | 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b. Range 0..15. (since 0.33.0) |
 
 ### Light
 
@@ -436,24 +436,24 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
 | `castShadows` | bool | `false` | Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide as the emitter: see shadowSoftness), all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once). |
-| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a. Range 0.0..89.0. (not released yet, on main after 0.32.0) |
-| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b. (not released yet, on main after 0.32.0) |
-| `size` | vec2 | `[1.0,1.0]` | [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it. Range 0.001..1000.0. (not released yet, on main after 0.32.0) |
-| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (not released yet, on main after 0.32.0) |
-| `ies` | asset (any) | `""` | An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (not released yet, on main after 0.32.0) |
-| `shadowResolution` | int | `0` | Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others. Range 0..4096. (not released yet, on main after 0.32.0) |
-| `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. (not released yet, on main after 0.32.0) |
-| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow). Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
-| `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d). (not released yet, on main after 0.32.0) |
-| `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `contactShadowLength` | float | `0.0` | Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches toward the point of its emitter that lights the pixel). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i). Range 0.0..10.0. (not released yet, on main after 0.32.0) |
+| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a. Range 0.0..89.0. (since 0.33.0) |
+| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b. (since 0.33.0) |
+| `size` | vec2 | `[1.0,1.0]` | [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it. Range 0.001..1000.0. (since 0.33.0) |
+| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (since 0.33.0) |
+| `ies` | asset (any) | `""` | An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (since 0.33.0) |
+| `shadowResolution` | int | `0` | Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others. Range 0..4096. (since 0.33.0) |
+| `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (since 0.33.0) |
+| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (since 0.33.0) |
+| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. (since 0.33.0) |
+| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow). Range 0.0..10.0. (since 0.33.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit. Range 0.0..100000.0. (since 0.33.0) |
+| `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d). (since 0.33.0) |
+| `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others. Range 0.0..10.0. (since 0.33.0) |
+| `contactShadowLength` | float | `0.0` | Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches toward the point of its emitter that lights the pixel). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i). Range 0.0..10.0. (since 0.33.0) |
 
 ### Decal
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, "Decals".
 
@@ -470,7 +470,7 @@ A texture projected onto the 3D meshes that stand inside the box of this entity:
 
 ### ReflectionProbe
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light probe covers it), blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the one with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by the command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe is captured while the game runs, within a budget per frame (update). The command render.probes shows the atlas and, with `entity`, which probes a mesh reflects. See docs/rendering/RENDERING_LIGHTING.md, "Reflection probes".
 
@@ -495,7 +495,7 @@ Captures the scene around this entity into a small map (an octahedral image: the
 
 ### LightProbeGroup
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHT_PROBES.md.
 
@@ -510,7 +510,7 @@ Light probes for moving objects: a grid of points that lightmap.bake fills with 
 
 ### RealtimeGI
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
 
@@ -1518,35 +1518,35 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `paperWhiteNits` | float | `200.0` | Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it. Range 80.0..1000.0. (since 0.31.0) |
 | `skyMaterial` | asset (material) | `""` | Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (since 0.32.0) |
 | `skyMaterialParams` | json | `{}` | Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. (since 0.32.0) |
-| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (not released yet, on main after 0.32.0) |
-| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (not released yet, on main after 0.32.0) |
-| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (not released yet, on main after 0.32.0) |
-| `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (not released yet, on main after 0.32.0) |
-| `contactShadows` | bool | `false` | Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows"). (not released yet, on main after 0.32.0) |
-| `environmentMap` | asset (hdri) | `""` | An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (not released yet, on main after 0.32.0) |
-| `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background. Range 0.0..100.0. (not released yet, on main after 0.32.0) |
-| `environmentRotation` | float | `0.0` | Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture. Range -360.0..360.0. (not released yet, on main after 0.32.0) |
-| `environmentBackground` | bool | `true` | Whether the environment map is also drawn as the background (true, default). False keeps the sky material, the physical sky or the gradient as the background and uses the picture for the lighting and the reflections only. A skyMaterial that is set always draws the background. (not released yet, on main after 0.32.0) |
-| `skyModel` | enum: gradient \| physical | `"gradient"` | gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn. (not released yet, on main after 0.32.0) |
-| `skySunSize` | float | `0.53` | Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical. Range 0.1..10.0. (not released yet, on main after 0.32.0) |
-| `skyTurbidity` | float | `2.0` | Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical. Range 1.0..10.0. (not released yet, on main after 0.32.0) |
-| `skyGroundAlbedo` | color | `[0.3,0.3,0.3,1.0]` | Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical. (not released yet, on main after 0.32.0) |
-| `skyExposure` | float | `1.0` | Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical. Range 0.0..16.0. (not released yet, on main after 0.32.0) |
-| `skyTintsSun` | bool | `true` | Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical. (not released yet, on main after 0.32.0) |
-| `cloudCoverage` | float | `0.25` | Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `cloudDensity` | float | `0.6` | Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical. Range 0.0..1.0. (not released yet, on main after 0.32.0) |
-| `cloudAltitude` | float | `2500.0` | Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical. Range 300.0..12000.0. (not released yet, on main after 0.32.0) |
-| `cloudWind` | vec2 | `[8.0,3.0]` | Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical. (not released yet, on main after 0.32.0) |
-| `volumetricFog` | bool | `false` | Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts". (not released yet, on main after 0.32.0) |
-| `volumetricDensity` | float | `0.02` | Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `volumetricHeightBase` | float | `0.0` | Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog. Range -10000.0..10000.0. (not released yet, on main after 0.32.0) |
-| `volumetricHeightFalloff` | float | `0.0` | Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `volumetricAnisotropy` | float | `0.4` | Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog. Range -0.99..0.99. (not released yet, on main after 0.32.0) |
-| `volumetricAmbient` | float | `1.0` | Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog. Range 0.0..10.0. (not released yet, on main after 0.32.0) |
-| `volumetricDistance` | float | `100.0` | Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog. Range 1.0..10000.0. (not released yet, on main after 0.32.0) |
-| `volumetricQuality` | enum: low \| medium \| high | `"medium"` | Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog. (not released yet, on main after 0.32.0) |
-| `lightmaps` | asset (any) | `""` | The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (not released yet, on main after 0.32.0) |
+| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (since 0.33.0) |
+| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. Range 0.0..1.0. (since 0.33.0) |
+| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (since 0.33.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (since 0.33.0) |
+| `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (since 0.33.0) |
+| `contactShadows` | bool | `false` | Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows"). (since 0.33.0) |
+| `environmentMap` | asset (hdri) | `""` | An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (since 0.33.0) |
+| `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background. Range 0.0..100.0. (since 0.33.0) |
+| `environmentRotation` | float | `0.0` | Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture. Range -360.0..360.0. (since 0.33.0) |
+| `environmentBackground` | bool | `true` | Whether the environment map is also drawn as the background (true, default). False keeps the sky material, the physical sky or the gradient as the background and uses the picture for the lighting and the reflections only. A skyMaterial that is set always draws the background. (since 0.33.0) |
+| `skyModel` | enum: gradient \| physical | `"gradient"` | gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn. (since 0.33.0) |
+| `skySunSize` | float | `0.53` | Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical. Range 0.1..10.0. (since 0.33.0) |
+| `skyTurbidity` | float | `2.0` | Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical. Range 1.0..10.0. (since 0.33.0) |
+| `skyGroundAlbedo` | color | `[0.3,0.3,0.3,1.0]` | Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical. (since 0.33.0) |
+| `skyExposure` | float | `1.0` | Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical. Range 0.0..16.0. (since 0.33.0) |
+| `skyTintsSun` | bool | `true` | Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical. (since 0.33.0) |
+| `cloudCoverage` | float | `0.25` | Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical. Range 0.0..1.0. (since 0.33.0) |
+| `cloudDensity` | float | `0.6` | Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical. Range 0.0..1.0. (since 0.33.0) |
+| `cloudAltitude` | float | `2500.0` | Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical. Range 300.0..12000.0. (since 0.33.0) |
+| `cloudWind` | vec2 | `[8.0,3.0]` | Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical. (since 0.33.0) |
+| `volumetricFog` | bool | `false` | Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts". (since 0.33.0) |
+| `volumetricDensity` | float | `0.02` | Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricHeightBase` | float | `0.0` | Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog. Range -10000.0..10000.0. (since 0.33.0) |
+| `volumetricHeightFalloff` | float | `0.0` | Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricAnisotropy` | float | `0.4` | Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog. Range -0.99..0.99. (since 0.33.0) |
+| `volumetricAmbient` | float | `1.0` | Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricDistance` | float | `100.0` | Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog. Range 1.0..10000.0. (since 0.33.0) |
+| `volumetricQuality` | enum: low \| medium \| high | `"medium"` | Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog. (since 0.33.0) |
+| `lightmaps` | asset (any) | `""` | The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (since 0.33.0) |
 
 
 # Commands reference
@@ -5741,7 +5741,7 @@ mode is "threads" (a pool of workers; 0 workers means jobs run on the main threa
 
 ### `lightmap.bake` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.
 
@@ -5770,7 +5770,7 @@ Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mi
 
 ### `lightmap.bake_cancel` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Stop a running bake job; no file is changed unless it was already writing them.
 
@@ -5784,7 +5784,7 @@ Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the r
 
 ### `lightmap.bake_start` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.
 
@@ -5811,7 +5811,7 @@ The same bake as lightmap.bake (same arguments and result) on a job thread, so t
 
 ### `lightmap.bake_status` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.
 
@@ -7477,7 +7477,7 @@ A prefab describes the reusable thing, not this instance, so the file does NOT c
 
 ### `probe.bake` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Capture a ReflectionProbe once and write its baked page and manifest into the project.
 
@@ -7861,7 +7861,7 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 
 ### `render.gi_grid`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
 
@@ -7892,7 +7892,7 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 
 ### `render.light_probes`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The baked light probes of the scene and the light a MeshRenderer receives from them.
 
@@ -7908,7 +7908,7 @@ A group is `stale` when its LightProbeGroup was edited (moved, resized, other sp
 
 ### `render.material_cost`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
 
@@ -7953,7 +7953,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ### `render.probe_refresh` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.
 
@@ -7969,7 +7969,7 @@ Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` fo
 
 ### `render.probes`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
 
@@ -18136,111 +18136,111 @@ declare module "factoria" {
     instanceBounds: number;
     /**
      * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking").
-     * @since unreleased
+     * @since 0.33.0
      */
     lightmapScale: number;
     /**
      * Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.
-     * @since unreleased
+     * @since 0.33.0
      */
     contributeGI: boolean;
     /**
      * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well.
-     * @since unreleased
+     * @since 0.33.0
      */
     receiveGI: boolean;
     /**
      * The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.
-     * @since unreleased
+     * @since 0.33.0
      */
     get probeAnchor(): Entity | null;
     set probeAnchor(value: EntityLike);
     /**
      * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
-     * @since unreleased
+     * @since 0.33.0
      */
     clearcoat: number;
     /**
      * Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value.
-     * @since unreleased
+     * @since 0.33.0
      */
     clearcoatRoughness: number;
     /**
      * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).
-     * @since unreleased
+     * @since 0.33.0
      */
     get sheenColor(): Color;
     set sheenColor(value: ColorLike);
     /**
      * Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value.
-     * @since unreleased
+     * @since 0.33.0
      */
     sheenRoughness: number;
     /**
      * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own.
-     * @since unreleased
+     * @since 0.33.0
      */
     anisotropy: number;
     /**
      * Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation.
-     * @since unreleased
+     * @since 0.33.0
      */
     anisotropyRotation: number;
     /**
      * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own.
-     * @since unreleased
+     * @since 0.33.0
      */
     specular: number;
     /**
      * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own.
-     * @since unreleased
+     * @since 0.33.0
      */
     ior: number;
     /**
      * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md).
-     * @since unreleased
+     * @since 0.33.0
      */
     transmission: number;
     /**
      * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale.
-     * @since unreleased
+     * @since 0.33.0
      */
     thickness: number;
     /**
      * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint.
-     * @since unreleased
+     * @since 0.33.0
      */
     get attenuationColor(): Color;
     set attenuationColor(value: ColorLike);
     /**
      * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0).
-     * @since unreleased
+     * @since 0.33.0
      */
     attenuationDistance: number;
     /**
      * Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md.
-     * @since unreleased
+     * @since 0.33.0
      */
     subsurface: number;
     /**
      * Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0.
-     * @since unreleased
+     * @since 0.33.0
      */
     subsurfaceRadius: number;
     /**
      * How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0.
-     * @since unreleased
+     * @since 0.33.0
      */
     get subsurfaceColor(): Color;
     set subsurfaceColor(value: ColorLike);
     /**
      * true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b.
-     * @since unreleased
+     * @since 0.33.0
      */
     receiveDecals: boolean;
     /**
      * 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.
-     * @since unreleased
+     * @since 0.33.0
      */
     decalLayer: number;
   }
@@ -18277,73 +18277,73 @@ declare module "factoria" {
     castShadows: boolean;
     /**
      * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.
-     * @since unreleased
+     * @since 0.33.0
      */
     innerAngle: number;
     /**
      * Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.
-     * @since unreleased
+     * @since 0.33.0
      */
     shape: "rectangle" | "disc" | "tube";
     /**
      * [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it.
-     * @since unreleased
+     * @since 0.33.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (asset path: texture)
-     * @since unreleased
+     * @since 0.33.0
      */
     cookie: string;
     /**
      * An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (asset path: any)
-     * @since unreleased
+     * @since 0.33.0
      */
     ies: string;
     /**
      * Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowResolution: number;
     /**
      * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowBias: number;
     /**
      * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowNormalBias: number;
     /**
      * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowFilter: "pcf" | "hard" | "pcss";
     /**
      * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowSoftness: number;
     /**
      * How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowDistance: number;
     /**
      * realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d).
-     * @since unreleased
+     * @since 0.33.0
      */
     mode: "realtime" | "baked" | "mixed";
     /**
      * Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetric: number;
     /**
      * Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches toward the point of its emitter that lights the pixel). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).
-     * @since unreleased
+     * @since 0.33.0
      */
     contactShadowLength: number;
   }
@@ -18351,48 +18351,48 @@ declare module "factoria" {
    * A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, "Decals".
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.33.0
    */
   export interface DecalComponent {
     /**
      * The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour. (asset path: texture)
-     * @since unreleased
+     * @since 0.33.0
      */
     albedo: string;
     /**
      * Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = the normal stays. (asset path: texture)
-     * @since unreleased
+     * @since 0.33.0
      */
     normal: string;
     /**
      * Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White (default) leaves the texture as it is.
-     * @since unreleased
+     * @since 0.33.0
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * 0..1: strength of the whole decal, for fading it out (a bloodstain that dries).
-     * @since unreleased
+     * @since 0.33.0
      */
     opacity: number;
     /**
      * 0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).
-     * @since unreleased
+     * @since 0.33.0
      */
     normalStrength: number;
     /**
      * Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the surface is edge-on. Default 60.
-     * @since unreleased
+     * @since 0.33.0
      */
     angleFade: number;
     /**
      * Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); equal values keep the order in which the world visits its Decal components (a stable sort). When more than 32 decals cover one cluster of the view the lowest values are kept.
-     * @since unreleased
+     * @since 0.33.0
      */
     sortOrder: number;
     /**
      * Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 layer 1, up to bit 15. 0 (default) = every layer.
-     * @since unreleased
+     * @since 0.33.0
      */
     layers: number;
   }
@@ -18400,90 +18400,90 @@ declare module "factoria" {
    * Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light probe covers it), blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the one with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by the command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe is captured while the game runs, within a budget per frame (update). The command render.probes shows the atlas and, with `entity`, which probes a mesh reflects. See docs/rendering/RENDERING_LIGHTING.md, "Reflection probes".
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.33.0
    */
   export interface ReflectionProbeComponent {
     /**
      * baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; it costs no GPU time while the game runs). realtime: the scene is captured from this position while the game runs, as `update` says.
-     * @since unreleased
+     * @since 0.33.0
      */
     mode: "baked" | "realtime";
     /**
      * Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale multiplies it). Each side 0.01..100000. Default [10, 10, 10].
-     * @since unreleased
+     * @since 0.33.0
      */
     get boxSize(): Vec3;
     set boxSize(value: Vec3Like);
     /**
      * Where the centre of the box is, in metres from the entity's origin along its local axes (the capture is taken from the origin). Default [0, 0, 0].
-     * @since unreleased
+     * @since 0.33.0
      */
     get boxOffset(): Vec3;
     set boxOffset(value: Vec3Like);
     /**
      * Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. Default 1.
-     * @since unreleased
+     * @since 0.33.0
      */
     blendDistance: number;
     /**
      * -1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the atlas has no room the probe with the smallest importance is evicted first. Default 0.
-     * @since unreleased
+     * @since 0.33.0
      */
     importance: number;
     /**
      * Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions.
-     * @since unreleased
+     * @since 0.33.0
      */
     resolution: number;
     /**
      * Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.
-     * @since unreleased
+     * @since 0.33.0
      */
     nearPlane: number;
     /**
      * Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows `clear`. Default 100.
-     * @since unreleased
+     * @since 0.33.0
      */
     farPlane: number;
     /**
      * What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color (clearColor).
-     * @since unreleased
+     * @since 0.33.0
      */
     clear: "sky" | "color";
     /**
      * The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an HDR colour). Default black.
-     * @since unreleased
+     * @since 0.33.0
      */
     get clearColor(): Color;
     set clearColor(value: ColorLike);
     /**
      * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty the capture draws only the entities that have one of these tags or a parent that does (as Camera.showTags). Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.33.0
      */
     showTags: any;
     /**
      * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the capture (as Camera.hideTags). Default []. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.33.0
      */
     hideTags: any;
     /**
      * Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes together draw at most the renderer's face budget a frame (2 by default), so a capture takes several frames. everyFrame: a new capture starts as soon as the last one is done, before the probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take turns, the more important and the longest ago captured first. onDemand: captured when the probe appears and then only when the command render.probe_refresh asks for it.
-     * @since unreleased
+     * @since 0.33.0
      */
     update: "everyFrame" | "timeSliced" | "onDemand";
     /**
      * Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr pages next to it). Empty = not baked. A baked probe whose file is missing or older than its format logs one warning and stays empty; the file is watched and reloaded when it changes. (asset path: any)
-     * @since unreleased
+     * @since 0.33.0
      */
     bakedMap: string;
     /**
      * 0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1.
-     * @since unreleased
+     * @since 0.33.0
      */
     intensity: number;
     /**
      * True (default): the reflection is corrected for the box (the room's walls are where the box edge is), which suits an interior. False: the reflection is the one of an infinitely far environment.
-     * @since unreleased
+     * @since 0.33.0
      */
     boxProjection: boolean;
   }
@@ -18491,39 +18491,39 @@ declare module "factoria" {
    * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHT_PROBES.md.
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.33.0
    */
   export interface LightProbeGroupComponent {
     /**
      * [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].
-     * @since unreleased
+     * @since 0.33.0
      */
     get size(): Vec3;
     set size(value: Vec3Like);
     /**
      * Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1.
-     * @since unreleased
+     * @since 0.33.0
      */
     spacing: number;
     /**
      * [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet.
-     * @since unreleased
+     * @since 0.33.0
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
     /**
      * true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored).
-     * @since unreleased
+     * @since 0.33.0
      */
     grid: boolean;
     /**
      * Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.33.0
      */
     points: any;
     /**
      * The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.
-     * @since unreleased
+     * @since 0.33.0
      */
     showGizmo: boolean;
   }
@@ -18531,74 +18531,74 @@ declare module "factoria" {
    * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
    * 
    * Category: 3D
-   * @since unreleased
+   * @since 0.33.0
    */
   export interface RealtimeGIComponent {
     /**
      * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20].
-     * @since unreleased
+     * @since 0.33.0
      */
     get size(): Vec3;
     set size(value: Vec3Like);
     /**
      * [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].
-     * @since unreleased
+     * @since 0.33.0
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
     /**
      * Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2.
-     * @since unreleased
+     * @since 0.33.0
      */
     spacing: number;
     /**
      * 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2.
-     * @since unreleased
+     * @since 0.33.0
      */
     probesPerFrame: number;
     /**
      * Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much.
-     * @since unreleased
+     * @since 0.33.0
      */
     resolution: number;
     /**
      * 0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing it does not capture again. Default 1.
-     * @since unreleased
+     * @since 0.33.0
      */
     intensity: number;
     /**
      * 0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures of a ReflectionProbe always see the grid at full strength. Default 1.
-     * @since unreleased
+     * @since 0.33.0
      */
     bounce: number;
     /**
      * 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves).
-     * @since unreleased
+     * @since 0.33.0
      */
     hysteresis: number;
     /**
      * Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1.
-     * @since unreleased
+     * @since 0.33.0
      */
     nearExclusion: number;
     /**
      * Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30.
-     * @since unreleased
+     * @since 0.33.0
      */
     maxDistance: number;
     /**
      * 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25.
-     * @since unreleased
+     * @since 0.33.0
      */
     backfaceTolerance: number;
     /**
      * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.33.0
      */
     showTags: any;
     /**
      * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.33.0
      */
     hideTags: any;
   }
@@ -22401,149 +22401,149 @@ declare module "factoria" {
     skyMaterialParams: any;
     /**
      * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowCascades: number;
     /**
      * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowCascadeSplit: number;
     /**
      * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowCascadeBlend: number;
     /**
      * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowDistance: number;
     /**
      * The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame.
-     * @since unreleased
+     * @since 0.33.0
      */
     shadowAtlasSize: number;
     /**
      * Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows").
-     * @since unreleased
+     * @since 0.33.0
      */
     contactShadows: boolean;
     /**
      * An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (asset path: hdri)
-     * @since unreleased
+     * @since 0.33.0
      */
     environmentMap: string;
     /**
      * Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background.
-     * @since unreleased
+     * @since 0.33.0
      */
     environmentIntensity: number;
     /**
      * Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture.
-     * @since unreleased
+     * @since 0.33.0
      */
     environmentRotation: number;
     /**
      * Whether the environment map is also drawn as the background (true, default). False keeps the sky material, the physical sky or the gradient as the background and uses the picture for the lighting and the reflections only. A skyMaterial that is set always draws the background.
-     * @since unreleased
+     * @since 0.33.0
      */
     environmentBackground: boolean;
     /**
      * gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn.
-     * @since unreleased
+     * @since 0.33.0
      */
     skyModel: "gradient" | "physical";
     /**
      * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     skySunSize: number;
     /**
      * Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     skyTurbidity: number;
     /**
      * Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     get skyGroundAlbedo(): Color;
     set skyGroundAlbedo(value: ColorLike);
     /**
      * Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     skyExposure: number;
     /**
      * Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     skyTintsSun: boolean;
     /**
      * Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     cloudCoverage: number;
     /**
      * Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     cloudDensity: number;
     /**
      * Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     cloudAltitude: number;
     /**
      * Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical.
-     * @since unreleased
+     * @since 0.33.0
      */
     get cloudWind(): Vec2;
     set cloudWind(value: Vec2Like);
     /**
      * Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts".
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricFog: boolean;
     /**
      * Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricDensity: number;
     /**
      * Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricHeightBase: number;
     /**
      * Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricHeightFalloff: number;
     /**
      * Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricAnisotropy: number;
     /**
      * Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricAmbient: number;
     /**
      * Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricDistance: number;
     /**
      * Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog.
-     * @since unreleased
+     * @since 0.33.0
      */
     volumetricQuality: "low" | "medium" | "high";
     /**
      * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (asset path: any)
-     * @since unreleased
+     * @since 0.33.0
      */
     lightmaps: string;
   }
