@@ -125,10 +125,15 @@ test("pause -> options -> the pause key goes back one panel at a time", () => {
   expect(running.paused).toBe(false);
 });
 
-// ---- colour filter (Camera.colorFilter) -----------------------------------------------------------------------------
-const cameraFilter = () => game.find("camera").get("Camera").colorFilter;
+// ---- colour filter (PostProcess.colorFilterMode) -------------------------------------------------------------------------
+const cameraFilter = () => {
+  const camera = game.find("camera");
+  if (!camera.has("PostProcess")) return "none"; // the camera only gets one when the player picks a filter
+  const post = camera.get("PostProcess");
+  return post.colorFilterEnabled ? post.colorFilterMode : "none";
+};
 
-test("options: the colour filter button cycles Camera.colorFilter and saves the choice", () => {
+test("options: the colour filter button cycles the PostProcess colour filter and saves the choice", () => {
   mainMenu();
   expect(cameraFilter()).toBe("none");
   pad.tap("DpadDown");

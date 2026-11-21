@@ -1,5 +1,5 @@
 // MeshRenderer.emissiveStrength: an emissive colour above white. The screen clamps at white, but the game target holds the
-// value (a float format) so Camera.bloom sees how much brighter than white a surface is.
+// value (a float format) so the PostProcess bloom sees how much brighter than white a surface is.
 #include "test_util.h"
 
 #include <algorithm>
@@ -37,11 +37,7 @@ struct GlowScene {
     }
     MeshRenderer& mesh() { return *world.get<MeshRenderer>(glow); }
     void bloom(float threshold, float intensity = 1.0f, float radius = 12.0f) {
-        Camera& c = *world.get<Camera>(cam);
-        c.bloom = true;
-        c.bloomThreshold = threshold;
-        c.bloomIntensity = intensity;
-        c.bloomRadius = radius;
+        set_bloom(world, cam, true, threshold, intensity, radius);
     }
 };
 

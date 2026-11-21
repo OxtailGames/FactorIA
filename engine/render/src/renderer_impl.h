@@ -115,8 +115,8 @@ struct Renderer::Impl {
     SssFx sssFx;         // MeshRenderer.subsurface (renderer_subsurface.h): the blur and add shaders and pipelines
     CustomPost
         customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
-    Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
-    // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
+    Bloom bloom;     // PostProcess bloom post-process (its levels are transients of the frame graph, see bloom.h)
+    // PostProcess.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
@@ -279,8 +279,6 @@ struct Renderer::Impl {
     MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
-    std::unordered_set<std::uint64_t>
-        warnedLegacyIgnored;  // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
     std::unordered_set<std::string>
         warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)

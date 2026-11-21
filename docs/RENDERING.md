@@ -346,7 +346,7 @@ image and its automatic exposure work over that camera's rectangle of the pictur
 grid, the lens centre, the vignette, the grain and the dither start at the corner of the rectangle, so the two halves of a split
 screen look alike). Two things stay one per frame, taken from the camera that draws first: the **bloom** (it runs over the whole
 picture, before the final passes) and the **colour filter** (it is the last step over everything the screen shows).
-`Camera.bloom*` and `Camera.colorFilter` stand in for a `PostProcess` on a camera that has none (deprecated, the same picture).
+A scene that still has the bloom or colour filter keys that `Camera` had until 0.32 fails to load with a message that says to use a `PostProcess`.
 The passes of camera `n` are named `camera:<n>/post`, `camera:<n>/prepass` and so on. Where the cameras' rectangles do not cover the
 picture, or overlap, a `post-base` pass first draws the picture the way a frame without effects would (the encode of a linear scene, a
 copy of a gamma one), and a camera without a stack over one with a stack gets that plain pass over its own rectangle, so the stack
@@ -468,7 +468,7 @@ Things to know:
 ### Reading and changing the stack: commands, looks and the editor panel
 
 - `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
-  window): `layers` (the camera's own PostProcess or the deprecated `Camera.bloom*` fields, then each volume the camera is inside, with
+  window): `layers` (the camera's own PostProcess, then each volume the camera is inside, with
   its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
   effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
   this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.

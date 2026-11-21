@@ -486,7 +486,7 @@ public:
     // never asks. false frees the copy.
     void set_editor_view(bool on);
     // True when the game target holds colours above white (a 16-bit float format): MeshRenderer.emissiveStrength above 1 then
-    // reaches Camera.bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
+    // reaches the bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
     // requested multisampling (or with FA_SCENE_FORMAT=rgba8), or that lists it but cannot make the game target's images in it
     // (the renderer then rebuilds them in RGBA8 when the targets are first created): everything clamps at white, bloom included.
     // Reports the format the game target really has; only that target falls back, so it stays true when a CameraView, a bloom
@@ -623,7 +623,7 @@ public:
     HdrOutputInfo output_info() const;
 
     // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
-    // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
+    // stack (no PostProcess), without touching any data; false (the default) draws
     // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame. While it is on it applies to every
     // capture too (game.screenshot, render.inspect, what an AI asks to see), not only to the window.
     void set_post_bypass(bool bypass);
