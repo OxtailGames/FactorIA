@@ -30,7 +30,9 @@ bool local_light_is_cube(const LocalShadowInput& in) {
 float local_shadow_importance(float brightness, float range, float distanceToCamera) {
     const float r2 = std::max(range * range, 1e-6f);
     const float d = std::max(distanceToCamera, 0.0f);
-    return std::max(brightness, 0.0f) * r2 / (r2 + d * d);
+    const float score = std::max(brightness, 0.0f) * r2 / (r2 + d * d);
+    // A NaN (a NaN brightness, range or position) ranks last: the ranking's comparator must be a strict weak order.
+    return score == score ? score : 0.0f;
 }
 
 int local_shadow_wanted_tile(const LocalShadowInput& in, float distanceToCamera) {

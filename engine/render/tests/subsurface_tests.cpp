@@ -8,6 +8,7 @@
 #include "fa/scene/camera_geometry.h"
 
 #include "mesh_batch.h"
+#include "render_scene.h"
 #include "subsurface.h"
 
 using namespace fa;
@@ -163,4 +164,34 @@ TEST_CASE("subsurface: every float of the GLES3 and WebGL2 sources of the blur a
         for (const std::string& l : bad) MESSAGE("not highp: " << l);
         CHECK(bad.empty());
     }
+}
+
+TEST_CASE("transmission and subsurface: unlit, material-lit and blended meshes are left out by the one predicate the "
+          "renderer and the cost report use") {
+    MeshAsset mesh;
+    MeshRenderer glass;
+    glass.transmission = 0.8f;
+    CHECK(mesh_is_transmissive(glass, mesh, nullptr));
+    CHECK(mesh_is_blended(glass, mesh, nullptr));
+    // An unlit mesh transmits nothing (fill_fs zeroes it): no copy of the picture, no glass culling, not drawn far to near.
+    MeshRenderer unlit = glass;
+    unlit.unlit = true;
+    CHECK_FALSE(mesh_is_transmissive(unlit, mesh, nullptr));
+    CHECK_FALSE(mesh_is_blended(unlit, mesh, nullptr));
+    MaterialAsset flat;
+    flat.lighting = "unlit";
+    CHECK_FALSE(mesh_is_transmissive(glass, mesh, &flat));
+    MaterialAsset lit;
+    CHECK(mesh_is_transmissive(glass, mesh, &lit));
+    MaterialAsset full;
+    full.full = true;
+    CHECK_FALSE(mesh_is_transmissive(glass, mesh, &full));
+
+    MeshRenderer skin;
+    skin.subsurface = 0.6f;
+    CHECK(mesh_scatters(skin, nullptr, false));
+    CHECK_FALSE(mesh_scatters(skin, nullptr, true));  // a blended mesh is not part of the subsurface pass
+    CHECK_FALSE(mesh_scatters(skin, &lit, false));    // a material brings its own lighting
+    skin.unlit = true;
+    CHECK_FALSE(mesh_scatters(skin, nullptr, false));
 }
