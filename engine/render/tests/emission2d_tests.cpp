@@ -447,6 +447,48 @@ TEST_CASE(
     CHECK(red(img, 160 - 100 + 20, 90) > 0.3f);
 }
 
+TEST_CASE(
+    "cookies: a live cookie (a camera's render target) is copied every frame, a file cookie only when it changes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    save_white();
+    save_half_cookie("assets/cookie_half.png");
+    World w;
+    camera_at(w);
+    w.settings().ambientLight = Color{0, 0, 0, 1};
+    // The page: a 64 x 64 camera far away whose picture is a white block on its left half (black elsewhere).
+    Entity pageCam = make(w, "page-cam", {1000, 0, 0});
+    Camera& pc = w.add<Camera>(pageCam);
+    pc.renderTarget = "cookiePage";
+    pc.renderTargetSize = Vec2{64.0f, 64.0f};
+    pc.orthoSize = 32.0f;
+    pc.clearColor = Color::black();
+    Entity block = make(w, "block", {1000 - 16, 0, 0});
+    auto& shp = w.add<Shape2D>(block);
+    shp.size = Vec2{32.0f, 64.0f};
+    shp.color = Color::white();
+    lit_sprite(w, {0, 0, 0}, {300, 100});
+    Entity lamp = lamp_at(w, {0, 0, 0}, 40);
+    w.get<Light2D>(lamp)->cookie = "target:cookiePage";
+    Image img = g.render(w);
+    CHECK(red(img, 160 - 20, 90) > 0.4f);   // the white half passes the light
+    CHECK(red(img, 160 + 20, 90) < 0.03f);  // the black half does not
+    // The page changes under the same texture: the block moves to the right half. The atlas must show the new picture.
+    w.get<Transform>(block)->position = Vec3{1000 + 16, 0, 0};
+    img = g.render(w);
+    CHECK(red(img, 160 - 20, 90) < 0.03f);
+    CHECK(red(img, 160 + 20, 90) > 0.4f);
+    // A frame with the same picture is still right (the copy keeps running, nothing is frozen on the first one).
+    img = g.render(w);
+    CHECK(red(img, 160 - 20, 90) < 0.03f);
+    CHECK(red(img, 160 + 20, 90) > 0.4f);
+    // Back to a file cookie: its copy is made again (the stamp of the live frames was dropped) and then kept.
+    w.get<Light2D>(lamp)->cookie = "assets/cookie_half.png";
+    img = g.render(w);
+    CHECK(red(img, 160 - 20, 90) > 0.4f);
+    CHECK(red(img, 160 + 20, 90) < 0.03f);
+}
+
 TEST_CASE("cookies: the per-pixel path (a normal map) applies the cookie too") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

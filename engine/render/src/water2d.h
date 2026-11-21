@@ -64,6 +64,11 @@ public:
     // drawn).
     bool ready();
 
+    // Makes the shaders and the pipelines of a frame drawn into `gameFormat` (the main pass's format) ahead of the first draw: the start-up
+    // warm-up of a scene that has a Water2D or a DistortionZone2D (renderer.cpp), so their first frame does not compile them. Does nothing
+    // when the shaders failed. A scene without those components never calls it, and a pipeline for another format is made when it is drawn.
+    void warm(Gpu& gpu, const TargetFormat& gameFormat);
+
     // Copies the camera's rectangle of `game` (its texture view, resolved when multisampled): (x, row, w, h) in image rows of the game
     // image. Must be called outside any pass. On success `handle` is the pooled image (give it back with TransientTargets::pool.release) and
     // `view` its texture view; false (nothing held) when the shader or the image could not be made.

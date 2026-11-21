@@ -5,11 +5,14 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/image_tools.h"
 #include "fa/core/screenshot_files.h"
+#include "fa_test_paths.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -230,40 +233,7 @@ TEST_CASE(
 
 namespace {
 
-// The kernel as tools/common wrote it before M74 moved it into the engine (the Canvas of assets.generate_texture): the reference
-// the shared kernel has to keep matching byte for byte.
-Image reference_normal_map(const std::vector<double>& height, int w, int h, bool tile, double strength) {
-    Image img;
-    img.width = w;
-    img.height = h;
-    img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
-    auto h_at = [&](int x, int y) {
-        if (tile) {
-            x = ((x % w) + w) % w;
-            y = ((y % h) + h) % h;
-        } else {
-            x = std::clamp(x, 0, w - 1);
-            y = std::clamp(y, 0, h - 1);
-        }
-        return height[std::size_t(y) * std::size_t(w) + std::size_t(x)];
-    };
-    auto to_byte = [](double v) { return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5), 0.0, 255.0)); };
-    const double k = std::min(w, h) / 512.0;
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) {
-            const double dx = (h_at(x + 1, y) - h_at(x - 1, y)) * 0.5 * k;
-            const double dy = (h_at(x, y + 1) - h_at(x, y - 1)) * 0.5 * k;
-            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0, nz = 1.0;
-            const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
-            std::uint8_t* o = &img.rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4];
-            o[0] = to_byte(nx / len * 0.5 + 0.5);
-            o[1] = to_byte(ny / len * 0.5 + 0.5);
-            o[2] = to_byte(nz / len * 0.5 + 0.5);
-            o[3] = 255;
-        }
-    return img;
-}
-
+// The input of the frozen maps in tests/data/normal_map_from_height.png: a fixed function of the pixel (never change it).
 std::vector<double> bumpy_field(int w, int h) {
     std::vector<double> v(std::size_t(w) * std::size_t(h));
     for (int y = 0; y < h; ++y)
@@ -276,18 +246,32 @@ std::vector<double> bumpy_field(int w, int h) {
 
 }  // namespace
 
-TEST_CASE("normal_map_from_height: the shared kernel gives the bytes tools/common wrote before, clamped and tiled") {
+TEST_CASE("normal_map_from_height: the shared kernel keeps the bytes of the frozen fixture, clamped and tiled") {
+    // tests/data/normal_map_from_height.png holds six 48 x 32 maps of bumpy_field one under the other, made once by the kernel as
+    // tools/common wrote it before M74 (clamped then tiled; strength 0, 1, 3.5 in each). It is a copy of what the kernel gave
+    // then, not a second implementation: a change of the kernel that moves a byte fails here, and the fixture is replaced
+    // only on purpose.
     const int w = 48, h = 32;
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/core/tests/data/normal_map_from_height.png",
+                     std::ios::binary);
+    REQUIRE(in.good());
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto frozen = decode_image(bytes.data(), bytes.size());
+    REQUIRE(frozen);
+    REQUIRE(frozen->width == w);
+    REQUIRE(frozen->height == h * 6);
     const std::vector<double> field = bumpy_field(w, h);
+    int part = 0;
     for (bool tile : {false, true})
         for (double strength : {0.0, 1.0, 3.5}) {
             CAPTURE(tile);
             CAPTURE(strength);
             const Image got = normal_map_from_height(field, w, h, tile, strength);
-            const Image want = reference_normal_map(field, w, h, tile, strength);
             REQUIRE(got.width == w);
             REQUIRE(got.height == h);
-            CHECK(got.rgba == want.rgba);
+            const auto first = frozen->rgba.begin() + std::ptrdiff_t(part) * w * h * 4;
+            CHECK(std::equal(got.rgba.begin(), got.rgba.end(), first));
+            ++part;
         }
     // a flat map is (0.5, 0.5, 1) everywhere
     const Image flat = normal_map_from_height(std::vector<double>(16, 0.3), 4, 4, false, 2.0);

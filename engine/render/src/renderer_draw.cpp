@@ -2539,13 +2539,13 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
                 warnedLightBuffers2d = true;
                 FA_WARN("render",
                         "The lit sprites, shapes and tilemaps in view reach more different sets of Light2D than the {} "
-                        "light buffers of a "
-                        "frame: the ones past that are shaded by the first {} lights per pixel (the lights beyond them "
-                        "do not reach "
-                        "them). Hint: use fewer distinct lightLayers masks on the visuals in view, or give the lights "
-                        "that must stay "
-                        "apart distinct bits.",
-                        kMaxLightBuffers2D, kDirectLights2D);
+                        "light "
+                        "buffers a frame has. Those past the first {} sets are shaded per pixel by the first {} lights "
+                        "only, so "
+                        "the other lights do not light them. Hint: use fewer distinct lightLayers masks on the visuals "
+                        "in view, "
+                        "or give the lights that must stay apart distinct bits.",
+                        kMaxLightBuffers2D, kMaxLightBuffers2D, kDirectLights2D);
             }
             if (ctx.layerPlan.buffers.empty()) {
                 litMode = 2;  // no mask reaches a point light: ambient and directional lights only
@@ -3236,11 +3236,20 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             ++stats.sceneCopies;
         } else if (!sceneCopyWarned) {
             sceneCopyWarned = true;
-            FA_ERROR("render", "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite "
-                               "material that calls "
-                               "fa_scene_color(): the water and the zones are not drawn and those materials read "
-                               "transparent black. Hint: lower the "
-                               "render scale or the window size, and see the log lines above.");
+            if (base.w < 1 || base.h < 1)
+                FA_ERROR(
+                    "render",
+                    "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite material "
+                    "that calls fa_scene_color(): the camera's rectangle is {}x{} pixels, so there is nothing to copy; "
+                    "those items are not drawn and the materials read transparent black. Hint: give the Camera a "
+                    "viewport (or the CameraView a size) of at least one pixel each way.",
+                    base.w, base.h);
+            else
+                FA_ERROR(
+                    "render",
+                    "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite material "
+                    "that calls fa_scene_color(): the water and the zones are not drawn and those materials read "
+                    "transparent black. Hint: lower the render scale or the window size, and see the log lines above.");
         }
         const bool last = sc.next + 1 >= sc.copyAt.size();
         PassDesc cp = pass_into(gameTarget, "game-scene");
@@ -3258,8 +3267,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         scissor = Rect{-1, -1, -1,
                        -1};  // the new pass starts with the base viewport: the next apply_clip sets the clip again
     };
-    sg_view sceneBound =
-        sceneGroup && sc.view.id ? sc.view : assets->white()->view;  // what view 12 of a material shows
+    // What view 15 of a material shows (kMaterialSpriteSceneView).
+    sg_view sceneBound = sceneGroup && sc.view.id ? sc.view : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         if (sceneGroup && sc.next < sc.copyAt.size() && sc.copyAt[sc.next] == std::uint32_t(&qb - batches.data())) {
             split_for_scene();
