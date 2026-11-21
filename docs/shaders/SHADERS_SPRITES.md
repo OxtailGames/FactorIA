@@ -73,7 +73,7 @@ so an empty `fragment()` draws exactly the engine's own pixels, and a snippet ch
 | 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights |
 | 7 | the rounded rectangle, circle, outline or gradient of a `Shape2D` (its coverage, gradient and dithering included) |
 
-What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](GAME_FEEL.md),
+What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](../GAME_FEEL.md),
 the conversion of a `multiply` blend and the fog. `fa_sample_main(uv)` samples the item's main texture in the colour space
 of the scene (fragment stage only: not in `vertex()`; to look the picture up somewhere else); `fa_scene_rgb(c)` takes an
 sRGB colour of yours (a param of type `color`) to the scene's colour space, in both stages. `fa_time` and the names of the engine's own 2D program are the

@@ -2025,8 +2025,9 @@ TEST_CASE("compile: the engine names a \"did you mean\" suggests are the ones th
     for (const char* kind : {"mesh", "sprite", "sky"})
         for (const std::string& name : list_of(kind, false)) {
             CAPTURE(kind);
-            CHECK_MESSAGE(guide.count(name) == 1, name << " is suggested for a " << kind
-                                                       << " material but docs/SHADERS.md and its parts do not mention it");
+            CHECK_MESSAGE(guide.count(name) == 1,
+                          name << " is suggested for a " << kind
+                               << " material but docs/SHADERS.md and its parts do not mention it");
         }
 }
 
