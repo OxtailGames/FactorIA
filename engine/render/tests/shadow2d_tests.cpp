@@ -87,7 +87,8 @@ TEST_CASE("contour_from_alpha: a square, a ring, a threshold") {
     std::vector<std::uint8_t> disc(64 * 64, 0);
     for (int y = 0; y < 64; ++y)
         for (int x = 0; x < 64; ++x)
-            if ((x - 31.5f) * (x - 31.5f) + (y - 31.5f) * (y - 31.5f) < 28.0f * 28.0f) disc[std::size_t(y * 64 + x)] = 255;
+            if ((x - 31.5f) * (x - 31.5f) + (y - 31.5f) * (y - 31.5f) < 28.0f * 28.0f)
+                disc[std::size_t(y * 64 + x)] = 255;
     const ContourLoops dl = contour_from_alpha(disc.data(), 64, 64, 0.5f, 24);
     REQUIRE(dl.size() == 1);
     CHECK(dl[0].size() <= 24);
@@ -103,26 +104,26 @@ TEST_CASE("contour_from_alpha: a square, a ring, a threshold") {
 }
 
 TEST_CASE("cast_casters: the near face with selfShadow, the far face without, a light inside is not blocked") {
-    const CasterSet far = one_box(10, -5, 20, 5, false);
-    const CasterSet near = one_box(10, -5, 20, 5, true);
+    const CasterSet farFace = one_box(10, -5, 20, 5, false);
+    const CasterSet nearFace = one_box(10, -5, 20, 5, true);
     const std::vector<std::uint32_t> list{0};
     std::vector<float> row = fresh_row(100);
-    cast_casters(far, list, 0, 0, 100, row.data());
-    CHECK(row[0] == doctest::Approx(20.0f).epsilon(0.01));              // east: the ray leaves the box at x = 20
-    CHECK(row[std::size_t(kShadowAngles / 4)] == 100.0f);               // north: nothing there
-    CHECK(row[std::size_t(kShadowAngles / 2)] == 100.0f);               // west: nothing there
+    cast_casters(farFace, list, 0, 0, 100, row.data());
+    CHECK(row[0] == doctest::Approx(20.0f).epsilon(0.01));  // east: the ray leaves the box at x = 20
+    CHECK(row[std::size_t(kShadowAngles / 4)] == 100.0f);   // north: nothing there
+    CHECK(row[std::size_t(kShadowAngles / 2)] == 100.0f);   // west: nothing there
     row = fresh_row(100);
-    const std::uint64_t work = cast_casters(near, list, 0, 0, 100, row.data());
-    CHECK(row[0] == doctest::Approx(10.0f).epsilon(0.01));              // east: the ray meets the box at x = 10
+    const std::uint64_t work = cast_casters(nearFace, list, 0, 0, 100, row.data());
+    CHECK(row[0] == doctest::Approx(10.0f).epsilon(0.01));  // east: the ray meets the box at x = 10
     CHECK(work > 0);
-    CHECK(work < 1024);                                                  // the angles the box covers, never 4 x all 1024
+    CHECK(work < 1024);  // the angles the box covers, never 4 x all 1024
     // The same twice: the work is a count.
     row = fresh_row(100);
-    CHECK(cast_casters(near, list, 0, 0, 100, row.data()) == work);
+    CHECK(cast_casters(nearFace, list, 0, 0, 100, row.data()) == work);
 
     // A ray through a corner of the box is neither missed nor counted twice: a box edge-on to the ray stays continuous.
     row = fresh_row(100);
-    cast_casters(far, list, 0, 0, 100, row.data());
+    cast_casters(farFace, list, 0, 0, 100, row.data());
     int dark = 0;
     for (int i = 0; i < kShadowAngles / 8; ++i) dark += row[std::size_t(i)] < 100.0f ? 1 : 0;
     // The box spans atan(5/10) = 26.6 degrees on each side of east: 75.7 texels one side.
@@ -139,7 +140,7 @@ TEST_CASE("cast_casters: the near face with selfShadow, the far face without, a 
 
     // Out of reach: nothing is touched and almost no work is done.
     row = fresh_row(5);
-    CHECK(cast_casters(far, list, 0, 0, 5, row.data()) == 0);
+    CHECK(cast_casters(farFace, list, 0, 0, 5, row.data()) == 0);
 }
 
 TEST_CASE("casters_in_reach: reach, light layers, the per-light cap") {
@@ -284,7 +285,8 @@ TEST_CASE("soft shadows: the penumbra widens with the distance past the occluder
     CHECK(farW > nearW + 4);
 }
 
-TEST_CASE("ShadowCaster2D: a box, a polygon and the alpha of a sprite block light; selfShadow, layers and the disabled flag") {
+TEST_CASE("ShadowCaster2D: a box, a polygon and the alpha of a sprite block light; selfShadow, layers and the disabled "
+          "flag") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     REQUIRE(save_png(solid_image(16, 16, Color::white()), "assets/white16.png").ok());
@@ -292,7 +294,8 @@ TEST_CASE("ShadowCaster2D: a box, a polygon and the alpha of a sprite block ligh
     Image disc = solid_image(32, 32, Color{1, 1, 1, 0});
     for (int y = 0; y < 32; ++y)
         for (int x = 0; x < 32; ++x)
-            if ((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f) < 13.0f * 13.0f) disc.set_pixel(x, y, Color::white());
+            if ((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f) < 13.0f * 13.0f)
+                disc.set_pixel(x, y, Color::white());
     REQUIRE(save_png(disc, "assets/disc32.png").ok());
 
     // spriteAlpha: the disc's shadow is narrower than the sprite's square would make it.
@@ -307,12 +310,15 @@ TEST_CASE("ShadowCaster2D: a box, a polygon and the alpha of a sprite block ligh
         sp.size = {32, 32};
         w.add<ShadowCaster2D>(e);
         Image img = g.render(w);
-        CHECK(at(img, 60, 0) < 0.05f);   // behind the disc
-        CHECK(at(img, 60, 25) > 0.7f);   // a square of the same size would reach y = 30 here
+        CHECK(at(img, 60, 0) < 0.05f);  // behind the disc
+        CHECK(at(img, 60, 25) > 0.7f);  // a square of the same size would reach y = 30 here
         CHECK(at(img, 60, -25) > 0.7f);
         // The contour is made once: a second frame and a moved sprite reuse it.
+        // (compared with the count before: the Gfx singleton keeps the renderer, and its cache, across test cases)
         const int made = render::renderer_shadow_rows_stats(g.renderer).contours;
-        CHECK(made == 1);
+        CHECK(made >= 1);
+        g.render(w);
+        CHECK(render::renderer_shadow_rows_stats(g.renderer).contours == made);
         w.get<Transform>(e)->position = {10, 5, 0};
         g.render(w);
         CHECK(render::renderer_shadow_rows_stats(g.renderer).contours == made);
@@ -378,12 +384,93 @@ TEST_CASE("ShadowCaster2D: a box, a polygon and the alpha of a sprite block ligh
         sc.size = {40, 40};
         sc.selfShadow = false;
         Image img = g.render(w);
-        CHECK(at(img, 0, 0) > 0.7f);   // inside the outline, lit like the face of a tile
+        CHECK(at(img, 0, 0) > 0.7f);    // inside the outline, lit like the face of a tile
         CHECK(at(img, 60, 0) < 0.05f);  // behind it: shadow
         w.get<ShadowCaster2D>(box)->selfShadow = true;
         img = g.render(w);
-        CHECK(at(img, 0, 0) < 0.3f);   // the caster darkens itself
+        CHECK(at(img, 0, 0) < 0.3f);  // the caster darkens itself
     }
+}
+
+TEST_CASE("ShadowCaster2D spriteAlpha: a SpriteAnimator frame is its own contour; a reloaded texture makes a new one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    REQUIRE(save_png(solid_image(16, 16, Color::white()), "assets/white16.png").ok());
+    // A 32x16 sheet of two 16x16 frames: the left one opaque, the right one empty.
+    Image sheet = solid_image(32, 16, Color{1, 1, 1, 0});
+    for (int y = 0; y < 16; ++y)
+        for (int x = 0; x < 16; ++x) sheet.set_pixel(x, y, Color::white());
+    REQUIRE(save_png(sheet, "assets/sc_sheet.png").ok());
+    World w;
+    lit_floor(w);
+    lamp(w, {-100, 0, 0}, 600, 0.0f);
+    Entity e = make(w, "anim", {0, 0, 0});
+    auto& sp = w.add<Sprite>(e);
+    sp.texture = "assets/sc_sheet.png";
+    sp.color = Color{1, 1, 1, 0};
+    sp.size = {16, 16};
+    w.add<ShadowCaster2D>(e);
+    auto& an = w.add<SpriteAnimator>(e);
+    an.columns = 2;
+    an.rows = 1;
+    an.firstFrame = an.lastFrame = 0;
+    an.playing = false;
+    // What the code does: apply_sprite_frames writes the frame's rectangle into Sprite.region before the casters are
+    // gathered, so the contour follows the frame (one contour per frame and threshold, each made once).
+    Image img = g.render(w);
+    CHECK(at(img, 60, 0) < 0.05f);  // frame 0 is opaque: it blocks
+    const int first = render::renderer_shadow_rows_stats(g.renderer).contours;
+    w.get<SpriteAnimator>(e)->firstFrame = w.get<SpriteAnimator>(e)->lastFrame = 1;
+    img = g.render(w);
+    CHECK(at(img, 60, 0) > 0.7f);  // frame 1 is empty: nothing blocks
+    const int second = render::renderer_shadow_rows_stats(g.renderer).contours;
+    CHECK(second == first + 1);
+    w.get<SpriteAnimator>(e)->firstFrame = w.get<SpriteAnimator>(e)->lastFrame = 0;
+    img = g.render(w);
+    CHECK(at(img, 60, 0) < 0.05f);  // back to frame 0: its contour is reused
+    CHECK(render::renderer_shadow_rows_stats(g.renderer).contours == second);
+
+    // A texture reloaded from a changed file gets a new image id, so its contour is made again.
+    World r;
+    lit_floor(r);
+    lamp(r, {-100, 0, 0}, 600, 0.0f);
+    Entity b = make(r, "reloaded", {0, 0, 0});
+    auto& rs = r.add<Sprite>(b);
+    rs.texture = "assets/sc_reload.png";
+    rs.color = Color{1, 1, 1, 0};
+    rs.size = {16, 16};
+    r.add<ShadowCaster2D>(b);
+    REQUIRE(save_png(solid_image(16, 16, Color::white()), "assets/sc_reload.png").ok());
+    img = g.render(r);
+    CHECK(at(img, 60, 0) < 0.05f);
+    const int before = render::renderer_shadow_rows_stats(g.renderer).contours;
+    REQUIRE(save_png(solid_image(16, 16, Color{1, 1, 1, 0}), "assets/sc_reload.png").ok());
+    g.renderer.reload_asset("assets/sc_reload.png");
+    img = g.render(r);
+    CHECK(at(img, 60, 0) > 0.7f);  // the new picture is empty
+    CHECK(render::renderer_shadow_rows_stats(g.renderer).contours == before + 1);
+}
+
+TEST_CASE("Light2D.size softens the shadow on the per-pixel path of a lit sprite with a normal map") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    REQUIRE(save_png(solid_image(16, 16, Color::white()), "assets/white16.png").ok());
+    REQUIRE(save_png(solid_image(16, 16, Color{0.5f, 0.5f, 1.0f, 1}), "assets/flat_n.png").ok());
+    int widths[2] = {};
+    const float sizes[2] = {0.0f, 6.0f};
+    for (int k = 0; k < 2; ++k) {
+        World w;
+        lit_floor(w);
+        w.get<Sprite>(w.find("floor"))->normalMap = "assets/flat_n.png";
+        lamp(w, {-150, 0, 0}, 600, sizes[k]);
+        box_caster(w, {-100, 0, 0}, {10, 20});
+        Image img = g.render(w);
+        widths[k] = penumbra_pixels(img, 140);
+        CHECK(at(img, 140, 0) < 0.05f);
+        CHECK(at(img, 140, 85) > 0.15f);  // the normal-map path is dimmer than the flat one
+    }
+    CHECK(widths[0] <= 3);
+    CHECK(widths[1] > widths[0] + 8);
 }
 
 TEST_CASE("Tilemap.lightLayers selects the lights its solid tiles block") {
@@ -460,7 +547,8 @@ TEST_CASE("soft shadows, casters and tiles together (golden)") {
     Image disc = solid_image(32, 32, Color{1, 1, 1, 0});
     for (int y = 0; y < 32; ++y)
         for (int x = 0; x < 32; ++x)
-            if ((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f) < 13.0f * 13.0f) disc.set_pixel(x, y, Color::white());
+            if ((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f) < 13.0f * 13.0f)
+                disc.set_pixel(x, y, Color::white());
     REQUIRE(save_png(disc, "assets/disc32.png").ok());
     World w;
     camera_at(w);
@@ -557,8 +645,8 @@ TEST_CASE("shadow casters: 100 casters and 64 moving soft lights (reported, neve
     g.render(w);
     const double hardStill = frames(false);
     MESSAGE("100 casters x 64 soft lights: " << int(moving * 10) / 10.0 << " ms a frame with every light moving, "
-                                              << int(still * 10) / 10.0 << " ms still, " << int(hardStill * 10) / 10.0
-                                              << " ms still with size 0");
+                                             << int(still * 10) / 10.0 << " ms still, " << int(hardStill * 10) / 10.0
+                                             << " ms still with size 0");
 }
 
 TEST_CASE("shadow lights: every one of the 256 lights a frame shades has its shadow, the cap is warned once") {
