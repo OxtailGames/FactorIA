@@ -2006,7 +2006,7 @@ void register_builtin_components(TypeRegistry& r) {
                "Metres the diffuse light spreads inside the surface, for the colour channel with the widest "
                "spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. "
                "Has an effect only when subsurface is above 0.")
-        .range(0, 0.5)
+        .range(0, 0.5f)
         .field("subsurfaceColor", &MeshRenderer::subsurfaceColor,
                "How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue "
                "lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same "
@@ -2238,11 +2238,11 @@ void register_builtin_components(TypeRegistry& r) {
         .range(32, 256)
         .field("nearPlane", &ReflectionProbe::nearPlane,
                "Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.")
-        .range(0.01, 100)
+        .range(0.01f, 100)
         .field("farPlane", &ReflectionProbe::farPlane,
                "Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows "
                "`clear`. Default 100.")
-        .range(0.1, 100000)
+        .range(0.1f, 100000)
         .enum_field("clear", &ReflectionProbe::clear, {"sky", "color"},
                     "What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color "
                     "(clearColor).")
@@ -2295,7 +2295,7 @@ void register_builtin_components(TypeRegistry& r) {
                "Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing "
                "makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is "
                "floor(size / spacing) + 1.")
-        .range(0.25, 100)
+        .range(0.25f, 100)
         .field("offset", &LightProbeGroup::offset,
                "[x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the "
                "layers of probes are at the height of the objects' centres, not at their feet.")
@@ -2339,7 +2339,7 @@ void register_builtin_components(TypeRegistry& r) {
                "Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving "
                "the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 "
                "m is usual for rooms. Default 2.")
-        .range(0.25, 100)
+        .range(0.25f, 100)
         .field("probesPerFrame", &RealtimeGI::probesPerFrame,
                "1..32: how many probes this grid refreshes a frame; each one draws the scene six times at "
                "`resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. "
@@ -2363,11 +2363,11 @@ void register_builtin_components(TypeRegistry& r) {
                "0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of "
                "each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces "
                "the old value at once (flickers when the scene moves).")
-        .range(0, 0.99)
+        .range(0, 0.99f)
         .field("nearExclusion", &RealtimeGI::nearExclusion,
                "Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the "
                "captures), so a prop right next to a probe does not paint it. Default 0.1.")
-        .range(0.01, 10)
+        .range(0.01f, 10)
         .field("maxDistance", &RealtimeGI::maxDistance,
                "Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than "
                "this a ray shows the sky and counts as this distance. Default 30.")
@@ -2375,7 +2375,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("backfaceTolerance", &RealtimeGI::backfaceTolerance,
                "0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction "
                "of its directions hit the back of a surface before the front of any. Default 0.25.")
-        .range(0.02, 0.9)
+        .range(0.02f, 0.9f)
         .field("showTags", &RealtimeGI::showTags,
                "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
                "empty a capture draws only the entities that have one of these tags or a parent that does.")
