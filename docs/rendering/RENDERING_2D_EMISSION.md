@@ -72,6 +72,8 @@ Only point lights have cookies.
   use the same file cost one cell. A picture of any size is stretched into its square cell, so make cookies square (a 2:1 picture is squashed).
   At most 16 distinct cookie textures are used in a frame: a light past them shines without its cookie and the engine warns once per scene
   with a hint to share files or to pack several shapes in one picture. A cookie packed in an export's texture atlas works.
+- The atlas is copied again only when the cookies of the frame (or one of their files) change. A cookie can be a live texture, a camera's
+  `target:<name>` or a compute image: those change every frame, so a frame with one copies the atlas every frame.
 - A cookie texture that does not exist is logged once, with the closest file names (`Did you mean assets/cookie_window.png?`), and the light
   shines without it.
 - The atlas costs nothing in a scene where no light has a cookie.

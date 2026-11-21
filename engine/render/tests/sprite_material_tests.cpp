@@ -1045,7 +1045,9 @@ TEST_CASE(
         REQUIRE(m != nullptr);
         most = std::max(most, m->uses.size());
     }
-    CHECK(most <= 4);
+    // Exact: begin_material_frame keeps a use for kUseKeepFrames (2) frames without a request, so after this frame's own request the
+    // uses of the last two frames and this one are alive: kUseKeepFrames + 1 = 3. Without the drop it would reach 300.
+    CHECK(most <= 3);
     assets.clear();
 }
 

@@ -342,6 +342,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
     t.asset.height = h;
+    t.asset.live = true;
     return &t.asset;
 }
 
