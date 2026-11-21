@@ -92,6 +92,7 @@ struct Renderer::Impl::DrawContext {
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
     Px fullPx, camPx;
+    Gi2dJobPlan gi2d;  // gi2d_plan: the field this job's passes fill (inactive without an enabled GlobalIllumination2D)
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
@@ -546,6 +547,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     lightAtlas.free_retired();
     free_retired_decal_atlases();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = sharedCookie = ResourceId{};
+    gi2d.begin_frame(!countPost);
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -563,6 +565,7 @@ void Renderer::Impl::run_frame_graph() {
         FA_ERROR("render", "Frame {} (jobs: {}) {}: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
                  running ? "cannot be drawn completely" : "draws nothing", e.message, e.hint);
     };
+    gi2d.free_unused();  // a frame without GlobalIllumination2D keeps no image of the field
     if (beforeFrameGraph) beforeFrameGraph();
     if (Result<void> r = graph.compile(); !r)
         report(r.error(), false);
@@ -901,6 +904,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     upload_instances(ctx);
     scene_uniforms(ctx);
     light_plan(ctx);
+    gi2d_plan(ctx);
     // The passes of the job join the frame graph (frame_graph.h), declared from what the phases above decided.
     build_graph(ctx);
 }
@@ -2534,6 +2538,54 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     }
 }
 
+// ---- 2D global illumination ----
+// The field of a 2D camera job (gi2d.h): when the scene has an enabled GlobalIllumination2D and the GPU has RGBA16F targets, the job gets a
+// slot of images sized from its view and the settings, and the CPU gathers what glows and what blocks light into it; build_graph declares
+// the passes that draw them. Without the component nothing is made. Reads: world (GlobalIllumination2D), fr (camera, mask), ctx.camPx,
+// plan.view. Writes: ctx.gi2d, gi2d (slots, lastSettings).
+void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    ctx.gi2d = Gi2dJobPlan{};
+    if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
+    const Gi2dSettings s = gi2d_settings(ctx.world);
+    gi2d.lastSettings = s;
+    if (!s.on) return;
+    if (!Gi2dSystem::float_targets_ok()) {
+        if (!gi2d.warned_unsupported) {
+            gi2d.warned_unsupported = true;
+            FA_WARN("render", "{}", Gi2dSystem::unsupported_message(Renderer::backend_name()));
+        }
+        return;
+    }
+    const Rect& vis = fr.cam.visible;
+    const float ppu = vis.w > 0.0f ? float(double(ctx.camPx.w) / double(vis.w)) : 0.0f;
+    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
+    if (!geom.valid) return;
+    int slot = 0;
+    for (const auto& c : jobContexts)
+        if (c.get() != &ctx && static_cast<const DrawContext*>(c.get())->gi2d.active) ++slot;
+    Gi2dField* field = gi2d.acquire(slot, geom);
+    if (!field) return;
+    field->settings = s;
+    field->job = ctx.plan.name;
+    auto gather = std::make_shared<Gi2dGather>();
+    gi2d_gather(ctx.world, fr, geom, *gather);
+    field->stats = *gather;
+    if (gather->dropped > 0 && !gi2d.warned_dropped) {
+        gi2d.warned_dropped = true;
+        FA_WARN("render",
+                "2D global illumination: {} emitting or occluding quads are over the {} a field draws and were left "
+                "out of the field. "
+                "Hint: GlobalIllumination2D.range limits what the field covers; lower it, or merge tiles into fewer "
+                "Tilemap cells.",
+                gather->dropped, kGi2dMaxQuads);
+    }
+    ctx.gi2d.active = true;
+    ctx.gi2d.field = field;
+    ctx.gi2d.gather = std::move(gather);
+    if (assets && assets->white()) ctx.gi2d.white = assets->white()->gpu_view();
+}
+
 // The light buffer's pass (light_plan chose litMode 1): every point light of the camera is a quad added into the buffer.
 // Reads: fr (lights2d, shadowRows, camera, viewport), ctx.partial, ctx.shadowRowsTex, lightW / lightH, the light target.
 // Writes: the light target; stats.drawCalls.
@@ -3675,6 +3727,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         shadowRes = shared(sharedShadow, "shadow-map", ctx.shadowTgt.color.id,
                            import_desc(ctx.shadowTgt.w, ctx.shadowTgt.h, ctx.shadowTgt.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
+    }
+    // The 2D GI field (gi2d_plan): its passes run before the camera's main pass, which P3b's cascades will read it in.
+    if (ctx.gi2d.active) {
+        if (gi2d.add_passes(graph, transient_targets(), gpu, ctx.gi2d, plan.name, &stats.drawCalls) == 0)
+            ctx.gi2d.active = false;
     }
     // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it
     // before its main pass.
