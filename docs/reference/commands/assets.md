@@ -1884,7 +1884,7 @@ Then `orphans` (default true, but false with a `dither`, whose pixels would look
 
 ## `lightmap.bake` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.
 
@@ -1913,7 +1913,7 @@ Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mi
 
 ## `lightmap.bake_cancel` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Stop a running bake job; no file is changed unless it was already writing them.
 
@@ -1927,7 +1927,7 @@ Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the r
 
 ## `lightmap.bake_start` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.
 
@@ -1954,7 +1954,7 @@ The same bake as lightmap.bake (same arguments and result) on a job thread, so t
 
 ## `lightmap.bake_status` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.
 
@@ -2651,7 +2651,7 @@ With `key` and `mode` returns the scale's notes, intervals, and the triads and s
 
 ## `probe.bake` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Capture a ReflectionProbe once and write its baked page and manifest into the project.
 

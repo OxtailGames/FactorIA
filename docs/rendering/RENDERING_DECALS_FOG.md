@@ -42,7 +42,7 @@ once; `stats.decalsDropped` counts the rest), **32 decals per cluster of the vie
 all fit the biggest are halved (down to 16 pixels) and then the last are left out, the same on every run. A decal whose `albedo` cannot be
 read or does not fit is **not drawn** and the engine says which texture once (`stats.decalsDropped` counts it); a `normal` that
 cannot be read just adds no relief. The atlas is rebuilt when a decal names a texture it does not hold, when a texture file is reloaded
-or when the scene's colour space changes (a hitch of a frame; give the decals of a level in the first frame, or keep the set stable).
+or when the scene's colour space changes (a hitch of a frame; give the decals of a level in the first frame, or keep the set stable). Only a reload of one of ITS textures rebuilds it, not any other asset's. It only grows while the scene runs (a texture that is no longer used stays until a rebuild), and its size counts in `textureMB`. More than 512 different textures (two per decal of the 256) warn once and the rest are not drawn.
 
 `stats.decals` is how many decals were drawn. `render.supports` with `{"feature": "decals"}` is true on every GPU.
 

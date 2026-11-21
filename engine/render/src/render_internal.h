@@ -1135,6 +1135,7 @@ public:
     // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and asks whether one of its own
     // textures was reloaded since a generation (`paths` are normalised keys). True too when the log of the last reloads no longer reaches
     // back to `since`, so a doubt rebuilds the atlas and never leaves a stale one.
+    // Paths compare exactly, case-sensitive, as Assets already does for textures.
     std::uint64_t reload_generation() const { return reloadGeneration_; }
     bool reloaded_any_of(std::uint64_t since, const std::set<std::string>& paths) const;
     void clear();

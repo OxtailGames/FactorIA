@@ -562,8 +562,8 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
     if (!file) return std::shared_ptr<const PackReader>(std::move(pack));  // in memory: nothing to map or register
     if (options.map && env_allows_map() && detail::pack_map(pack->native_, fileSize, pack->map_, pack->mapping_))
         pack->mapSize_ = fileSize;
-    // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with
-    // FILE_SHARE_DELETE), and to delete a mapped one; an unmapped one shares delete (pack_file_win32.cpp), so a delete goes through: the
+    // Windows refuses to replace a file that is open, mapped or not (MoveFileExW onto it fails even with FILE_SHARE_DELETE),
+    // and to delete a mapped one; an unmapped one shares delete (pack_file_win32.cpp), so a delete goes through: the
     // emulation does the same for as long as the reader lives.
     pack->registered_ = fs::detail::register_open_file(*file, /*sharesDelete=*/pack->map_ == nullptr);
     return std::shared_ptr<const PackReader>(std::move(pack));
