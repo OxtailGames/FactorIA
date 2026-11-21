@@ -283,14 +283,26 @@ struct Renderer::Impl {
         warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
-    bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
-    bool warnedShadows2d = false;      // the "more shadow casters than the budget" warning, once per scene
-    bool warnedSpriteMesh = false;     // the "too many mesh cells" warning, once per scene
-    bool warnedGradientStops = false;  // the "malformed gradientStops" warning, once per scene
-    std::string lights2dScene;         // the scene path warnedLights2d and warnedShadows2d belong to
+    bool warnedLights2d = false;        // the "more Light2D in view than the budget" warning, once per scene
+    bool warnedShadows2d = false;       // the "more shadow casters than the budget" warning, once per scene
+    bool warnedSpriteMesh = false;      // the "too many mesh cells" warning, once per scene
+    bool warnedGradientStops = false;   // the "malformed gradientStops" warning, once per scene
+    bool warnedCookies2d = false;       // the "more cookies than the atlas holds" warning, once per scene (M74)
+    bool warnedLightBuffers2d = false;  // the "more light layer sets than light buffers" warning, once per scene (M74)
+    std::string lights2dScene;          // the scene path warnedLights2d and warnedShadows2d belong to
     // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
     // needs it, at lightScale of the target's size; kept while the size and the format stay.
     Target lightTarget;
+    // M74 light layers: the buffers of the other sets of lights (docs/rendering/RENDERING_2D_EMISSION.md); made only for a frame whose
+    // receivers reach more than one set. lightBuffers = how many exist (>= 1 once the first was made).
+    Target extraLightTargets[kMaxLightBuffers2D - 1];
+    int lightBuffers = 0;
+    const Target& light_buffer(int i) const {
+        return i <= 0 ? lightTarget : extraLightTargets[std::min(i, kMaxLightBuffers2D - 1) - 1];
+    }
+    // The cookie atlas (M74, Light2D.cookie): the cookies of the frame copied into cells of one image (light_cookie.glsl).
+    Target cookieTarget;
+    bool cookieTargetFailed = false;
     int lightW = 0, lightH = 0;
     sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
     bool lightTargetFailed = false;
@@ -425,7 +437,12 @@ struct Renderer::Impl {
     void update_editor_copy();
     bool create_shadow_targets(int width, int height);
     void free_retired_shadow_targets();
-    bool ensure_light_target(float scale);
+    bool ensure_light_target(float scale, int buffers = 1);
+    // M74 (renderer_lights2d.cpp): gives the cookies of the frame their cells (Light2DData::cookieCell, warns once past the atlas) and
+    // returns the textures by cell; empty when no light has one or the atlas cannot be made.
+    std::vector<TextureAsset*> plan_cookies(Frame& fr);
+    void cookie_pass(const std::vector<TextureAsset*>& cells);
+    bool ensure_cookie_target();
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
     // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
@@ -548,7 +565,7 @@ struct Renderer::Impl {
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
-    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv, sharedSkyLut;
+    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv, sharedSkyLut, sharedCookie;
     // The physical sky (SceneSettings.skyModel): its tables are drawn by the first job of a frame that shows the sky
     // ("sky-view" pass); the later jobs read them.
     std::uint64_t skyLutFrame = ~std::uint64_t(0);

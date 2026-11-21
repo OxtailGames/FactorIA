@@ -1,6 +1,7 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
 #include "light_clusters.h"
+#include "light_layers.h"
 #include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
@@ -211,6 +212,11 @@ struct Renderer::Impl::DrawContext {
     // light_pass
     int litMode = 0;
     sg_view shadowRowsTex{};
+    // light_plan (M74): the light buffer each layer mask of the flat lit visuals reads, and the cookies of the frame's lights (the
+    // textures by atlas cell, and the atlas image while there are any).
+    LightLayerPlan layerPlan;
+    std::vector<TextureAsset*> cookieCells;
+    sg_view cookieView{};
 };
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -539,7 +545,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     free_retired_shadow_targets();  // the frame before has run its graph
     lightAtlas.free_retired();
     free_retired_decal_atlases();
-    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
+    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = sharedCookie = ResourceId{};
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -2480,18 +2486,51 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     const DrawContext::Group& gWorld = ctx.gWorld;
     int& litMode = ctx.litMode;
     sg_view& shadowRowsTex = ctx.shadowRowsTex;
-    bool anyFlatLit = false;
-    for (const QuadBatch& qb : gWorld.batches) anyFlatLit = anyFlatLit || (qb.lit && !qb.normal);
+    bool anyFlatLit = false, anyLit = false;
+    std::vector<std::int32_t>
+        flatMasks;  // the layer masks of the flat lit batches (the receivers of the light buffers)
+    for (const QuadBatch& qb : gWorld.batches) {
+        anyLit = anyLit || qb.lit;
+        if (qb.lit && !qb.normal) {
+            anyFlatLit = true;
+            if (std::find(flatMasks.begin(), flatMasks.end(), qb.fx.layers) == flatMasks.end())
+                flatMasks.push_back(qb.fx.layers);
+        }
+    }
+    for (const QuadBatch& qb : ctx.gScreen.batches) anyLit = anyLit || qb.lit;
+    // The cookies of the lights (Light2D.cookie): one cell of the atlas each, copied by the "light-cookies" pass.
+    ctx.cookieCells = anyLit ? plan_cookies(fr) : std::vector<TextureAsset*>{};
+    ctx.cookieView = ctx.cookieCells.empty() ? sg_view{} : cookieTarget.texView;
     int points = 0;
     for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
     shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
     if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
-        if (points == 0)
+        if (points == 0) {
             litMode = 2;
-        else if (!plan.view && gpu.light_ready() && ensure_light_target(lightScale))
-            litMode = 1;  // the buffer is the game target's size
+        } else if (!plan.view && gpu.light_ready()) {
+            // M74 light layers: one buffer per distinct set of point lights the receivers in view reach (light_layers.h); one for
+            // the default scene, whose every light is on every layer.
+            ctx.layerPlan = plan_light_layers(fr.lights2d, flatMasks, true);
+            if (ctx.layerPlan.overflowed && !warnedLightBuffers2d) {
+                warnedLightBuffers2d = true;
+                FA_WARN("render",
+                        "The lit sprites, shapes and tilemaps in view reach more different sets of Light2D than the {} "
+                        "light buffers of a "
+                        "frame: the ones past that are shaded by the first {} lights per pixel (the lights beyond them "
+                        "do not reach "
+                        "them). Hint: use fewer distinct lightLayers masks on the visuals in view, or give the lights "
+                        "that must stay "
+                        "apart distinct bits.",
+                        kMaxLightBuffers2D, kDirectLights2D);
+            }
+            if (ctx.layerPlan.buffers.empty()) {
+                litMode = 2;  // no mask reaches a point light: ambient and directional lights only
+            } else if (ensure_light_target(lightScale, int(ctx.layerPlan.buffers.size()))) {
+                litMode = 1;  // the buffers are the game target's size
+            }
+        }
     }
 }
 
@@ -2502,54 +2541,66 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const bool partial = ctx.partial;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
-    int points = 0;
-    for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
-    std::vector<LightVertex> lv;
-    lv.reserve(std::size_t(points) * 4);
     static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
-    for (const Light2DData& l : fr.lights2d) {
-        if (l.pos[3] < 0.0f) continue;
-        for (const auto& c : kCorner) {
-            LightVertex v{};
-            v.corner[0] = c[0];
-            v.corner[1] = c[1];
-            std::memcpy(v.pos, l.pos, sizeof(float) * 4);
-            std::memcpy(v.color, l.color, sizeof(float) * 4);
-            v.shadow[0] = l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
-            v.shadow[1] = l.shadowSize;
-            lv.push_back(v);
+    static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a buffer is drawn by one draw call");
+    // One buffer per set of lights the layer plan made (light_layers.h); the default scene has one, holding every point light.
+    const std::size_t buffers = std::max<std::size_t>(1, ctx.layerPlan.buffers.size());
+    for (std::size_t bi = 0; bi < buffers; ++bi) {
+        std::vector<LightVertex> lv;
+        auto add_light = [&](const Light2DData& l) {
+            const CookieShaderData cd = cookie_shader_data(l, gpu.is_gl());
+            for (const auto& c : kCorner) {
+                LightVertex v{};
+                v.corner[0] = c[0];
+                v.corner[1] = c[1];
+                std::memcpy(v.pos, l.pos, sizeof(float) * 4);
+                std::memcpy(v.color, l.color, sizeof(float) * 4);
+                v.shadow[0] =
+                    l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
+                v.shadow[1] = l.shadowSize;
+                std::memcpy(v.cookie, cd.cell, sizeof(float) * 4);
+                std::memcpy(v.cookieXf, cd.xf, sizeof(float) * 4);
+                lv.push_back(v);
+            }
+        };
+        if (ctx.layerPlan.buffers.empty()) {
+            for (const Light2DData& l : fr.lights2d)
+                if (l.pos[3] >= 0.0f) add_light(l);
+        } else {
+            for (int li : ctx.layerPlan.buffers[bi]) add_light(fr.lights2d[std::size_t(li)]);
         }
-    }
-    static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
-    sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
-    sg_write_buffer_desc wd{};
-    wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
-    wd.dst.buffer = lb;
-    sg_write_buffer_transient(&wd);
+        sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
+        wd.dst.buffer = lb;
+        sg_write_buffer_transient(&wd);
 
-    PassDesc lp = pass_into(lightTarget, "light-buffer");
-    lp.colorLoad = SG_LOADACTION_CLEAR;
-    lp.clearColor = {0, 0, 0, 0};
-    lp.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(lp);
-    // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
-    if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
-    sg_apply_pipeline(gpu.light_pipeline());
-    sg_bindings b{};
-    b.vertex_buffers[0] = lb;
-    b.index_buffer = gpu.quad_index_buffer();
-    b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-    b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    light_light_vs_params_t vu{};
-    copy_mat(vu.view_proj, fr.cam.viewProj);
-    apply_uniforms(UB_light_light_vs_params, vu);
-    light_light_fs_params_t fu{};
-    fu.range[0] = 1.0f / gpu.light_range();
-    apply_uniforms(UB_light_light_fs_params, fu);
-    sg_draw(0, int(lv.size() / 4) * 6, 1);
-    gpu.end_pass();
-    ++stats.drawCalls;
+        PassDesc lp = pass_into(light_buffer(int(bi)), "light-buffer");
+        lp.colorLoad = SG_LOADACTION_CLEAR;
+        lp.clearColor = {0, 0, 0, 0};
+        lp.colorStore = SG_STOREACTION_STORE;
+        gpu.begin_pass(lp);
+        // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
+        if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
+        sg_apply_pipeline(gpu.light_pipeline());
+        sg_bindings b{};
+        b.vertex_buffers[0] = lb;
+        b.index_buffer = gpu.quad_index_buffer();
+        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+        b.views[VIEW_light_cookie_tex] = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
+        b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+        b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
+        sg_apply_bindings(&b);
+        light_light_vs_params_t vu{};
+        copy_mat(vu.view_proj, fr.cam.viewProj);
+        apply_uniforms(UB_light_light_vs_params, vu);
+        light_light_fs_params_t fu{};
+        fu.range[0] = 1.0f / gpu.light_range();
+        apply_uniforms(UB_light_light_fs_params, fu);
+        sg_draw(0, int(lv.size() / 4) * 6, 1);
+        gpu.end_pass();
+        ++stats.drawCalls;
+    }
 }
 
 // ---- shadow pass ----
@@ -2990,6 +3041,58 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
         litUniforms.light_shadow_v[i][1] = fr.lights2d[i].shadowSize;
     }
+    // M74: the cookies of those lights (light_cookie.glsl), the same for every lit batch.
+    for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
+        const CookieShaderData cd = cookie_shader_data(fr.lights2d[i], gpu.is_gl());
+        std::memcpy(litUniforms.light_cookie[i], cd.cell, sizeof(float) * 4);
+        std::memcpy(litUniforms.light_cookie_xf[i], cd.xf, sizeof(float) * 4);
+    }
+    // M74 light layers: a lit batch is lit by the lights whose lightLayers share a bit with its own mask. litUniforms starts with every
+    // light; a batch with another mask zeroes the colour of the lights that do not reach it (and takes the directional lights that do
+    // not out of the flat ambient light). With every light on every layer (the default) nothing is ever rewritten.
+    bool everyLightEverywhere = true;
+    for (const Light2DData& l : fr.lights2d) everyLightEverywhere = everyLightEverywhere && l.layers == -1;
+    bool layersFull = true;      // litUniforms holds every light (as filled above)
+    std::int32_t layersFor = 0;  // otherwise the mask it was filled for
+    const auto lit_layers = [&](std::int32_t mask) {
+        const bool wantFull = everyLightEverywhere && mask != 0;
+        if (wantFull ? layersFull : (!layersFull && layersFor == mask)) return;
+        layersFull = wantFull;
+        layersFor = mask;
+        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
+            const bool reach = wantFull || light_reaches(fr.lights2d[i].layers, mask);
+            for (int c = 0; c < 3; ++c) litUniforms.light_color[i][c] = reach ? fr.lights2d[i].color[c] : 0.0f;
+        }
+        litUniforms.flat_ambient[0] = fr.ambient2d.r;
+        litUniforms.flat_ambient[1] = fr.ambient2d.g;
+        litUniforms.flat_ambient[2] = fr.ambient2d.b;
+        for (const Light2DData& l : fr.lights2d) {
+            if (l.pos[3] >= 0.0f || !(wantFull || light_reaches(l.layers, mask))) continue;
+            for (int c = 0; c < 3; ++c) litUniforms.flat_ambient[c] += l.color[c];
+        }
+    };
+    // M74: what a batch adds to the plain picture (QuadFx): emission and rim light, in the fragment uniforms of the batch.
+    const auto fill_fx = [&](quad_quad_fs_params_t& s, const QuadBatch& qb) {
+        std::memset(s.fx_emit, 0, sizeof s.fx_emit);
+        std::memset(s.fx_emit_uv, 0, sizeof s.fx_emit_uv);
+        std::memset(s.fx_rim, 0, sizeof s.fx_rim);
+        std::memset(s.fx_rim_uv, 0, sizeof s.fx_rim_uv);
+        const QuadFx& f = qb.fx;
+        if (f.has_emissive()) {
+            for (int c = 0; c < 3; ++c) s.fx_emit[c] = f.emissive[c];
+            s.fx_emit[3] = 1.0f;
+            if (f.emissiveMap) {
+                s.fx_emit[3] = 2.0f + float(f.emissiveMap->tex_fix(fr.linear, true, fr.displayOverLinear));
+                normal_uv_transform(*qb.tex, *f.emissiveMap, s.fx_emit_uv);
+            }
+        }
+        if (f.has_rim() && qb.lit) {
+            for (int c = 0; c < 3; ++c) s.fx_rim[c] = f.rim[c];
+            s.fx_rim[3] = 1.0f;
+            s.fx_rim_uv[0] = f.rimUv[0];
+            s.fx_rim_uv[1] = f.rimUv[1];
+        }
+    };
     // The camera's stack fog on the world's quads (shaders/quad.glsl): each batch fades to the fog colour, an additive one to nothing and a
     // multiplying one to 1 (the colour that changes nothing), by the quad's own distance. Only the full program reads it.
     quad_quad_fs_params_t fogged{};
@@ -3013,6 +3116,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const bool fogOn = fog && fog->fog;
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+    const sg_view cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
     // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
     // (the size of the image the pass draws into: the game target's, or `passW` x `passH` for a smaller one)
     const float targetInv[2] = {1.0f / float(std::max(1, passW > 0 ? passW : physW)),
@@ -3085,14 +3189,25 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         u.fa_time[0] = prog ? fr.time : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
+        sg_view batchLightTex = lightTexBound;
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
+            lit_layers(qb.fx.layers);
+            litUniforms.lit[2] = float(flatMode);
+            if (flatMode == 1 && !qb.normal) {
+                // The light buffer of this batch's layer mask (light_layers.h): none when no point light reaches it, or the loop
+                // over the first lights when the frame ran out of buffers.
+                const int buffer = ctx.layerPlan.buffer_of(qb.fx.layers);
+                if (buffer >= 0) batchLightTex = light_buffer(buffer).texView;
+                litUniforms.lit[2] = buffer >= 0 ? 1.0f : buffer == LightLayerPlan::kNoPoint ? 2.0f : 0.0f;
+            }
         }
         if (prog) {
             // The lean program of a material declares the block too (its snippet may read fa_time and fa_target).
             if (prog->has_ub(UB_quad_quad_fs_params)) {
                 quad_quad_fs_params_t fu = qb.lit ? litUniforms : fogOn ? fogged : unlit;
+                fill_fx(fu, qb);
                 fu.fa_time[0] = fr.time;
                 fu.fa_target[0] = targetInv[0];
                 fu.fa_target[1] = targetInv[1];
@@ -3102,9 +3217,12 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             }
             apply_use_params(*prog, *use);
         } else if (qb.lit) {
+            fill_fx(litUniforms, qb);
             apply_uniforms(UB_quad_quad_fs_params, litUniforms);
         } else if (!plain) {  // quad_plain declares no fragment uniforms
-            apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
+            quad_quad_fs_params_t& fs = fogOn ? fogged : unlit;
+            fill_fx(fs, qb);
+            apply_uniforms(UB_quad_quad_fs_params, fs);
         }
         // A batch from buffers is ONE quad drawn `instances` times (emit_sprite). Should another item ever make one
         // with more quads, instancing them all would repeat the whole list: draw it once, without the buffers, and say
@@ -3132,8 +3250,10 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             b.index_buffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
-            b.views[VIEW_quad_light_tex] = lightTexBound;
+            b.views[VIEW_quad_light_tex] = batchLightTex;
             b.views[VIEW_quad_shadow_tex] = shadowTexBound;
+            b.views[VIEW_quad_fx_emissive_tex] = (qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view();
+            b.views[VIEW_quad_fx_cookie_tex] = cookieTexBound;
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -3537,11 +3657,19 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (it != jobImages.end() && std::find(shown.begin(), shown.end(), it->second.shown) == shown.end())
             shown.push_back(it->second.shown);
     }
-    ResourceId lightRes, shadowRes;
+    ResourceId lightRes, shadowRes, cookieRes;
+    if (!ctx.cookieCells
+             .empty()) {  // M74: the cookies of the lights, copied into the atlas the lit visuals and the light buffers read
+        cookieRes = shared(sharedCookie, "light-cookies", cookieTarget.color.id,
+                           import_desc(cookieTarget.w, cookieTarget.h, cookieTarget.format, "light-cookies"));
+        add("light-cookies", {}, {cookieRes}, [this, &ctx](const PassContext&) { cookie_pass(ctx.cookieCells); });
+    }
     if (ctx.litMode == 1) {
         lightRes = shared(sharedLight, "light-buffer", lightTarget.color.id,
                           import_desc(lightW, lightH, lightTarget.format, "light-buffer"));
-        add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
+        std::vector<ResourceId> lightReads;
+        if (cookieRes.valid()) lightReads.push_back(cookieRes);
+        add("light-buffer", std::move(lightReads), {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
     }
     if (ctx.doShadows) {  // no shadow caster, no pass
         shadowRes = shared(sharedShadow, "shadow-map", ctx.shadowTgt.color.id,
@@ -3683,6 +3811,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
+        if (cookieRes.valid()) reads.push_back(cookieRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
         if (ctx.physMainOn) reads.push_back(skyLutRes);

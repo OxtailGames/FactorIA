@@ -6381,7 +6381,7 @@ declare module "factoria" {
      */
     normalMap: string;
     /**
-     * Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with GlobalIllumination2D, lights the scene around the sprite. Black (default) = no emission. Needs `lit`. Alpha is ignored.
+     * Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with GlobalIllumination2D, lights the scene around the sprite. Black (default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. Alpha of the colour is ignored.
      * @since unreleased
      */
     get emissive(): Color;
@@ -7308,7 +7308,7 @@ declare module "factoria" {
      */
     lightLayers: number;
     /**
-     * Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with GlobalIllumination2D, lights the scene around the tiles. Black (default) = none. Needs `lit`. Alpha is ignored.
+     * Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with GlobalIllumination2D, lights the scene around the tiles. Black (default) = none. Works with or without `lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.
      * @since unreleased
      */
     get emissive(): Color;

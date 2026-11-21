@@ -158,8 +158,9 @@ assets.preview_sheet {"path":"assets/fx/flame.png","onion":true}
 it is `[0.5, 0]`). The checks of the loop for a fire: all three tongues stay distinct in the greyscale row (their ramp positions
 0.25, 0.6 and 0.95 are far apart), no frame jumps (the onion skin of `preview_sheet` and its warning about a last frame that
 repeats or jumps from the first), and the flame is readable at the size of the torch. Put it in the scene as a `Sprite` with
-`"SpriteAnimator": {"clip": "flame"}` and `Sprite.blend` `alpha` (the default); add a `Light2D` or a bloom camera for the glow
-([RENDERING.md](RENDERING.md)) instead of a halo drawn into the frames.
+`"SpriteAnimator": {"clip": "flame"}` and `Sprite.blend` `alpha` (the default); give the sprite `Sprite.emissive` with an `emissiveIntensity` over 1 and a camera with bloom for the glow (it adds
+light after the lighting, lit or not, and feeds the bloom: [RENDERING_2D_EMISSION.md](rendering/RENDERING_2D_EMISSION.md)), and a `Light2D` for the light it
+throws on its surroundings, instead of a halo drawn into the frames.
 
 Colours are the part to change last: the same module, baked again with
 `"ramp":["#0b1d3a","#2a6fd6","#8ec5ff","#eaf6ff"]` and `path` `assets/fx/flame_ice.png`, is an ice fire without touching the code.
