@@ -99,6 +99,9 @@ FieldMix field_mix(const std::vector<Json>& values);
 // `forced[i]` (may be shorter or empty) also replaces number i when the user committed it as exactly the value that was shown.
 Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
                       const std::vector<bool>& forced = {});
+// The `edited` value a layer-mask widget hands to multi_edit_value for one click: {"$layerBit": bit, "on": bool}. The result is
+// each entity's own mask with only that bit set or cleared.
+inline constexpr const char* kLayerBitKey = "$layerBit";
 // "3 entities".
 std::string multi_selection_title(size_t count);
 

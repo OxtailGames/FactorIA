@@ -139,6 +139,16 @@ FieldMix field_mix(const std::vector<Json>& values) {
 
 Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
                       const std::vector<bool>& forced) {
+    // A click on one layer toggle: set or clear that bit in each entity's own mask, whatever the other bits are there.
+    if (edited.is_object() && edited.contains(kLayerBitKey) && edited[kLayerBitKey].is_number_integer()) {
+        const long long bit = std::clamp(edited[kLayerBitKey].get<long long>(), -1LL, 99LL);
+        const bool on = edited.value("on", false);
+        const std::int32_t own =
+            entityCurrent.is_number()
+                ? std::int32_t(std::clamp<long long>(std::llround(entityCurrent.get<double>()), INT32_MIN, INT32_MAX))
+                : 0;
+        return layer_mask_with(own, int(bit), on);
+    }
     const bool arrays = edited.is_array() && shown.is_array() && entityCurrent.is_array() &&
                         edited.size() == shown.size() && entityCurrent.size() == shown.size();
     if (!arrays) return edited;

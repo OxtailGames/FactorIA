@@ -911,21 +911,32 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
                     : 0;
             const ImGuiStyle& style = ImGui::GetStyle();
             const float gap = style.ItemInnerSpacing.x;
-            const float side = std::clamp((ImGui::GetContentRegionAvail().x - gap * float(kLayerMaskToggles - 1)) /
-                                              float(kLayerMaskToggles),
-                                          18.0f, 40.0f);
+            // The value column of a narrow Inspector can be about 100 px wide and a table clips its cells: as many toggles per
+            // row as fit (8, 4, 2 or 1, so the rows are even), each at least as wide as two digits.
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float minSide = std::max(ImGui::CalcTextSize("00").x + style.FramePadding.x * 2.0f, 18.0f);
+            const int fit = std::max(1, int(std::floor((avail + gap) / (minSide + gap))));
+            int perRow = kLayerMaskToggles;
+            while (perRow > 1 && perRow > fit) perRow /= 2;
+            const float side = std::clamp((avail - gap * float(perRow - 1)) / float(perRow), 1.0f, 40.0f);
             for (int bit = 0; bit < kLayerMaskToggles; ++bit) {
                 ImGui::PushID(bit);
-                if (bit > 0) ImGui::SameLine(0.0f, gap);
+                if (bit % perRow != 0) ImGui::SameLine(0.0f, gap);
                 const bool on = layer_mask_has(mask, bit);
-                const bool dim = mixed || !on;
-                if (!dim) ImGui::PushStyleColor(ImGuiCol_Button, style.Colors[ImGuiCol_ButtonActive]);
+                // With several entities selected the toggles show the primary's mask; a click sets or clears that one bit on
+                // every selected entity and keeps the rest of each mask (multi_edit_value).
+                if (on) ImGui::PushStyleColor(ImGuiCol_Button, style.Colors[ImGuiCol_ButtonActive]);
                 const std::string label = std::to_string(bit) + "##bit";
                 if (ImGui::Button(label.c_str(), ImVec2(side, 0.0f))) {
-                    out = layer_mask_with(mask, bit, !on);
+                    // The multi-selection caller (mix is set) merges the bit into each entity's mask itself; any other
+                    // caller gets the whole new mask.
+                    if (mix)
+                        out = Json::object({{kLayerBitKey, bit}, {"on", !on}});
+                    else
+                        out = layer_mask_with(mask, bit, !on);
                     changed = true;
                 }
-                if (!dim) ImGui::PopStyleColor();
+                if (on) ImGui::PopStyleColor();
                 at_track(track + ".bit." + std::to_string(bit), !disabled);
                 tooltip("Layer " + std::to_string(bit) + (on ? " (in the mask)" : " (not in the mask)") + ": " + tip);
                 ImGui::PopID();
