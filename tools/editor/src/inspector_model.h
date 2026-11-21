@@ -4,10 +4,10 @@
 // inspector_panel.cpp) only draw and call these.
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <cstdint>
 #include <utility>
 #include <vector>
 

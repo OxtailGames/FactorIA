@@ -76,7 +76,8 @@
       "outline": "Outlines",
       "hdr": "HDR output",
       "note": "This scene has no screen effects; your choices apply to the scenes that do.",
-      "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it."
+      "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it.",
+      "lightNote": "This scene has no 2D lighting; the 2D lighting button applies to the scenes that do."
     },
     "volume": {
       "master": "Master",
