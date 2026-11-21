@@ -95,10 +95,10 @@ TEST_CASE("m74 2d fields: an old scene loads unchanged and saves without any of 
     CHECK(w.get<Light2D>(w.find("lamp"))->lightLayers == -1);
     CHECK(w.get<Sprite>(w.find("hero"))->lightLayers == 1);
     const Json saved = save_scene(w);
-    const std::vector<std::string> newKeys = {"size",        "lightLayers", "cookie",       "cookieRotationDeg",
-                                              "cookieScale", "emissive",    "emissiveIntensity", "emissiveMap",
-                                              "rimColor",    "rimIntensity", "rimWidth",    "normalFrom",
-                                              "heightMap",   "normalStrength"};
+    const std::vector<std::string> newKeys = {
+        "size",     "lightLayers",       "cookie",      "cookieRotationDeg", "cookieScale",
+        "emissive", "emissiveIntensity", "emissiveMap", "rimColor",          "rimIntensity",
+        "rimWidth", "normalFrom",        "heightMap",   "normalStrength"};
     for (const Json& e : saved["entities"]) {
         for (const char* comp : {"Light2D", "Sprite", "Tilemap"}) {
             if (!e["components"].contains(comp)) continue;
