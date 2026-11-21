@@ -85,6 +85,8 @@ three eighths of the total), is what `bytes` in `render.gi2d_field` reports. The
 the GPU. Use `render.frame_graph {"profileFrames": 8}` (the `cpuMs` and `gpuMs` of every `<job>/gi-*` pass) on the target device, and lower
 `range` first: the default 512 on a view of 1920 x 1080 costs twice the memory of a margin of 128.
 
+The counted triangulation budget (`kGi2dMaxTriangulateWork`, 2,000,000 point-in-triangle tests per gather per frame) is a worst case, worth about ten ms of CPU with pathological casters (polygons of many corners with crossing or nearly flat edges); normal casters use a tiny part of it.
+
 **On a phone or a browser the defaults do not fit.** The budget there is 96 MiB and the defaults (`range` 512, `resolutionScale` 0.5) on a
 view of 1920 x 1080 need 103 MiB, so the scene is drawn without GI and the log says why. Use `range` 128 (about 52 MiB) or `resolutionScale` 0.25
 (about 27 MiB), and `quality` `medium` or `low`; `render.supports {"feature": "2dGlobalIllumination"}` tells the same. The fields of all the

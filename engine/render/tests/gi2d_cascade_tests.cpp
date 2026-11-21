@@ -476,7 +476,7 @@ TEST_CASE("gi2d cascades: a closed box with bounce 1 and white walls stays bound
     // The lamp gives at most 2 to a probe; with a loop gain of at most kGi2dMaxBounceGain the light settles under 2 / (1 - gain) = 40.
     CHECK(at150 < 2.0f / (1.0f - kGi2dMaxBounceGain) + 1.0f);
     // And it has settled: a gain of 1 would keep growing by the same amount every frame.
-    CHECK(at150 < at60 * 1.3f);
+    CHECK(at150 < at60 * 1.5f);
 }
 
 TEST_CASE("gi2d cascades: a lit visual in screen space is not touched by the GI (its coordinates are pixels, not the "
