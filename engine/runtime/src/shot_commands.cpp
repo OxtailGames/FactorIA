@@ -754,6 +754,72 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.gi2d_field",
+         "The 2D global illumination field of the last frame: its size, texel size and world rectangle, and what fills "
+         "it; optionally the three images as PNGs.",
+         "Draws a frame when none is current and reports the field that a GlobalIllumination2D makes for each 2D "
+         "camera job "
+         "(docs/design/ARCHITECTURE_RENDERING_GI2D.md, \"2D GI field: what P3b reads\"): an emission image, an "
+         "occluder/albedo "
+         "image (alpha = occupancy) and a jump-flooding distance field, RGBA16F, covering the view plus `range` on "
+         "every "
+         "side at `resolutionScale`. With `save` it also writes the three images as PNGs. Errors: `unavailable` "
+         "without graphics. Example: render.gi2d_field {\"save\": \".factoria/tmp/gi\"}. See "
+         "docs/design/ARCHITECTURE_RENDERING_GI2D.md, \"2D GI field: what P3b reads\"." FA_COMMAND_DETAILS
+         "Result: {enabled, supported, message? (why not supported: the backend and "
+         "render.supports \"2dGlobalIllumination\"), fieldLimit, maxSize, format, settings: {quality, intensity, "
+         "bounce, range, "
+         "resolutionScale}, bytes, fields: [{slot, job, ready, width, height, texelSize, worldRect: {x, y, width, "
+         "height}, capped, "
+         "bytes, passes, emitters: {sprites, tiles, lights}, occluders: {solidTiles, boxes, polygons, spriteAlpha, "
+         "skipped}, "
+         "dropped}]}. `fields` is empty without an enabled GlobalIllumination2D, on a 3D camera, or where the GPU has "
+         "no "
+         "RGBA16F render targets (then `supported` is false and `message` says what to do). With `save` (a path "
+         "without "
+         "extension) the images of the field of `job` (default: the first) are written as <save>-emission.png, "
+         "<save>-occluders.png and <save>-distance.png (row 0 of a file is the largest world y) and listed in `files`; "
+         "a "
+         "failure is in `error`. Errors: `unavailable` without graphics; `invalid_argument` for a `save` or `job` that "
+         "is "
+         "not a string.\n"
+         "The distance image holds the nearest occluder texel's coordinates in r and g (exact), the distance to it in "
+         "field texels in b (a half float: about 3 significant digits) and 1 in a where an occluder exists (b is 65504 "
+         "and "
+         "a is 0 for a field without occluders). The `save` PNG of the distance is grey: black at an occluder, white "
+         "at "
+         "the farthest distance of the field (white everywhere without occluders). `save` reads the GPU back: look, do "
+         "not "
+         "call it every frame. `save` needs the writeProject capability.",
+         parse_schema(R"({"type":"object","properties":{
+               "save":{"type":"string","x-fa-path":"write","description":"Path prefix without extension (inside the project; absolute paths need writeAnywhere): the three images are written as <save>-emission.png, <save>-occluders.png and <save>-distance.png. Omitted: nothing is written."},
+               "job":{"type":"string","description":"The camera job whose field `save` writes (the \"job\" of fields[], e.g. \"camera:0\"). Default: the first field that is ready."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"save", "job"}, "render.gi2d_field");
+            for (const char* key : {"save", "job"})
+                if (a.is_object() && a.contains(key) && !a[key].is_null() && !a[key].is_string())
+                    throw CommandError("invalid_argument",
+                                       std::string("render.gi2d_field: `") + key + "` is a string, got " +
+                                           a[key].type_name() + ".",
+                                       std::string("Pass \"") + key + "\": \"...\" or leave it out.");
+            // The path is judged first: a bad one is refused whether or not there is a renderer.
+            std::string save = a.is_object() && a.contains("save") && a["save"].is_string()
+                                   ? a["save"].get<std::string>()
+                                   : std::string();
+            if (!save.empty()) save = resolve_caller_write_path(save, "render.gi2d_field");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no 2D GI field is drawn.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            const std::string job = a.is_object() && a.contains("job") && a["job"].is_string()
+                                        ? a["job"].get<std::string>()
+                                        : std::string();
+            engine.render_now();
+            return I.renderer->gi2d_field(save, job);
+        });
+
+    I.commands.add(
         {"render.probe_refresh",
          "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
          "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
@@ -1175,6 +1241,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.material_cost", capability_sets::reads()},
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},
+                                                 {"render.gi2d_field", capability_sets::changes_state()},
                                                  {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},

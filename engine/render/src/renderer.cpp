@@ -424,6 +424,7 @@ void Renderer::shutdown() {
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
+        im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
         im.sssFx.release();

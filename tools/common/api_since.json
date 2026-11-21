@@ -1492,6 +1492,7 @@
     "publish.steam": "0.2.0",
     "render.debug_view": "0.31.0",
     "render.frame_graph": "0.28.0",
+    "render.gi2d_field": "unreleased",
     "render.gi_grid": "0.33.0",
     "render.inspect": "0.4.0",
     "render.light_probes": "0.33.0",
