@@ -1744,8 +1744,8 @@ private:
     bool committed_ = true;
     sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
     std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
-    std::uint64_t pacerCopyFrame_ =
-        0;                      // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet)
+    // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet).
+    std::uint64_t pacerCopyFrame_ = 0;
     bool pacerFailed_ = false;  // the pacer buffers could not be made: said once, not tried again
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener

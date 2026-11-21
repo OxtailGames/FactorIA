@@ -7923,7 +7923,7 @@ declare module "factoria" {
    */
   export interface RealtimeGIComponent {
     /**
-     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].
+     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20].
      * @since unreleased
      */
     get size(): Vec3;

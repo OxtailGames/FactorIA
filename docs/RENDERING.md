@@ -20,6 +20,8 @@ This page has the render targets, the post-processing stack, the depth and norma
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
 - [Lighting (M73)](rendering/RENDERING_LIGHTING.md): the Light, scene and material fields of the M73 lighting, which of them draw yet, and the `render.supports` rows.
+- [Lightmaps and baked light (M73.4)](rendering/RENDERING_LIGHTMAPS.md): baked lightmaps, the bake commands, light probes and mixed lights.
+- [Decals and volumetric fog (M73.5)](rendering/RENDERING_DECALS_FOG.md): `Decal` projection, volumetric fog and light shafts.
 - [Reflection probes (M73)](rendering/RENDERING_PROBES.md): the `ReflectionProbe` component, realtime and baked captures, `probe.bake`, `render.probes`, the atlas and its limits.
 - [Light probes and mixed lights](rendering/RENDERING_LIGHT_PROBES.md): `LightProbeGroup`, how the bake stores light for moving objects, what receives it, and what a light of each mode does to each receiver.
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.

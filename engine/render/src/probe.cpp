@@ -500,14 +500,16 @@ Result<ProbeManifest> probe_manifest_from_json(const Json& j, const std::string&
                 "with probe.bake.");
     }
     if (j.contains("entity") && j["entity"].is_string()) m.entity = j["entity"].get<std::string>();
-    if (j.contains("hash") && !j["hash"].is_null()) {
-        const std::string hv = j["hash"].is_string() ? j["hash"].get<std::string>() : std::string();
+    {
+        // The hash is required: it names the page and tells a hot reload what changed (the baker always writes it).
+        const std::string hv =
+            j.contains("hash") && j["hash"].is_string() ? j["hash"].get<std::string>() : std::string();
         const bool hex16 = hv.size() == 16 && std::all_of(hv.begin(), hv.end(), [](char c) {
                                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
                            });
         if (!hex16)
             return bad(
-                "/hash", "is not 16 lowercase hex digits.",
+                "/hash", "is missing or not 16 lowercase hex digits.",
                 "The hash names the page and tells a hot reload what changed: bake the probe again with probe.bake.");
         m.hash = j["hash"].get<std::string>();
     }
