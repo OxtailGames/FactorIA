@@ -67,6 +67,33 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
     CHECK(note[0] + note[2] == doctest::Approx(box[0] + box[2] - 16));  // the section's padding is 16
     CHECK(rect_of(en, "video_note")[0] == doctest::Approx(rect_of(en, "video_section")[0] + 16));
 
+    // The Graphics tab, the tallest one: its last row lies inside its panel and the options panel inside the screen
+    // (a row added to a section needs the section's panel to grow with it).
+    REQUIRE(
+        command(
+            *session,
+            R"({"command":"script.eval","args":{"code":"world.find('video_section').active = false; world.find('graphics_section').active = true; 1"}})")
+            ["ok"] == true);
+    engine.step(3);
+    const fa::Json gfx = command(*session, R"({"command":"ui.state","args":{}})");
+    REQUIRE(gfx["ok"] == true);
+    const std::vector<float> gbox = rect_of(gfx, "graphics_section"), gnote = rect_of(gfx, "graphics_note"),
+                             ghdr = rect_of(gfx, "gfx_hdr"), gback = rect_of(gfx, "options_back"),
+                             groot = rect_of(gfx, "options");
+    CHECK(gnote[1] + gnote[3] <= gbox[1] + gbox[3] + 0.5f);
+    CHECK(ghdr[1] + ghdr[3] <= gbox[1] + gbox[3] + 0.5f);
+    CHECK(gnote[1] + gnote[3] <= gback[1] + 0.5f);  // the note does not run onto the Back button
+    CHECK(groot[1] >= 0.0f);
+    CHECK(groot[1] + groot[3] <= 720.0f);
+    CHECK(gback[1] + gback[3] <= 720.0f);
+    // Back to the Video tab, which the golden shows.
+    REQUIRE(
+        command(
+            *session,
+            R"({"command":"script.eval","args":{"code":"world.find('graphics_section').active = false; world.find('video_section').active = true; 1"}})")
+            ["ok"] == true);
+    engine.step(3);
+
     if (!session->has_graphics()) {
         MESSAGE("no GPU on this machine: the golden part of the test is skipped");
         fa::fs::set_project_root(oldRoot);
