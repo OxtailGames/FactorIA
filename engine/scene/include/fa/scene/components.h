@@ -526,7 +526,8 @@ struct ShadowCaster2D {
     bool enabled = true;
 };
 
-// M74: scene-wide 2D global illumination (radiance cascades); nothing is computed unless this component exists and is enabled.
+// M74: scene-wide 2D global illumination (radiance cascades); nothing is computed unless this component exists and
+// is enabled.
 enum class GI2DQuality : std::int32_t { Low, Medium, High };
 struct GlobalIllumination2D {
     bool enabled = true;

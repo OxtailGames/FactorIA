@@ -852,7 +852,9 @@ void register_builtin_components(TypeRegistry& r) {
          "with "
          "occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the "
          "256 lights a frame shades), soft with `size`. "
-         "The light sits at the entity's position (Transform) and ignores layers.",
+         "The light sits at the entity's position (Transform) and ignores sorting layers (Sprite.layer): it lights "
+         "every layer of the draw order. `lightLayers` chooses which Sprite, Shape2D and Tilemap it lights and which "
+         "ShadowCaster2D block it, `size` softens its shadows, and `cookie` shines it through a texture.",
          "2D")
         .enum_field("type", &Light2D::type, {"point", "directional"},
                     "point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the "

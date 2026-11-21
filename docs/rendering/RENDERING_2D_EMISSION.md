@@ -109,6 +109,13 @@ layer of an image document, byte for byte the map above: [Normal maps](../images
 `normalFrom` `sprite` and `height` ignore `normalMap`. A generated map is a normal-mapped sprite for the layers and the cost
 (the per-pixel path).
 
+## Checks when a scene loads
+
+A scene that sets something that has no effect gets a warning with the entity, the field and the fix (`project.validate`, `factoria run`):
+`Sprite.normalFrom` `sprite` or `height` on a sprite that is not `lit`; `Sprite.normalMap` set while `normalFrom` is not `file` (the file is
+ignored); `Sprite.rimIntensity` above 0 on a sprite that is not `lit`; `Sprite.normalFrom` `height` with no `heightMap`; `Light2D.cookie` on a
+directional light. `Sprite.emissive` is not in the list: it works on unlit sprites too.
+
 ## Limits in one place
 
 | What | Limit | When it is passed |
