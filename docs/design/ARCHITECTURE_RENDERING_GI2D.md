@@ -134,7 +134,7 @@ drawn pose, as the sprites are drawn), as triangles in field texel coordinates:
   (a `spriteAlpha` caster without a `Sprite`, a polygon with fewer than 3 points or more than `kGi2dMaxPolygonPoints` = 512) is counted as `skipped`.
   The ear clipping is O(n^3), so it has a **counted** budget (`kGi2dMaxTriangulateWork` = 2 000 000 point tests for all the polygons of one gather, not a time):
   when it is spent the polygon being cut keeps the triangles it has and the polygons after it give none (counted as `skipped`), the same on every machine.
-  The tilemap loop stops at `kGi2dMaxQuads` (`dropped` counts the cells left out) instead of walking the rest of the map.
+  The tilemap loop stops at `kGi2dMaxQuads` (`dropped` rises by one when the loop stops at the cap: it says that cells were left out, not how many) instead of walking the rest of the map.
 
 `render.gi2d_field` reports the counts per field (`emitters`, `occluders`, `dropped`), the sizes, the world rectangle and the `cascades` object, and with
 `save` (a path PREFIX: with a `.png` suffix or a trailing `/` it is refused with `invalid_argument` and a hint) writes `<save>-emission.png`, `<save>-occluders.png`, `<save>-distance.png` (the distance as grey: black at an occluder, white at the farthest
@@ -150,9 +150,9 @@ Cascade `i` has probes every `spacing0 * 2^i` texels with that spacing squared r
 the probes: the same number of rays in total), covers the interval `end(i-1) .. end(i)` texels with `end(i) = 2 * spacing0 * (4^(i+1) - 1) / 3`,
 and the plan stops adding cascades when the last interval reaches the field's diagonal. The plan is over budget (`ok` false, a teaching `why`) when
 the quality has more cascades than the platform allows (`kGi2dMaxCascades` = 5, `kGi2dMaxCascadesMobile` = 4) or the bytes (field images plus irradiance)
-are over `kGi2dMaxBytes` / `kGi2dMaxBytesMobile`; `gi2d_plan` then warns (`Gi2dSystem::budgetWhy` holds the reason last warned about, and `warnedTargets_` the missing render targets: the warning is
+are over `kGi2dMaxBytes` / `kGi2dMaxBytesMobile`; `gi2d_plan` then warns (`Gi2dSystem::budgetWhys` holds the reasons already warned about, so two cameras failing differently warn once each, and `warnedTargets_` the missing render targets: the warning is
 said again when the reason changes, after `free_images`, and after a scene change, so a second scene is not silent) and the job draws without GI. A job with GI
-off (`s.on` false) calls `reset_warnings()`.
+off in every job of a frame (none calls `note_gi_asked()`) makes the next `begin_frame` call `reset_warnings()`; a frame that mixes a job with GI and one without does not.
 
 **Passes** (names `<job>/<pass>`): after the field's passes, the emitter chain (`gi-emit-seed`, `gi-emit-jfa-<step>`, last `gi-emit-distance`, a
 transient: the same jump flooding over the emission image, so a ray cannot step over a thin emitter), then for `i = cascades - 1 .. 0` `gi-cascade-<i>`

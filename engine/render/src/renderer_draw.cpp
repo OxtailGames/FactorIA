@@ -2567,10 +2567,8 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
     const Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
-    if (!s.on) {
-        gi2d.reset_warnings();  // a scene without GI (or a new scene) warns again when it turns on
-        return;
-    }
+    if (!s.on) return;
+    gi2d.note_gi_asked();
     if (!Gi2dSystem::float_targets_ok()) {
         if (!gi2d.warned_unsupported) {
             gi2d.warned_unsupported = true;
@@ -2598,8 +2596,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     const std::string why = cascadePlan.ok ? gi2d_total_budget_why(usedBytes, cascadePlan, mobile) : cascadePlan.why;
     if (!why.empty()) {
         // Once per reason: another quality, range or size says so again.
-        if (gi2d.budgetWhy != why) {
-            gi2d.budgetWhy = why;
+        if (gi2d.budget_warn_once(why)) {
             FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.", why);
         }
         return;
