@@ -16,13 +16,10 @@ double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
 std::string layer_label(const World& world, const PostLayer& l) {
     if (l.kind == PostLayer::Kind::Own) return "own";
-    if (l.kind == PostLayer::Kind::Legacy) return "legacy";
     return "volume:" + world.id_of(l.entity);
 }
 
-const char* layer_kind(const PostLayer& l) {
-    return l.kind == PostLayer::Kind::Volume ? "volume" : l.kind == PostLayer::Kind::Own ? "own" : "legacy";
-}
+const char* layer_kind(const PostLayer& l) { return l.kind == PostLayer::Kind::Volume ? "volume" : "own"; }
 
 }  // namespace
 
@@ -34,11 +31,8 @@ Json post_stack_report(World& world, Entity camera) {
 
     std::string warned;
     const CameraGeometry geo = camera_geometry(world, camera, CameraTarget{}, warned, nullptr, false, false);
-    PostProcess legacy;
-    const Camera* cam = camera.is_null() ? nullptr : world.get<Camera>(camera);
-    const bool useLegacy = cam && legacy_post_of_camera(*cam, legacy);
     PostTrace trace;
-    const PostStack stack = resolve_post_stack(world, geo, useLegacy ? &legacy : nullptr, &trace);
+    const PostStack stack = resolve_post_stack(world, geo, &trace);
 
     Json layers = Json::array();
     for (std::size_t i = 0; i < trace.layers.size(); ++i) {

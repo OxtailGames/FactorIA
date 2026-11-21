@@ -386,7 +386,8 @@ void register_builtin_components(TypeRegistry& r) {
          "Camera",
          "Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport "
          "(the whole screen by default), in ascending depth order: the lowest depth draws first and is \"the\" "
-         "camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own "
+         "camera (camera.main; the bloom and colorFilter of the frame are those of its PostProcess). Two or more "
+         "cameras with their own "
          "viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera "
          "culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, "
          "after all the cameras. 3D cameras look down their local -Z axis.",
@@ -422,7 +423,7 @@ void register_builtin_components(TypeRegistry& r) {
                "Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. "
                "The lowest "
                "is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, "
-               "colorFilter) use. Cameras with the same depth keep the order of creation.")
+               "colorFilter of a PostProcess) use. Cameras with the same depth keep the order of creation.")
         .field(
             "viewport", &Camera::viewport,
             "The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the "
@@ -442,7 +443,8 @@ void register_builtin_components(TypeRegistry& r) {
             "on its "
             "own, so a Light2D only lights the cameras it reaches. The post-processing stack of a "
             "camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own "
-            "rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the "
+            "rectangle; only the PostProcess bloom, bloomScreenSpace and colorFilter are applied once to the finished "
+            "frame, with the "
             "settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI "
             "and screen-space items cover the whole screen, not one viewport. "
             "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. "
@@ -485,63 +487,6 @@ void register_builtin_components(TypeRegistry& r) {
                "bright and "
                "may wash out pale colours.")
         .range(0, 8)
-        .field(
-            "bloom", &Camera::bloom,
-            "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
-            "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
-            "included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend \"additive\" on "
-            "Sprite, Shape2D or "
-            "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
-            "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for "
-            "headless runs). "
-            "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With "
-            "several "
-            "cameras the bloom settings of the lowest-depth camera apply to the whole frame.")
-        .field(
-            "bloomThreshold", &Camera::bloomThreshold,
-            "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
-            "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
-            "saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest "
-            "pixels do (values above 0.99 behave like 0.99).")
-        .range(0, 1)
-        .field(
-            "bloomIntensity", &Camera::bloomIntensity,
-            "Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, "
-            "1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.")
-        .range(0, 10)
-        .field("bloomRadius", &Camera::bloomRadius,
-               "Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a "
-               "gaussian blur "
-               "whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 "
-               "(the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide "
-               "glows are softer). Limited to 1..128.")
-        .range(1, 128)
-        .field("bloomScreenSpace", &Camera::bloomScreenSpace,
-               "Only used when bloom is true. true (default): the whole finished frame glows, screen-space items "
-               "(Sprite, Shape2D, Text with space \"screen\", and debug text) included, so a bright neon title or HUD "
-               "icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) "
-               "stays "
-               "crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright "
-               "text "
-               "over a glowing world; leave it true to make a screen-space title or logo glow.")
-        .enum_field(
-            "colorFilter", &Camera::colorFilter,
-            {"none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"},
-            "Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame "
-            "(HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at "
-            "and "
-            "--record-video show it too. A game's options screen sets it from the player's choice (it is not saved "
-            "by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. "
-            "highContrast: "
-            "contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize "
-            "correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity "
-            "1.0) "
-            "and the lost information is shifted into the channels the player still sees (Fidaner's method), so "
-            "colours "
-            "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
-            "without changing what the player sees, use the `simulate` option of game.screenshot / "
-            "--screenshot-simulate "
-            "instead. With several cameras the lowest-depth camera's filter covers the whole frame.")
         .field("renderTarget", &Camera::renderTarget,
                "Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "
                "\"book\". The texture "
@@ -1615,7 +1560,7 @@ void register_builtin_components(TypeRegistry& r) {
             "space", &ParticleEmitter::space, {"world", "screen"},
             "world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin "
             "TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with "
-            "Camera.bloomScreenSpace "
+            "PostProcess.bloomScreenSpace "
             "= false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, "
             "negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.")
         .field(
@@ -1886,7 +1831,8 @@ void register_builtin_components(TypeRegistry& r) {
                "1 = as written; "
                "above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over "
                "1 is read "
-               "as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most "
+               "as 0..255), and with `PostProcess.bloomEnabled` it makes a bigger, brighter halo. The screen still "
+               "shows at most "
                "white. "
                "Meshes that differ only here are not drawn in the same batch.")
         .range(0, 100)
@@ -4128,33 +4074,34 @@ void register_builtin_components(TypeRegistry& r) {
         .read_only();
 
     {
-        auto cv = r.add<CameraView>("CameraView",
-                                    "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): "
-                                    "draws the camera named by `camera` into "
-                                    "this entity's rectangle, so an item turning on a stage, a character portrait or a "
-                                    "map lives in a menu with the "
-                                    "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the "
-                                    "modal Panel of any widget. The camera "
-                                    "is rendered into an image of the size of the rectangle (its aspect follows it; "
-                                    "Camera.viewport is ignored) before "
-                                    "the frame's UI is drawn, then that image is drawn in the rectangle. Give the "
-                                    "camera primary = false, or it also "
-                                    "draws in the main view; the camera and the widget must both be active. The "
-                                    "background is drawn at `layer`, the "
-                                    "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of "
-                                    "at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
-                                    "fill and rim lights, wherever it stands. bloom and colorFilter of the camera are "
-                                    "ignored (the frame has one set of "
-                                    "post effects). A pointer press, drag, release and the wheel over it are the game "
-                                    "event `ui.viewPointer` ({id, phase, "
-                                    "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script "
-                                    "can turn what it shows. It "
-                                    "is a widget for hit-testing (it blocks clicks to the world below it) but is not "
-                                    "focusable. Costs one more render "
-                                    "pass per view per frame, and the image per view: keep it as small as the picture "
-                                    "needs (see `resolution`). "
-                                    "Defaults: 320 x 240, no background colour.",
-                                    "UI");
+        auto cv = r.add<CameraView>(
+            "CameraView",
+            "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): "
+            "draws the camera named by `camera` into "
+            "this entity's rectangle, so an item turning on a stage, a character portrait or a "
+            "map lives in a menu with the "
+            "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the "
+            "modal Panel of any widget. The camera "
+            "is rendered into an image of the size of the rectangle (its aspect follows it; "
+            "Camera.viewport is ignored) before "
+            "the frame's UI is drawn, then that image is drawn in the rectangle. Give the "
+            "camera primary = false, or it also "
+            "draws in the main view; the camera and the widget must both be active. The "
+            "background is drawn at `layer`, the "
+            "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of "
+            "at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
+            "fill and rim lights, wherever it stands. bloom and colorFilter of the camera's PostProcess are "
+            "ignored (the frame has one set of "
+            "post effects). A pointer press, drag, release and the wheel over it are the game "
+            "event `ui.viewPointer` ({id, phase, "
+            "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script "
+            "can turn what it shows. It "
+            "is a widget for hit-testing (it blocks clicks to the world below it) but is not "
+            "focusable. Costs one more render "
+            "pass per view per frame, and the image per view: keep it as small as the picture "
+            "needs (see `resolution`). "
+            "Defaults: 320 x 240, no background colour.",
+            "UI");
         ui_box_fields(cv)
             .field("camera", &CameraView::camera,
                    "Id or name of the Camera entity to draw (an id is tried first, then a name). \"\" or an entity "

@@ -56,7 +56,7 @@ struct Transform {
 
 // --------------------------------------------------------------- camera ---
 enum class Projection : std::int32_t { Orthographic, Perspective };
-// Last post-process of the frame, see Camera::colorFilter.
+// Accessibility filter, the last post-process of the frame (PostProcess.colorFilterMode).
 enum class ColorFilter : std::int32_t { None, Greyscale, HighContrast, Protanopia, Deuteranopia, Tritanopia };
 // Camera.lighting: Scene = the lights, ambient light, environment and fog of the scene; Studio = the camera's own key, fill and
 // rim lights (see Camera::studioIntensity).
@@ -88,15 +88,6 @@ struct Camera {
     // camera (a key, a fill and a rim light, a neutral ambient and environment, no sky, no fog), whatever the scene holds.
     CameraLighting lighting = CameraLighting::Scene;
     float studioIntensity = 1.0f;  // Studio only: multiplies the brightness of the rig
-    // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
-    // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
-    bool bloom = false;
-    float bloomThreshold = 0.7f;   // brightness (largest of r, g, b; 0..1) where the glow starts
-    float bloomIntensity = 1.2f;   // strength of the added glow (0..10)
-    float bloomRadius = 20.0f;     // glow size in design pixels (1..128)
-    bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
-    // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
-    ColorFilter colorFilter = ColorFilter::None;
     // Render target: a name makes this camera draw into a texture of renderTargetSize pixels, live every frame, instead of the
     // screen. The texture is the id "target:<name>" (render_target_id), accepted wherever a texture path is. "" = the screen.
     std::string renderTarget;

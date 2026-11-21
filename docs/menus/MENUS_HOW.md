@@ -271,7 +271,7 @@ Part of [MENUS.md](../MENUS.md): What each part of the kit does and what to chan
   `assets.subset_font` with `keep`). `tests/slots.test.js` types a Korean slot name through the slot dialog with the pad.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
-  option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
+  option: it sets `colorFilterEnabled` and `colorFilterMode` of the `PostProcess` on the scene's camera (the entity with the id `camera`; `settings.js` adds one when it has none), so `applyOnce()` sets it
   again in every scene; rename the id in `settings.js` if your camera has another.
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the

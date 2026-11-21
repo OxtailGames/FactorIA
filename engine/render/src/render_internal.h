@@ -169,7 +169,7 @@ static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 // ---------------------------------------------------------------------------
 // GPU resources
 // ---------------------------------------------------------------------------
-// Shader programs of the Camera.bloom post-process (bloom.glsl).
+// Shader programs of the PostProcess bloom (bloom.glsl).
 enum class BloomStage : std::uint8_t { Bright, Down, Blur, Composite, Count };
 // The two programs of the automatic exposure (exposure.glsl): the log-luminance of the frame, and the adaptation of the stored EV.
 enum class ExposureStage : std::uint8_t { Luma, Adapt, Count };
@@ -961,17 +961,17 @@ class Assets;
 class Fonts;
 class FontSet;
 
-// Camera.bloom* (flat fields on Camera), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
-// the fallbacks for NaN values and equal the Camera component defaults.
+// The bloom of a PostProcess stack (PostProcess.bloom*), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
+// the fallbacks for NaN values and equal the PostProcess defaults.
 struct BloomSettings {
     bool enabled = false;
     float threshold =
-        0.7f;  // 0 .. 0.99 (Camera.bloom), 0 .. 20 (PostProcess): brightness (max of r, g, b) where the glow starts
+        0.7f;  // 0 .. 20 (above 1: HDR light of a linear scene): brightness (max of r, g, b) where the glow starts
     float intensity = 1.2f;   // 0 .. 10, multiplier of the glow added to the frame
     float radius = 20.0f;     // 1 .. 128 design pixels
-    bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
+    bool screenSpace = true;  // PostProcess.bloomScreenSpace: false = screen-space items are drawn after the bloom
     float knee =
-        0.0f;  // 0 .. 1, PostProcess.bloomKnee: how softly the glow starts above the threshold (0 = the hard start of Camera.bloom)
+        0.0f;  // 0 .. 1, PostProcess.bloomKnee: how softly the glow starts above the threshold (0 = a hard start)
     float dirtIntensity = 1.0f;  // 0 .. 10, PostProcess.bloomLensDirtIntensity
     std::string dirt;            // PostProcess.bloomLensDirt: the texture path ("" = none)
 };
@@ -987,8 +987,7 @@ struct CameraInfo : CameraGeometry {
     // meshes (the meshes are still lit by the sky). Only the probe captures set it.
     bool noSky = false;
     // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
-    // the camera is built; a camera without a PostProcess of its own gets one made of its Camera.bloom* and Camera.colorFilter fields.
-    // Null when the world has no PostProcess and the camera no legacy bloom or filter field: the usual case costs one pointer, not a copy.
+    // the camera is built; Null when the world has no PostProcess: the usual case costs one pointer, not a copy.
     std::shared_ptr<const PostStack> postStack;
     // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
     BloomSettings bloom;
@@ -1563,14 +1562,14 @@ public:
     bool srgb_textures() const { return srgbTextures_; }
 
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
-    // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
+    // cannot be created, in which case the bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
     sg_pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
     sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
         return bloom_pipeline(stage, TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, sampleCount});
     }
-    // Camera.colorFilter: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
+    // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
     bool colorfilter_ready();
     // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
@@ -1793,7 +1792,7 @@ struct TargetDesc {
     int width = 1, height = 1;
     sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
     int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
-    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): Camera.bloom adds its glow to
+    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): the bloom adds its glow to
     // the finished, resolved game image.
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)

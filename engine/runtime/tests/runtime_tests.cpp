@@ -744,7 +744,8 @@ TEST_CASE("engine: screenshot scale draws the same frame natively larger") {
     CHECK(r.error.dump().find("scale") != std::string::npos);
 }
 
-TEST_CASE("engine: Camera.colorFilter is part of the frame, game.screenshot simulate only changes the saved file") {
+TEST_CASE("engine: the PostProcess colour filter is part of the frame, game.screenshot simulate only changes the saved "
+          "file") {
     TempProject p("engine_shot_filter");
     Engine e;
     std::string err;
@@ -784,9 +785,11 @@ TEST_CASE("engine: Camera.colorFilter is part of the frame, game.screenshot simu
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("deuteranopia") != std::string::npos);
 
-    // Camera.colorFilter is drawn into the frame: the screenshot shows it without any `simulate`.
-    r = c.call("scene.spawn",
-               Json::parse(R"({"name":"FilterCam","components":{"Camera":{"depth":-100,"colorFilter":"greyscale"}}})"));
+    // The PostProcess colour filter is drawn into the frame: the screenshot shows it without any `simulate`.
+    r = c.call(
+        "scene.spawn",
+        Json::parse(
+            R"({"name":"FilterCam","components":{"Camera":{"depth":-100},"PostProcess":{"colorFilterEnabled":true,"colorFilterMode":"greyscale"}}})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     e.step(1);
     Color filtered = shot("filtered.png", Json::object());
@@ -1454,7 +1457,7 @@ TEST_CASE("engine: screenshot right after a scene load shows the new scene, HUD 
     const char* hudScene = R"({
       "format": "factoria.scene/1",
       "entities": [
-        { "id": "cam", "components": { "Camera": { "clearColor": "#000000", "bloom": true, "bloomScreenSpace": false } } },
+        { "id": "cam", "components": { "Camera": { "clearColor": "#000000" }, "PostProcess": { "bloomEnabled": true, "bloomKnee": 0, "bloomScreenSpace": false } } },
         { "id": "glow", "components": { "Transform": { "position": [0, 0, 0] },
                           "Shape2D": { "shape": "rectangle", "size": [20, 20], "color": "#ff40c0", "blend": "additive" } } },
         { "id": "hud", "components": { "Transform": { "position": [6, 6, 0] },

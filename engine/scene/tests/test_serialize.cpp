@@ -7,6 +7,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/json_schema.h"
 #include "fa/core/log.h"
+#include "fa/scene/postprocess.h"
 #include "fa/scene/serialize.h"
 
 using namespace fa;
@@ -202,41 +203,77 @@ TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
     CHECK(r.error_count() >= 5);
 }
 
-TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos get suggestions") {
+TEST_CASE("scene: Shape2D diamond and PostProcess.bloomScreenSpace round trip, typos get suggestions") {
     const char* text = R"({
       "format": "factoria.scene/1",
       "entities": [
         { "id": "gem", "components": { "Shape2D": { "shape": "diamond", "size": [40, 60], "pivot": [0.5, 0.3333] } } },
-        { "id": "cam", "components": { "Camera": { "bloom": true, "bloomScreenSpace": false } } },
-        { "id": "plain", "components": { "Camera": { "bloom": true }, "Shape2D": {} } },
-        { "id": "typo", "components": { "Shape2D": { "shape": "diamnd" }, "Camera": { "bloomScreenSpce": false } } }
+        { "id": "cam", "components": { "PostProcess": { "bloomEnabled": true, "bloomScreenSpace": false } } },
+        { "id": "plain", "components": { "PostProcess": { "bloomEnabled": true }, "Shape2D": {} } },
+        { "id": "typo", "components": { "Shape2D": { "shape": "diamnd" }, "PostProcess": { "bloomScreenSpce": false } } }
       ]
     })";
     World w;
     LoadReport r = load_scene(w, Json::parse(text), "diamond.scene.json");
     CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/shape: Field 'shape': unknown value \"diamnd\""));
     CHECK(has_message(r, kErr, "Did you mean 'diamond'?"));
-    CHECK(has_message(r, kErr,
-                      "#/entities/3/components/Camera/bloomScreenSpce: Unknown field 'bloomScreenSpce' on Camera"));
+    CHECK(has_message(
+        r, kErr,
+        "#/entities/3/components/PostProcess/bloomScreenSpce: Unknown field 'bloomScreenSpce' on PostProcess"));
     CHECK(has_message(r, kErr, "Did you mean 'bloomScreenSpace'?"));
     REQUIRE(w.get<Shape2D>(w.find_by_id("gem")) != nullptr);
     CHECK(w.get<Shape2D>(w.find_by_id("gem"))->shape == ShapeType::Diamond);
     CHECK(w.get<Shape2D>(w.find_by_id("gem"))->size == Vec2{40, 60});
-    CHECK(w.get<Camera>(w.find_by_id("cam"))->bloomScreenSpace == false);
-    CHECK(w.get<Camera>(w.find_by_id("plain"))->bloomScreenSpace ==
+    CHECK(w.get<PostProcess>(w.find_by_id("cam"))->bloomScreenSpace == false);
+    CHECK(w.get<PostProcess>(w.find_by_id("plain"))->bloomScreenSpace ==
           true);  // default: the whole frame glows (HUD included)
-    CHECK(Camera{}.bloomScreenSpace);
+    CHECK(PostProcess{}.bloomScreenSpace);
     CHECK(w.get<Shape2D>(w.find_by_id("typo"))->shape == ShapeType::Rectangle);  // bad value keeps the default
 
     // Saved canonically: the default (true) is omitted, false and the enum name are written.
     Json saved = save_scene(w);
     CHECK(saved["entities"][0]["components"]["Shape2D"]["shape"] == "diamond");
-    CHECK(saved["entities"][1]["components"]["Camera"]["bloomScreenSpace"] == false);
-    CHECK(!saved["entities"][2]["components"]["Camera"].contains("bloomScreenSpace"));
+    CHECK(saved["entities"][1]["components"]["PostProcess"]["bloomScreenSpace"] == false);
+    CHECK(!saved["entities"][2]["components"]["PostProcess"].contains("bloomScreenSpace"));
     World again;
     CHECK(load_scene(again, saved, "again").ok());
     CHECK(again.get<Shape2D>(again.find_by_id("gem"))->shape == ShapeType::Diamond);
-    CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
+    CHECK(again.get<PostProcess>(again.find_by_id("cam"))->bloomScreenSpace == false);
+}
+
+// The Camera post-processing fields deprecated in 0.31.0 were removed in 0.33.0: an old scene or patch that still holds one is
+// an error that says where the value went, never a silent drop.
+TEST_CASE("scene: the removed Camera.bloom and Camera.colorFilter fields are errors that name the PostProcess") {
+    const char* text = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "cam", "components": { "Camera": { "fov": 50, "bloom": true, "colorFilter": "greyscale" } } }
+      ]
+    })";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(text), "old.scene.json");
+    CHECK(r.error_count() == 2);
+    CHECK(has_message(r, kErr, "old.scene.json"));
+    CHECK(has_message(r, kErr, "#/entities/0/components/Camera/bloom: Unknown field 'bloom' on Camera"));
+    CHECK(
+        has_message(r, kErr, "Camera.bloom was removed in 0.33.0: add a PostProcess component to the camera's entity"));
+    CHECK(has_message(r, kErr, "#/entities/0/components/Camera/colorFilter: Unknown field 'colorFilter' on Camera"));
+    CHECK(has_message(r, kErr, "Camera.colorFilter was removed in 0.33.0"));
+    CHECK(has_message(r, kErr, "colorFilterEnabled"));
+    // The other fields of the component still load.
+    REQUIRE(w.get<Camera>(w.find_by_id("cam")) != nullptr);
+    CHECK(w.get<Camera>(w.find_by_id("cam"))->fov == 50.0f);
+
+    // A patch (scene.set_component, a script's entity.set) says the same.
+    const TypeInfo* camType = TypeRegistry::global().find("Camera");
+    REQUIRE(camType);
+    auto patched = patch_component(w, w.find_by_id("cam"), *camType, Json::object({{"bloomRadius", 40}}));
+    REQUIRE_FALSE(patched.ok());
+    CHECK(patched.error().to_string().find("Camera.bloomRadius was removed in 0.33.0") != std::string::npos);
+    // Any other typo keeps the did-you-mean.
+    auto typo = patch_component(w, w.find_by_id("cam"), *camType, Json::object({{"farPlan", 40}}));
+    REQUIRE_FALSE(typo.ok());
+    CHECK(typo.error().to_string().find("farPlane") != std::string::npos);
 }
 
 TEST_CASE(

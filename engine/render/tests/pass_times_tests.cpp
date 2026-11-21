@@ -21,11 +21,8 @@ namespace {
 // A camera with bloom (several passes), a bright rectangle and a HUD box: one job with a handful of passes.
 void bloom_scene(World& world) {
     Entity cam = make(world, "cam");
-    Camera& c = world.add<Camera>(cam);
-    c.clearColor = Color{0.02f, 0.02f, 0.04f, 1.0f};
-    c.bloom = true;
-    c.bloomThreshold = 0.5f;
-    c.bloomRadius = 40.0f;
+    world.add<Camera>(cam).clearColor = Color{0.02f, 0.02f, 0.04f, 1.0f};
+    set_bloom(world, cam, true, 0.5f, 1.2f, 40.0f);
     Entity neon = make(world, "neon");
     auto& s = world.add<Shape2D>(neon);
     s.shape = ShapeType::Rectangle;
