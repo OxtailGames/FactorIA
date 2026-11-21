@@ -7932,6 +7932,24 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
 
+### `render.gi2d_field` (modifies state)
+
+Not released yet (on main after 0.33.0).
+
+The 2D global illumination field of the last frame: its size, texel size and world rectangle, and what fills it; optionally the three images as PNGs.
+
+Capabilities: read, state
+
+Draws a frame when none is current and reports the field that a GlobalIllumination2D makes for each 2D camera job (docs/design/ARCHITECTURE_RENDERING_GI2D.md, "2D GI field: what P3b reads"): an emission image, an occluder/albedo image (alpha = occupancy) and a jump-flooding distance field, RGBA16F, covering the view plus `range` on every side at `resolutionScale`. With `save` it also writes the three images as PNGs. Errors: `unavailable` without graphics. Example: render.gi2d_field {"save": ".factoria/tmp/gi"}. See docs/design/ARCHITECTURE_RENDERING_GI2D.md, "2D GI field: what P3b reads".
+
+Result: {enabled, supported, message? (why not supported: the backend and render.supports "2dGlobalIllumination"), fieldLimit, maxSize, format, settings: {quality, intensity, bounce, range, resolutionScale}, bytes, fields: [{slot, job, ready, width, height, texelSize, worldRect: {x, y, width, height}, capped, bytes, passes, emitters: {sprites, tiles, lights}, occluders: {solidTiles, boxes, polygons, spriteAlpha, skipped}, dropped}]}. `fields` is empty without an enabled GlobalIllumination2D, on a 3D camera, or where the GPU has no RGBA16F render targets (then `supported` is false and `message` says what to do). With `save` (a path without extension) the images of the field of `job` (default: the first) are written as <save>-emission.png, <save>-occluders.png and <save>-distance.png (row 0 of a file is the largest world y) and listed in `files`; a failure is in `error`. Errors: `unavailable` without graphics; `invalid_argument` for a `save` or `job` that is not a string.
+The distance image holds the nearest occluder texel's coordinates in r and g (exact), the distance to it in field texels in b (a half float: about 3 significant digits) and 1 in a where an occluder exists (b is 65504 and a is 0 for a field without occluders). The `save` PNG of the distance is grey: black at an occluder, white at the farthest distance of the field (white everywhere without occluders). `save` reads the GPU back: look, do not call it every frame. `save` needs the writeProject capability.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `save` | string | no | Path prefix without extension (inside the project; absolute paths need writeAnywhere): the three images are written as <save>-emission.png, <save>-occluders.png and <save>-distance.png. Omitted: nothing is written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `job` | string | no | The camera job whose field `save` writes (the "job" of fields[], e.g. "camera:0"). Default: the first field that is ready. |
+
 ### `render.gi_grid`
 
 Since 0.33.0.

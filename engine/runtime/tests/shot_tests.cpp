@@ -424,6 +424,66 @@ TEST_CASE("render.gi_grid: empty without a RealtimeGI, lists a grid with its pro
     CHECK(nr.error.dump().find("renderer") != std::string::npos);
 }
 
+TEST_CASE("render.gi2d_field: no fields without GlobalIllumination2D, one field with it and its three PNGs, and no "
+          "renderer") {
+    TempProject p("gi2d-field-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    e.step(2);
+    auto none = c.call("render.gi2d_field", Json::object());
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["enabled"] == false);
+    CHECK(none.result["fields"].empty());
+    Entity gi = e.world().create("gi");
+    auto& g = e.world().add<GlobalIllumination2D>(gi);
+    g.range = 16.0f;
+    e.step(2);
+    auto r = c.call("render.gi2d_field", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["enabled"] == true);
+    if (r.result["supported"] == false) {
+        MESSAGE("render.gi2d_field: this GPU has no RGBA16F render targets: ", r.result["message"].dump());
+        CHECK(r.result["message"].get<std::string>().find("2dGlobalIllumination") != std::string::npos);
+        CHECK(r.result["fields"].empty());
+    } else {
+        REQUIRE(r.result["fields"].size() == 1);
+        const Json& f = r.result["fields"][0];
+        CHECK(f["ready"] == true);
+        CHECK(f["width"] == 178);  // (320 + 2 x 16) / 2 at the default resolutionScale 0.5, and 2 more
+        CHECK(f["height"] == 108);
+        const std::string prefix = (p.dir / "gi").generic_string();
+        auto saved = c.call("render.gi2d_field", Json{{"save", prefix}});
+        REQUIRE_MESSAGE(saved.ok, saved.error.dump());
+        CHECK_FALSE(saved.result.contains("error"));
+        REQUIRE(saved.result["files"].size() == 3);
+        for (const char* name : {"emission", "occluders", "distance"}) {
+            auto img = load_image((p.dir / (std::string("gi-") + name + ".png")).generic_string());
+            REQUIRE_MESSAGE(img.ok(), name);
+            CHECK(img.value().width == 178);
+            CHECK(img.value().height == 108);
+        }
+        auto missing = c.call("render.gi2d_field", Json{{"save", prefix}, {"job", "camera:99"}});
+        REQUIRE_MESSAGE(missing.ok, missing.error.dump());
+        CHECK(missing.result["error"].get<std::string>().find("camera:99") != std::string::npos);
+    }
+    auto bad = c.call("render.gi2d_field", Json{{"save", 5}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("save") != std::string::npos);
+    auto unknown = c.call("render.gi2d_field", Json{{"frames", 5}});
+    REQUIRE_FALSE(unknown.ok);
+
+    TempProject q("gi2d-field-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.gi2d_field", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
+}
+
 TEST_CASE("render.probes: empty without probes, lists a ReflectionProbe with its tile, and says no renderer") {
     TempProject p("probes-command");
     Engine e;

@@ -49,6 +49,7 @@
 #include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
+#include "gi2d.h"
 #include "light_atlas.h"
 #include "render_internal.h"
 #include "render_jobs.h"
@@ -110,6 +111,8 @@ struct Renderer::Impl {
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
+    Gi2dSystem
+        gi2d;  // the 2D GI field of each 2D camera (gi2d.h): its shaders, pipelines and the images of the field slots
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
     VolumetricFx volFx;  // SceneSettings.volumetricFog (renderer_volumetric.h): its shaders and pipelines
     SssFx sssFx;         // MeshRenderer.subsurface (renderer_subsurface.h): the blur and add shaders and pipelines
@@ -618,6 +621,8 @@ struct Renderer::Impl {
     void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
     void light_plan(DrawContext& ctx);
+    // The 2D GI field of a 2D camera job (GlobalIllumination2D, gi2d.h): its slot, size and gather; nothing when the scene has none or the GPU cannot.
+    void gi2d_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
