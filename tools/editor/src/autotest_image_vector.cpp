@@ -308,7 +308,7 @@ void Editor::at_section_I2(AtScript& at) {
         });
         snap("editor_image_light.png");
         // a narrow panel: the row wraps onto a second line instead of running out of the options bar
-        step(2, [this, is] {
+        step(2, [is] {
             ImGuiWindow* w = ImGui::FindWindowByName("Image");
             if (w) {
                 is->winW = w->Size.x;
@@ -328,7 +328,9 @@ void Editor::at_section_I2(AtScript& at) {
             at_check(image_.litOrbit, "Orbit turned on");
             is->mark = int(image_.model->lit_revision());
         });
-        step(30, [this, is] {
+        // the relight is quantized in time, so wait for it instead of counting frames
+        wait_until([this, is] { return int(image_.model->lit_revision()) != is->mark; });
+        step(2, [this, is] {
             at_check(int(image_.model->lit_revision()) != is->mark,
                      "...the lamp circles by itself (the picture is lit again each frame)");
             image_.litOrbit = false;

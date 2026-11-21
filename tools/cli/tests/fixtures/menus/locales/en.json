@@ -38,7 +38,7 @@
         "medium": "medium",
         "high": "high"
       },
-      "bloom": "Bloom", "grain": "Film grain", "vignette": "Vignette", "chromatic": "Chromatic aberration", "outline": "Outlines", "hdr": "HDR output", "note": "This scene has no screen effects; your choices apply to the scenes that do.", "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it."},
+      "bloom": "Bloom", "grain": "Film grain", "vignette": "Vignette", "chromatic": "Chromatic aberration", "outline": "Outlines", "hdr": "HDR output", "note": "This scene has no screen effects; your choices apply to the scenes that do.", "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it.", "lightNote": "This scene has no 2D lighting; the 2D lighting button applies to the scenes that do."},
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
     "binding": "{action}: {button}",

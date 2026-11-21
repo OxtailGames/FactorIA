@@ -302,3 +302,38 @@ TEST_CASE("m74 2d fields: settings that have no effect are warned about with the
     CHECK(cookieWarnings == 1);
     CHECK(fromWarnings == 1);
 }
+
+TEST_CASE("m74 2d fields: one warning per cause on a sprite, a lit screen sprite and a tilemap") {
+    World w;
+    const Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[
+      {"id":"a","components":{"Sprite":{"normalMap":"n.png","normalFrom":"sprite"}}},
+      {"id":"b","components":{"Sprite":{"normalFrom":"height"}}},
+      {"id":"c","components":{"Sprite":{"normalMap":"n.png"}}},
+      {"id":"d","components":{"Sprite":{"lit":true,"normalFrom":"height"}}},
+      {"id":"hud","components":{"Sprite":{"lit":true,"space":"screen"}}},
+      {"id":"world","components":{"Sprite":{"lit":true}}},
+      {"id":"ground","components":{"Tilemap":{"width":1,"height":1,"tiles":[0],"normalMap":"n.png"}}}]})");
+    const LoadReport report = load_scene(w, scene, "causes.scene.json");
+    REQUIRE(report.ok());
+    auto count_msg = [&](const char* id, const char* pointerPart) {
+        int n = 0;
+        for (const LoadMessage& m : report.messages)
+            if (m.severity == LoadMessage::Severity::Warning && m.pointer.find(pointerPart) != std::string::npos &&
+                m.message.find(std::string("'") + id + "'") != std::string::npos)
+                ++n;
+        return n;
+    };
+    CHECK(count_msg("a", "Sprite/") == 1);  // lit false is one cause: normalFrom, not also the normal map
+    CHECK(count_msg("a", "Sprite/normalFrom") == 1);
+    CHECK(count_msg("b", "Sprite/") == 1);  // lit false first; the empty heightMap is told once the sprite is lit
+    CHECK(count_msg("c", "Sprite/normalMap") == 1);
+    CHECK(count_msg("d", "Sprite/") == 1);
+    CHECK(count_msg("d", "Sprite/heightMap") == 1);
+    CHECK(count_msg("hud", "Sprite/lit") == 1);
+    CHECK(count_msg("world", "Sprite/") == 0);
+    int tilemap = 0;
+    for (const LoadMessage& m : report.messages)
+        if (m.severity == LoadMessage::Severity::Warning && m.pointer.find("Tilemap/normalMap") != std::string::npos)
+            ++tilemap;
+    CHECK(tilemap == 1);
+}
