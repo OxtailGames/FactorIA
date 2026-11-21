@@ -1,4 +1,4 @@
-// Camera.bloom: glow around bright pixels, applied into the game target (so screenshots show it).
+// PostProcess bloom: glow around bright pixels, applied into the game target (so screenshots show it).
 //
 // Cost measurement: FA_BLOOM_BENCH=1 build/<dir>/engine/render/fa_test_render -tc="bloom cost*" prints the
 // ms/frame bloom adds at 1280x720 (see the last test case).
@@ -45,13 +45,16 @@ struct Scene2D {
         s.blend = BlendMode::Additive;
     }
     Camera& camera() { return *world.get<Camera>(cam); }
+    // The bloom of the camera's PostProcess, with a hard knee; bloomScreenSpace keeps the value screen_space() gave it.
     void bloom(bool on, float threshold = 0.5f, float intensity = 1.0f, float radius = 12.0f) {
-        Camera& c = camera();
-        c.bloom = on;
-        c.bloomThreshold = threshold;
-        c.bloomIntensity = intensity;
-        c.bloomRadius = radius;
+        PostProcess& p = camera_post(world, cam);
+        p.bloomEnabled = on;
+        p.bloomKnee = 0.0f;
+        p.bloomThreshold = threshold;
+        p.bloomIntensity = intensity;
+        p.bloomRadius = radius;
     }
+    void screen_space(bool on) { camera_post(world, cam).bloomScreenSpace = on; }
 };
 
 int lit_outside_rect(const Image& img) {
@@ -122,12 +125,8 @@ TEST_CASE("bloom: golden image of a small neon scene") {
     World w;
     Entity cam = make(w, "cam");
     {
-        auto& c = w.add<Camera>(cam);
-        c.clearColor = kClear;
-        c.bloom = true;
-        c.bloomThreshold = 0.6f;
-        c.bloomIntensity = 1.2f;
-        c.bloomRadius = 14.0f;
+        w.add<Camera>(cam).clearColor = kClear;
+        set_bloom(w, cam, true, 0.6f, 1.2f, 14.0f);
     }
     auto neon = [&](Vec3 p, ShapeType type, Vec2 size, Color color, bool filled = true, float thickness = 2) {
         Entity e = make(w, "neon", p);
@@ -265,11 +264,7 @@ TEST_CASE("bloom: thin bright lines keep their glow (the threshold is applied be
     s.size = {80, 2};  // two pixels high (rows 89 and 90); pixel-aligned so MSAA does not dim it
     s.color = Color::white();
     s.blend = BlendMode::Additive;
-    auto& c = *w.get<Camera>(cam);
-    c.bloom = true;
-    c.bloomThreshold = 0.8f;
-    c.bloomIntensity = 2.0f;
-    c.bloomRadius = 12.0f;
+    set_bloom(w, cam, true, 0.8f, 2.0f, 12.0f);
     Image img = g.render(w);
     int lit = 0;
     for (int y = 0; y < kH; ++y)
@@ -296,17 +291,18 @@ TEST_CASE("bloom: invalid values are clamped instead of breaking the frame") {
         CHECK(img.width == kW);
         CHECK(max_channel(img.pixel(160, 90)) > 0.9f);
     }
-    // NaN fields fall back to the defaults, so the picture equals the one with the defaults written out.
+    // A NaN field of a PostProcess is ignored by the stack and leaves the neutral value (a bloom with no intensity), so the
+    // picture equals the one with the neutral values written out.
     s.bloom(true, nan, nan, nan);
     Image nanImg = g.render(s.world);
-    const Camera defaults;
-    s.bloom(true, defaults.bloomThreshold, defaults.bloomIntensity, defaults.bloomRadius);
+    const PostProcess& neutral = postprocess_neutral();
+    s.bloom(true, neutral.bloomThreshold, neutral.bloomIntensity, neutral.bloomRadius);
     CHECK(nanImg.rgba == g.render(s.world).rgba);
+    const PostProcess defaults;
     // The documented defaults: off, and visibly glowing once switched on.
-    CHECK_FALSE(defaults.bloom);
-    s.camera() = Camera{};
-    s.camera().clearColor = kClear;
-    s.camera().bloom = true;
+    CHECK_FALSE(defaults.bloomEnabled);
+    camera_post(s.world, s.cam) = PostProcess{};
+    s.bloom(true, defaults.bloomThreshold, defaults.bloomIntensity, defaults.bloomRadius);
     CHECK(lit_outside_rect(g.render(s.world)) > 300);
 }
 
@@ -326,12 +322,9 @@ TEST_CASE("bloom: works for 3D cameras") {
     m.unlit = true;
     m.color = Color{1.0f, 0.4f, 0.1f, 1.0f};
 
-    c.bloom = false;
+    set_bloom(w, cam, false);
     Image off = g.render(w);
-    c.bloom = true;
-    c.bloomThreshold = 0.5f;
-    c.bloomIntensity = 1.0f;
-    c.bloomRadius = 16.0f;
+    set_bloom(w, cam, true, 0.5f, 1.0f, 16.0f);
     Image on = g.render(w);
 
     int brightened = 0, outsideBefore = 0;
@@ -369,7 +362,7 @@ TEST_CASE("bloom: follows a resized game target") {
     CHECK(back.rgba == small.rgba);
 }
 
-// ---- Camera.bloomScreenSpace -------------------------------------------------------------------------------------------
+// ---- PostProcess.bloomScreenSpace -------------------------------------------------------------------------------------------
 // The additive world rectangle of Scene2D glows at x >= ~120. The HUD lives in the top-left corner (x < 110), far
 // enough from that glow to tell the two apart.
 
@@ -433,7 +426,7 @@ int max_abs_diff(const Image& a, const Image& b) {
 TEST_CASE("bloomScreenSpace: true (the default) makes screen-space items glow, false keeps the HUD crisp") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    CHECK(Camera{}.bloomScreenSpace);  // default = today's behaviour: the whole frame glows
+    CHECK(PostProcess{}.bloomScreenSpace);  // default = today's behaviour: the whole frame glows
     Scene2D s;
     add_hud(s.world);
 
@@ -444,13 +437,13 @@ TEST_CASE("bloomScreenSpace: true (the default) makes screen-space items glow, f
     CHECK(world_glow_pixels(off) == 0);
 
     s.bloom(true);
-    s.camera().bloomScreenSpace = true;
+    s.screen_space(true);
     Image glowing = g.render(s.world);
     INFO("HUD glow pixels with bloomScreenSpace=true: " << hud_glow_pixels(glowing, off));
     CHECK(hud_glow_pixels(glowing, off) > 300);
     CHECK(world_glow_pixels(glowing) > 300);
 
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image crisp = g.render(s.world);
     CHECK(hud_glow_pixels(crisp, off) ==
           0);  // not one pixel around the HUD changed: it is exactly the frame without bloom
@@ -481,18 +474,18 @@ TEST_CASE("bloomScreenSpace: the flag changes nothing without a HUD, with bloom 
     // No screen-space items: both settings give the same picture (MSAA rounds per sample: allow 2/255).
     Scene2D s;
     s.bloom(true);
-    s.camera().bloomScreenSpace = true;
+    s.screen_space(true);
     Image a = g.render(s.world);
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image b = g.render(s.world);
     CHECK(max_abs_diff(a, b) <= 2);
 
     // Bloom off ignores the flag completely, HUD or not: pixel-identical.
     add_hud(s.world);
     s.bloom(false);
-    s.camera().bloomScreenSpace = true;
+    s.screen_space(true);
     Image offTrue = g.render(s.world);
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image offFalse = g.render(s.world);
     CHECK(offTrue.rgba == offFalse.rgba);
 
@@ -507,7 +500,7 @@ TEST_CASE("bloomScreenSpace=false: a translucent HUD panel is blended over the g
     REQUIRE(g.ok);
     Scene2D s;
     s.bloom(true);
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image plain = g.render(s.world);
     const Color glow = plain.pixel(136, 90);  // glow just left of the world rectangle
     REQUIRE(is_lit(glow));
@@ -541,10 +534,10 @@ TEST_CASE("bloomScreenSpace=false: screen debug text stays crisp as well") {
     };
     Image off = frame();
     s.bloom(true);
-    s.camera().bloomScreenSpace = true;
+    s.screen_space(true);
     Image glowing = frame();
     CHECK(hud_glow_pixels(glowing, off) > 200);
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image crisp = frame();
     CHECK(hud_glow_pixels(crisp, off) == 0);
     CHECK(world_glow_pixels(crisp) > 300);
@@ -555,7 +548,7 @@ TEST_CASE("bloomScreenSpace=false: a HUD item drawn over a bright world shape co
     REQUIRE(g.ok);
     Scene2D s;
     s.bloom(true);
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Entity cover = make(s.world, "cover", {150, 80, 0});
     auto& c = s.world.add<Shape2D>(cover);
     c.shape = ShapeType::Rectangle;
@@ -600,12 +593,12 @@ TEST_CASE("bloomScreenSpace=false: screen-space particles stay crisp, world part
     CHECK(hud_glow_pixels(off, off) == 0);
 
     s.bloom(true);
-    s.camera().bloomScreenSpace = true;
+    s.screen_space(true);
     Image glowing = g.render(s.world);
     INFO("glow pixels around the screen-space dot with bloomScreenSpace=true: " << hud_glow_pixels(glowing, off));
     CHECK(hud_glow_pixels(glowing, off) > 100);
 
-    s.camera().bloomScreenSpace = false;
+    s.screen_space(false);
     Image crisp = g.render(s.world);
     CHECK(hud_glow_pixels(crisp, off) == 0);  // the HUD pass draws the dot after the bloom: no halo at all
     CHECK(max_channel(crisp.pixel(50, 90)) > 0.95f);

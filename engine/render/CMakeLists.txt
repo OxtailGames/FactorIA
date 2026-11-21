@@ -13,13 +13,12 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
 # "<name>\n<sha256 of content>\n", all hashed, with CRs removed so that every checkout gives the same value (.gitattributes
 # also checks the shaders out with LF). Each kind hashes only its own files, so editing the sprite template leaves every
 # mesh twin valid. THE LISTS ARE EXPLICIT and must equal template_file_names() of tools/common/src/shaders_generate.cpp (a
-# test compares both). The mesh list is the file set the hash was computed from before kinds existed, so its value did not
-# change.
-set(FA_TEMPLATE_FILES_MESH mesh_common.glsl)
+# test compares both). The mesh template @includes light_data.glsl, light_loop.glsl, ltc.glsl, shadow_common.glsl and brdf_layers.glsl (the lighting,
+# M73-P0 and the material layers of M73.6: docs/design/ARCHITECTURE_RENDERING_LIGHTING.md), so a change to any of them changes the mesh hash.
+set(FA_TEMPLATE_FILES_MESH mesh_common.glsl light_data.glsl light_loop.glsl ltc.glsl shadow_common.glsl brdf_layers.glsl)
 # A mesh material in "full" mode (its own vertex and fragment stage, docs/shaders/SHADERS_FULL.md) is built from mesh_common.glsl's blocks plus
-# mesh_full_common.glsl; its twin carries this hash (the mesh hash above stays what it was: no snippet twin is made stale by the
-# full-shader template).
-set(FA_TEMPLATE_FILES_MESH_FULL mesh_common.glsl mesh_full_common.glsl)
+# mesh_full_common.glsl; its twin carries this hash (no snippet twin is made stale by a change to the full-shader template).
+set(FA_TEMPLATE_FILES_MESH_FULL mesh_common.glsl light_data.glsl light_loop.glsl ltc.glsl shadow_common.glsl brdf_layers.glsl mesh_full_common.glsl)
 # The sprite template @includes color_space.glsl and light_shadow.glsl (the other programs that use them include them too), so a
 # change to either one changes the sprite hash.
 set(FA_TEMPLATE_FILES_SPRITE color_space.glsl light_shadow.glsl quad_common.glsl)
@@ -96,6 +95,6 @@ endif()
 # The CPU side of the post-processing stack, the feature table and the HDR encodes need no GPU either.
 if(TARGET fa_test_render)
     add_test(NAME render_postprocess_core
-        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp,hdr_encode_tests.cpp,postfx_tests.cpp
+        COMMAND fa_test_render --fa-files=postprocess_resolve_tests.cpp,hdr_encode_tests.cpp,postfx_tests.cpp,mesh_slots_tests.cpp,light_clusters_tests.cpp,shadow_cascades_tests.cpp,local_shadows_tests.cpp,decal_tests.cpp,ies_tests.cpp,light_atlas_tests.cpp,probe_tests.cpp,gi_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
 endif()

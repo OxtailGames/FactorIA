@@ -65,6 +65,8 @@ constexpr Exempt kExempt[] = {
     {"engine/core/include/fa/core/det_math.h", "defines the deterministic functions (the names are its own)"},
     {"engine/core/src/image.cpp",
      "sRGB <-> linear of decoded images: asset import and screenshots, not the simulation step"},
+    {"engine/core/src/image_float.cpp",
+     "sRGB <-> linear of float images (HDRI import, lightmaps): asset import and baking, not the simulation step"},
 };
 
 // The functions whose results differ between C libraries.

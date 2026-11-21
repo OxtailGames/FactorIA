@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -1221,6 +1222,21 @@ struct Cluster {
     bool efficiency = false;  // a group of efficiency entries (ranked by saving, never mixed with gaps)
 };
 
+// Whether the file is called ENGINE_FEEDBACK.json: a case-insensitive comparison on Windows (its paths are), exact elsewhere.
+bool is_feedback_file_name(const stdfs::path& p) {
+    const std::string name = u8text(p.filename());
+#ifdef _WIN32
+    if (name.size() != std::strlen(kFeedbackFileName)) return false;
+    for (size_t i = 0; i < name.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(name[i])) !=
+            std::tolower(static_cast<unsigned char>(kFeedbackFileName[i])))
+            return false;
+    return true;
+#else
+    return name == kFeedbackFileName;
+#endif
+}
+
 void find_feedback_files(const stdfs::path& dir, int depth, std::vector<std::string>& out) {
     std::error_code ec;
     stdfs::path direct = dir / kFeedbackFileName;
@@ -1231,7 +1247,7 @@ void find_feedback_files(const stdfs::path& dir, int depth, std::vector<std::str
     if (depth <= 0) return;
     std::vector<stdfs::path> subdirs;
     for (stdfs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        std::string n = it->path().filename().string();
+        std::string n = u8text(it->path().filename());
         if (!it->is_directory(ec) || n.empty() || n[0] == '.' || n == "build" || n == "node_modules") continue;
         subdirs.push_back(it->path());
     }
@@ -1260,7 +1276,9 @@ const char* kSeverityOrder[] = {"nice-to-have", "minor", "major", "blocker"};
 
 Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, const CollectOptions& opts) {
     std::vector<std::string> files;
+    std::set<std::string> otherNamed;  // files named by hand that are not called ENGINE_FEEDBACK.json
     Json errors = Json::array();
+    Json notes = Json::array();  // what was skipped on purpose and the reader may want to know
     for (const auto& p : paths) {
         std::error_code ec;
         if (stdfs::is_directory(p, ec)) {
@@ -1270,6 +1288,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                 errors.push_back("No ENGINE_FEEDBACK.json found in " + p + " (searched 4 levels deep).");
         } else if (stdfs::is_regular_file(p, ec)) {
             files.push_back(p);
+            if (!is_feedback_file_name(stdfs::path(p))) otherNamed.insert(p);
         } else {
             errors.push_back("Path does not exist: " + p);
         }
@@ -1282,14 +1301,31 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
     std::set<std::string> projectSet;
     int total = 0;
     for (const auto& f : files) {
+        // `collect examples/*` hands over every file next to the projects (examples.json, README.md ...): a file that is
+        // not called ENGINE_FEEDBACK.json and is not a feedback file is skipped when other paths were given. Named alone,
+        // it is an error that says what to pass.
+        const bool skippable = otherNamed.count(f) > 0 && paths.size() > 1;
         auto doc = load_feedback(f);
         if (!doc.ok()) {
-            errors.push_back(f + ": " + doc.error().to_string());
+            if (!skippable)
+                errors.push_back(f + ": " + doc.error().to_string());
+            else
+                notes.push_back(f + ": skipped, it is not called " + std::string(kFeedbackFileName) +
+                                " and cannot be read as JSON (" + doc.error().message + ").");
             continue;
         }
         const Json& d = doc.value();
         if (!d.is_object() || !d.contains("entries") || !d["entries"].is_array()) {
-            errors.push_back(f + ": no \"entries\" array");
+            if (!skippable) {
+                std::string msg = f + ": no \"entries\" array.";
+                if (!is_feedback_file_name(stdfs::path(f)))
+                    msg += " This is not an " + std::string(kFeedbackFileName) +
+                           "; pass a project directory or that file.";
+                errors.push_back(msg);
+            } else {
+                notes.push_back(f + ": skipped, it is not called " + std::string(kFeedbackFileName) +
+                                " and has no \"entries\" array.");
+            }
             continue;
         }
         std::string project = d.value("project", u8text(stdfs::path(f).parent_path().filename()));
@@ -1487,6 +1523,7 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
                              {"projects", projects},
                              {"totalEntries", total},
                              {"errors", errors},
+                             {"notes", notes},
                              {"clusters", outClusters},
                              {"efficiency", rank_efficiency(std::move(efficiencyGroups))}});
     (void)kSeverityOrder;
@@ -1505,6 +1542,11 @@ std::string FeedbackReport::markdown() const {
     if (!json["errors"].empty()) {
         o << "## Problems reading files\n\n";
         for (const auto& e : json["errors"]) o << "- " << e.get<std::string>() << "\n";
+        o << "\n";
+    }
+    if (json.contains("notes") && json["notes"].is_array() && !json["notes"].empty()) {
+        o << "## Notes\n\n";
+        for (const auto& n : json["notes"]) o << "- " << n.get<std::string>() << "\n";
         o << "\n";
     }
     if (json["clusters"].empty() && !(json.contains("efficiency") && !json["efficiency"].empty()))

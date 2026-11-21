@@ -1,5 +1,6 @@
 // Texture + mesh caches, procedural primitives and glTF loading.
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <format>
@@ -9,10 +10,13 @@
 #include "fa/core/asset_manifest.h"
 #include "fa/core/load_trace.h"
 #include "fa/core/fs.h"
+#include "fa/core/image_float.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/render/cube_lut.h"
+#include "fa/render/hdri.h"
 #include "fa/scene/gltf_file.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/skeleton.h"
 #include "render_internal.h"
 
@@ -346,7 +350,7 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
         }
         r.kind = PreparedTextureRef::Kind::Image;
         r.name = std::move(name);
-        r.image = std::move(*decoded);
+        r.image = std::make_shared<const Image>(std::move(*decoded));
         return r;
     }
     if (img.uri) {
@@ -359,7 +363,7 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
                 if (decoded) {
                     r.kind = PreparedTextureRef::Kind::Image;
                     r.name = "<gltf-data-uri>";
-                    r.image = std::move(*decoded);
+                    r.image = std::make_shared<const Image>(std::move(*decoded));
                     return r;
                 }
             }
@@ -376,7 +380,72 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
     return r;
 }
 
-void prepare_material(const cgltf_material* mat, const std::string& dir, PreparedPart& part) {
+// The layers of a glTF material, worked out once per material (the parts that share it share the packed maps).
+struct LayerCache {
+    struct Entry {
+        MaterialLayers layers;
+        int packed = 0;
+        PreparedTextureRef occlusion, metalRough;  // the composites, when packed != 0
+    };
+    std::map<const cgltf_material*, Entry> byMaterial;
+};
+
+// The five layer extensions of `mat`: their factors, and their textures packed into the occlusion and metallic-roughness maps
+// of `part` (pack_layer_textures). Reads the extension once per material; later parts copy the result.
+void prepare_layers(const cgltf_material* mat, const cgltf_data* data, const std::string& path, const std::string& dir,
+                    PreparedPart& part, LayerCache& cache, std::vector<std::string>& warnings) {
+    auto it = cache.byMaterial.find(mat);
+    if (it == cache.byMaterial.end()) {
+        LayerCache::Entry e;
+        const std::string what = std::format(
+            "{}: material '{}'", path, mat->name && *mat->name ? mat->name : std::format("#{}", mat - data->materials));
+        read_material_layers(*mat, what, e.layers, warnings);
+        LayerTextureRefs refs;
+        auto ref = [&](const cgltf_texture_view& v, PreparedTextureRef& out) {
+            if (v.texture && v.texture->image) out = image_ref(*v.texture->image, dir);
+        };
+        if (mat->has_clearcoat) {
+            ref(mat->clearcoat.clearcoat_texture, refs.clearcoat);
+            ref(mat->clearcoat.clearcoat_roughness_texture, refs.clearcoatRoughness);
+            ref(mat->clearcoat.clearcoat_normal_texture, refs.clearcoatNormal);
+        }
+        if (mat->has_sheen) {
+            ref(mat->sheen.sheen_color_texture, refs.sheenColor);
+            ref(mat->sheen.sheen_roughness_texture, refs.sheenRoughness);
+        }
+        if (mat->has_anisotropy) ref(mat->anisotropy.anisotropy_texture, refs.anisotropy);
+        if (mat->has_specular) {
+            ref(mat->specular.specular_texture, refs.specular);
+            ref(mat->specular.specular_color_texture, refs.specularColor);
+        }
+        // The transmission and the volume have no free channel in the maps a part binds: their factors alone are used.
+        auto unused = [&](const cgltf_texture_view& v, const char* name, const char* instead) {
+            if (v.texture && v.texture->image)
+                warnings.push_back(std::format("{}: {} is not used ({}).", what, name, instead));
+        };
+        if (mat->has_transmission)
+            unused(mat->transmission.transmission_texture, "transmissionTexture",
+                   "transmissionFactor is used for the whole surface");
+        if (mat->has_volume)
+            unused(mat->volume.thickness_texture, "thicknessTexture", "thicknessFactor is used for the whole surface");
+        if (refs.any()) {
+            e.occlusion = part.occlusion;
+            e.metalRough = part.metalRough;
+            e.packed = pack_layer_textures(refs, what, std::format("<gltf-layers:{}:{}>", path, mat - data->materials),
+                                           e.occlusion, e.metalRough, warnings);
+        }
+        it = cache.byMaterial.emplace(mat, std::move(e)).first;
+    }
+    const LayerCache::Entry& e = it->second;
+    part.material.layers = e.layers;
+    part.material.layersPacked = e.packed;
+    if (e.packed & 1) part.occlusion = e.occlusion;
+    if (e.packed & 2) part.metalRough = e.metalRough;
+}
+
+void prepare_material(const cgltf_material* mat, const cgltf_data* data, const std::string& path,
+                      const std::string& dir, PreparedPart& part, LayerCache& cache,
+                      std::vector<std::string>& warnings) {
     if (!mat) return;
     SubMesh& sm = part.material;
     if (mat->name) sm.materialName = mat->name;
@@ -409,6 +478,8 @@ void prepare_material(const cgltf_material* mat, const std::string& dir, Prepare
     float strength = mat->has_emissive_strength ? mat->emissive_strength.emissive_strength : 1.0f;
     sm.emissiveFactor = Color{mat->emissive_factor[0] * strength, mat->emissive_factor[1] * strength,
                               mat->emissive_factor[2] * strength, 1.0f};
+    if (mat->has_clearcoat || mat->has_sheen || mat->has_anisotropy || mat->has_specular || mat->has_ior)
+        prepare_layers(mat, data, path, dir, part, cache, warnings);
 }
 
 // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Each part is drawn with the palette of its
@@ -477,6 +548,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
     }
     const std::string dir = fs::parent(path);
     std::shared_ptr<const SkeletonAsset> skeleton;
+    LayerCache layerCache;
     out.bmin = {1e30f, 1e30f, 1e30f};
     out.bmax = {-1e30f, -1e30f, -1e30f};
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
@@ -498,7 +570,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
             PreparedPart part;
             if (!read_primitive(prim, world, normalMat, part.verts, part.idx, part.uv1, part.color1)) continue;
             compute_bounds(part.verts, part.material.bmin, part.material.bmax);
-            prepare_material(prim.material, dir, part);
+            prepare_material(prim.material, data, path, dir, part, layerCache, out.warnings);
             prepare_skin(path, skeleton, int(ni), int(pi), part, out.warnings);
             out.bmin = min(out.bmin, part.material.bmin);
             out.bmax = max(out.bmax, part.material.bmax);
@@ -544,6 +616,8 @@ public:
             sm.normalScale = m.normalScale;
             sm.occlusionStrength = m.occlusionStrength;
             sm.hasPbr = m.hasPbr;
+            sm.layers = m.layers;
+            sm.layersPacked = m.layersPacked;
             sm.metallic = m.metallic;
             sm.roughness = m.roughness;
             sm.emissiveFactor = m.emissiveFactor;
@@ -590,8 +664,13 @@ private:
             case PreparedTextureRef::Kind::None: return nullptr;
             case PreparedTextureRef::Kind::Path: return assets_.texture(r.path);
             case PreparedTextureRef::Kind::Image: {
-                TextureAsset* t = assets_.make_texture(r.name, r.image, true);
+                // The maps packed from a material's layer textures are shared by the parts that use the material.
+                const bool packed = r.name.rfind("<gltf-layers:", 0) == 0;
+                if (packed)
+                    if (auto it = packedTextures_.find(r.name); it != packedTextures_.end()) return it->second;
+                TextureAsset* t = assets_.make_texture(r.name, *r.image, true);
                 embeddedBytes_ += t->bytes;
+                if (packed) packedTextures_[r.name] = t;
                 return t;
             }
             case PreparedTextureRef::Kind::Missing:
@@ -603,6 +682,7 @@ private:
 
     Assets& assets_;
     std::uint64_t embeddedBytes_ = 0;
+    std::unordered_map<std::string, TextureAsset*> packedTextures_;  // by name: <gltf-layers:...>
 };
 
 // ---------------------------------------------------------------------------
@@ -669,7 +749,15 @@ void Assets::destroy_texture(TextureAsset& t) {
     t.atlas = nullptr;
 }
 
+void Assets::destroy_mesh_lightmap(MeshAsset& m) {
+    if (!m.lightmap) return;
+    for (sg_buffer* b : {&m.lightmap->vb, &m.lightmap->ib, &m.lightmap->uv, &m.lightmap->color1})
+        if (b->id) sg_destroy_buffer(*b);
+    m.lightmap.reset();
+}
+
 void Assets::destroy_mesh(MeshAsset& m) {
+    destroy_mesh_lightmap(m);
     for (auto& p : m.parts) {
         sg_destroy_buffer(p.vb);
         sg_destroy_buffer(p.ib);
@@ -687,10 +775,18 @@ void Assets::clear() {
     textures_.clear();
     for (auto& [k, l] : luts_) destroy_lut(*l);
     luts_.clear();
+    for (auto& [k, h] : hdris_) destroy_hdri(*h);
+    hdris_.clear();
+    probeBakes_.clear();
     for (auto& t : anonymous_) destroy_texture(*t);
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
     meshes_.clear();
+    destroy_lightmap_set();
+    lightmapSetPath_.clear();
+    if (zeroUv1_.id) sg_destroy_buffer(zeroUv1_);
+    zeroUv1_ = {};
+    zeroUv1Vertices_ = 0;
     for (auto& [k, pm] : procedural_) destroy_procedural(pm);
     procedural_.clear();
     meshStore_ = nullptr;
@@ -797,6 +893,201 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
                                    [&](const Failure& f) { return f.kind == "lut" && f.path == key; }),
                     failures_.end());
     return &l;
+}
+
+void Assets::destroy_hdri(HdriAsset& h) {
+    if (h.view.id) sg_destroy_view(h.view);
+    if (h.image.id) sg_destroy_image(h.image);
+    h.view = {};
+    h.image = {};
+}
+
+const HdriAsset* Assets::hdri(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    bool secondTry = false;
+    HdriAsset* slotPtr = nullptr;
+    if (auto it = hdris_.find(key); it != hdris_.end()) {
+        if (it->second->view.id) return it->second.get();
+        if (!it->second->retryPending)
+            return nullptr;  // a failed load stays in the cache: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<HdriAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        hdris_[key] = std::move(slot);
+    }
+    HdriAsset& h = *slotPtr;
+    auto fail = [&](const std::string& message, const std::string& hint) -> const HdriAsset* {
+        note_failure("hdri", key, message, hint);
+        return nullptr;
+    };
+    if (!fs::exists(key))
+        return fail("environment map " + missing_hint(key, fs::extension(key)),
+                    "Set SceneSettings.environmentMap to a .hdr file in the project (import one with assets.import).");
+    // The same retry as a LUT: on Windows an editor that saves the .hdr may still be writing it when the hot reload finds it.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;
+        h.retryPending = true;
+        FA_WARN("render",
+                "environment map '{}' {}; trying once more on the next frame (a file that is still being written).",
+                key, what);
+        return true;
+    };
+    // Only a file that cannot be read, or whose pixels do not decode, may be one that is still being written: the header and the layout
+    // are the same on the second try, so those errors are final at once (no retry warning before an error that cannot change).
+    auto bytes = fs::read_bytes(key);
+    if (!bytes) {
+        if (retry_once("could not be read: " + bytes.error().message)) return nullptr;
+        return fail("environment map " + bytes.error().message, bytes.error().hint);
+    }
+    if (auto check = hdri_check(bytes->data(), bytes->size(), key); !check)
+        return fail("environment map " + check.error().message, check.error().hint);
+    auto image = hdri_from_bytes(bytes->data(), bytes->size(), key);
+    if (!image) {
+        const std::string message = image.error().message, hint = image.error().hint;
+        if (retry_once("did not load: " + message)) return nullptr;
+        return fail("environment map " + message, hint);
+    }
+    const sg_pixelformat_info fmt = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    if (!fmt.sample || !fmt.filter)
+        return fail(
+            std::format("environment map '{}': this GPU cannot filter half-float textures (RGBA16F)", key),
+            "Use a sky material or the gradient on this device; render.supports {\"feature\": \"environmentMap\"} "
+            "says whether the GPU can.");
+    sg_image_desc d{};
+    d.width = image->width;
+    d.height = image->height;
+    d.pixel_format = SG_PIXELFORMAT_RGBA16F;
+    d.num_mipmaps = int(image->mips.size());
+    for (std::size_t i = 0; i < image->mips.size() && i < std::size_t(SG_MAX_MIPMAPS); ++i)
+        d.data.mip_levels[i] = {image->mips[i].data(), image->mips[i].size() * sizeof(std::uint16_t)};
+    d.label = key.c_str();
+    h.image = make_image(d);
+    if (sg_query_image_state(h.image) != SG_RESOURCESTATE_VALID) {
+        destroy_hdri(h);
+        return fail(std::format("environment map '{}': the GPU could not make its {}x{} image", key, image->width,
+                                image->height),
+                    "Use a smaller panorama (2048 x 1024).");
+    }
+    sg_view_desc vd{};
+    vd.texture.image = h.image;
+    vd.label = key.c_str();
+    h.view = sg_make_view(&vd);
+    h.width = image->width;
+    h.height = image->height;
+    h.bytes = std::size_t(image->bytes());
+    h.serial = ++hdriSerial_;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "hdri" && f.path == key; }),
+                    failures_.end());
+    return &h;
+}
+
+const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
+    if (pathIn.empty()) return nullptr;
+    // Asked every frame for every baked probe: a path that already is a key (the normal case: the keys are normalised paths, and a
+    // normalised path stays itself) is answered without normalising it again.
+    if (auto hit = probeBakes_.find(pathIn);
+        hit != probeBakes_.end() && (hit->second->ok || !hit->second->retryPending))
+        return hit->second.get();
+    std::string key = fs::normalize(pathIn);
+    if (key.empty()) key = pathIn;
+    bool secondTry = false;
+    ProbeBakeAsset* slotPtr = nullptr;
+    if (auto it = probeBakes_.find(key); it != probeBakes_.end()) {
+        if (it->second->ok || !it->second->retryPending)
+            return it->second.get();  // a failed load stays: one error, no read every frame
+        it->second->retryPending = false;
+        secondTry = true;
+        slotPtr = it->second.get();
+    } else {
+        auto slot = std::make_unique<ProbeBakeAsset>();
+        slotPtr = slot.get();
+        slot->path = key;
+        probeBakes_[key] = std::move(slot);
+    }
+    ProbeBakeAsset& b = *slotPtr;
+    auto fail = [&](const std::string& message, const std::string& hint) -> const ProbeBakeAsset* {
+        b.ok = false;
+        b.error = message;
+        note_failure("probe", key, message, hint);
+        return &b;
+    };
+    if (!fs::exists(key))
+        return fail("baked reflection probe " + missing_hint(key, fs::extension(key)),
+                    "Run probe.bake {\"entity\": ...} to bake the probe, or set ReflectionProbe.bakedMap to a "
+                    "*.probe.json of the project.");
+    // A pair being rewritten (probe.bake writes the page, then the manifest; an editor may still hold the file) is read once more on the
+    // next frame before it is an error.
+    auto retry_once = [&](const std::string& what) {
+        if (secondTry) return false;
+        b.retryPending = true;
+        b.ok = false;
+        b.error = what;
+        FA_WARN(
+            "render",
+            "baked reflection probe '{}' {}; trying once more on the next frame (a file that is still being written).",
+            key, what);
+        return true;
+    };
+    auto text = fs::read_text(key);
+    if (!text) {
+        if (retry_once("could not be read: " + text.error().message)) return &b;
+        return fail("baked reflection probe " + text.error().message, text.error().hint);
+    }
+    auto json = parse_json(*text, key);
+    if (!json) {
+        if (retry_once("did not parse: " + json.error().message)) return &b;
+        return fail("baked reflection probe " + json.error().message, json.error().hint);
+    }
+    auto manifest = probe_manifest_from_json(*json, key);
+    if (!manifest) return fail(manifest.error().message, manifest.error().hint);  // the same on the second try: final
+    const std::string pageKey = fs::normalize(manifest->page);
+    b.pagePath = pageKey.empty() ? manifest->page : pageKey;
+    auto bytes = fs::read_bytes(b.pagePath);
+    if (!bytes) {
+        if (retry_once("page '" + b.pagePath + "' could not be read: " + bytes.error().message)) return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "' " + bytes.error().message,
+                    "Bake the probe again (probe.bake): the manifest names a page that is not in the project.");
+    }
+    if (probe_hash_hex(*bytes) != manifest->hash) {
+        if (retry_once("page '" + b.pagePath + "' is not the one the manifest was written for (its hash differs)"))
+            return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath +
+                        "' does not match the manifest's hash " + manifest->hash,
+                    "The page was changed after the bake. Bake the probe again (probe.bake).");
+    }
+    auto image = decode_hdr(
+        bytes->data(), bytes->size(),
+        image_float_bytes(probe_page_width(manifest->resolution), probe_page_height(manifest->resolution), 3));
+    if (!image) {
+        if (retry_once("page '" + b.pagePath + "' did not decode: " + image.error().message)) return &b;
+        return fail("baked reflection probe '" + key + "': the page '" + b.pagePath + "': " + image.error().message,
+                    image.error().hint);
+    }
+    if (image->width != probe_page_width(manifest->resolution) ||
+        image->height != probe_page_height(manifest->resolution))
+        return fail(
+            std::format("baked reflection probe '{}': the page is {} x {} texels, a map of resolution {} has {} x {}",
+                        key, image->width, image->height, manifest->resolution, probe_page_width(manifest->resolution),
+                        probe_page_height(manifest->resolution)),
+            "Bake the probe again (probe.bake).");
+    for (float& v : image->data)
+        v = v > 0.0f ? std::min(v, 65000.0f) : 0.0f;  // NaN and negative are 0; the atlas holds half floats
+    b.manifest = std::move(*manifest);
+    b.page = std::make_shared<const ImageF>(std::move(*image));
+    b.ok = true;
+    b.error.clear();
+    b.serial = ++probeBakeSerial_;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "probe" && f.path == key; }),
+                    failures_.end());
+    return &b;
 }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
@@ -1033,6 +1324,7 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
     // A write-transient image is written in every sokol frame that draws it, once and before it is bound: a second
     // draw before the commit (editor screenshots, render_now) shows what the first one wrote.
     if (v.writtenFrame != gpu_.frame() + 1) {
+        gpu_.begin_transient_writes();
         sg_write_image_desc w{};
         w.src.data = {decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
         w.dst.image = t.image;
@@ -1302,6 +1594,298 @@ MeshAsset* Assets::mesh(const std::string& name) {
 }
 
 // ---------------------------------------------------------------------------
+// Lightmaps (M73.4a)
+// ---------------------------------------------------------------------------
+namespace {
+constexpr std::uint64_t kLightmapMaxGpuBytes = std::uint64_t(1) << 30;  // the pages of one scene, RGBA16F
+
+// The size a Radiance file says it has ("-Y <height> +X <width>", the line after the blank line that ends the header),
+// read without decoding a pixel. False when the header does not have that line (decode_hdr then reports what is wrong).
+bool hdr_header_size(const std::vector<std::uint8_t>& bytes, std::int64_t& width, std::int64_t& height) {
+    const std::size_t limit = std::min<std::size_t>(bytes.size(), 4096);
+    std::size_t lineStart = 0;
+    bool afterBlank = false;
+    for (std::size_t i = 0; i < limit; ++i) {
+        if (bytes[i] != '\n') continue;
+        const std::string line(reinterpret_cast<const char*>(bytes.data()) + lineStart, i - lineStart);
+        lineStart = i + 1;
+        if (afterBlank) {
+            long long h = 0, w = 0;
+            if (std::sscanf(line.c_str(), "-Y %lld +X %lld", &h, &w) != 2 || h <= 0 || w <= 0) return false;
+            width = w;
+            height = h;
+            return true;
+        }
+        afterBlank = line.empty() || line == "\r";
+    }
+    return false;
+}
+}  // namespace
+
+void Assets::destroy_lightmap_set() {
+    if (!lightmapSet_) return;
+    for (LightmapPageGpu& pg : lightmapSet_->pages) {
+        if (pg.view.id) sg_destroy_view(pg.view);
+        if (pg.image.id) sg_destroy_image(pg.image);
+    }
+    lightmapSet_.reset();
+}
+
+const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
+    if (manifestPath.empty()) {
+        if (lightmapSet_ || !lightmapSetPath_.empty()) {
+            destroy_lightmap_set();
+            lightmapSetPath_.clear();
+        }
+        return nullptr;
+    }
+    if (manifestPath == lightmapSetPath_) return lightmapSet_ && lightmapSet_->ok ? lightmapSet_.get() : nullptr;
+    destroy_lightmap_set();
+    lightmapSetPath_ = manifestPath;
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) {
+                                       return f.kind == "lightmap" || f.kind == "lightmap-page" ||
+                                              f.kind == "lightmap-probes" || f.kind == "lightmap-stale";
+                                   }),
+                    failures_.end());
+    lightmapSet_ = std::make_unique<LightmapSetAsset>();
+    lightmapSet_->path = manifestPath;
+    const std::string path = fs::normalize(manifestPath);
+    auto manifest = load_lightmap_manifest(path);
+    if (!manifest) {
+        note_failure("lightmap", manifestPath,
+                     "SceneSettings.lightmaps: " + manifest.error().message +
+                         " The scene is drawn without its lightmap.",
+                     manifest.error().hint);
+        return nullptr;
+    }
+    lightmapSet_->manifest = std::move(*manifest);
+    LightmapSetAsset& set = *lightmapSet_;
+    std::uint64_t total = 0;
+    for (const LightmapPage& pg : set.manifest.pages) total += std::uint64_t(pg.width) * std::uint64_t(pg.height) * 8u;
+    if (total > kLightmapMaxGpuBytes) {
+        note_failure(
+            "lightmap", manifestPath,
+            std::format("{}: the pages hold {} MB of lightmap, more than the {} MB a scene may use. The scene is drawn "
+                        "without its lightmap.",
+                        manifestPath, total >> 20, kLightmapMaxGpuBytes >> 20),
+            "Bake again with a lower density (a smaller MeshRenderer.lightmapScale or a lower texelsPerMeter).");
+        return nullptr;
+    }
+    set.ok = true;
+    set.pages.resize(set.manifest.pages.size());
+    for (std::size_t i = 0; i < set.pages.size(); ++i) {
+        LightmapPageGpu& page = set.pages[i];
+        const LightmapPage& want = set.manifest.pages[i];
+        page.file = want.file;
+        page.width = want.width;
+        page.height = want.height;
+        const std::string ptr = "/pages/" + std::to_string(i) + "/file";
+        // The header says the size before any pixel is decoded: a page that is not the size of the manifest (or whose
+        // size alone is more than a scene may use) is refused without allocating its pixels.
+        auto bytes = fs::read_bytes(fs::normalize(want.file));
+        std::int64_t fileW = 0, fileH = 0;
+        if (bytes && hdr_header_size(*bytes, fileW, fileH) &&
+            (fileW != want.width || fileH != want.height ||
+             std::uint64_t(fileW) * std::uint64_t(fileH) * 8u > kLightmapMaxGpuBytes)) {
+            note_failure(
+                "lightmap-page", want.file,
+                std::format("{}{}: the page '{}' is {}x{} texels but the manifest says {}x{} (a scene may use {} MB "
+                            "of lightmap). Entities on this page are drawn without a lightmap.",
+                            manifestPath, ptr, want.file, fileW, fileH, want.width, want.height,
+                            kLightmapMaxGpuBytes >> 20),
+                "The page and the manifest are from different bakes: bake the lightmap again.");
+            continue;
+        }
+        // The size of the manifest is what this page may take (the header was checked against it above, and against what a
+        // scene may use): a page up to kLightmapMaxPageSize square is legal, whatever the budget of an environment map is.
+        Result<ImageF> img =
+            bytes ? decode_hdr(bytes->data(), bytes->size(), image_float_bytes(want.width, want.height, 3))
+                  : Result<ImageF>(bytes.error());
+        if (!img) {
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the lightmap page '{}' could not be read: {} Entities on this page are "
+                                     "drawn without a lightmap.",
+                                     manifestPath, ptr, want.file, img.error().message),
+                         img.error().hint.empty()
+                             ? "Bake the lightmap again (lightmap.bake) or fix the path in the manifest."
+                             : img.error().hint);
+            continue;
+        }
+        if (img->width != want.width || img->height != want.height) {
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the page '{}' is {}x{} texels but the manifest says {}x{}. Entities on "
+                                     "this page are drawn without a "
+                                     "lightmap.",
+                                     manifestPath, ptr, want.file, img->width, img->height, want.width, want.height),
+                         "The page and the manifest are from different bakes: bake the lightmap again.");
+            continue;
+        }
+        std::vector<std::uint16_t> half(std::size_t(img->width) * std::size_t(img->height) * 4);
+        for (std::size_t px = 0; px < half.size() / 4; ++px) {
+            const float* src = &img->data[px * std::size_t(img->channels)];
+            for (int c = 0; c < 3; ++c) half[px * 4 + std::size_t(c)] = float_to_half_bits(src[c]);
+            half[px * 4 + 3] = 0x3C00;  // 1.0
+        }
+        sg_image_desc d{};
+        d.width = img->width;
+        d.height = img->height;
+        d.pixel_format = SG_PIXELFORMAT_RGBA16F;
+        d.data.mip_levels[0] = {half.data(), half.size() * sizeof(std::uint16_t)};
+        d.label = want.file.c_str();
+        page.image = make_image(d);
+        if (sg_query_image_state(page.image) != SG_RESOURCESTATE_VALID) {
+            sg_destroy_image(page.image);
+            page.image = {};
+            note_failure("lightmap-page", want.file,
+                         std::format("{}{}: the GPU rejected the lightmap page '{}' ({}x{} RGBA16F). Entities on this "
+                                     "page are drawn without a lightmap.",
+                                     manifestPath, ptr, want.file, img->width, img->height),
+                         "Bake again with smaller pages (the GPU's largest texture is smaller than this page).");
+            continue;
+        }
+        sg_view_desc vd{};
+        vd.texture.image = page.image;
+        vd.label = want.file.c_str();
+        page.view = sg_make_view(&vd);
+        page.bytes = half.size() * sizeof(std::uint16_t);
+        set.bytes += page.bytes;
+        page.ok = true;
+    }
+    // The light probes (M73.4d) of the same bake: a file that cannot be read leaves the moving objects on the sky's ambient light.
+    if (!set.manifest.probes.file.empty()) {
+        const std::string& file = set.manifest.probes.file;
+        auto probes = load_probe_set(fs::normalize(file));
+        if (!probes) {
+            note_failure("lightmap-probes", file,
+                         manifestPath + "/probes/file: " + probes.error().message +
+                             " Moving objects are lit by the sky's ambient light.",
+                         probes.error().hint);
+        } else if (std::int64_t(probes->size()) != std::int64_t(set.manifest.probes.count)) {
+            note_failure("lightmap-probes", file,
+                         std::format("{}/probes/count: the manifest says {} probes but '{}' holds {}. Moving objects "
+                                     "are lit by the sky's ambient light.",
+                                     manifestPath, set.manifest.probes.count, file, probes->size()),
+                         "The probe file and the manifest are from different bakes: bake the lightmap again.");
+        } else {
+            set.probes = std::move(*probes);
+        }
+    }
+    return &set;
+}
+
+bool Assets::lightmap_use(const LightmapSetAsset& set, const std::string& entityId, MeshAsset& mesh,
+                          const std::string& meshName, LightmapUse& out) {
+    const LightmapEntry* e = set.manifest.find(entityId);
+    if (!e || e->page < 0 || std::size_t(e->page) >= set.pages.size()) return false;
+    const LightmapPageGpu& page = set.pages[std::size_t(e->page)];
+    if (!page.ok || mesh.placeholder || MeshStore::is_id(mesh.key)) return false;
+    if (e->mesh != meshName) return false;  // another mesh than the one baked (or a lod level): drawn without
+    if (!mesh.lightmap) {
+        mesh.lightmap = std::make_unique<MeshLightmap>();
+        MeshLightmap& lm = *mesh.lightmap;
+        auto built = build_lightmap_mesh(meshName);
+        if (!built) {
+            note_failure("lightmap-stale", mesh.key,
+                         "lightmap of '" + meshName + "': " + built.error().message +
+                             " Entities with this mesh are drawn without a lightmap.",
+                         built.error().hint);
+        } else if (built->geo.uvKind == "gltf") {
+            lm.parts = mesh.parts;  // its own buffers: TEXCOORD_1 is the lightmap UV
+            lm.ok = !lm.parts.empty() && lm.parts.size() + 1 == built->geo.partFirstIndex.size();
+            if (lm.ok)
+                for (SubMesh& p : lm.parts)
+                    if (!p.uv1Vb.id) lm.ok = false;
+        } else {
+            lm.parts = mesh.parts;
+            lm.ok = !lm.parts.empty() && lm.parts.size() + 1 == built->geo.partFirstIndex.size();
+            if (lm.ok) {
+                const LightmapBuild& b = *built;
+                sg_buffer_desc vb{};
+                vb.data = {b.verts.data(), b.verts.size() * sizeof(MeshVertex)};
+                vb.label = "lightmap-vb";
+                lm.vb = sg_make_buffer(&vb);
+                sg_buffer_desc ib{};
+                ib.usage.index_buffer = true;
+                ib.usage.vertex_buffer = false;
+                ib.data = {b.geo.indices.data(), b.geo.indices.size() * sizeof(std::uint32_t)};
+                ib.label = "lightmap-ib";
+                lm.ib = sg_make_buffer(&ib);
+                std::vector<float> uv;
+                uv.reserve(b.geo.uv.size() * 2);
+                for (const Vec2& t : b.geo.uv) {
+                    uv.push_back(t.x);
+                    uv.push_back(t.y);
+                }
+                sg_buffer_desc ub{};
+                ub.data = {uv.data(), uv.size() * sizeof(float)};
+                ub.label = "lightmap-uv";
+                lm.uv = sg_make_buffer(&ub);
+                if (!b.color1.empty()) {
+                    sg_buffer_desc cb{};
+                    cb.data = {b.color1.data(), b.color1.size() * sizeof(std::uint32_t)};
+                    cb.label = "lightmap-color1";
+                    lm.color1 = sg_make_buffer(&cb);
+                }
+                for (std::size_t i = 0; i < lm.parts.size(); ++i) {
+                    SubMesh& p = lm.parts[i];
+                    p.vb = lm.vb;
+                    p.ib = lm.ib;
+                    p.uv1Vb = lm.uv;
+                    p.color1Vb = lm.color1;
+                    p.skinVb = {};
+                    p.skin = -1;
+                    p.ibOffset = int(b.geo.partFirstIndex[i] * sizeof(std::uint32_t));
+                    p.indexCount = int(b.geo.partFirstIndex[i + 1] - b.geo.partFirstIndex[i]);
+                    p.vertexCount = int(b.verts.size());
+                }
+            }
+        }
+        if (built) {
+            lm.uvKind = built->geo.uvKind;
+            lm.hashHex = lightmap_hash_hex(built->geo.hash);
+            if (!lm.ok)
+                note_failure(
+                    "lightmap-stale", mesh.key,
+                    "lightmap of '" + meshName +
+                        "': the mesh has no usable lightmap UVs (its parts do not match the model file). Entities with "
+                        "this mesh are drawn without a lightmap.",
+                    "Re-import the model, or bake the lightmap again.");
+        }
+    }
+    const MeshLightmap& lm = *mesh.lightmap;
+    if (!lm.ok) return false;
+    if ((!e->meshHash.empty() && e->meshHash != lm.hashHex) || e->uv != lm.uvKind) {
+        note_failure(
+            "lightmap-stale", mesh.key,
+            std::format("the lightmap of '{}' was baked for a different version of the mesh (the manifest says {} UVs "
+                        "and hash {}, the "
+                        "mesh now has {} UVs and hash {}). Entities with this mesh are drawn without a lightmap.",
+                        meshName, e->uv, e->meshHash, lm.uvKind, lm.hashHex),
+            "Bake the lightmap again (lightmap.bake): the model, or the engine's unwrap, changed after the bake.");
+        return false;
+    }
+    out.mesh = &lm;
+    out.page = &page;
+    for (int i = 0; i < 4; ++i) out.scaleOffset[i] = e->scaleOffset[i];
+    return true;
+}
+
+sg_buffer Assets::zero_uv1(std::size_t vertices) {
+    if (vertices <= zeroUv1Vertices_ && zeroUv1_.id) return zeroUv1_;
+    std::size_t cap = std::max<std::size_t>(zeroUv1Vertices_ * 2, 4096);
+    while (cap < vertices) cap *= 2;
+    if (zeroUv1_.id) sg_destroy_buffer(zeroUv1_);
+    std::vector<float> zeros(cap * 2, 0.0f);
+    sg_buffer_desc d{};
+    d.data = {zeros.data(), zeros.size() * sizeof(float)};
+    d.label = "zero-uv1";
+    zeroUv1_ = sg_make_buffer(&d);
+    zeroUv1Vertices_ = cap;
+    return zeroUv1_;
+}
+
+// ---------------------------------------------------------------------------
 // Procedural meshes
 // ---------------------------------------------------------------------------
 void Assets::destroy_procedural(ProceduralMesh& pm) {
@@ -1390,6 +1974,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
     const bool canCopy = sg_query_pass_state() == SG_PASSSTATE_NONE;
     const std::uint64_t frameTag = gpu_.frame() + 1;
     if (canCopy) {
+        gpu_.begin_transient_writes();  // before the first write of the frame (render_internal.h)
         const bool fits = pm.vbStage.id && vbBytes <= pm.vbCap && ibBytes <= pm.ibCap && pm.stagedFrame != frameTag;
         if (!fits) {
             const bool grow = pm.vb.id && (vbBytes > pm.vbCap || ibBytes > pm.ibCap);
@@ -1484,6 +2069,7 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
         sm.materialName = m.name;
         sm.baseColor = m.color;
         sm.hasPbr = m.metallic.has_value() || m.roughness.has_value();
+        sm.layers = m.layers;
         sm.metallic = m.metallic.value_or(0.0f);
         sm.roughness = m.roughness.value_or(0.6f);
         sm.emissiveFactor = Color{m.emissive.r, m.emissive.g, m.emissive.b, 1.0f};
@@ -1494,9 +2080,31 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
     }
 }
 
+bool Assets::reloaded_any_of(std::uint64_t since, const std::set<std::string>& paths) const {
+    if (since >= reloadGeneration_) return false;
+    if (since < reloadLogBase_) return true;
+    for (std::size_t i = std::size_t(since - reloadLogBase_); i < reloadLog_.size(); ++i)
+        for (const std::string& p : reloadLog_[i])
+            if (!p.empty() && paths.count(p)) return true;
+    return false;
+}
+
 void Assets::reload(const std::string& pathIn) {
+    ++reloadGeneration_;
     std::string path = fs::normalize(pathIn);
     if (path.empty()) path = pathIn;
+    {
+        constexpr std::size_t kReloadLogMax = 1024;
+        if (reloadLog_.size() >=
+            kReloadLogMax) {  // the oldest half goes: a query that reaches back past it answers "yes"
+            reloadLog_.erase(reloadLog_.begin(), reloadLog_.begin() + std::ptrdiff_t(kReloadLogMax / 2));
+            reloadLogBase_ += kReloadLogMax / 2;
+        }
+        std::array<std::string, 2> entry{path, {}};
+        if (fs::extension(path) == kTextureTwinExtension)
+            entry[1] = path.substr(0, path.size() - std::strlen(kTextureTwinExtension));
+        reloadLog_.push_back(std::move(entry));
+    }
     auto t = textures_.find(path);
     if (t == textures_.end() && fs::extension(path) == kTextureTwinExtension)  // the twin of a texture changed
         t = textures_.find(path.substr(0, path.size() - std::strlen(kTextureTwinExtension)));
@@ -1516,6 +2124,45 @@ void Assets::reload(const std::string& pathIn) {
                                        [&](const Failure& f) { return f.kind == "lut" && f.path == path; }),
                         failures_.end());
     }
+    if (auto hd = hdris_.find(path);
+        hd != hdris_.end()) {  // forgotten like a LUT: the next frame that names it loads the new file
+        destroy_hdri(*hd->second);
+        hdris_.erase(hd);
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "hdri" && f.path == path; }),
+                        failures_.end());
+    }
+    // A baked probe: the manifest or its page changed (or is being rewritten by probe.bake): forgotten, the next frame reads the pair again.
+    for (auto pb = probeBakes_.begin(); pb != probeBakes_.end();) {
+        if (path == pb->first || (!pb->second->pagePath.empty() && path == pb->second->pagePath)) {
+            failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                           [&](const Failure& f) { return f.kind == "probe" && f.path == pb->first; }),
+                            failures_.end());
+            pb = probeBakes_.erase(pb);
+        } else {
+            ++pb;
+        }
+    }
+    if (lightmapSet_ || !lightmapSetPath_.empty()) {
+        // The manifest or one of its pages changed (or is rewritten by a bake right now): forget the set, the next
+        // frame reads it again.
+        bool mine = path == fs::normalize(lightmapSetPath_);
+        if (lightmapSet_) {
+            for (const LightmapPageGpu& pg : lightmapSet_->pages) mine = mine || path == fs::normalize(pg.file);
+            if (!lightmapSet_->manifest.probes.file.empty())
+                mine = mine || path == fs::normalize(lightmapSet_->manifest.probes.file);
+        }
+        if (mine) {
+            destroy_lightmap_set();
+            lightmapSetPath_.clear();
+            failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                           [&](const Failure& f) {
+                                               return f.kind == "lightmap" || f.kind == "lightmap-page" ||
+                                                      f.kind == "lightmap-probes" || f.kind == "lightmap-stale";
+                                           }),
+                            failures_.end());
+        }
+    }
     auto m = meshes_.find(path);
     if (m != meshes_.end()) {
         if (m->second->placeholder) m->second->parts.clear();  // shared handles
@@ -1533,6 +2180,9 @@ void Assets::reload(const std::string& pathIn) {
                                        }),
                         failures_.end());
         for (auto& [key, mat] : materials_) mat->missingNoted.clear();
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "lightmap-stale" && f.path == path; }),
+                        failures_.end());
         load_mesh(path);
     }
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
@@ -1551,6 +2201,7 @@ std::size_t Assets::texture_bytes() const {
     for (const auto& [k, v] : videoTextures_) total += v.tex->bytes;
     for (const auto& [k, t] : runtime_) total += t->bytes;
     for (const auto& [k, l] : luts_) total += l->bytes;
+    for (const auto& [k, h] : hdris_) total += h->bytes;
     return total;
 }
 

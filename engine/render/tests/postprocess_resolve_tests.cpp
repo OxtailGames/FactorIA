@@ -555,9 +555,11 @@ TEST_CASE("resolve_post_stack: the same world resolves to the same stack every t
 // ------------------------------------------------------------------------------------------- the feature table
 
 namespace {
-FeatureEnv gpu(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false) {
+FeatureEnv gpu(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false,
+               bool float32 = true) {
     FeatureEnv e;
     e.backend = b;
+    e.float32 = float32;
     e.halfTargets = half;
     e.r11g11b10 = packed;
     e.sampledDepth = depth;
@@ -573,10 +575,11 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    CHECK(names.size() == 7 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
-    for (const char* n :
-         {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders", "postMaterials"})
+    for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
+                          "postMaterials", "float32Targets"})
         CHECK(find_feature(n) >= 0);
     for (const std::string_view e : kPostEffectOrder) CHECK(find_feature(e) >= 0);
     CHECK(find_feature("bloomm") == -1);
@@ -587,7 +590,8 @@ TEST_CASE("features: the table has the capabilities, the engine features and eve
         CHECK(std::string(f.doc).size() > 20);
     }
     // The effects come last, in the canonical order.
-    for (int i = 0; i < kPostEffectCount; ++i) CHECK(names[7 + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
+    for (int i = 0; i < kPostEffectCount; ++i)
+        CHECK(names[names.size() - std::size_t(kPostEffectCount) + std::size_t(i)] == kPostEffectOrder[std::size_t(i)]);
 }
 
 TEST_CASE("features: the capabilities follow what each backend's GPU reports") {
@@ -671,6 +675,141 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for RGBA16F render targets that blend") {
+    REQUIRE(find_feature("realtimeGI") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("realtimeGI"))].kind == FeatureKind::Engine);
+    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK(supported(gpu(b, true, true, true, true, true), "realtimeGI", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        // Without RGBA16F targets the probes capture into an RGBA8 atlas that cannot hold the grid's distances: the answer names it.
+        CHECK_FALSE(supported(gpu(b, false, true, true, true, true), "realtimeGI", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // reflection probes (M73-P3c) are sampled by the mesh shader and ask nothing of the GPU (an RGBA8 atlas where half floats cannot be
+    // rendered): supported on every backend that draws, never "planned".
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        REQUIRE(find_feature("reflectionProbes") >= 0);
+        CHECK(supported(gpu(b, false, false, false, false), "reflectionProbes", &why));
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    CHECK(feature_table()[std::size_t(find_feature("reflectionProbes"))].kind == FeatureKind::Engine);
+    // contact shadows (M73.2c) are drawn in the mesh shader from the depth prepass: supported where the prepass can be made.
+    {
+        std::string why;
+        REQUIRE(find_feature("contactShadows") >= 0);
+        CHECK(supported(full, "contactShadows", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        CHECK(feature_table()[std::size_t(find_feature("contactShadows"))].kind == FeatureKind::Engine);
+    }
+    // transmission (M73-P6b) is drawn: the mesh shader refracts an atlas of the opaque colour; where that atlas cannot be made the glass
+    // is a plain blend, which the frame's statistics say, so the row itself needs nothing of the GPU.
+    {
+        std::string why;
+        REQUIRE(find_feature("transmission") >= 0);
+        CHECK(supported(full, "transmission", &why));
+        CHECK(why.find("planned") == std::string::npos);
+        CHECK(feature_table()[std::size_t(find_feature("transmission"))].kind == FeatureKind::Engine);
+    }
+    // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
+    CHECK(find_feature("decals") >= 0);
+    CHECK(supported(full, "decals"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "decals"));
+    CHECK(feature_table()[std::size_t(find_feature("decals"))].kind == FeatureKind::Engine);
+    // M73.4a: the lightmaps are drawn; the row needs nothing of the GPU.
+    REQUIRE(find_feature("lightmaps") >= 0);
+    CHECK(supported(full, "lightmaps"));
+    CHECK(feature_table()[std::size_t(find_feature("lightmaps"))].kind == FeatureKind::Engine);
+    // M73.4d: the light probes are drawn too (the SH is a uniform); the row needs nothing of the GPU.
+    REQUIRE(find_feature("lightProbes") >= 0);
+    CHECK(supported(full, "lightProbes"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "lightProbes"));
+    CHECK(feature_table()[std::size_t(find_feature("lightProbes"))].kind == FeatureKind::Engine);
+    // The physical sky is drawn (M73-P3d): it needs RGBA16F targets for its tables and says so when they are missing.
+    {
+        std::string why;
+        REQUIRE(find_feature("physicalSky") >= 0);
+        CHECK(supported(full, "physicalSky", &why));
+        CHECK(feature_table()[std::size_t(find_feature("physicalSky"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "physicalSky", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The light atlas rows are drawn (M73.1b) and the environment map (M73-P3a-2): they need RGBA16F images (that filter) and say so when
+    // they are missing.
+    for (const char* n : {"areaLights", "lightCookies", "iesProfiles", "environmentMap"}) {
+        CAPTURE(n);
+        std::string why;
+        REQUIRE(find_feature(n) >= 0);
+        CHECK(supported(full, n, &why));
+        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), n, &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The volumetric fog is drawn (M73.5): it needs RGBA16F targets and a sampled depth, and says so, never "planned".
+    {
+        std::string why;
+        REQUIRE(find_feature("volumetricFog") >= 0);
+        CHECK(supported(full, "volumetricFog", &why));
+        CHECK(feature_table()[std::size_t(find_feature("volumetricFog"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "volumetricFog", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "volumetricFog", &why));
+        CHECK(why.find("depth") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // The subsurface scattering is drawn (M73.5): it needs RGBA16F targets and a sampled depth (its meshes keep only the surface the prepass sees),
+    // and says so, never "planned".
+    {
+        std::string why;
+        REQUIRE(find_feature("subsurface") >= 0);
+        CHECK(supported(full, "subsurface", &why));
+        CHECK(feature_table()[std::size_t(find_feature("subsurface"))].kind == FeatureKind::Engine);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "subsurface", &why));
+        CHECK(why.find("RGBA16F") != std::string::npos);
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "subsurface", &why));
+        CHECK(why.find("depth") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+    // clusteredLights is drawn: it is a feature of the renderer on every GPU, with the row still in the same place.
+    CHECK(find_feature("clusteredLights") >= 0);
+    CHECK(supported(full, "clusteredLights"));
+    CHECK(feature_table()[std::size_t(find_feature("clusteredLights"))].kind == FeatureKind::Engine);
+    // float32Targets follows the GPU: a GPU whose R32F cannot be sampled answers with what is missing, not with the plan.
+    std::string why;
+    CHECK(supported(full, "float32Targets", &why));
+    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
+    CHECK(why.find("R32F") != std::string::npos);
+    // cascadedShadows (M73.2a), pointShadows and spotShadows (M73.2b) are drawn: they need float32Targets and nothing else, so they
+    // say what is missing, never "planned".
+    for (const char* n : {"cascadedShadows", "pointShadows", "spotShadows"}) {
+        CAPTURE(n);
+        CHECK(supported(full, n, &why));
+        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), n, &why));
+        CHECK(why.find("R32F") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+    }
+}
+
+TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {
+    for (const char* n : {"clearCoat", "sheen", "anisotropy"}) {
+        CAPTURE(n);
+        REQUIRE(find_feature(n) >= 0);
+        CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
+        for (FeatureBackend b :
+             {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::D3d11, FeatureBackend::Metal}) {
+            std::string why;
+            CHECK(supported(gpu(b), n, &why));
+        }
+    }
 }
 
 TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {

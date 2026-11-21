@@ -268,7 +268,15 @@ private:
     struct Stamp {
         std::int64_t time = 0;
         std::uintmax_t size = 0;
-        bool operator==(const Stamp& o) const { return time == o.time && size == o.size; }
+        // FNV-1a of the content, only for a file written in the last second ("racily clean", as git calls it): file times
+        // step ~15 ms on Windows, so a second write in the same step keeps time and size. 0 = not hashed. A file whose
+        // time and size match a stored stamp that has a hash is hashed too, however old it is, so the comparison never
+        // has a wildcard for it.
+        std::uint64_t hash = 0;
+        bool settled = false;  // the file was older than a second when read (not part of the comparison)
+        bool operator==(const Stamp& o) const {
+            return time == o.time && size == o.size && (hash == 0 || o.hash == 0 || hash == o.hash);
+        }
     };
     bool load_from_disk(bool startGraph);
     Stamp stamp() const;

@@ -1,9 +1,9 @@
-// FactorIA colour filter (Camera.colorFilter): the last post-process pass. One full-screen triangle reads the finished
+// FactorIA colour filter (PostProcess.colorFilter): the last post-process pass. One full-screen triangle reads the finished
 // game target and writes the filtered picture into a second image of the same size (a pass cannot read what it
 // writes); that image is what present(), the editor viewport and screenshots show.
 //
 // The game target holds sRGB-encoded values, so every filter works in linear light: decode, filter, encode.
-//   mode 0  a plain copy that keeps the alpha (not a Camera.colorFilter value: the renderer uses it to turn a render
+//   mode 0  a plain copy that keeps the alpha (not a PostProcess.colorFilter value: the renderer uses it to turn a render
 //           target the right way up on OpenGL)
 //   mode 1  greyscale     Rec. 709 luminance
 //   mode 2  highContrast  gamma-space contrast stretch around mid grey (x1.8), clipped

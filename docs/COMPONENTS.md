@@ -28,7 +28,7 @@ Position, rotation and scale of an entity relative to its parent. Present on eve
 
 ### Camera
 
-Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
+Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are those of its PostProcess). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -40,17 +40,11 @@ Renders the scene to the screen. Every active camera with primary=true draws its
 | `clearColor` | color | `[0.08,0.08,0.12,1.0]` | Background color the camera clears to when clear is true. |
 | `clear` | bool | `true` | Clear this camera's viewport to clearColor before it draws. Set false on an overlay camera that draws on top of what an earlier camera (a lower depth) drew in the same area. The first camera in depth order clears the whole target, also the part its viewport does not cover; a camera with clear false first in depth order keeps the previous frame under it. |
 | `primary` | bool | `true` | true: this camera renders (when it is active), into its viewport, in depth order with the other primary cameras. false: it does not render (an unused camera, or one a script switches on for a split screen). |
-| `depth` | int | `0` | Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter) use. Cameras with the same depth keep the order of creation. |
-| `viewport` | rect | `[0.0,0.0,1.0,1.0]` | The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field. (since 0.3.0) |
+| `depth` | int | `0` | Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter of a PostProcess) use. Cameras with the same depth keep the order of creation. |
+| `viewport` | rect | `[0.0,0.0,1.0,1.0]` | The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only the PostProcess bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field. (since 0.3.0) |
 | `viewportSpace` | enum: screen \| design | `"screen"` | Which rectangle the fractions of `viewport` count. screen (default): the whole game target, that is the design resolution, or the area the Expand scale mode grows it to for a window with another shape (the letterbox bars of the Fit modes are not part of it). design: the design resolution (display.designWidth x designHeight) from the top-left corner, which is where a UI laid out from anchor [0, 0] in design pixels sits, so a viewport of [430 / 1280, 84 / 720, 400 / 1280, 360 / 720] lands on the same pixels as a 400 x 360 Panel at [430, 84] even when Expand has grown the target. The two are the same in every mode but Expand. For a rectangle that follows a widget, use a CameraView. (since 0.3.0) |
 | `lighting` | enum: scene \| studio | `"scene"` | What lights the 3D meshes this camera draws. scene (default): the Light entities, SceneSettings.ambientLight, the sky and environment colours and the fog of the scene. studio: a rig that follows the camera instead, whatever the scene holds and wherever the camera is: a warm key light from the upper left, a cool fill from the right, a rim light from behind, a neutral ambient and environment for reflections, no sky (the camera paints clearColor), no fog, no shadows. Scene lights do not reach the camera and a 2D lit sprite it draws is lit by the ambient alone (full brightness). Use it for an item turning on a stage in a menu (CameraView), or a portrait, that must look the same in a dark cellar and in a bright field. MeshRenderer.unlit meshes are not affected. Scale the rig with studioIntensity. (since 0.3.0) |
 | `studioIntensity` | float | `1.0` | Only used when lighting is studio. Multiplies the brightness of the studio rig (the three lights, the ambient and the environment): 1 (default) shows a mid-grey surface at about its own colour, 0.5 is dimmer, 2 is bright and may wash out pale colours. Range 0.0..8.0. (since 0.3.0) |
-| `bloom` | bool | `false` | Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame. **Deprecated since 0.31.0 - use `PostProcess.bloomEnabled`. Removed in 0.33.0. Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt).** |
-| `bloomThreshold` | float | `0.7` | Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99). Range 0.0..1.0. **Deprecated since 0.31.0 - use `PostProcess.bloomThreshold`. Removed in 0.33.0. Same meaning and range; PostProcess.bloomKnee softens the start of the glow.** |
-| `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. **Deprecated since 0.31.0 - use `PostProcess.bloomIntensity`. Removed in 0.33.0. Same meaning and range.** |
-| `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. **Deprecated since 0.31.0 - use `PostProcess.bloomRadius`. Removed in 0.33.0. Same meaning and range.** |
-| `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. **Deprecated since 0.31.0 - use `PostProcess.bloomScreenSpace`. Removed in 0.33.0. Same meaning: whether the screen-space UI glows too.** |
-| `colorFilter` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame. **Deprecated since 0.31.0 - use `PostProcess.colorFilterMode`. Removed in 0.33.0. Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value.** (since 0.2.0) |
 | `renderTarget` | string | `""` | Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). The camera draws everything in its frustum unless you give it showTags / hideTags: tag what a target shows (the root of a 2D page of Text, Sprites, Buttons as world-space entities, tag "page_left"), give the target camera showTags ["page_left"] and the camera that draws the model hideTags ["page_left"], so each sees only its own content wherever it is in the world. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters. (since 0.9.0) |
 | `renderTargetSize` | vec2 | `[1024.0,1024.0]` | Only used with renderTarget: the size of the texture in pixels, [width, height], each 1..4096 (default [1024, 1024]). The camera's aspect is this rectangle's, so an orthographic camera with orthoSize 0 sees one world unit per texture pixel and with an orthoSize it sees that half-height whatever the size. Changing it live remakes the texture; memory is about width x height x 8 bytes (4 more per pixel with antialiasing). (since 0.9.0) |
 | `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names (EntityInfo "tags"), default [] = no restriction. When it is not empty the camera draws only the entities that have one of these tags OR have an ancestor that does, so tagging the root of a page covers its Sprites, Text, Shape2D and every other child. Applies to what the camera draws in world space, on a screen camera and on one with renderTarget alike: Sprite, Shape2D, Text, Tilemap, ParticleEmitter and MeshRenderer (a world-space item; screen-space UI and items with space "screen" belong to the screen and ignore it). Lights are not filtered: a Light still lights everything its camera draws. An entity the camera does not draw casts no shadow in that camera's view, takes no click through it and is not picked by it: the pointer, Interactable hit tests (also through a mesh that shows a render target) and game.click only reach what the camera draws. Combine with hideTags: an entity is drawn when it passes showTags AND is not in hideTags. `factoria validate` warns about a tag no entity carries (with a did-you-mean) and rejects a tag in both lists. Example: the camera of a page, showTags ["page_left"]. Assign a whole new array to change it from a script (cam.showTags = ["page_right"]); a tag added with entity.addTag(...) takes effect on the next frame drawn. (since 0.12.0) |
@@ -329,7 +323,7 @@ Emits short-lived particles (smoke, sparks, explosions, fire, trails). Particles
 | `layer` | int | `50` | Draw order. Higher layers draw on top. |
 | `blend` | enum: alpha \| additive \| multiply | `"alpha"` | Compositing of particles: additive is ideal for sparks, fire, magic and neon effects. |
 | `autoDestroy` | bool | `false` | Destroy the entity automatically once it is not emitting and all its particles died. Use with burst > 0 and emitting = false for one-shot effects (explosions, pickups). |
-| `space` | enum: world \| screen | `"world"` | world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true. |
+| `space` | enum: world \| screen | `"world"` | world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with PostProcess.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true. |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right). |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false. (since 0.2.0) |
 | `colorGradient` | json | `[]` | Colour over the particle's life, alpha included: a list of [position, colour] keys, position 0 = born, 1 = dies, blended linearly: [[0, "#ffffff"], [0.4, "#ffcc33"], [1, "#ff220000"]] (a colour is "#rrggbb", "#rrggbbaa", a name or [r, g, b, a]). At most 16 keys. [] (default) = startColor -> endColor. A form that does not parse is reported with the right form, and the emitter falls back to startColor -> endColor. (since 0.17.0) |
@@ -391,7 +385,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `metallic` | float | `0.0` | 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `roughness` | float | `0.6` | 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light emitted by the surface regardless of lighting (glow). Black = none. |
-| `emissiveStrength` | float | `1.0` | HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch. Range 0.0..100.0. (since 0.23.0) |
+| `emissiveStrength` | float | `1.0` | HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `PostProcess.bloomEnabled` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch. Range 0.0..100.0. (since 0.23.0) |
 | `unlit` | bool | `false` | true = ignore lighting and draw the flat base color. |
 | `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. |
 | `receiveShadows` | bool | `true` | Receive shadows from shadow-casting lights. |
@@ -402,19 +396,133 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (since 0.16.0) |
 | `instances` | int | `0` | 0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the material reads from compute buffers (the material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and places each instance; the entity's Transform is the base every instance is placed relative to (fa_model in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast shadows and enter the depth prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why. Range 0..16777216. (since 0.32.0) |
 | `instanceBounds` | float | `0.0` | For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen. Range 0.0..1000000.0. (since 0.32.0) |
+| `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking"). Range 0.0..100.0. (since 0.33.0) |
+| `contributeGI` | bool | `true` | Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI. (since 0.33.0) |
+| `receiveGI` | bool | `true` | Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well. (since 0.33.0) |
+| `probeAnchor` | entity |  | The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty. (since 0.33.0) |
+| `clearcoat` | float | `0.0` | Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it. Range 0.0..1.0. (since 0.33.0) |
+| `clearcoatRoughness` | float | `0.03` | Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value. Range 0.0..1.0. (since 0.33.0) |
+| `sheenColor` | color | `[0.0,0.0,0.0,1.0]` | Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen). (since 0.33.0) |
+| `sheenRoughness` | float | `0.5` | Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value. Range 0.0..1.0. (since 0.33.0) |
+| `anisotropy` | float | `0.0` | Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own. Range -1.0..1.0. (since 0.33.0) |
+| `anisotropyRotation` | float | `0.0` | Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation. Range -360.0..360.0. (since 0.33.0) |
+| `specular` | float | `1.0` | Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own. Range 0.0..1.0. (since 0.33.0) |
+| `ior` | float | `1.5` | Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own. Range 1.0..3.0. (since 0.33.0) |
+| `transmission` | float | `0.0` | How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md). Range 0.0..1.0. (since 0.33.0) |
+| `thickness` | float | `0.0` | Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale. Range 0.0..1000.0. (since 0.33.0) |
+| `attenuationColor` | color | `[1.0,1.0,1.0,1.0]` | Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint. (since 0.33.0) |
+| `attenuationDistance` | float | `0.0` | Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0). Range 0.0..100000.0. (since 0.33.0) |
+| `subsurface` | float | `0.0` | Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md. Range 0.0..1.0. (since 0.33.0) |
+| `subsurfaceRadius` | float | `0.01` | Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0. Range 0.0..0.5. (since 0.33.0) |
+| `subsurfaceColor` | color | `[1.0,0.4,0.25,1.0]` | How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0. (since 0.33.0) |
+| `receiveDecals` | bool | `true` | true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b. (since 0.33.0) |
+| `decalLayer` | int | `0` | 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b. Range 0..15. (since 0.33.0) |
 
 ### Light
 
-A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position.
+A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | enum: directional \| point \| spot | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. |
+| `type` | enum: directional \| point \| spot \| area | `"directional"` | directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. Materials with a lighting() or light() hook and full shaders get it as the light of one point of the emitter (the nearest to the reflection of the view), not the whole shape. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Light color. |
 | `intensity` | float | `1.0` | Brightness multiplier. Range 0.0..1000.0. |
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
-| `castShadows` | bool | `false` | Cast shadows. Only supported on directional lights for now. |
+| `castShadows` | bool | `false` | Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide as the emitter: see shadowSoftness), all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once). |
+| `innerAngle` | float | `0.0` | Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a. Range 0.0..89.0. (since 0.33.0) |
+| `shape` | enum: rectangle \| disc \| tube | `"rectangle"` | Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b. (since 0.33.0) |
+| `size` | vec2 | `[1.0,1.0]` | [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it. Range 0.001..1000.0. (since 0.33.0) |
+| `cookie` | asset (texture) | `""` | A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (since 0.33.0) |
+| `ies` | asset (any) | `""` | An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (since 0.33.0) |
+| `shadowResolution` | int | `0` | Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others. Range 0..4096. (since 0.33.0) |
+| `shadowBias` | float | `0.0` | Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (since 0.33.0) |
+| `shadowNormalBias` | float | `0.0` | Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light). Range 0.0..1.0. (since 0.33.0) |
+| `shadowFilter` | enum: pcf \| hard \| pcss | `"pcf"` | How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness. (since 0.33.0) |
+| `shadowSoftness` | float | `1.0` | With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow). Range 0.0..10.0. (since 0.33.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit. Range 0.0..100000.0. (since 0.33.0) |
+| `mode` | enum: realtime \| baked \| mixed | `"realtime"` | realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d). (since 0.33.0) |
+| `volumetric` | float | `0.0` | Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others. Range 0.0..10.0. (since 0.33.0) |
+| `contactShadowLength` | float | `0.0` | Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches toward the point of its emitter that lights the pixel). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i). Range 0.0..10.0. (since 0.33.0) |
+
+### Decal
+
+Since 0.33.0.
+
+A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, "Decals".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `albedo` | asset (texture) | `""` | The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour. |
+| `normal` | asset (texture) | `""` | Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = the normal stays. |
+| `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White (default) leaves the texture as it is. |
+| `opacity` | float | `1.0` | 0..1: strength of the whole decal, for fading it out (a bloodstain that dries). Range 0.0..1.0. |
+| `normalStrength` | float | `1.0` | 0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all). Range 0.0..4.0. |
+| `angleFade` | float | `60.0` | Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the surface is edge-on. Default 60. Range 0.0..90.0. |
+| `sortOrder` | int | `0` | Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); equal values keep the order in which the world visits its Decal components (a stable sort). When more than 32 decals cover one cluster of the view the lowest values are kept. Range -1000000..1000000. |
+| `layers` | int | `0` | Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 layer 1, up to bit 15. 0 (default) = every layer. Range 0..65535. |
+
+### ReflectionProbe
+
+Since 0.33.0.
+
+Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light probe covers it), blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the one with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by the command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe is captured while the game runs, within a budget per frame (update). The command render.probes shows the atlas and, with `entity`, which probes a mesh reflects. See docs/rendering/RENDERING_LIGHTING.md, "Reflection probes".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | enum: baked \| realtime | `"baked"` | baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; it costs no GPU time while the game runs). realtime: the scene is captured from this position while the game runs, as `update` says. |
+| `boxSize` | vec3 | `[10.0,10.0,10.0]` | Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale multiplies it). Each side 0.01..100000. Default [10, 10, 10]. |
+| `boxOffset` | vec3 | `[0.0,0.0,0.0]` | Where the centre of the box is, in metres from the entity's origin along its local axes (the capture is taken from the origin). Default [0, 0, 0]. |
+| `blendDistance` | float | `1.0` | Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. Default 1. Range 0.0..1000.0. |
+| `importance` | int | `0` | -1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the atlas has no room the probe with the smallest importance is evicted first. Default 0. Range -1000..1000. |
+| `resolution` | int | `128` | Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions. Range 32..256. |
+| `nearPlane` | float | `0.1` | Metres, 0.01..100: the nearest distance the capture draws. Default 0.1. Range 0.01..100.0. |
+| `farPlane` | float | `100.0` | Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows `clear`. Default 100. Range 0.1..100000.0. |
+| `clear` | enum: sky \| color | `"sky"` | What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color (clearColor). |
+| `clearColor` | color | `[0.0,0.0,0.0,1.0]` | The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an HDR colour). Default black. |
+| `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty the capture draws only the entities that have one of these tags or a parent that does (as Camera.showTags). |
+| `hideTags` | json | `[]` | Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the capture (as Camera.hideTags). Default []. |
+| `update` | enum: everyFrame \| timeSliced \| onDemand | `"timeSliced"` | Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes together draw at most the renderer's face budget a frame (2 by default), so a capture takes several frames. everyFrame: a new capture starts as soon as the last one is done, before the probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take turns, the more important and the longest ago captured first. onDemand: captured when the probe appears and then only when the command render.probe_refresh asks for it. |
+| `bakedMap` | asset (any) | `""` | Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr pages next to it). Empty = not baked. A baked probe whose file is missing or older than its format logs one warning and stays empty; the file is watched and reloaded when it changes. |
+| `intensity` | float | `1.0` | 0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1. Range 0.0..100.0. |
+| `boxProjection` | bool | `true` | True (default): the reflection is corrected for the box (the room's walls are where the box edge is), which suits an interior. False: the reflection is the one of an infinitely far environment. |
+
+### LightProbeGroup
+
+Since 0.33.0.
+
+Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHT_PROBES.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[10.0,4.0,10.0]` | [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10]. |
+| `spacing` | float | `2.0` | Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1. Range 0.25..100.0. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet. |
+| `grid` | bool | `true` | true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored). |
+| `points` | json | `[]` | Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. |
+| `showGizmo` | bool | `true` | The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game. |
+
+### RealtimeGI
+
+Since 0.33.0.
+
+Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[20.0,6.0,20.0]` | [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20]. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0]. |
+| `spacing` | float | `2.0` | Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2. Range 0.25..100.0. |
+| `probesPerFrame` | int | `2` | 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2. Range 1..32. |
+| `resolution` | int | `16` | Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much. Range 16..32. |
+| `intensity` | float | `1.0` | 0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing it does not capture again. Default 1. Range 0.0..16.0. |
+| `bounce` | float | `1.0` | 0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures of a ReflectionProbe always see the grid at full strength. Default 1. Range 0.0..1.0. |
+| `hysteresis` | float | `0.9` | 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves). Range 0.0..0.99. |
+| `nearExclusion` | float | `0.1` | Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1. Range 0.01..10.0. |
+| `maxDistance` | float | `30.0` | Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30. Range 1.0..1000.0. |
+| `backfaceTolerance` | float | `0.25` | 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25. Range 0.02..0.9. |
+| `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. |
+| `hideTags` | json | `[]` | Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. |
 
 ### Animator
 
@@ -1185,7 +1293,7 @@ A visual effect placed in the scene, like a prefab (docs/PARTICLES.md, "Effect d
 
 Since 0.3.0.
 
-A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
+A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera's PostProcess are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1270,7 +1378,7 @@ Attaches JavaScript behaviour to the entity. `path` is an ES module whose defaul
 
 Since 0.31.0.
 
-A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
+A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1288,7 +1396,7 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `exposureMinEv` | float | `-4.0` | Auto exposure only: the lowest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
 | `exposureMaxEv` | float | `4.0` | Auto exposure only: the highest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
 | `exposureAdaptationSpeed` | float | `2.0` | Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster. Range 0.0..20.0. |
-| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost. |
+| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost. |
 | `bloomIntensity` | float | `1.2` | Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none). Range 0.0..10.0. |
 | `bloomThreshold` | float | `0.7` | Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1. Range 0.0..20.0. |
 | `bloomKnee` | float | `0.5` | Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp). Range 0.0..1.0. |
@@ -1311,8 +1419,8 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `colorGradingCurveBlue` | arrayF32 | `[]` | NOT DRAWN YET. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
 | `colorGradingLut` | asset (any) | `""` | Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports: LUT_3D_SIZE 2 to 65, 16, 32 and 64 are the usual ones, DOMAIN 0..1) applied last, on the display picture; import it with assets.import. A file that is missing or malformed is logged once with its line and the LUT is skipped. Empty = none. |
 | `colorGradingLutContribution` | float | `1.0` | Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully, 0 = the LUT is skipped). Range 0.0..1.0. |
-| `colorFilterEnabled` | bool | `false` | Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it). |
-| `colorFilterMode` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter. |
+| `colorFilterEnabled` | bool | `false` | Switches the accessibility colour filter on. The last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it). |
+| `colorFilterMode` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Only used when colorFilterEnabled. The filter: greyscale (Rec. 709 luminance in linear light), highContrast (contrast stretched 1.8x around mid grey, clipped), protanopia, deuteranopia, tritanopia (a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees, so colours that collapse together (red vs green) differ in brightness or in the remaining hue). A game's options screen sets it from the player's choice (it is not saved by itself). To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. |
 | `vignetteEnabled` | bool | `false` | Switches the vignette on: the edges darken toward a colour. Drawn on the display picture, so it looks the same on an SDR and an HDR output. Cost: part of the final pass. |
 | `vignetteIntensity` | float | `0.4` | Only used when vignetteEnabled. 0..1: how far the edge is pulled to vignetteColor (0 = none, 1 = fully). Range 0.0..1.0. |
 | `vignetteSmoothness` | float | `0.5` | Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the edge is (0 = a sharp ring, 1 = it starts at the centre). Range 0.0..1.0. |
@@ -1404,6 +1512,35 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 | `paperWhiteNits` | float | `200.0` | Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it. Range 80.0..1000.0. (since 0.31.0) |
 | `skyMaterial` | asset (material) | `""` | Project-relative path of a custom material of kind "sky" (a *.material.json), or "" (default) for the skyColor / horizonColor gradient. The material's sky() snippet receives the view direction, the direction of the sun (the scene's directional light of slot 0), the time and the colour the gradient would have drawn, so it can replace or tint it; it draws the background of a perspective camera, opaque. The reflections and the ambient light of the meshes keep following skyColor and horizonColor. `material.info` lists the material's params and `shader.compile` compiles it and reports errors with file:line; a material that does not compile (or is not of kind "sky") shows the gradient and logs why. Guide: docs/SHADERS.md (`factoria docs read shaders`, "Sky materials"). (since 0.32.0) |
 | `skyMaterialParams` | json | `{}` | Values for the params and textures of skyMaterial, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"horizonGlow": [1, 0.4, 0.1, 1], "stars": "textures/stars.png"}. Unnamed params keep the material's defaults. Ignored while skyMaterial is empty. The editor's Scene settings panel shows one control per param of the material. (since 0.32.0) |
+| `shadowCascades` | int | `1` | Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md). Range 1..4. (since 0.33.0) |
+| `shadowCascadeSplit` | float | `0.5` | Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between. Range 0.0..1.0. (since 0.33.0) |
+| `shadowCascadeBlend` | float | `0.1` | Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam. Range 0.0..0.5. (since 0.33.0) |
+| `shadowDistance` | float | `0.0` | How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch. Range 0.0..100000.0. (since 0.33.0) |
+| `shadowAtlasSize` | int | `4096` | The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame. Range 512..8192. (since 0.33.0) |
+| `contactShadows` | bool | `false` | Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows"). (since 0.33.0) |
+| `environmentMap` | asset (hdri) | `""` | An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (since 0.33.0) |
+| `environmentIntensity` | float | `1.0` | Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background. Range 0.0..100.0. (since 0.33.0) |
+| `environmentRotation` | float | `0.0` | Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture. Range -360.0..360.0. (since 0.33.0) |
+| `environmentBackground` | bool | `true` | Whether the environment map is also drawn as the background (true, default). False keeps the sky material, the physical sky or the gradient as the background and uses the picture for the lighting and the reflections only. A skyMaterial that is set always draws the background. (since 0.33.0) |
+| `skyModel` | enum: gradient \| physical | `"gradient"` | gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn. (since 0.33.0) |
+| `skySunSize` | float | `0.53` | Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical. Range 0.1..10.0. (since 0.33.0) |
+| `skyTurbidity` | float | `2.0` | Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical. Range 1.0..10.0. (since 0.33.0) |
+| `skyGroundAlbedo` | color | `[0.3,0.3,0.3,1.0]` | Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical. (since 0.33.0) |
+| `skyExposure` | float | `1.0` | Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical. Range 0.0..16.0. (since 0.33.0) |
+| `skyTintsSun` | bool | `true` | Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical. (since 0.33.0) |
+| `cloudCoverage` | float | `0.25` | Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical. Range 0.0..1.0. (since 0.33.0) |
+| `cloudDensity` | float | `0.6` | Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical. Range 0.0..1.0. (since 0.33.0) |
+| `cloudAltitude` | float | `2500.0` | Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical. Range 300.0..12000.0. (since 0.33.0) |
+| `cloudWind` | vec2 | `[8.0,3.0]` | Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical. (since 0.33.0) |
+| `volumetricFog` | bool | `false` | Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts". (since 0.33.0) |
+| `volumetricDensity` | float | `0.02` | Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricHeightBase` | float | `0.0` | Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog. Range -10000.0..10000.0. (since 0.33.0) |
+| `volumetricHeightFalloff` | float | `0.0` | Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricAnisotropy` | float | `0.4` | Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog. Range -0.99..0.99. (since 0.33.0) |
+| `volumetricAmbient` | float | `1.0` | Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog. Range 0.0..10.0. (since 0.33.0) |
+| `volumetricDistance` | float | `100.0` | Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog. Range 1.0..10000.0. (since 0.33.0) |
+| `volumetricQuality` | enum: low \| medium \| high | `"medium"` | Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog. (since 0.33.0) |
+| `lightmaps` | asset (any) | `""` | The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (since 0.33.0) |
 
 
 # Commands reference
@@ -2863,6 +3000,8 @@ Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
 - .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
 - .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
 - .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the line; a 1D table is refused).
+- .ies: an IES photometric file (LM-63, type C) for Light.ies on a point or spot light, checked and copied to assets/lights/ (a malformed or unsupported file is an error that names the line; the result has the name, the angle counts and the peak candela).
+- .hdr: a Radiance HDR panorama for SceneSettings.environmentMap, checked and copied to assets/hdri/. Only an equirectangular picture (twice as wide as it is tall) is read: a cube cross, a strip of six faces or a mirror-ball light probe is refused with the layout named and how to convert it. A picture wider than 4096 is shrunk for the GPU when it is loaded; one over 8192 x 4096 is refused from its header. A file that is cut short is an error.
 - .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, sections from markers, drums as grids (music.import_midi has the options `quantize` and `soundfont`; docs/MUSIC.md, "MIDI").
 - .mp4 .mov .webm .mkv .avi .m4v: converted to an MPEG-1 video with MP2 audio in an .mpg (the only video the engine plays, the same on every platform) by ffmpeg, at most 1280 px wide, quality 4, 30 fps when the frame rate is not one MPEG-1 has. ffmpeg is found through $FACTORIA_FFMPEG, PATH or the copy `factoria setup ffmpeg` installs; without it the error names that command. A source with no audio track gives a silent video (the result warns). The result has width, height, fps and duration and the Video component that plays it. An .mpg or .mpeg is checked to be MPEG-1 and copied.
 Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/, videos in assets/video/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true.
@@ -2870,7 +3009,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. Path the command reads. |
-| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/, assets/luts/ or assets/lights/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
 | `author` | string | no | Who made it. Recorded in assets.json for the credits. |
 | `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
@@ -2881,7 +3020,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 ### `assets.list`
 
-List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, other (by file name).
+List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, vfx, hdri, other (by file name).
 
 Capabilities: read
 
@@ -4403,7 +4542,9 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
+
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -5589,6 +5730,95 @@ The job system now: worker threads, mode, jobs run and queued last frame, how bu
 Capabilities: read
 
 mode is "threads" (a pool of workers; 0 workers means jobs run on the main thread when it waits for them or at the end of the frame), "inline" (debugging: every job runs on the main thread when it is submitted) or "stopped". setting is the value the pool was started with and source where this engine's setting came from ("EngineConfig", "FA_JOB_THREADS", "factoria.json" for runtime.jobThreads, or "default" = "auto"; a second engine in the same process shares the first one's pool); autoWorkers is what "auto" gives on this machine. lastFrame and lanes (one per thread: main, worker 1..) count the last finished frame; busyMs and busyPct are wall time, rounded, and differ from run to run; with several engines in the process the first one to end a frame closes these frames. waiting counts the threads in a wait now; enginePending this engine's jobs not finished yet (each engine owns the jobs it queues, and shutdown waits for them). Threads never change what the game computes (game.state_hash checks it). Example: jobs.info {}
+
+## assets
+
+### `lightmap.bake` (modifies state)
+
+Since 0.33.0.
+
+Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest.
+
+Capabilities: read, state, writeProject
+
+Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. The LightProbeGroups of the scene are baked by the same job (phase "probes") into `<name>.lightmap.<hash>.probes`, which the manifest lists: moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. Result: {manifest, pages, entities, texels, rays, skipped, warnings, probes {file, count, invalid, groups}, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
+
+Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTMAPS.md, "Baking".
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+### `lightmap.bake_cancel` (modifies state)
+
+Since 0.33.0.
+
+Stop a running bake job; no file is changed unless it was already writing them.
+
+Capabilities: read, state
+
+Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the rays, the denoiser, the gutter fill) looks at it within a short time, and the job ends with state cancelled. A job that reached the writing phase finishes (a half-written set would be worse) and ends done. Cancelling a finished or already cancelled job is not an error. Result: lightmap.bake_status's shape. Example: lightmap.bake_cancel {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+
+### `lightmap.bake_start` (modifies state)
+
+Since 0.33.0.
+
+Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel.
+
+Capabilities: read, state, writeProject
+
+The same bake as lightmap.bake (same arguments and result) on a job thread, so the editor and an agent stay responsive. The scene is read when you call this: changing the scene while it runs does not change the bake, and a result is only given to the scene it was made for. Call lightmap.bake_status until its state is done, failed or cancelled: that call also hands the result to the scene (SceneSettings.lightmaps and the renderer's reload). Result: {job, state, phase, progress, manifest}. Example: lightmap.bake_start {"path":"scenes/main.lightmap.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `texelsPerMeter` | number | no | Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels. Default 16. |
+| `maxPageSize` | integer | no | The longest side of a page in texels. More meshes than fit make more pages (at most 256). Default 2048. |
+| `samples` | integer | no | Gather rays per texel for the sky, emissive surfaces and bounces. 16 is a draft, 64 smooth. Default 64. |
+| `bounces` | integer | no | Times light is reflected before it reaches a texel. 0 = direct light and sky only. Default 2. |
+| `shadowSamples` | integer | no | Shadow rays per light per texel; soft shadows (Pcss lights, area lights) need more. Default 4. |
+| `seed` | integer | no | The noise pattern. The same seed and scene give the same bytes on any number of threads. Default 0. |
+| `dilatePasses` | integer | no | Texels of gutter filled around each mesh so bilinear filtering does not bleed black. Default 4. |
+| `denoiseRadius` | integer | no | Edge-aware blur radius in texels; 0 turns the denoiser off. Default 2. |
+| `denoiseSigma` | number | no | How different two neighbouring texels may be (relative to their light) and still be blended. Default 0.3. |
+| `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
+| `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
+| `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
+
+### `lightmap.bake_status` (modifies state)
+
+Since 0.33.0.
+
+The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled.
+
+Capabilities: read, state, writeProject
+
+Result: {job, state (running|done|failed|cancelled), phase (geometry, layout, prepare, rasterize, trace, denoise, dilate, probes, writing), progress 0..1, rays, elapsedSeconds, etaSeconds (once there is enough to estimate), manifest} and, when finished, `result` (the lightmap.bake result: pages, texels, rays, skipped, warnings) or `error` and `hint`. The first call that sees a bake done hands it to the scene (SceneSettings.lightmaps and the renderer's reload) unless the bake was started with apply false, or the scene changed since; `handOver` says what happened (while the editor's game runs it is not applied: Stop would throw it away).
+
+With no worker thread (runtime.jobThreads 0, or a web build without threads) a job runs when somebody waits for it or at the end of the frame, so the first bake_status blocks until the bake is done and answers done, failed or cancelled, never running. With runtime.jobThreads "inline" bake_start itself runs the whole bake. Only the last 8 finished jobs are kept, whether or not their status was read; a done job that still has its `apply` to hand over is kept (up to 64) until a status call hands it over. Example: lightmap.bake_status {"job":"bake:1"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `job` | string | yes | The id lightmap.bake_start returned. |
+| `apply` | boolean | no | Overrides the apply of lightmap.bake_start for this hand-over. The editor passes false and edits the setting itself (undo, dirty scene). |
 
 ## scene
 
@@ -7131,13 +7361,13 @@ Capabilities: read
 
 The PostProcess component (a camera's own stack, or a volume: an entity with a shape and a size) holds one block of fields per post effect, named `<effect>Enabled` and `<effect>Parameter`: bloomEnabled, bloomIntensity, tonemapMode, vignetteIntensity... and the meta fields enabled, shape (global, box, circle, sphere), size, blendDistance, priority and weight. Result: {id, effects, order, value}; `effects` lists the effects this component switches on, in the order they run; `order` is the order of every effect (the same as render.supports lists them); `value` has every field (or only the names in `fields`). With resolved true the answer is the stack a CAMERA draws: {id, resolved: {camera, position, perspective, layers, effects, count}}. Example: postprocess.get {"id":"camera","fields":["bloomEnabled","bloomIntensity"]}; postprocess.get {"id":"camera","resolved":true}
 
-The resolved stack is the one the renderer draws, computed on the CPU (it works with graphics=false): the camera's own PostProcess (or, without one, the deprecated Camera.bloom* and colorFilter fields that stand in for it), then every volume the camera is inside (or within blendDistance of) by ascending priority, each blended by its weight and how deep the camera is. `layers` lists them: {index, from, kind (own, legacy, volume), entity, priority (volumes), weight, influence, strength}; `strength` is weight times influence. `effects` has every effect in the canonical order: {name, enabled, layers (the indexes that write it), fields} where `fields` (only for an effect that runs) maps each parameter to {value, from, strength}: `from` is "own", "legacy", "volume:<entity id>" or "default" (no layer wrote it). `count` is how many effects run. Without `id` the main camera is used (the camera that draws first: active, primary, not drawing into a `renderTarget`, lowest depth); a scene with no camera answers for the default camera, which only global volumes reach. Errors: `not_found` for an unknown entity, `invalid_argument` for an entity without a PostProcess (add one with postprocess.set), a resolved id that is not a camera, `fields` together with resolved, or a field name that does not exist (with a did-you-mean). The fields are stored and saved with the scene; an effect is drawn only when the renderer supports it (render.supports names which).
+The resolved stack is the one the renderer draws, computed on the CPU (it works with graphics=false): the camera's own PostProcess, then every volume the camera is inside (or within blendDistance of) by ascending priority, each blended by its weight and how deep the camera is. `layers` lists them: {index, from, kind (own, volume), entity, priority (volumes), weight, influence, strength}; `strength` is weight times influence. `effects` has every effect in the canonical order: {name, enabled, layers (the indexes that write it), fields} where `fields` (only for an effect that runs) maps each parameter to {value, from, strength}: `from` is "own", "volume:<entity id>" or "default" (no layer wrote it). `count` is how many effects run. Without `id` the main camera is used (the camera that draws first: active, primary, not drawing into a `renderTarget`, lowest depth); a scene with no camera answers for the default camera, which only global volumes reach. Errors: `not_found` for an unknown entity, `invalid_argument` for an entity without a PostProcess (add one with postprocess.set), a resolved id that is not a camera, `fields` together with resolved, or a field name that does not exist (with a did-you-mean). The fields are stored and saved with the scene; an effect is drawn only when the renderer supports it (render.supports names which).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | no | Entity id (or name) that has the PostProcess component; with resolved true, the Camera entity (default: the main camera). |
 | `fields` | array | no | Only these fields (names as in api.components, e.g. bloomIntensity). Default: every field. Not with resolved. |
-| `resolved` | boolean | no | true = the stack the camera draws (its own PostProcess or legacy fields, plus the volumes it is inside) with the source of every value. Default false. |
+| `resolved` | boolean | no | true = the stack the camera draws (its own PostProcess, plus the volumes it is inside) with the source of every value. Default false. |
 
 ### `postprocess.presets`
 
@@ -7236,6 +7466,26 @@ A prefab describes the reusable thing, not this instance, so the file does NOT c
 | `id` | string | yes | Id (or name) of the entity to save; its children are saved with it. |
 | `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. Inside the project; the managed folders (.git, .factoria/ except .factoria/tmp) are refused. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `overwrite` | boolean | no | Replace the file when it already exists. Without it an existing file is an error. Default false. |
+
+## assets
+
+### `probe.bake` (modifies state)
+
+Since 0.33.0.
+
+Capture a ReflectionProbe once and write its baked page and manifest into the project.
+
+Capabilities: read, state, writeProject
+
+Draws the scene from the probe's position into a cube map (six 90 degree views of the scene, sky included unless the probe's `clear` is color), converts it to the probe's octahedral map, filters the rough levels with the same GGX filter as the sky's reflections and projects the diffuse light onto nine spherical-harmonics coefficients. It writes `<name>.probe.<hash>.hdr` (the page, RGBE) and then `<name>.probe.json` (the manifest: resolution, coefficients, page, hash) atomically, and sets ReflectionProbe.bakedMap to the manifest (`apply`, default true) so a probe in `baked` mode shows it; the renderer reads a changed pair again by itself (hot reload). The ReflectionProbe's resolution, nearPlane, farPlane, clear, clearColor, showTags and hideTags decide what is captured; its intensity is not baked in (it multiplies what the probe shows at run time). The same scene on the same GPU gives the same bytes; another GPU may differ in the last bit of a texel, which is why the page's name holds the hash of its bytes. Needs graphics with RGBA16F render targets (`render.supports floatTargets`). Result: {entity, manifest, page, hash, resolution, bytes, applied, note?}. Example: probe.bake {"entity":"lobby_probe"}
+
+The captured scene is the 3D scene as a camera at the probe's position would draw it (meshes with their materials, lights, shadows). The probe's own entity is not special: hide what must not appear with hideTags. Writes: the page, then the manifest (a file another program holds open cannot be replaced on Windows: close it, or use another `path`). Refused with game_running while the editor's game runs (Stop would throw the bakedMap away). docs/design/ARCHITECTURE_PROBES.md, "Baked probes".
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | The entity with the ReflectionProbe component (id or name). |
+| `path` | string | no | The manifest to write, inside the project, ending in .probe.json (the page goes next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.<entity id>.probe.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `apply` | boolean | no | Set ReflectionProbe.bakedMap to the manifest when it is done (the scene is not saved: scene.save does). Default true. |
 
 ## project
 
@@ -7575,17 +7825,17 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 Since 0.31.0.
 
-Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game picture, or report which view is on.
+Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on.
 
 Capabilities: read, state
 
-A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past the last or with no shadow); `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
 
-The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao or cascades (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `view` | string ["none","depth","normals","ao"] | no | none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view. |
+| `view` | string ["none","depth","normals","ao","cascades"] | no | none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view. |
 
 ### `render.frame_graph`
 
@@ -7602,6 +7852,18 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
+
+### `render.gi_grid`
+
+Since 0.33.0.
+
+The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
+
+Capabilities: read
+
+Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is "updating" (probes not captured yet), "ready", "invalid" (`message` names the field and the fix), "noRoom" (more than `probeLimit` probes), "failed" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay until the next capture succeeds) or "unsupported" (no RGBA16F blending). `invalidProbes` counts the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the renderer supports it). {grids: [], atlas: null} while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} See docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
 
 ### `render.inspect`
 
@@ -7621,6 +7883,38 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `window` | integer | no | A step is a change of at least threshold within this many samples. Default 2. |
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
+
+### `render.light_probes`
+
+Since 0.33.0.
+
+The baked light probes of the scene and the light a MeshRenderer receives from them.
+
+Capabilities: read
+
+Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the scene's lightmap manifest (SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives their spherical harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at MeshRenderer.probeAnchor). Without `entity`: {lightmaps, baked, probes, invalid, groups: [{id, kind: "grid" | "points", count, invalid, stale}], unbaked: [ids]}; `invalid` probes sit inside geometry and are skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: "probes" | "lightmap" | "sky" | "none", position, coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine [r, g, b] coefficients), ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; `sky` means no probe reaches it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes {"entity":"Player"}
+
+A group is `stale` when its LightProbeGroup was edited (moved, resized, other spacing or points) since the bake; `unbaked` lists the scene's groups the baked file does not hold (added or edited since): bake again for both. Both are left out when the scene has no baked probes. Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::light_probes_report in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
+
+### `render.material_cost`
+
+Since 0.33.0.
+
+What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
+
+Capabilities: read
+
+The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are on and what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, cost, extraPasses, note}]}. `phase` is "opaque" or "blended" (blended meshes are drawn after the opaque ones, far to near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is "extraPass" (transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, one that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per pass), "phase" (blended: no pass, a different place in the frame) or "shader" (clear coat, sheen, anisotropy: more work per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the top-level one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer halves). The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets no layers and no transmission). Example: render.material_cost {"id":"window"}
+
+Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no MeshRenderer, `unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not loaded yet. The same answer is Renderer::material_cost in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The id of an entity with a MeshRenderer. |
 
 ### `render.output`
 
@@ -7651,6 +7945,40 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+### `render.probe_refresh` (modifies state)
+
+Since 0.33.0.
+
+Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.
+
+Capabilities: read, state
+
+Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left out): the one that an `onDemand` probe waits for, and a way to refresh a `timeSliced` or `everyFrame` probe after the scene around it changed. The capture is made in the next frames, a few cube faces each (render.probes shows `facesDone` and `captures`; the faces per frame are the renderer's budget, 2 by default), so draw a few frames before reading it. Result: {refreshed: [entity ids], skipped: [{entity, reason}]}. Without `entity`, a probe that has no tile yet is listed in `skipped` with the reason; with `entity` it is an error. Example: render.probe_refresh {"entity": "lobby"}
+
+Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not exist; `invalid_argument` when the named entity has no ReflectionProbe or is a baked one; `unavailable` without graphics (graphics=false) or when the named probe has no tile in the atlas. The same is Renderer::probe_refresh in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The probe's entity (id or name). Default: every realtime probe. |
+
+### `render.probes`
+
+Since 0.33.0.
+
+The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
+
+Capabilities: read
+
+Reads the state of the reflection probes (ReflectionProbe components, docs/design/ARCHITECTURE_PROBES.md) after drawing a frame when none is current. Result: {atlas: {size, format ("RGBA16F" or "RGBA8"), tiles, usedTexels, reservedTexels, capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, probes: [{entity, mode, update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, lastFrame, facesDone | bakedMap, hash?}]}. `state` is "ready", "pending", "capturing", "noRoom", "noBake" or "failed". The lit meshes sample the atlas (the sky is its entry 0, `sky`). The result is {probes: [], atlas: null} while no ReflectionProbe has been drawn. With `entity` (a mesh), the result also has `mesh: {probes: [{entity, share}], sky}`: which probes that mesh reflected in the last frame and how much of its reflection each holds (0..1, steps of 1/32; the probes and the sky add up to 1). Errors: `unavailable` without graphics; `invalid_argument` for an `entity` that is not a string or has no MeshRenderer. Example: render.probes {} or render.probes {"entity": "sphere"}. What each state means: docs/rendering/RENDERING_PROBES.md, the render.probes item.
+
+The first ask for a mesh draws one more frame (the renderer keeps the picks of that one mesh only): the debug-draw lines queued since the last draw are consumed and a time-sliced capture moves on by a frame. An ask without `entity` ends that watch.
+
+`state`: "ready"; "pending" (waiting for its first capture); "capturing" (facesDone of 6 faces drawn); "noRoom" (the atlas has no tile for it: `message` says why); "noBake" (a baked probe with no readable bakedMap: run probe.bake); "failed" (retried after 30 frames). `overLimit` counts the active probes beyond the 256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A capture is asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. A mesh no probe reaches reflects the sky. The atlas of the realtime and baked probes is one image 1024 texels wide (1024 x 1024, 8 MB as RGBA16F, unless a RealtimeGI makes it taller); `usedTexels` is what the tiles cover and `reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | A mesh entity (id or name): the result also says which probes it reflects. |
+
 ### `render.reset_post_history` (modifies state)
 
 Since 0.32.0.
@@ -7675,13 +8003,13 @@ What this renderer can do on this graphics backend and GPU: float targets, linea
 
 Capabilities: read
 
-Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (none is today): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
+Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature. |
+| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature. |
 
 ## review
 
@@ -16493,7 +16821,7 @@ declare module "factoria" {
     set scale(value: Vec3Like);
   }
   /**
-   * Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
+   * Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport (the whole screen by default), in ascending depth order: the lowest depth draws first and is "the" camera (camera.main; the bloom and colorFilter of the frame are those of its PostProcess). Two or more cameras with their own viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, after all the cameras. 3D cameras look down their local -Z axis.
    * 
    * Category: Camera
    */
@@ -16532,11 +16860,11 @@ declare module "factoria" {
      */
     primary: boolean;
     /**
-     * Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter) use. Cameras with the same depth keep the order of creation.
+     * Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. The lowest is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, colorFilter of a PostProcess) use. Cameras with the same depth keep the order of creation.
      */
     depth: number;
     /**
-     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field.
+     * The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the TOP-LEFT corner and +Y down (like screen space). The fractions count the GAME TARGET (what `viewportSpace` says): not the pixels of the window, whose letterbox bars (a window with another shape than the game) are outside it. [0, 0, 1, 1] (default) is the whole screen, [0, 0, 0.5, 1] the left half, [0.5, 0, 0.5, 1] the right half, [0, 0, 0.5, 0.5] the top-left quarter, [0.7, 0.05, 0.25, 0.25] a minimap inset. x + width and y + height must not pass 1 and the size must be above 0, or the scene fails to load. The aspect ratio follows the rectangle: an orthographic camera with orthoSize 0 keeps one world unit per design pixel (it sees half the width in a half-width viewport); with an orthoSize it keeps the same visible height, so set it equal on the cameras of a split screen to give every player the same zoom. Each camera is culled and lit on its own, so a Light2D only lights the cameras it reaches. The post-processing stack of a camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own rectangle; only the PostProcess bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI and screen-space items cover the whole screen, not one viewport. camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. To show a camera INSIDE a widget of the UI instead (an item on a stage in a menu, a map in a panel) give it a CameraView: that fits the rectangle of the widget, with the clipping, layering and mirroring of the UI, and ignores this field.
      * @since 0.3.0
      */
     get viewport(): Rect;
@@ -16556,37 +16884,6 @@ declare module "factoria" {
      * @since 0.3.0
      */
     studioIntensity: number;
-    /**
-     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame.
-     * @deprecated 0.31.0: use `PostProcess.bloomEnabled`. Removed in 0.33.0. Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt).
-     */
-    bloom: boolean;
-    /**
-     * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
-     * @deprecated 0.31.0: use `PostProcess.bloomThreshold`. Removed in 0.33.0. Same meaning and range; PostProcess.bloomKnee softens the start of the glow.
-     */
-    bloomThreshold: number;
-    /**
-     * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
-     * @deprecated 0.31.0: use `PostProcess.bloomIntensity`. Removed in 0.33.0. Same meaning and range.
-     */
-    bloomIntensity: number;
-    /**
-     * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
-     * @deprecated 0.31.0: use `PostProcess.bloomRadius`. Removed in 0.33.0. Same meaning and range.
-     */
-    bloomRadius: number;
-    /**
-     * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
-     * @deprecated 0.31.0: use `PostProcess.bloomScreenSpace`. Removed in 0.33.0. Same meaning: whether the screen-space UI glows too.
-     */
-    bloomScreenSpace: boolean;
-    /**
-     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame.
-     * @since 0.2.0
-     * @deprecated 0.31.0: use `PostProcess.colorFilterMode`. Removed in 0.33.0. Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value.
-     */
-    colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
     /**
      * Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "book". The texture is the id "target:book" and goes wherever a texture path does: MeshRenderer.texture or normalMap (a screen on a 3D model, a page of a book, a mirror), a texture parameter of a material (materialParams), Sprite.texture, Panel.texture, Button.icon. A camera with a name draws only into its texture: it is not drawn to the screen, ignores viewport, primary and clear (it always clears to clearColor, alpha included, so a transparent target composes over what is behind it) and is never camera.main nor the audio listener. It still has to be active (entity and ancestors). The target is drawn BEFORE the cameras that show it in the same frame, so there is no lag; a camera whose own view shows its target gets a missing-texture checker there and one error that says so (a render loop needs two targets: A shows B and B shows A, each one frame late). The camera draws everything in its frustum unless you give it showTags / hideTags: tag what a target shows (the root of a 2D page of Text, Sprites, Buttons as world-space entities, tag "page_left"), give the target camera showTags ["page_left"] and the camera that draws the model hideTags ["page_left"], so each sees only its own content wherever it is in the world. Screen-space UI (Panel, Button and the other widgets, space "screen" items) is not drawn into a target: use world-space Sprite, Text and Shape2D, whose Interactable components still get the pointer through the mesh (docs/RENDERING.md, "Render targets"). Names are unique: a second camera with the same name is not drawn, with an error. "" (default) = the screen. Letters, digits, '_', '-' and '.', up to 64 characters.
      * @since 0.9.0
@@ -17477,7 +17774,7 @@ declare module "factoria" {
      */
     autoDestroy: boolean;
     /**
-     * world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.
+     * world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with PostProcess.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.
      */
     space: "world" | "screen";
     /**
@@ -17749,7 +18046,7 @@ declare module "factoria" {
     get emissive(): Color;
     set emissive(value: ColorLike);
     /**
-     * HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch.
+     * HDR multiplier of the emitted light: `emissive` (and the glTF model's own emissive color) times this. 1 = as written; above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over 1 is read as 0..255), and with `PostProcess.bloomEnabled` it makes a bigger, brighter halo. The screen still shows at most white. Meshes that differ only here are not drawn in the same batch.
      * @since 0.23.0
      */
     emissiveStrength: number;
@@ -17800,17 +18097,126 @@ declare module "factoria" {
      * @since 0.32.0
      */
     instanceBounds: number;
+    /**
+     * Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking").
+     * @since 0.33.0
+     */
+    lightmapScale: number;
+    /**
+     * Whether the surface bounces light onto others in a lightmap bake and in the realtime global illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.
+     * @since 0.33.0
+     */
+    contributeGI: boolean;
+    /**
+     * Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the baked probe light as its ambient light; receiveGI false turns that off too. The realtime global illumination (M73.5) reads it as well.
+     * @since 0.33.0
+     */
+    receiveGI: boolean;
+    /**
+     * The entity whose world position samples the light probes for this mesh (a character's chest, a car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.
+     * @since 0.33.0
+     */
+    get probeAnchor(): Entity | null;
+    set probeAnchor(value: EntityLike);
+    /**
+     * Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here replaces it.
+     * @since 0.33.0
+     */
+    clearcoat: number;
+    /**
+     * Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves the model's own value.
+     * @since 0.33.0
+     */
+    clearcoatRoughness: number;
+    /**
+     * Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).
+     * @since 0.33.0
+     */
+    get sheenColor(): Color;
+    set sheenColor(value: ColorLike);
+    /**
+     * Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the model's own value.
+     * @since 0.33.0
+     */
+    sheenRoughness: number;
+    /**
+     * Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here replaces the model's own.
+     * @since 0.33.0
+     */
+    anisotropy: number;
+    /**
+     * Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own rotation.
+     * @since 0.33.0
+     */
+    anisotropyRotation: number;
+    /**
+     * Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x specular. Another value replaces the model's own.
+     * @since 0.33.0
+     */
+    specular: number;
+    /**
+     * Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = 4%). Another value replaces the model's own.
+     * @since 0.33.0
+     */
+    ior: number;
+    /**
+     * How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) and shows the opaque picture behind it, refracted and blurred by roughness (docs/rendering/RENDERING_TRANSMISSION.md).
+     * @since 0.33.0
+     */
+    transmission: number;
+    /**
+     * Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). 0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts the picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the entity's scale.
+     * @since 0.33.0
+     */
+    thickness: number;
+    /**
+     * Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, liquids), with attenuationDistance. White (default) = no tint.
+     * @since 0.33.0
+     */
+    get attenuationColor(): Color;
+    set attenuationColor(value: ColorLike);
+    /**
+     * Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = the volume does not tint the light (glTF infinity reads as 0).
+     * @since 0.33.0
+     */
+    attenuationDistance: number;
+    /**
+     * Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md.
+     * @since 0.33.0
+     */
+    subsurface: number;
+    /**
+     * Metres the diffuse light spreads inside the surface, for the colour channel with the widest spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. Has an effect only when subsurface is above 0.
+     * @since 0.33.0
+     */
+    subsurfaceRadius: number;
+    /**
+     * How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0.
+     * @since 0.33.0
+     */
+    get subsurfaceColor(): Color;
+    set subsurfaceColor(value: ColorLike);
+    /**
+     * true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b.
+     * @since 0.33.0
+     */
+    receiveDecals: boolean;
+    /**
+     * 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.
+     * @since 0.33.0
+     */
+    decalLayer: number;
   }
   /**
-   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position.
+   * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
    * 
    * Category: 3D
    */
   export interface LightComponent {
     /**
-     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward.
+     * directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. Materials with a lighting() or light() hook and full shaders get it as the light of one point of the emitter (the nearest to the reflection of the view), not the whole shape.
      */
-    type: "directional" | "point" | "spot";
+    type: "directional" | "point" | "spot" | "area";
     /**
      * Light color.
      */
@@ -17829,9 +18235,335 @@ declare module "factoria" {
      */
     spotAngle: number;
     /**
-     * Cast shadows. Only supported on directional lights for now.
+     * Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide as the emitter: see shadowSoftness), all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names the fix once).
      */
     castShadows: boolean;
+    /**
+     * Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.
+     * @since 0.33.0
+     */
+    innerAngle: number;
+    /**
+     * Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and emit from their front, the side the entity's forward direction points to (nothing behind); a tube is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.
+     * @since 0.33.0
+     */
+    shape: "rectangle" | "disc" | "tube";
+    /**
+     * [width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube (area lights); of a directional light with a cookie, the metres one copy of the cookie covers along the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other lights ignore it.
+     * @since 0.33.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light projects it through its cone (the edge of the cone is the edge of the picture); a directional light projects it straight along its forward direction, repeated every `size` metres. Its colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 texels. A point light projects it all around: the picture is read as an equirectangular panorama (the centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more is useful. Area lights ignore it (a warning says so once). Empty = none. Drawn since M73.1b; render.supports lightCookies. (asset path: texture)
+     * @since 0.33.0
+     */
+    cookie: string;
+    /**
+     * An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the measured light distribution of a real lamp, on a point or spot light. The profile's nadir points along the entity's forward direction. The table is divided by its peak, so `intensity` stays the brightness at the brightest direction and the file only shapes the light. Empty = the plain distribution. Drawn since M73.1b; render.supports iesProfiles. (asset path: any)
+     * @since 0.33.0
+     */
+    ies: string;
+    /**
+     * Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, smaller as the camera moves away from the light's range). When the maps do not fit the atlas (SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for the sun and 64 for the others.
+     * @since 0.33.0
+     */
+    shadowResolution: number;
+    /**
+     * Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
+     * @since 0.33.0
+     */
+    shadowBias: number;
+    /**
+     * Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).
+     * @since 0.33.0
+     */
+    shadowNormalBias: number;
+    /**
+     * How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized by shadowSoftness.
+     * @since 0.33.0
+     */
+    shadowFilter: "pcf" | "hard" | "pcss";
+    /**
+     * With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).
+     * @since 0.33.0
+     */
+    shadowSoftness: number;
+    /**
+     * How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.
+     * @since 0.33.0
+     */
+    shadowDistance: number;
+    /**
+     * realtime (default): lit every frame. baked: its light is computed once into the lightmaps (lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no lightmap is within its range: the lightmapped ones skip it). mixed: lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the light probes for moving objects: M73.4c and M73.4d).
+     * @since 0.33.0
+     */
+    mode: "realtime" | "baked" | "mixed";
+    /**
+     * Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters towards the camera (1 = as bright as the light makes a white surface). It only matters with SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 (default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to 4 directional lights and its most important point and spot lights (4, 8 or 16 by SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.
+     * @since 0.33.0
+     */
+    volumetric: number;
+    /**
+     * Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) marches toward the light through the depth the camera sees, and what it runs into shadows the light, which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass (render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's shadow, so it also works with a light that has castShadows off. A directional light, a spot and a point light have it (an area light marches toward the point of its emitter that lights the pixel). Screen space: only what is in the picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).
+     * @since 0.33.0
+     */
+    contactShadowLength: number;
+  }
+  /**
+   * A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a cube of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to 256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The textures of all the decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, "Decals".
+   * 
+   * Category: 3D
+   * @since 0.33.0
+   */
+  export interface DecalComponent {
+    /**
+     * The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour. (asset path: texture)
+     * @since 0.33.0
+     */
+    albedo: string;
+    /**
+     * Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = the normal stays. (asset path: texture)
+     * @since 0.33.0
+     */
+    normal: string;
+    /**
+     * Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White (default) leaves the texture as it is.
+     * @since 0.33.0
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * 0..1: strength of the whole decal, for fading it out (a bloodstain that dries).
+     * @since 0.33.0
+     */
+    opacity: number;
+    /**
+     * 0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).
+     * @since 0.33.0
+     */
+    normalStrength: number;
+    /**
+     * Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the surface is edge-on. Default 60.
+     * @since 0.33.0
+     */
+    angleFade: number;
+    /**
+     * Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); equal values keep the order in which the world visits its Decal components (a stable sort). When more than 32 decals cover one cluster of the view the lowest values are kept.
+     * @since 0.33.0
+     */
+    sortOrder: number;
+    /**
+     * Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 layer 1, up to bit 15. 0 (default) = every layer.
+     * @since 0.33.0
+     */
+    layers: number;
+  }
+  /**
+   * Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light probe covers it), blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the one with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by the command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe is captured while the game runs, within a budget per frame (update). The command render.probes shows the atlas and, with `entity`, which probes a mesh reflects. See docs/rendering/RENDERING_LIGHTING.md, "Reflection probes".
+   * 
+   * Category: 3D
+   * @since 0.33.0
+   */
+  export interface ReflectionProbeComponent {
+    /**
+     * baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; it costs no GPU time while the game runs). realtime: the scene is captured from this position while the game runs, as `update` says.
+     * @since 0.33.0
+     */
+    mode: "baked" | "realtime";
+    /**
+     * Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale multiplies it). Each side 0.01..100000. Default [10, 10, 10].
+     * @since 0.33.0
+     */
+    get boxSize(): Vec3;
+    set boxSize(value: Vec3Like);
+    /**
+     * Where the centre of the box is, in metres from the entity's origin along its local axes (the capture is taken from the origin). Default [0, 0, 0].
+     * @since 0.33.0
+     */
+    get boxOffset(): Vec3;
+    set boxOffset(value: Vec3Like);
+    /**
+     * Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. Default 1.
+     * @since 0.33.0
+     */
+    blendDistance: number;
+    /**
+     * -1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the atlas has no room the probe with the smallest importance is evicted first. Default 0.
+     * @since 0.33.0
+     */
+    importance: number;
+    /**
+     * Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions.
+     * @since 0.33.0
+     */
+    resolution: number;
+    /**
+     * Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.
+     * @since 0.33.0
+     */
+    nearPlane: number;
+    /**
+     * Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows `clear`. Default 100.
+     * @since 0.33.0
+     */
+    farPlane: number;
+    /**
+     * What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color (clearColor).
+     * @since 0.33.0
+     */
+    clear: "sky" | "color";
+    /**
+     * The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an HDR colour). Default black.
+     * @since 0.33.0
+     */
+    get clearColor(): Color;
+    set clearColor(value: ColorLike);
+    /**
+     * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty the capture draws only the entities that have one of these tags or a parent that does (as Camera.showTags). Returns a plain-object COPY; assign a new value to write.
+     * @since 0.33.0
+     */
+    showTags: any;
+    /**
+     * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the capture (as Camera.hideTags). Default []. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.33.0
+     */
+    hideTags: any;
+    /**
+     * Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes together draw at most the renderer's face budget a frame (2 by default), so a capture takes several frames. everyFrame: a new capture starts as soon as the last one is done, before the probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take turns, the more important and the longest ago captured first. onDemand: captured when the probe appears and then only when the command render.probe_refresh asks for it.
+     * @since 0.33.0
+     */
+    update: "everyFrame" | "timeSliced" | "onDemand";
+    /**
+     * Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr pages next to it). Empty = not baked. A baked probe whose file is missing or older than its format logs one warning and stays empty; the file is watched and reloaded when it changes. (asset path: any)
+     * @since 0.33.0
+     */
+    bakedMap: string;
+    /**
+     * 0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1.
+     * @since 0.33.0
+     */
+    intensity: number;
+    /**
+     * True (default): the reflection is corrected for the box (the room's walls are where the box edge is), which suits an interior. False: the reflection is the one of an infinitely far environment.
+     * @since 0.33.0
+     */
+    boxProjection: boolean;
+  }
+  /**
+   * Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. docs/rendering/RENDERING_LIGHT_PROBES.md.
+   * 
+   * Category: 3D
+   * @since 0.33.0
+   */
+  export interface LightProbeGroupComponent {
+    /**
+     * [x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].
+     * @since 0.33.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is floor(size / spacing) + 1.
+     * @since 0.33.0
+     */
+    spacing: number;
+    /**
+     * [x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the layers of probes are at the height of the objects' centres, not at their feet.
+     * @since 0.33.0
+     */
+    get offset(): Vec3;
+    set offset(value: Vec3Like);
+    /**
+     * true (default): the box of `size` is filled with a grid of probes. false: only the single `points` are probes (size, spacing and offset are ignored).
+     * @since 0.33.0
+     */
+    grid: boolean;
+    /**
+     * Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a corridor or a corner the grid is too coarse for. A bad entry is an error when baking. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.33.0
+     */
+    points: any;
+    /**
+     * The editor draws every probe of this group as a small sphere coloured by the baked light it holds (grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.
+     * @since 0.33.0
+     */
+    showGizmo: boolean;
+  }
+  /**
+   * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+   * 
+   * Category: 3D
+   * @since 0.33.0
+   */
+  export interface RealtimeGIComponent {
+    /**
+     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20].
+     * @since 0.33.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].
+     * @since 0.33.0
+     */
+    get offset(): Vec3;
+    set offset(value: Vec3Like);
+    /**
+     * Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2.
+     * @since 0.33.0
+     */
+    spacing: number;
+    /**
+     * 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2.
+     * @since 0.33.0
+     */
+    probesPerFrame: number;
+    /**
+     * Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much.
+     * @since 0.33.0
+     */
+    resolution: number;
+    /**
+     * 0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing it does not capture again. Default 1.
+     * @since 0.33.0
+     */
+    intensity: number;
+    /**
+     * 0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures of a ReflectionProbe always see the grid at full strength. Default 1.
+     * @since 0.33.0
+     */
+    bounce: number;
+    /**
+     * 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves).
+     * @since 0.33.0
+     */
+    hysteresis: number;
+    /**
+     * Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1.
+     * @since 0.33.0
+     */
+    nearExclusion: number;
+    /**
+     * Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30.
+     * @since 0.33.0
+     */
+    maxDistance: number;
+    /**
+     * 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25.
+     * @since 0.33.0
+     */
+    backfaceTolerance: number;
+    /**
+     * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.33.0
+     */
+    showTags: any;
+    /**
+     * Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.33.0
+     */
+    hideTags: any;
   }
   /**
    * Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). One clip at a time with cross-fades, clip events, an optional small state machine (`params`, `states`, `transitions`) and, for 2D clips, `layers`. It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
@@ -20685,7 +21417,7 @@ declare module "factoria" {
     readonly duration: number;
   }
   /**
-   * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
+   * A 3D (or 2D) view inside the UI (docs/MENUS.md, "A camera inside the UI"): draws the camera named by `camera` into this entity's rectangle, so an item turning on a stage, a character portrait or a map lives in a menu with the clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the modal Panel of any widget. The camera is rendered into an image of the size of the rectangle (its aspect follows it; Camera.viewport is ignored) before the frame's UI is drawn, then that image is drawn in the rectangle. Give the camera primary = false, or it also draws in the main view; the camera and the widget must both be active. The background is drawn at `layer`, the picture at `layer` + 1: a widget meant to sit over the picture needs a layer of at least `layer` + 2. Camera.lighting = "studio" lights it with its own key, fill and rim lights, wherever it stands. bloom and colorFilter of the camera's PostProcess are ignored (the frame has one set of post effects). A pointer press, drag, release and the wheel over it are the game event `ui.viewPointer` ({id, phase, x, y, u, v, dx, dy, wheel}; `ui.on("viewPointer", fn)` in scripts) so a script can turn what it shows. It is a widget for hit-testing (it blocks clicks to the world below it) but is not focusable. Costs one more render pass per view per frame, and the image per view: keep it as small as the picture needs (see `resolution`). Defaults: 320 x 240, no background colour.
    * 
    * Category: UI
    * @since 0.3.0
@@ -20999,7 +21731,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; render.supports {"feature": "<effect>"} says whether this backend and GPU can run it (an effect needs float targets, a depth image or both) and why not. The lens distortion, the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the posterization and the film grain are drawn in the final pass, after the bloom: the lens and the aberration bend how the scene is read (in scene colour, before the exposure), the rest work on the display picture (what the screen shows, paper white = 1, the same on an SDR and an HDR output) and none of them clips above white. The ambient occlusion, the reflections, the fog, the sun shafts, the depth of field and the motion blur read the depth prepass and are drawn on the scene colour, before the bloom and the final pass. Every camera draws its own stack over its own part of the picture (a split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the camera that draws first. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does. The ambient occlusion (ssao) darkens the opaque 3D meshes where they meet, inside the main pass before the blended geometry, so blended meshes, sprites, particles, text and the HUD are never darkened.
    * 
    * Category: Camera
    * @since 0.31.0
@@ -21077,7 +21809,7 @@ declare module "factoria" {
      */
     exposureAdaptationSpeed: number;
     /**
-     * Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
+     * Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
      * @since 0.31.0
      */
     bloomEnabled: boolean;
@@ -21199,12 +21931,12 @@ declare module "factoria" {
      */
     colorGradingLutContribution: number;
     /**
-     * Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it).
+     * Switches the accessibility colour filter on. The last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it).
      * @since 0.31.0
      */
     colorFilterEnabled: boolean;
     /**
-     * Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter.
+     * Only used when colorFilterEnabled. The filter: greyscale (Rec. 709 luminance in linear light), highContrast (contrast stretched 1.8x around mid grey, clipped), protanopia, deuteranopia, tritanopia (a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees, so colours that collapse together (red vs green) differ in brightness or in the remaining hue). A game's options screen sets it from the player's choice (it is not saved by itself). To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead.
      * @since 0.31.0
      */
     colorFilterMode: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
@@ -21630,6 +22362,153 @@ declare module "factoria" {
      * @since 0.32.0
      */
     skyMaterialParams: any;
+    /**
+     * Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).
+     * @since 0.33.0
+     */
+    shadowCascades: number;
+    /**
+     * Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of detail near the camera), 0.5 (default) between.
+     * @since 0.33.0
+     */
+    shadowCascadeSplit: number;
+    /**
+     * Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.
+     * @since 0.33.0
+     */
+    shadowCascadeBlend: number;
+    /**
+     * How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own shadowDistance overrides it. The cascades split this stretch.
+     * @since 0.33.0
+     */
+    shadowDistance: number;
+    /**
+     * The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least important is dropped, the same every frame.
+     * @since 0.33.0
+     */
+    shadowAtlasSize: number;
+    /**
+     * Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 march a short ray toward the light through the depth the camera sees and shadow what it runs into, adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made for it and the picture is bit-identical. Needs a GPU that can render the depth prepass (render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no off-screen casters, no thin objects, and transparent meshes neither cast nor receive it (docs/rendering/RENDERING_LIGHTING.md, "Contact shadows").
+     * @since 0.33.0
+     */
+    contactShadows: boolean;
+    /**
+     * An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, so a sun in the picture does not speckle the reflections. Import one with assets.import; render.supports {"feature": "environmentMap"} says whether the GPU can. (asset path: hdri)
+     * @since 0.33.0
+     */
+    environmentMap: string;
+    /**
+     * Brightness multiplier of the environment map (background and lighting) and of the lighting a sky material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that a skyMaterial or the physical sky draws as the background.
+     * @since 0.33.0
+     */
+    environmentIntensity: number;
+    /**
+     * Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the picture.
+     * @since 0.33.0
+     */
+    environmentRotation: number;
+    /**
+     * Whether the environment map is also drawn as the background (true, default). False keeps the sky material, the physical sky or the gradient as the background and uses the picture for the lighting and the reflections only. A skyMaterial that is set always draws the background.
+     * @since 0.33.0
+     */
+    environmentBackground: boolean;
+    /**
+     * gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer puts first: the one with castShadows, else the brightest directional light; its direction, colour and intensity drive the sky, so turning the light turns the sun across it, and the same sky lights and reflects in every mesh (image-based lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the physical sky. render.supports {"feature": "physicalSky"} says whether the GPU can (it needs RGBA16F render targets); where it cannot, the gradient is drawn.
+     * @since 0.33.0
+     */
+    skyModel: "gradient" | "physical";
+    /**
+     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    skySunSize: number;
+    /**
+     * Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the sun. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    skyTurbidity: number;
+    /**
+     * Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. Alpha is ignored. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    get skyGroundAlbedo(): Color;
+    set skyGroundAlbedo(value: ColorLike);
+    /**
+     * Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit surface). Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    skyExposure: number;
+    /**
+     * Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) by what the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the sun at noon. false keeps the light exactly as authored (the sky still follows its direction). Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    skyTintsSun: boolean;
+    /**
+     * Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the clouds shade the image-based lighting. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    cloudCoverage: number;
+    /**
+     * Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    cloudDensity: number;
+    /**
+     * Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default 2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the camera position (like a skybox). Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    cloudAltitude: number;
+    /**
+     * Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. [0, 0] stands still. Only used with skyModel physical.
+     * @since 0.33.0
+     */
+    get cloudWind(): Vec2;
+    set cloudWind(value: Vec2Like);
+    /**
+     * Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F render targets draws no volumetric fog and keeps its analytic one (render.supports {"feature": "volumetricFog"}); a scene with no light and no ambient is a black medium. docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts".
+     * @since 0.33.0
+     */
+    volumetricFog: boolean;
+    /**
+     * Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricDensity: number;
+    /**
+     * Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above it the density fades with volumetricHeightFalloff. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricHeightBase: number;
+    /**
+     * Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricHeightFalloff: number;
+    /**
+     * Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, -0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricAnisotropy: number;
+    /**
+     * Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), 0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricAmbient: number;
+    /**
+     * Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over the shorter of this and the surface's distance, so a shorter value is sharper. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricDistance: number;
+    /**
+     * Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high = half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, never with the number of lights in the scene. Only used with volumetricFog.
+     * @since 0.33.0
+     */
+    volumetricQuality: "low" | "medium" | "high";
+    /**
+     * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (asset path: any)
+     * @since 0.33.0
+     */
+    lightmaps: string;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -21651,6 +22530,10 @@ declare module "factoria" {
     ParticleEmitter: ParticleEmitterComponent;
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
+    Decal: DecalComponent;
+    ReflectionProbe: ReflectionProbeComponent;
+    LightProbeGroup: LightProbeGroupComponent;
+    RealtimeGI: RealtimeGIComponent;
     Animator: AnimatorComponent;
     IK3D: IK3DComponent;
     RigidBody2D: RigidBody2DComponent;
@@ -21689,7 +22572,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
@@ -21703,8 +22586,12 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number };
-    Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
+    Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
+    Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
+    ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
+    LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
+    RealtimeGI: { size?: Vec3Like; offset?: Vec3Like; spacing?: number; probesPerFrame?: number; resolution?: number; intensity?: number; bounce?: number; hysteresis?: number; nearExclusion?: number; maxDistance?: number; backfaceTolerance?: number; showTags?: any; hideTags?: any };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
@@ -21737,7 +22624,7 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -22336,10 +23223,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights) count the main pass, lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0
@@ -22451,7 +23338,7 @@ declare module "factoria:test" {
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**
-     * Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots). options.simulate converts the saved PNG to what a colour-blind viewer sees (greyscale, protanopia, deuteranopia, tritanopia: Machado 2009 matrices, severity 1.0, in linear light on the sRGB pixels) so a test or an AI checks that hazards read without their colour; the player's view (Camera.colorFilter) is not changed.
+     * Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots). options.simulate converts the saved PNG to what a colour-blind viewer sees (greyscale, protanopia, deuteranopia, tritanopia: Machado 2009 matrices, severity 1.0, in linear light on the sRGB pixels) so a test or an AI checks that hazards read without their colour; the player's view (the colour filter of a PostProcess) is not changed.
      */
     screenshot(path: string, options?: { scale?: number; simulate?: "none" | "greyscale" | "protanopia" | "deuteranopia" | "tritanopia" }): void;
     /**

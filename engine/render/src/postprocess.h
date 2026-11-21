@@ -6,13 +6,12 @@
 //   run_post_pass     the final pass (post.glsl): the lens, exposure, tonemap, the output encode, the display-space effects of
 //                     post_fx.h (grade, vignette, sharpen, outline, pixelate, posterize, grain), a dither, the colour filter, fused
 //
-// A frame without a PostProcess and without Camera.bloom / Camera.colorFilter has an empty plan: no pass is declared and no target is
+// A frame without a PostProcess has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
 // the final pass -> (the HUD, drawn over the final picture in display space) -> the colour filter when the HUD went in between.
 // Every camera job has its own PostPlan, prepass, coverage image and AutoExposure (M71-C3a): its final pass draws into the camera's
 // rectangle of the picture (PostRect), the effects run in camera-local coordinates and the prepass and the coverage image have the size
-// of that rectangle. Bloom and the colour filter stay one per frame, from the camera that draws first (Camera.bloom* and
-// Camera.colorFilter are its fields, and the aliases of the stack).
+// of that rectangle. Bloom and the colour filter stay one per frame, from the camera that draws first (PostProcess bloom and colorFilter).
 #pragma once
 
 #include <cstdint>
@@ -27,6 +26,8 @@
 #include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_volumetric.h"
+#include "subsurface.h"
 #include "transient_targets.h"
 
 namespace fa::render {
@@ -121,7 +122,7 @@ struct PostPlan {
     float adaptationSpeed = 2.0f;  // per second
     bool tonemap = false;
     int tonemapMode = 0;  // TonemapMode as an int: 0 none (a clip), 1 neutral, 2 aces, 3 agx, 4 reinhard
-    int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
+    int colorFilter = 0;  // PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
         false;  // a linear scene that has exposure, a tonemap, an effect or a colour filter: the target holds linear light,
                 // the final pass encodes it
@@ -156,6 +157,15 @@ struct PostPlan {
     SceneFxPlan sceneFx;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
+    // The volumetric fog of this camera (renderer_volumetric.h): the march is declared in the camera's own job (it reads the shadow atlas of that job), the apply pass
+    // with the stack after the main pass; `volImage` is the march image between them. Off (vol.on false) when the camera draws no volumetric fog.
+    VolPlan vol;
+    ResourceId volImage;
+    // The subsurface scattering of this camera (renderer_subsurface.h): the sss-draw pass is declared in the camera's own job, the blur and add passes
+    // with the stack after the main pass; `sssLight` and `sssParams` are the images between them. Off (sss.on false) when no mesh scatters or the
+    // camera cannot draw it.
+    SssPlan sss;
+    ResourceId sssLight, sssParams;
     // The custom post passes of this camera (renderer_custom_post.h): the materials of PostProcess.customPasses that
     // built, each at its position in the stack. Empty when none. Their prepass bits are set by plan_job (needsDepth /
     // needsNormals) when one reads the depth.
@@ -237,7 +247,7 @@ struct PostPlan {
 PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0, std::uint64_t frame = 0,
                         float designScale = 1.0f, const CameraInfo* frameCam = nullptr);
 
-// Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
+// PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
 
 // What the final pass draws (post.glsl): `convert` is true for the final pass itself (not the colour-filter-only pass): it runs the

@@ -1196,6 +1196,35 @@ TEST_CASE("sprite material: validate compiles it next to the mesh materials") {
     CHECK(*(defines + 1) == "FA_MATERIAL");
     for (const auto& e : report.errors) CHECK(e.message.find("is not compiled yet") == std::string::npos);
 
+    // fa_instance_index in a sprite material without buffers is always 0: one warning (a comment that names it is none)
+    for (const auto& w : report.warnings) CHECK(w.message.find("fa_instance_index") == std::string::npos);
+    const std::string usesIndex =
+        std::string(kSpriteSnippet) +
+        "\n// fa_instance_index in a comment\nfloat k() { return float(fa_instance_index); }\n";
+    p.write("shaders/dissolve2d.fragment.glsl", usesIndex);
+    ValidationReport warned;
+    validate_materials(p.str(), shdc.context(p.str()), warned);
+    int indexWarnings = 0;
+    for (const auto& w : warned.warnings)
+        if (w.message.find("fa_instance_index") != std::string::npos) ++indexWarnings;
+    CHECK(indexWarnings == 1);
+
+    // a `//` inside a string literal starts no comment, and a longer name is not the value
+    p.write(
+        "shaders/dissolve2d.fragment.glsl",
+        std::string(kSpriteSnippet) +
+            "\n#include \"a//b.glsl\"\nfloat k() { return float(fa_instance_index); }\nfloat fa_instance_index2;\n");
+    ValidationReport literal;
+    validate_materials(p.str(), shdc.context(p.str()), literal);
+    indexWarnings = 0;
+    for (const auto& w : literal.warnings)
+        if (w.message.find("fa_instance_index") != std::string::npos) ++indexWarnings;
+    CHECK(indexWarnings == 1);
+    p.write("shaders/dissolve2d.fragment.glsl", std::string(kSpriteSnippet) + "\nfloat fa_instance_index2;\n");
+    ValidationReport longer;
+    validate_materials(p.str(), shdc.context(p.str()), longer);
+    for (const auto& w : longer.warnings) CHECK(w.message.find("fa_instance_index") == std::string::npos);
+
     // a mistake in fragment() is the error of the material's snippet
     const std::string bad = "void fragment(in QuadInput i, inout QuadSurface s) {\n    s.color = tnt;\n}\n";
     p.write("shaders/dissolve2d.fragment.glsl", bad);
@@ -1989,13 +2018,16 @@ TEST_CASE("compile: the engine names a \"did you mean\" suggests are the ones th
     // the pages of the post and the full shaders document these names and no others: the lists are equal to them
     CHECK(list_of("post", false) == names_in("docs/shaders/SHADERS_POST.md"));
     CHECK(list_of("mesh", true) == names_in("docs/shaders/SHADERS_FULL.md"));
-    // SHADERS.md documents the mesh, sprite and sky names (and the lighting functions, which have their own list): each one is in it
-    const std::set<std::string> guide = names_in("docs/SHADERS.md");
+    // SHADERS.md and its examples and sprites pages document the mesh, sprite and sky names (and the lighting functions, which have their own list): each one is in it
+    std::set<std::string> guide = names_in("docs/SHADERS.md");
+    for (const char* part : {"docs/shaders/SHADERS_EXAMPLES.md", "docs/shaders/SHADERS_SPRITES.md"})
+        guide.merge(names_in(part));
     for (const char* kind : {"mesh", "sprite", "sky"})
         for (const std::string& name : list_of(kind, false)) {
             CAPTURE(kind);
-            CHECK_MESSAGE(guide.count(name) == 1, name << " is suggested for a " << kind
-                                                       << " material but docs/SHADERS.md does not mention it");
+            CHECK_MESSAGE(guide.count(name) == 1,
+                          name << " is suggested for a " << kind
+                               << " material but docs/SHADERS.md and its parts do not mention it");
         }
 }
 

@@ -149,7 +149,7 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
                 pixel_format_name(gpu.scene_format()), pixel_format_name(gpu.scene_format()),
                 gpu.scene_is_float()
                     ? ""
-                    : " (colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)");
+                    : " (colours above white are clamped, PostProcess bloom is weaker, hdr_scene() is false)");
         return;
     }
     // Nothing of the chain works: it is not the format; keep the first one and its errors.
@@ -236,7 +236,7 @@ void Renderer::Impl::make_game_targets() {
     d.height = physH;
     d.colorFormat = gpu.scene_format();
     d.samples = gpu.sample_count();
-    d.resolveAsColor = true;  // Camera.bloom adds its glow to the resolved image
+    d.resolveAsColor = true;  // PostProcess bloom adds its glow to the resolved image
     d.depthFormat = kSceneDepthFormat;
     gameTarget = make_target(d);
 }
@@ -254,9 +254,12 @@ void Renderer::Impl::destroy_targets() {
     viewTargets.clear();
     bloom.release();
     ssr.forget_targets();
+    xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
     fogFx.forget_targets();
+    volFx.forget_targets();
+    sssFx.forget_targets();
     customPost.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
@@ -578,10 +581,11 @@ bool Renderer::Impl::ensure_filter_target() {
     d.colorFormat = gpu.display_format();
     filterTarget = make_target(d);
     if (!filterTarget.valid()) {
-        FA_ERROR("render",
-                 "Post-processing (PostProcess, Camera.colorFilter): cannot create the {}x{} target; the game is drawn "
-                 "without it",
-                 physW, physH);
+        FA_ERROR(
+            "render",
+            "Post-processing (PostProcess, PostProcess.colorFilter): cannot create the {}x{} target; the game is drawn "
+            "without it",
+            physW, physH);
         destroy_target(filterTarget);
         return false;
     }
@@ -736,28 +740,62 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     return readback_rgba8(readbackTarget.color, w, h, out, error);
 }
 
-// Makes (or keeps) the shadow map. False when the GPU cannot make it (or cannot do shadows): the frame is then drawn without
-// shadows, with one logged warning, and the creation is not tried again until the game target is resized or rescaled
-// (a missing shadow map would otherwise make the frame graph refuse every frame). FA_SHADOW_MAP=invalid is a test hook: it
-// makes the creation fail on a GPU that never would.
-bool Renderer::Impl::create_shadow_targets() {
-    if (shadowTargetFailed || !gpu.shadows_supported()) return false;
-    if (shadowTarget.color.id) return true;
+// Makes (or keeps) the shadow atlas, at least `width` x `height` texels (the part of the atlas the frame's layout uses). False when the
+// GPU cannot make it (or cannot do shadows): the frame is then drawn without shadows, with one logged warning, and the creation is not
+// tried again until the game target is resized or rescaled (a missing shadow map would otherwise make the frame graph refuse every
+// frame). A bigger one replaces the old one, which the earlier jobs of the frame may still draw into: it is kept until the next frame
+// (free_retired_shadow_targets). FA_SHADOW_MAP=invalid is a test hook: it makes the creation fail on a GPU that never would.
+bool Renderer::Impl::create_shadow_targets(int width, int height) {
+    if (shadowTargetFailed) return false;
+    if (!gpu.shadows_supported()) {
+        if (!warnedNoFloat32) {
+            warnedNoFloat32 = true;
+            FA_WARN("render",
+                    "This GPU cannot sample 32-bit float render targets, which the shadow atlas is drawn into: the "
+                    "scene is drawn "
+                    "without shadows (Light.castShadows has no effect here). Hint: render.supports with the feature "
+                    "cascadedShadows (it needs float32Targets) says so before a scene is run.");
+        }
+        return false;
+    }
+    const int limit = std::max(64, sg_query_limits().max_image_size_2d);
+    width = std::clamp(width, 64, limit);
+    height = std::clamp(height, 64, limit);
+    if (shadowTarget.color.id && shadowTarget.w >= width && shadowTarget.h >= height) return true;
     TargetDesc d;
     d.label = "shadow";
-    d.width = d.height = kShadowSize;
+    d.width = std::max(width, shadowTarget.color.id ? shadowTarget.w : 0);
+    d.height = std::max(height, shadowTarget.color.id ? shadowTarget.h : 0);
     d.colorFormat = SG_PIXELFORMAT_R32F;
     d.depthFormat = SG_PIXELFORMAT_DEPTH;
-    shadowTarget = make_target(d);
+    // 4 bytes of colour and 4 of depth per texel, in 64 bits: a refused size fails here, not inside the driver.
+    if (std::uint64_t(d.width) * std::uint64_t(d.height) * 8u > kShadowAtlasMaxBytes) {
+        shadowTargetFailed = true;
+        FA_WARN("render",
+                "The {}x{} shadow atlas needs more than {} MB: the game is drawn without shadows (lower "
+                "SceneSettings.shadowAtlasSize)",
+                d.width, d.height, kShadowAtlasMaxBytes >> 20);
+        return false;
+    }
+    Target made = make_target(d);
     const char* hook = std::getenv("FA_SHADOW_MAP");
-    if (shadowTarget.valid() && !(hook && std::string(hook) == "invalid")) return true;
-    destroy_target(shadowTarget);
+    if (made.valid() && !(hook && std::string(hook) == "invalid")) {
+        if (shadowTarget.color.id) shadowRetired.push_back(shadowTarget);
+        shadowTarget = made;
+        return true;
+    }
+    destroy_target(made);
     shadowTargetFailed = true;
     FA_WARN("render",
-            "Cannot create the {}x{} shadow map (R32F colour + depth): the game is drawn without shadows "
+            "Cannot create the {}x{} shadow atlas (R32F colour + depth): the game is drawn without shadows "
             "(Light.castShadows has no effect on this GPU)",
-            kShadowSize, kShadowSize);
+            d.width, d.height);
     return false;
+}
+
+void Renderer::Impl::free_retired_shadow_targets() {
+    for (Target& t : shadowRetired) destroy_target(t);
+    shadowRetired.clear();
 }
 
 }  // namespace fa

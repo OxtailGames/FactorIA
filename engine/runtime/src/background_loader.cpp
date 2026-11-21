@@ -93,8 +93,9 @@ std::atomic<std::uint64_t> g_nextTag{1};
 bool is_sound(const std::string& ext) { return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa"; }
 
 bool is_binary_asset(const std::string& ext) {
-    static const char* const kExt[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2", ".gltf", ".glb",
-                                       ".obj", ".wav", ".ogg",  ".mp3", ".qoa", ".ttf", ".otf",  ".mp4",  ".bin"};
+    static const char* const kExt[] = {".png",  ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".ktx2",
+                                       ".gltf", ".glb", ".obj",  ".wav", ".ogg", ".mp3", ".qoa",
+                                       ".ttf",  ".otf", ".mp4",  ".bin", ".hdr"};
     return std::find(std::begin(kExt), std::end(kExt), ext) != std::end(kExt);
 }
 

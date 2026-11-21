@@ -1300,6 +1300,8 @@ void Editor::play() {
         playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
+        engine_->set_play_world(
+            true);  // a command that writes scene data (lightmap.bake_status apply) skips it: Stop throws it away
         reset_feel_choices();
         engine_->input()
             .discard_pending_edges();  // nothing advanced the views while editing: old taps are not the first step's
@@ -1326,6 +1328,7 @@ void Editor::step_once() {
         playSnapshot_ = snapshot_scene(world());
         engine_->begin_load_trace();
         restore_scene(playSnapshot_);
+        engine_->set_play_world(true);
         reset_feel_choices();
         engine_->input().discard_pending_edges();
         play_ = PlayState::Paused;
@@ -1346,6 +1349,7 @@ void Editor::stop() {
     engine_->input().release_all();
     play_ = PlayState::Edit;
     stepPending_ = 0;
+    engine_->set_play_world(false);
     restore_scene(playSnapshot_);
     playSnapshot_ = Json();
     reset_feel_choices();
@@ -1556,9 +1560,10 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {
-        showViewport_, showHierarchy_, showInspector_, showConsole_,   showProject_, showAi_,     showFeedback_,
-        showAudio_,    showProfiler_,  showAnimation_, showBoneTools_, showImage_,   showVector_, showSound_,
-        showMusic_,    showModeler_,   showParticle_,  showLevelGen_,  showPostFx_,  showGraph_,  showSceneSettings_};
+        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,   showAi_,
+        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_, showImage_,
+        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,  showLevelGen_,
+        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1566,11 +1571,11 @@ int Editor::panels_mask() const {
 }
 
 void Editor::set_panels_mask(int mask) {
-    bool* flags[] = {&showViewport_,     &showHierarchy_, &showInspector_, &showConsole_,  &showProject_,
-                     &showAi_,           &showFeedback_,  &showAudio_,     &showProfiler_, &showAnimation_,
-                     &showBoneTools_,    &showImage_,     &showVector_,    &showSound_,    &showMusic_,
-                     &showModeler_,      &showParticle_,  &showLevelGen_,  &showPostFx_,   &showGraph_,
-                     &showSceneSettings_};
+    bool* flags[] = {
+        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,   &showAi_,
+        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_, &showImage_,
+        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,  &showLevelGen_,
+        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1633,6 +1638,7 @@ void Editor::build_ui() {
     poll_review();
     poll_platform_settings();
     poll_setup();
+    lightmap_poll();  // every frame, the panel open or not: a finished bake is handed to the scene at once
     draw_main_menu();
 
     const float statusH = ImGui::GetFrameHeight() + 6;
@@ -1771,6 +1777,7 @@ void Editor::build_ui() {
         if (showParticle_) draw_particle_panel();
         if (showGraph_) draw_graph_panel();
         if (showSceneSettings_) draw_scene_settings_panel();
+        if (showLightmap_) draw_lightmap_panel();
         if (showMusic_)
             draw_music_panel();
         else if (music_.preview && music_.preview->playing())

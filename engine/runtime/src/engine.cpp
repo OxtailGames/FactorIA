@@ -527,9 +527,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
     watched = std::move(now);
     for (const std::string& p : changed) {
         const bool songAsset = ends_with(p, ".song.json");
-        const bool renderAsset =
-            ends_with(p, ".material.json") || has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf",
-                                                          ".otf", ".obj", ".gltf", ".glb", ".cube"});
+        const bool renderAsset = ends_with(p, ".material.json") || ends_with(p, ".lightmap.json") ||
+                                 has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj",
+                                             ".gltf", ".glb", ".cube", ".hdr", ".ies"});
         if (assetsOnly && !renderAsset && !songAsset && !has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"}))
             continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
@@ -1116,6 +1116,8 @@ void Engine::shutdown() {
     end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
+    for (auto& hook : I.shutdownHooks) hook();  // a long job of a command is told to stop before the wait below
+    I.shutdownHooks.clear();
     I.input.stop_all_rumble();  // quit: the window layer sends the stop to the hardware (apply_gamepad_rumble)
     // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
     // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
@@ -1283,6 +1285,8 @@ void Engine::reload_scene() {
     I.load_scene_impl(I.currentScene, &err, true);
 }
 
+bool Engine::play_world() const { return impl_->playWorld; }
+void Engine::set_play_world(bool on) { impl_->playWorld = on; }
 bool Engine::paused() const { return impl_->paused; }
 void Engine::set_paused(bool p) {
     if (p && !impl_->paused) impl_->input.stop_all_rumble();  // a paused game does not keep a pad shaking

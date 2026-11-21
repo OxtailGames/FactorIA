@@ -62,8 +62,12 @@ list(APPEND FA_EMBED_LICENSES ${FA_EMBED_EXTRA_FONTS})
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The files the templates @include (the sprite template: the colour-space and 2D shadow helpers; keep in step with
 # template_file_names() in tools/common/src/shaders_generate.cpp and FA_TEMPLATE_FILES_* in engine/render/CMakeLists.txt).
+# The mesh template's lighting files (light_data.glsl, light_loop.glsl, ltc.glsl, brdf_layers.glsl; shadow_common.glsl
+# matches the glob above) too.
 list(APPEND FA_EMBED_SHADER_TEMPLATES ${FA_ROOT}/engine/render/shaders/color_space.glsl
-    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl)
+    ${FA_ROOT}/engine/render/shaders/light_shadow.glsl ${FA_ROOT}/engine/render/shaders/light_data.glsl
+    ${FA_ROOT}/engine/render/shaders/light_loop.glsl ${FA_ROOT}/engine/render/shaders/ltc.glsl
+    ${FA_ROOT}/engine/render/shaders/brdf_layers.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
 # The VS Code extension of the script debugger (tools/vscode/): `factoria setup vscode` copies it into VS Code's extensions folder.
 file(GLOB FA_EMBED_VSCODE CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/tools/vscode/*)
@@ -106,13 +110,14 @@ if(FA_BUILD_TESTS)
         # (cmake/doctest_main.cpp: --fa-files, --fa-files-exclude). tooling_split_check fails unless the five together list
         # exactly the test cases of the whole executable. ctest -L tooling runs all of them.
         # The table holds only the heavy files, balanced by the seconds their test cases took in the Debug tree of an M5 MacBook
-        # Air (about 20 s per entry of the 99 s in all; Windows and the sanitizers scale it, they do not reorder it much).
+        # Air (about 22 s per entry of the 111 s in all, 21 to 25 s since M73; Windows and the sanitizers scale it, they do
+        # not reorder it much).
         # Refresh it when an entry gets much slower than the others: `fa_test_tooling -r=junit -d=true > tooling.xml` has the
         # seconds of every test case, `classname` is its file; add up each file, put the biggest ones in the lightest entry.
         set(tooling_test_entries
-            "1:review_sheet_test.cpp,assets_capsules_test.cpp,model_texture_test.cpp,serve_web_test.cpp,admob_tools_test.cpp,msix_test.cpp,perf_test.cpp,assets_sfx_test.cpp"
-            "2:steam_setup_test.cpp,model_doc_test.cpp,sign_macos_store_test.cpp,sign_macos_test.cpp,export_icons_test.cpp,publish_test.cpp,assets_recipe_test.cpp,export_web_test.cpp"
-            "3:export_android_test.cpp,script_instrument_test.cpp,test_export.cpp,feedback_test.cpp,recipe_schema_test.cpp,shaders_test.cpp,export_textures_test.cpp,sign_windows_test.cpp"
+            "1:review_sheet_test.cpp,assets_capsules_test.cpp,model_texture_test.cpp,serve_web_test.cpp,admob_tools_test.cpp,msix_test.cpp,perf_test.cpp,assets_sfx_test.cpp,examples_download_test.cpp,material_graph_test.cpp"
+            "2:steam_setup_test.cpp,model_doc_test.cpp,sign_macos_store_test.cpp,sign_macos_test.cpp,export_icons_test.cpp,publish_test.cpp,assets_recipe_test.cpp,export_web_test.cpp,shaders_fixtures_test.cpp"
+            "3:export_android_test.cpp,script_instrument_test.cpp,test_export.cpp,feedback_test.cpp,recipe_schema_test.cpp,shaders_test.cpp,export_textures_test.cpp,sign_windows_test.cpp,checkpoint_test.cpp"
             "4:music_render_test.cpp,music_test.cpp,feedback_share_test.cpp,efficiency_share_test.cpp,assets_fbx_test.cpp,assets_bake_test.cpp,shaders_docs_test.cpp,assets_animate_test.cpp,efficiency_test.cpp")
         set(tooling_test_names "")
         foreach(tooling_test_file IN LISTS tooling_tests)
