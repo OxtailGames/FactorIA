@@ -236,6 +236,7 @@ void Gi2dSystem::free_images() {
         s.reset();
     }
     warnedTargets_ = false;
+    reset_warnings();
 }
 
 void Gi2dSystem::release() {
@@ -421,7 +422,8 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         const ResourceId emitDist = graph.create_transient(named(td, name + "/gi2d-emit-distance"));
         flood("gi-emit", Prog::SeedEmit, plan.emission, &f->emission, emitDist, nullptr);
 
-        const float bounce = f->settings.bounce;
+        // The bounce is capped (kGi2dMaxBounceGain), so the loop gain of a closed room (history -> blocker -> history) stays under 1.
+        const float bounce = std::min(f->settings.bounce, kGi2dMaxBounceGain);
         const int wr = f->irrCur ^ 1;  // written by this frame; the other one is last frame's (the bounce's history)
         const int hr = f->irrCur;
         Target* irrW = &f->irradiance[wr];
@@ -438,13 +440,16 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         // field (the field's origin is snapped to whole texels, so the shift is a whole number of them).
         const double shiftX = (f->geom.originX - f->histOriginX) / f->geom.texel;
         const double shiftY = (f->geom.originY - f->histOriginY) / f->geom.texel;
-        const bool histOk = bounce > 0.0f && f->irrValid && f->histTexel == f->geom.texel &&
-                            std::fabs(shiftX) < double(w) && std::fabs(shiftY) < double(h);
+        // A history made for another job (a camera went away and another took its slot) is not this camera's light either.
+        const bool histOk = bounce > 0.0f && f->irrValid && f->histTexel == f->geom.texel && f->histJob == name &&
+                            f->histCamera == f->camera && std::fabs(shiftX) < double(w) &&
+                            std::fabs(shiftY) < double(h);
         const float shift[2] = {float(std::round(shiftX)), float(std::round(shiftY))};
         const bool prime = bounce > 0.0f && !histOk;
         f->primed = prime;
         const int base = declared;
         const int spacing0 = cp.spacing0, nsteps = cp.steps, ncas = cp.cascades;
+        const std::string jobName = name;
         double ends[kGi2dMaxCascades + 1] = {};
         for (int i = 0; i <= kGi2dMaxCascades; ++i)
             ends[i] = cp.interval_end(i - 1);  // ends[i] = the start of cascade i
@@ -502,6 +507,8 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                     f->histTexel = f->geom.texel;
                     f->histOriginX = f->geom.originX;
                     f->histOriginY = f->geom.originY;
+                    f->histJob = jobName;
+                    f->histCamera = f->camera;
                 }
             });
         };

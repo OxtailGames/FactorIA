@@ -365,7 +365,7 @@ TEST_CASE(
     write_white();
     World w;
     Entity cam = camera_at(w, {0, 0, 0});
-    add_gi(w, GI2DQuality::Low, 0.5f);
+    Entity gi = add_gi(w, GI2DQuality::Low, 0.5f);
     glow(w, "lamp", {-100, 0, 0}, {16, 16}, Color{1, 1, 1, 1}, 4.0f);
     wall(w, "wall", {-40, 0, 0}, {10, 90}, Color{0, 1, 0, 1});
     o.frame(w, 3);
@@ -384,14 +384,129 @@ TEST_CASE(
     const float after = b.channel(-60, 0, 1);
     INFO("green at (-60, 0) before the move: " << before << ", after: " << after);
     CHECK(after == doctest::Approx(before).epsilon(0.25));
-    // A zoom that crosses a whole step changes the field's size: the images are made again and the bounce starts from nothing.
+    // A zoom out to 1.5 times the view changes the texel (1 -> 1.5 world units: the history was made for another texel size, so it cannot be
+    // shifted by whole texels) and with it the size: the bounce starts from nothing.
+    const double texelBefore = info.texel;
     w.get<Camera>(cam)->orthoSize = 135.0f;  // from 90 (the design height / 2)
     o.frame(w);
     info = renderer_gi2d_info(o.r, 0);
     REQUIRE(info.ready);
+    CHECK(info.texel == doctest::Approx(texelBefore * 1.5));
     CHECK(info.primed);
     o.frame(w);
     CHECK_FALSE(renderer_gi2d_info(o.r, 0).primed);
+    // A larger range changes the size of the field and NOT the texel: the images are made again all the same, so the history is gone.
+    const Gi2dFieldInfo small = renderer_gi2d_info(o.r, 0);
+    w.get<GlobalIllumination2D>(gi)->range = 160.0f;
+    o.frame(w);
+    info = renderer_gi2d_info(o.r, 0);
+    REQUIRE(info.ready);
+    CHECK(info.texel == small.texel);
+    CHECK((info.width != small.width || info.height != small.height));
+    CHECK(info.primed);
+    o.frame(w);
+    CHECK_FALSE(renderer_gi2d_info(o.r, 0).primed);
+}
+
+TEST_CASE("gi2d cascades: a camera that takes the slot of another one does not inherit its history") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE(o.ok);
+    if (!o.gi_ready()) return;
+    write_white();
+    World w;
+    Entity first = camera_at(w, {0, 0, 0});
+    Entity second = camera_at(w, {0, 0, 0});
+    w.get<Camera>(second)->clear = false;
+    add_gi(w, GI2DQuality::Low, 0.5f);
+    glow(w, "lamp", {-100, 0, 0}, {16, 16}, Color{1, 1, 1, 1}, 4.0f);
+    wall(w, "wall", {-40, 0, 0}, {10, 90}, Color{0, 1, 0, 1});
+    o.frame(w, 3);
+    CHECK(renderer_gi2d_slots_in_use(o.r) == 2);
+    CHECK_FALSE(renderer_gi2d_info(o.r, 0).primed);
+    // The first camera goes away: the second one is now job "camera:0" and takes slot 0, with a field of the same size and texel but made
+    // for another job. Its history is not its own light.
+    w.get<Camera>(first)->primary = false;
+    o.frame(w);
+    CHECK(renderer_gi2d_slots_in_use(o.r) == 1);
+    const Gi2dFieldInfo info = renderer_gi2d_info(o.r, 0);
+    REQUIRE(info.ready);
+    CHECK(info.primed);
+    o.frame(w);
+    CHECK_FALSE(renderer_gi2d_info(o.r, 0).primed);
+}
+
+TEST_CASE("gi2d cascades: a closed box with bounce 1 and white walls stays bounded (the loop gain is capped)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE(o.ok);
+    if (!o.gi_ready()) return;
+    write_white();
+    World w;
+    camera_at(w, {0, 0, 0});
+    add_gi(w, GI2DQuality::Medium, 1.0f);
+    const Color white{1, 1, 1, 1};
+    glow(w, "lamp", {0, 0, 0}, {8, 8}, white, 2.0f);
+    wall(w, "left", {-60, 0, 0}, {10, 100}, white);
+    wall(w, "right", {60, 0, 0}, {10, 100}, white);
+    wall(w, "top", {0, 45, 0}, {130, 10}, white);
+    wall(w, "bottom", {0, -45, 0}, {130, 10}, white);
+    auto brightest = [&]() {
+        Irr irr;
+        REQUIRE(read_irr(o, irr));
+        float best = 0.0f;
+        for (std::size_t i = 0; i + 3 < irr.px.size(); i += 4) {
+            if (irr.px[i + 3] <= 0.02f) continue;
+            for (int c = 0; c < 3; ++c) {
+                const float v = irr.px[i + std::size_t(c)] / irr.px[i + 3];
+                REQUIRE(std::isfinite(v));
+                best = std::max(best, v);
+            }
+        }
+        return best;
+    };
+    o.frame(w, 60);
+    const float at60 = brightest();
+    o.frame(w, 90);
+    const float at150 = brightest();
+    INFO("brightest probe after 60 frames: " << at60 << ", after 150: " << at150);
+    CHECK(at60 > 0.05f);
+    // The lamp gives at most 2 to a probe; with a loop gain of at most kGi2dMaxBounceGain the light settles under 2 / (1 - gain) = 40.
+    CHECK(at150 < 2.0f / (1.0f - kGi2dMaxBounceGain) + 1.0f);
+    // And it has settled: a gain of 1 would keep growing by the same amount every frame.
+    CHECK(at150 < at60 * 1.3f);
+}
+
+TEST_CASE("gi2d cascades: a lit visual in screen space is not touched by the GI (its coordinates are pixels, not the "
+          "world)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    {
+        Own probe(g);
+        REQUIRE(probe.ok);
+        if (!probe.gi_ready()) return;
+    }
+    write_white();
+    auto build = [&](World& w, bool gi) {
+        camera_at(w, {0, 0, 0});
+        w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
+        if (gi) add_gi(w, GI2DQuality::Medium, 0.5f, 64.0f, 2.0f);
+        glow(w, "lamp", {60, -20, 0}, {30, 30}, Color{1, 0.5f, 0.2f, 1}, 6.0f);
+        // Covers the whole screen, drawn in the screen group: its world_xy are screen pixels, which land inside the field of the world.
+        Entity hud = make(w, "hud", {160, 90, 0});
+        auto& s = w.add<Sprite>(hud);
+        s.space = RenderSpace::Screen;
+        s.texture = "assets/white16.png";
+        s.size = {400, 300};
+        s.color = Color{0.7f, 0.7f, 0.7f, 1};
+        s.lit = true;
+    };
+    World withGi, without;
+    build(withGi, true);
+    build(without, false);
+    CHECK(color_diff(g.render(withGi), g.render(without)) == 0.0);
 }
 
 TEST_CASE("gi2d cascades: lit visuals get the light, unlit visuals are the same pixels with and without GI") {

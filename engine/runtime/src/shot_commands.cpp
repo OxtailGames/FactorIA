@@ -2,6 +2,7 @@
 // render.inspect (luminance profile along a line and the hard steps in it) and render.pick (what draws a pixel).
 #include <optional>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -790,7 +791,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "the priming chain (the first frame, a new size, a camera that moved by more than the field). Errors: "
          "`unavailable` without graphics; `invalid_argument` for a `save` or `job` that "
          "is "
-         "not a string.\n"
+         "not a string, and for a `save` that ends in .png or in a folder separator (it is a prefix: the command adds "
+         "the names).\n"
          "The distance image holds the nearest occluder texel's coordinates in r and g (exact), the distance to it in "
          "field texels in b (a half float: about 3 significant digits) and 1 in a where an occluder exists (b is 65504 "
          "and "
@@ -801,7 +803,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "not "
          "call it every frame. `save` needs the writeProject capability.",
          parse_schema(R"({"type":"object","properties":{
-               "save":{"type":"string","x-fa-path":"write","description":"Path prefix without extension (inside the project; absolute paths need writeAnywhere): the three images are written as <save>-emission.png, <save>-occluders.png and <save>-distance.png. Omitted: nothing is written."},
+               "save":{"type":"string","x-fa-path":"write","description":"Path prefix without extension (inside the project; absolute paths need writeAnywhere): the images are written as <save>-emission.png, <save>-occluders.png, <save>-distance.png and <save>-irradiance.png (never end it in .png or in a folder separator). Omitted: nothing is written."},
                "job":{"type":"string","description":"The camera job whose field `save` writes (the \"job\" of fields[], e.g. \"camera:0\"). Default: the first field that is ready."}}})"),
          false, "game"},
         [&engine, &I](const Json& a) {
@@ -816,7 +818,25 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             std::string save = a.is_object() && a.contains("save") && a["save"].is_string()
                                    ? a["save"].get<std::string>()
                                    : std::string();
-            if (!save.empty()) save = resolve_caller_write_path(save, "render.gi2d_field");
+            if (!save.empty()) {
+                // `save` is a prefix: the command adds "-emission.png" and the rest. A file name or a folder would give "x.png-emission.png"
+                // or "dir/-emission.png", which is never what the caller meant.
+                std::string lower = save;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char c) { return char(std::tolower(c)); });
+                const bool png = lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".png") == 0;
+                const bool folder = save.back() == '/' || save.back() == '\\';
+                if (png || folder)
+                    throw CommandError(
+                        "invalid_argument",
+                        std::string("render.gi2d_field: `save` is a path PREFIX without extension, but it is \"") +
+                            save + (png ? "\" (a .png file name)." : "\" (it ends in a folder separator)."),
+                        std::string(
+                            "The command writes <save>-emission.png, <save>-occluders.png, <save>-distance.png and "
+                            "<save>-irradiance.png: pass \"") +
+                            (png ? save.substr(0, save.size() - 4) : save + "gi") + "\".");
+                save = resolve_caller_write_path(save, "render.gi2d_field");
+            }
             if (!I.renderer || !I.renderer->initialized())
                 throw CommandError("unavailable",
                                    "No renderer: the engine runs with graphics=false, so no 2D GI field is drawn.",

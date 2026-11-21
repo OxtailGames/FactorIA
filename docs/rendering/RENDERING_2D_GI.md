@@ -4,7 +4,8 @@ Part of [RENDERING.md](../RENDERING.md): the 2D global illumination of M74.3, dr
 
 Light that bounces: a red wall tints the floor beside it, a glowing sprite lights the room around it, a pillar between a lamp and the
 floor leaves a soft shadow, all without baking. It is **off by default**: a scene without a `GlobalIllumination2D` component (or with
-`enabled` false) draws the same pixels with the same draw calls as before, and keeps no memory for it. `render.supports
+`enabled` false) draws the same pixels with the same draw calls as before, and makes no new memory for it (the renderer's pool of transient
+targets keeps what the last frames used for a few frames, so a scene that turns the GI off gives its memory back a few frames later). `render.supports
 {"feature": "2dGlobalIllumination"}` says whether this GPU and platform can draw it.
 
 ## Turn it on
@@ -14,7 +15,7 @@ Add one `GlobalIllumination2D` to any entity of the scene (the first enabled one
 | Field | What it does |
 |---|---|
 | `quality` | `low`, `medium` (default) or `high`: how many cascades, how far apart the probes are and how many rays and steps they take (the table below). Counts, the same on every machine. |
-| `bounce` | 0..1. How much of the light that reached a blocker (last frame's irradiance) it throws back, times its colour. 0 = no bounce: only emitters light the scene. |
+| `bounce` | 0..1. How much of the light that reached a blocker (last frame's irradiance) it throws back, times its colour. 0 = no bounce: only emitters light the scene. The engine uses at most 0.95, so the light of a closed room of bright walls stays bounded instead of growing every frame. |
 | `intensity` | 0..16. Multiplies the light a lit visual receives. 0 = none. |
 | `range` | World units around the view that the field covers. A lamp or a wall off screen but inside this margin still counts; farther away does not exist for the GI. Default 512. |
 | `resolutionScale` | 0.1..1. Field texels per screen pixel (default 0.5: the field has half the screen's resolution). |
@@ -84,6 +85,12 @@ three eighths of the total), is what `bytes` in `render.gi2d_field` reports. The
 the GPU. Use `render.frame_graph {"profileFrames": 8}` (the `cpuMs` and `gpuMs` of every `<job>/gi-*` pass) on the target device, and lower
 `range` first: the default 512 on a view of 1920 x 1080 costs twice the memory of a margin of 128.
 
+**On a phone or a browser the defaults do not fit.** The budget there is 96 MiB and the defaults (`range` 512, `resolutionScale` 0.5) on a
+view of 1920 x 1080 need 103 MiB, so the scene is drawn without GI and the log says why. Use `range` 128 (about 52 MiB) or `resolutionScale` 0.25
+(about 27 MiB), and `quality` `medium` or `low`; `render.supports {"feature": "2dGlobalIllumination"}` tells the same. The fields of all the
+cameras of a frame share one total: 640 MiB on a desktop, 96 MiB on a phone or a browser; a camera that would go over it is drawn without GI
+and the warning names the numbers.
+
 ### When it is off, and what you are told
 
 The scene is drawn without GI, with one warning in the log for the whole run (not one per frame), when:
@@ -94,7 +101,11 @@ The scene is drawn without GI, with one warning in the log for the whole run (no
   is off there and the warning says to use `medium` or `low`;
 - the field needs more memory than the platform budgets: 320 MiB on a desktop, 96 MiB on a phone or a browser. The warning gives the
   size and says to lower `range` or `resolutionScale`. The 2048 x 2048 field of the largest `range` is 272 MiB with `high`: inside the
-  desktop budget and over the mobile one.
+  desktop budget and over the mobile one. The fields of the cameras of a frame together have a budget too (640 MiB, 96 MiB on a phone or
+  a browser).
+
+The warning is said again when the reason changes (a new setting, another camera over the budget) and when another scene is loaded, so
+a second scene that cannot draw the GI is not silent.
 
 These are counts, never times: the same scene gets the same answer on a fast machine and a slow one.
 
@@ -110,6 +121,8 @@ These are counts, never times: the same scene gets the same answer on a fast mac
   valid probes around: a thin wall (a few probes across) is lit by the free probes next to it, but the inside of a thick lit block gets only
   the ambient light and the `Light2D`s. A solid tilemap that must look lit all over should be drawn with an ambient light or a `Light2D`
   that reaches it.
+- **The screen-space layer gets no GI.** A sprite or tilemap with `space` `screen` (the HUD) and the debug drawing of the camera are
+  drawn without the GI term even when they are `lit`: the GI is the light of the world.
 - **Pictures drawn into their own image get no GI.** The GI is made for the cameras that draw the game: `camera:<n>` jobs in the frame
   graph. A camera that draws into a render target (`Camera.renderTarget`, `target:<name>`), a `CameraView`, an editor view and a camera capture
   (`capture`, `view:<n>`) draws its lit visuals without the GI term, and they keep no field. A scene that must look the same in a render
@@ -122,6 +135,8 @@ These are counts, never times: the same scene gets the same answer on a fast mac
   change**: the images are made again and the bounce starts from the priming chain (one extra frame's work, no flicker).
 - The field's origin is snapped to whole texels, so a camera that moves keeps the bounce history by shifting it by whole texels. A move
   of more than the field's size drops the history.
+- The bounce history belongs to one camera: when a camera goes away (or another is created before it) and another takes its place in the
+  frame, the new one starts from the priming chain instead of showing the light of the other.
 - At most four 2D camera jobs a frame have a field (`kGi2dMaxFields`); a fifth is drawn without GI.
 
 ## Looking at it

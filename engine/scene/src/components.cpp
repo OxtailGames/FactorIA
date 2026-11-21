@@ -640,12 +640,14 @@ void register_builtin_components(TypeRegistry& r) {
             "size). "
             "It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. "
             "Ignored unless `lit` is true and normalFrom is file.")
-        .field("emissive", &Sprite::emissive,
-               "Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights "
-               "say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom "
-               "of the PostProcess and, with GlobalIllumination2D, lights the scene around the sprite. Black "
-               "(default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. "
-               "Alpha of the colour is ignored.")
+        .field(
+            "emissive", &Sprite::emissive,
+            "Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights "
+            "say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom "
+            "of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space "
+            "sprite (a screen-space sprite does not light the scene). Black "
+            "(default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. "
+            "Alpha of the colour is ignored.")
         .field("emissiveIntensity", &Sprite::emissiveIntensity,
                "HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as "
                "written; above 1 goes past white and feeds the bloom. Default 1.")
@@ -1719,8 +1721,9 @@ void register_builtin_components(TypeRegistry& r) {
                    .c_str())
         .field("emissive", &Tilemap::emissive,
                "Light the tiles give out, added after the lighting so they show in a dark scene. Colour components "
-               "are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with "
-               "GlobalIllumination2D, lights the scene around the tiles. Black (default) = none. Works with or without "
+               "are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an "
+               "enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works "
+               "with or without "
                "`lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.")
         .field("emissiveIntensity", &Tilemap::emissiveIntensity,
                "HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes "

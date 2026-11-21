@@ -11,8 +11,10 @@
 //   gi2d_gather     the CPU side: emitters and occluders of the field's rectangle as vertices in field texel coordinates
 //   Gi2dSystem      the GPU side: shaders, pipelines, the persistent images of each field slot and the passes that fill them
 //
-// A frame without an enabled GlobalIllumination2D (or on a GPU without RGBA16F targets) declares no pass, makes no image and keeps no
-// memory: the slots are freed at the start of the frame graph's run when no job asked for them (Gi2dSystem::free_unused).
+// A frame without an enabled GlobalIllumination2D (or on a GPU without RGBA16F targets) declares no pass and makes no image; the slots (the
+// field's own images and the irradiance) are freed at the start of the frame graph's run when no job asked for them (Gi2dSystem::free_unused).
+// The transient images of the passes (jump flooding, the cascades) live in the frame graph's TargetPool, which keeps a free target for a few
+// frames (TargetPool maxIdleFrames, 4) before it destroys it: the memory of the last field is released a few frames after GI turns off.
 #pragma once
 
 #include <array>
@@ -50,6 +52,17 @@ inline constexpr int kGi2dFieldImages = 8;
 // What a field may take on a desktop GPU (a 2048 x 2048 field with its irradiance images is just under it) and on a phone or a browser.
 inline constexpr std::uint64_t kGi2dMaxBytes = std::uint64_t(320) << 20;
 inline constexpr std::uint64_t kGi2dMaxBytesMobile = std::uint64_t(96) << 20;
+// What the fields of ALL the 2D cameras of a frame may take together (each field is also checked against kGi2dMaxBytes on its own): a
+// frame with four cameras of 300 MiB would otherwise ask for 1.2 GiB. A phone or a browser has one budget for all of them.
+inline constexpr std::uint64_t kGi2dMaxTotalBytes = std::uint64_t(640) << 20;
+inline constexpr std::uint64_t kGi2dMaxTotalBytesMobile = kGi2dMaxBytesMobile;
+// The most a bounce can give back: `bounce` is capped here, and the albedo of a blocker at 1, so the light that circulates in a closed room
+// (every ray ends on a wall, the history is last frame's irradiance) gets at most this factor each frame and the sum E / (1 - gain) is finite.
+inline constexpr float kGi2dMaxBounceGain = 0.95f;
+// The most point-in-triangle tests one gather spends on cutting ShadowCaster2D polygons (a count, never a time: the same on every machine),
+// and the most corners one polygon has.
+inline constexpr std::size_t kGi2dMaxTriangulateWork = 2000000;
+inline constexpr std::size_t kGi2dMaxPolygonPoints = 512;
 // The most cascades a field has (one pass each, spacing S0 * 2^i up to kGi2dSizeStep), and the most a phone or a browser pays for.
 inline constexpr int kGi2dMaxCascades = 5;
 inline constexpr int kGi2dMaxCascadesMobile = 4;
@@ -117,6 +130,9 @@ struct Gi2dCascadePlan {
 };
 // The cascade plan of a field for a quality. `mobile` picks the smaller budget (a phone or a browser). Pure: no GPU.
 Gi2dCascadePlan gi2d_cascade_plan(GI2DQuality q, const Gi2dGeometry& g, bool mobile);
+// The budget of all the fields of a frame: `usedBytes` is what the fields planned so far take (Gi2dCascadePlan::totalBytes), `plan` the next one.
+// Empty when it fits, else a teaching sentence (the sum is made in 64 bits with saturation). Pure: no GPU.
+std::string gi2d_total_budget_why(std::uint64_t usedBytes, const Gi2dCascadePlan& plan, bool mobile);
 
 // One vertex of the gather: a position in field texel coordinates (0..width, 0..height), a texture coordinate (a disc: the offset from
 // its centre in radii) and a colour (what the mode of the batch does with it: gi2d.glsl).
@@ -151,8 +167,10 @@ struct Gi2dGather : Gi2dCounts {
 // (point, any radius) is a disc of radius max(size, one texel).
 void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out);
 // The triangles (indices into `pts`, 3 per triangle) of a simple polygon given as [x0, y0, x1, y1, ...], either winding, by ear clipping.
-// A polygon that cannot be cut (fewer than 3 points, non-finite or a zero area) gives none; one with crossing edges gives what could be cut.
-std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts);
+// A polygon that cannot be cut (fewer than 3 points, more than kGi2dMaxPolygonPoints, non-finite or a zero area) gives none; one with crossing
+// edges gives what could be cut. `work` (optional) is what is left of the gather's budget of point-in-triangle tests: it is spent as the
+// polygon is cut and the cutting stops (with what is cut so far) when it reaches 0; null: kGi2dMaxTriangulateWork for this polygon alone.
+std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts, std::size_t* work = nullptr);
 
 // What the frame graph needs of one job's field (set by plan_job, read by the passes and by P3b).
 struct Gi2dField;
@@ -182,7 +200,12 @@ struct Gi2dField {
     double histTexel = 0.0, histOriginX = 0.0, histOriginY = 0.0;
     Gi2dGeometry geom;
     Gi2dSettings settings;
-    std::string job;      // the job of the camera it was last drawn for ("camera:0")
+    std::string job;  // the job of the camera it was last drawn for ("camera:0")
+    std::string
+        histJob;  // the job and camera the irradiance history was made for: another one taking the slot starts from the priming chain
+    std::uint64_t camera = 0,
+                  histCamera =
+                      0;  // the bits of the Camera entity of the last job drawn in this slot, and of the history's
     bool used = false;    // asked for in this frame (begin_frame clears it)
     bool valid = false;   // the passes ran: the images hold a finished field
     int passes = 0;       // the passes of the last frame (emission, occluders, seed, jump steps, cascades, irradiance)
@@ -237,7 +260,14 @@ public:
 
     // Teaching message of a GPU without float targets, logged once; returns the sentence (also for the command).
     static std::string unsupported_message(const std::string& backend);
-    bool warned_unsupported = false, warned_dropped = false, warned_budget = false;
+    // The warnings already logged (each once per reason): `budgetWhy` is the sentence of the budget warning (a new reason, such as another
+    // quality, range or size, warns again). reset_warnings runs when the scene has no GI for a frame, and when the images are freed.
+    bool warned_unsupported = false, warned_dropped = false;
+    std::string budgetWhy;
+    void reset_warnings() {
+        warned_unsupported = warned_dropped = false;
+        budgetWhy.clear();
+    }
 
 private:
     struct PipelineEntry {

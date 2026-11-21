@@ -20,7 +20,15 @@ namespace {
 float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
 constexpr std::size_t kMaxVertices = std::size_t(kGi2dMaxQuads) * 6;
-constexpr std::size_t kMaxPolygonPoints = 4096;  // a ShadowCaster2D polygon's corners (ear clipping is quadratic)
+
+// An albedo is a fraction of the light a blocker throws back: 0..1 (the bounce's loop gain is bounded by it, kGi2dMaxBounceGain).
+Color albedo_of(Color c) {
+    c.r = std::clamp(finite_or(c.r, 0.0f), 0.0f, 1.0f);
+    c.g = std::clamp(finite_or(c.g, 0.0f), 0.0f, 1.0f);
+    c.b = std::clamp(finite_or(c.b, 0.0f), 0.0f, 1.0f);
+    c.a = std::clamp(finite_or(c.a, 1.0f), 0.0f, 1.0f);
+    return c;
+}
 
 // A batch's identity: what two runs must share to be drawn by one call.
 bool same_state(const GiBatch& a, const GiBatch& b) {
@@ -50,6 +58,8 @@ struct Builder {
         b.count = 0;
         batches.push_back(b);
     }
+    // True when not even one more quad fits (what the tilemap loop checks to stop early).
+    bool full() const { return verts.size() + 6 > kMaxVertices; }
     bool room(std::size_t vertices) {
         if (verts.size() + vertices <= kMaxVertices) return true;
         ++dropped;
@@ -253,18 +263,37 @@ Gi2dCascadePlan gi2d_cascade_plan(GI2DQuality q, const Gi2dGeometry& g, bool mob
         p.why = std::format(
             "a {}x{} global illumination field needs about {} MiB of GPU memory and this platform's budget is {} MiB. "
             "Hint: lower GlobalIllumination2D.range or resolutionScale (quality \"{}\" does not change the memory "
-            "much).",
-            g.width, g.height, (p.totalBytes + (1u << 20) - 1) >> 20, budget >> 20, name);
+            "much).{}",
+            g.width, g.height, (p.totalBytes + (1u << 20) - 1) >> 20, budget >> 20, name,
+            mobile ? " On a phone or a browser the defaults (range 512, resolutionScale 0.5) are over this budget on a "
+                     "view of "
+                     "1920 x 1080 pixels: use range 128 or resolutionScale 0.25."
+                   : "");
         return p;
     }
     p.ok = true;
     return p;
 }
 
-std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts) {
+std::string gi2d_total_budget_why(std::uint64_t usedBytes, const Gi2dCascadePlan& plan, bool mobile) {
+    const std::uint64_t budget = mobile ? kGi2dMaxTotalBytesMobile : kGi2dMaxTotalBytes;
+    constexpr std::uint64_t kMax = std::numeric_limits<std::uint64_t>::max();
+    const std::uint64_t sum = usedBytes > kMax - plan.totalBytes ? kMax : usedBytes + plan.totalBytes;  // saturating
+    if (sum <= budget) return {};
+    return std::format("the global illumination fields of all the 2D cameras of a frame need about {} MiB of GPU "
+                       "memory and this platform's budget for "
+                       "all of them is {} MiB. Hint: lower GlobalIllumination2D.range or resolutionScale, or draw "
+                       "fewer 2D cameras with it (the cameras "
+                       "after the budget is used up are drawn without GI).",
+                       sum == kMax ? std::uint64_t(kMax >> 20) : (sum + (1u << 20) - 1) >> 20, budget >> 20);
+}
+
+std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts, std::size_t* work) {
     std::vector<std::uint32_t> out;
     const std::size_t n = pts.size();
-    if (n < 3 || n > kMaxPolygonPoints) return out;
+    if (n < 3 || n > kGi2dMaxPolygonPoints) return out;
+    std::size_t ownWork = kGi2dMaxTriangulateWork;
+    std::size_t& left = work ? *work : ownWork;
     for (const Vec2& p : pts)
         if (!std::isfinite(p.x) || !std::isfinite(p.y)) return out;
     double area = 0.0;
@@ -276,10 +305,11 @@ std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts) {
     const bool ccw = area > 0.0;
     std::vector<std::uint32_t> idx(n);
     for (std::size_t i = 0; i < n; ++i) idx[i] = std::uint32_t(i);
-    // Ear clipping: the work is at most n^3 steps of a point-in-triangle test and a polygon with crossing edges ends when a whole turn
-    // clips nothing (the rest is left out), so the cost depends on the polygon only.
+    // Ear clipping: a polygon with crossing edges ends when a whole turn clips nothing (the rest is left out), and the point-in-triangle tests
+    // (what makes it up to n^3) are counted against `left`: when it is spent the cutting stops with what is cut. A count, so the result is the
+    // same on a slow machine and a fast one.
     std::size_t guard = 0;
-    while (idx.size() > 3) {
+    while (idx.size() > 3 && left > 0) {
         bool clipped = false;
         const std::size_t m = idx.size();
         for (std::size_t i = 0; i < m; ++i) {
@@ -289,6 +319,7 @@ std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts) {
             if (ccw ? cr <= 0.0f : cr >= 0.0f) continue;  // a reflex (or flat) corner is no ear
             bool inside = false;
             for (std::size_t k = 0; k < m && !inside; ++k) {
+                if (left > 0) --left;
                 const std::uint32_t ik = idx[k];
                 if (ik == ia || ik == ib || ik == ic) continue;
                 const Vec2 p = pts[ik];
@@ -303,7 +334,7 @@ std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts) {
         }
         if (!clipped || ++guard > n) break;
     }
-    if (idx.size() == 3) out.insert(out.end(), {idx[0], idx[1], idx[2]});
+    if (idx.size() == 3 && left > 0) out.insert(out.end(), {idx[0], idx[1], idx[2]});
     return out;
 }
 
@@ -313,6 +344,7 @@ void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out
     Assets& assets = *fr.assets;
     Builder emit(g, out.emitVerts, out.emitBatches, out.dropped);
     Builder occ(g, out.occVerts, out.occBatches, out.dropped);
+    std::size_t triangulateLeft = kGi2dMaxTriangulateWork;  // for every polygon of this gather together
     const bool linear = fr.linear;
     const Color grey =
         to_scene(Color{0.5f, 0.5f, 0.5f, 1.0f}, linear);  // the albedo of a caster that has no Sprite to take it from
@@ -390,7 +422,7 @@ void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out
         const Color glow = to_scene(tm.emissive, linear);
         const Color glowCol{glow.r * tm.emissiveIntensity, glow.g * tm.emissiveIntensity, glow.b * tm.emissiveIntensity,
                             tmColor.a};
-        const Color albedo = to_scene(tmColor, linear);
+        const Color albedo = albedo_of(to_scene(tmColor, linear));
         GiBatch emitKey;
         emitKey.mode = 3;
         emitKey.tex = tex;
@@ -398,13 +430,19 @@ void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out
         emitKey.fix = tex->tex_fix(linear, true);
         GiBatch occKey = emitKey;
         occKey.mode = 4;
-        for (int r = r0; r <= r1; ++r) {
+        bool full = false;  // every list this tilemap writes is at kGi2dMaxQuads: the rest of the cells cannot be drawn
+        for (int r = r0; r <= r1 && !full; ++r) {
             for (int c = c0; c <= c1; ++c) {
                 const int value = tilemap_tile_at(tm, grid, c, r);
                 if (value < 0) continue;
                 const int idx = tile_index(value), flags = tile_flags(value);
                 const bool isSolid = !solid.empty() && std::binary_search(solid.begin(), solid.end(), idx);
                 if (!emits && !isSolid) continue;
+                if ((!emits || emit.full()) && (!isSolid || occ.full())) {
+                    ++out.dropped;  // this cell and every cell after it: not walked (a map of tiny cells would take the whole frame)
+                    full = true;
+                    break;
+                }
                 float x0, x1, y0, y1;
                 if (iso) {
                     x0 = float(c - r) * isoHw - isoHw;
@@ -472,7 +510,7 @@ void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out
         const Mat4 m = drawn_visual_matrix(world, e);
         const Sprite* sprite = world.get<Sprite>(e);
         Color albedo = grey;
-        if (sprite) albedo = to_scene(sprite->color, linear);
+        if (sprite) albedo = albedo_of(to_scene(sprite->color, linear));
         albedo.a = 1.0f;
         GiBatch solidKey;
         solidKey.mode = 1;
@@ -491,14 +529,14 @@ void gi2d_gather(World& world, Frame& fr, const Gi2dGeometry& g, Gi2dGather& out
             if (out.occVerts.size() != before) ++out.boxes;
         } else if (sc.shape == ShadowCaster2DShape::Polygon) {
             const std::size_t count = sc.points.size() / 2;
-            if (count < 3 || count > kMaxPolygonPoints) {
+            if (count < 3 || count > kGi2dMaxPolygonPoints) {
                 ++out.skippedCasters;
                 return;
             }
             const float* d = sc.points.cdata();
             std::vector<Vec2> pts(count);
             for (std::size_t i = 0; i < count; ++i) pts[i] = {d[i * 2], d[i * 2 + 1]};
-            const std::vector<std::uint32_t> tris = gi2d_triangulate(pts);
+            const std::vector<std::uint32_t> tris = gi2d_triangulate(pts, &triangulateLeft);
             if (tris.empty()) {
                 ++out.skippedCasters;
                 return;

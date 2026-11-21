@@ -2567,7 +2567,10 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
     const Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
-    if (!s.on) return;
+    if (!s.on) {
+        gi2d.reset_warnings();  // a scene without GI (or a new scene) warns again when it turns on
+        return;
+    }
     if (!Gi2dSystem::float_targets_ok()) {
         if (!gi2d.warned_unsupported) {
             gi2d.warned_unsupported = true;
@@ -2583,20 +2586,29 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     const sg_backend backend = sg_query_backend();
     const bool mobile = backend == SG_BACKEND_GLES3 || backend == SG_BACKEND_METAL_IOS;
     const Gi2dCascadePlan cascadePlan = gi2d_cascade_plan(s.quality, geom, mobile);
-    if (!cascadePlan.ok) {
-        if (!gi2d.warned_budget) {
-            gi2d.warned_budget = true;
-            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.", cascadePlan.why);
+    // The fields the earlier jobs of this frame already planned, in slots and in bytes (the whole frame has one budget).
+    int slot = 0;
+    std::uint64_t usedBytes = 0;
+    for (const auto& c : jobContexts) {
+        const DrawContext* other = static_cast<const DrawContext*>(c.get());
+        if (c.get() == &ctx || !other->gi2d.active || !other->gi2d.field) continue;
+        ++slot;
+        usedBytes += other->gi2d.field->cascade.totalBytes;  // at most 4 fields of at most 2^32 bytes each: no overflow
+    }
+    const std::string why = cascadePlan.ok ? gi2d_total_budget_why(usedBytes, cascadePlan, mobile) : cascadePlan.why;
+    if (!why.empty()) {
+        // Once per reason: another quality, range or size says so again.
+        if (gi2d.budgetWhy != why) {
+            gi2d.budgetWhy = why;
+            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.", why);
         }
         return;
     }
-    int slot = 0;
-    for (const auto& c : jobContexts)
-        if (c.get() != &ctx && static_cast<const DrawContext*>(c.get())->gi2d.active) ++slot;
     Gi2dField* field = gi2d.acquire(slot, geom, cascadePlan);
     if (!field) return;
     field->settings = s;
     field->job = ctx.plan.name;
+    field->camera = fr.cam.entity.bits();
     auto gather = std::make_shared<Gi2dGather>();
     gi2d_gather(ctx.world, fr, geom, *gather);
     field->stats = *gather;
@@ -3199,8 +3211,10 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     const sg_view cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
     // M74-P3b: the irradiance of the 2D GI cascades, added to the lit quads of the camera's own world group (not the coverage image's).
+    // The screen and debug groups draw in screen pixels (their world_xy is not a world position) and the clear group in 0..1: the field
+    // does not apply to them, they bind the white image and gi_p.x = 0.
     const bool giOn = ctx.gi2d.active && ctx.gi2d.cascadePasses > 0 && ctx.gi2d.irradianceView.id && !format &&
-                      ctx.gi2d.intensity > 0.0f;
+                      ctx.gi2d.intensity > 0.0f && &batches == &ctx.gWorld.batches;
     const sg_view giTexBound = giOn ? ctx.gi2d.irradianceView : assets->white()->view;
     if (giOn) {
         std::memcpy(litUniforms.gi_xf, ctx.gi2d.xf, sizeof(litUniforms.gi_xf));
