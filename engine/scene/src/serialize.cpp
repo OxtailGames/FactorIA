@@ -614,6 +614,34 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                       "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, "
                       "8, 8, 8].");
         }
+        // M74: the 2D lighting and effects components (their numbers are range-checked by reflection; these are the
+        // contradictions between fields).
+        if (const Sprite* sp = world_.get<Sprite>(e)) {
+            if (sp->normalFrom == SpriteNormalFrom::Height && sp->heightMap.empty())
+                warn(cptr + "/Sprite/heightMap",
+                     "Sprite.normalFrom is \"height\" but heightMap is empty, so the sprite is flat",
+                     "Set \"heightMap\" to a grey image laid out like the texture, or use \"normalFrom\": \"sprite\" "
+                     "or \"file\".");
+        }
+        auto positive_size = [&](const char* comp, const Vec2& size) {
+            if (!(size.x > 0.0f) || !(size.y > 0.0f))
+                error(cptr + "/" + comp + "/size",
+                      std::string(comp) + ".size is [" + std::to_string(size.x) + ", " + std::to_string(size.y) +
+                          "], but both sides must be above 0",
+                      "Write a size in world units, for example \"size\": [256, 128].");
+        };
+        if (const ShadowCaster2D* sc = world_.get<ShadowCaster2D>(e)) {
+            if (sc->shape == ShadowCaster2DShape::Box) positive_size("ShadowCaster2D", sc->size);
+            if (sc->shape == ShadowCaster2DShape::Polygon) {
+                if (sc->points.size() % 2 != 0 || (sc->points.size() > 0 && sc->points.size() < 6))
+                    error(cptr + "/ShadowCaster2D/points",
+                          "ShadowCaster2D.points has " + std::to_string(sc->points.size()) +
+                              " numbers, but a polygon needs an x and a y for each of at least 3 points",
+                          "Write [x0, y0, x1, y1, x2, y2, ...], for example [-16, -16, 16, -16, 0, 16].");
+            }
+        }
+        if (const Water2D* wa = world_.get<Water2D>(e)) positive_size("Water2D", wa->size);
+        if (const DistortionZone2D* dz = world_.get<DistortionZone2D>(e)) positive_size("DistortionZone2D", dz->size);
         if (const ParticleEmitter* pe = world_.get<ParticleEmitter>(e)) {
             for (const ParticleProblem& issue : particle_emitter_problems(*pe)) {
                 std::string pptr = cptr + "/ParticleEmitter" + issue.pointer;

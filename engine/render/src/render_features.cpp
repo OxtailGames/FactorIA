@@ -254,7 +254,51 @@ std::vector<FeatureDef> build_table() {
          "leak through walls), bouncing between captures; it fills the diffuse light where no lightmap and no baked "
          "light probe reaches. It needs RGBA16F render targets that blend; render.gi_grid says which grids the "
          "meshes read (docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\").",
-         nullptr}};
+         nullptr},
+        // The 2D lighting and effects of M74: planned "M74" until each package draws its row.
+        {"2dSoftShadows", "",
+         "Soft 2D shadows: the shadows of Light2D with castShadows get a penumbra that widens with the distance from "
+         "the occluder, set by Light2D.size (0 = hard edges), and more than 32 shadowed lights share an atlas (M74). "
+         "Every backend.",
+         "M74"},
+        {"2dShadowCasters", "",
+         "ShadowCaster2D: sprites (from their alpha), polygons and boxes block the light of Light2D with castShadows "
+         "like the solid tiles of a Tilemap, with self-shadowing on or off (M74). Every backend.",
+         "M74"},
+        {"2dEmission", "",
+         "Emission of 2D visuals: Sprite.emissive, emissiveMap and Tilemap.emissive glow after the lighting and feed "
+         "the HDR bloom (M74). Every backend; the bloom needs RGBA16F targets as usual.",
+         "M74"},
+        {"2dLightLayers", "",
+         "Light layers of 2D lighting: a Light2D lights only the Sprite, Shape2D and Tilemap whose lightLayers share a "
+         "bit with its own, and a ShadowCaster2D blocks only the lights it shares a bit with (M74). Every backend.",
+         "M74"},
+        {"2dLightCookies", "",
+         "Light2D.cookie: a texture the light shines through, turned by cookieRotationDeg and sized by cookieScale "
+         "(M74). Every backend.",
+         "M74"},
+        {"2dRimLight", "",
+         "Sprite rim light (rimColor, rimIntensity, rimWidth): a bright edge on the side of a lit sprite that faces a "
+         "light (M74). Every backend.",
+         "M74"},
+        {"2dGeneratedNormals", "",
+         "Normal maps generated for lit sprites: Sprite.normalFrom sprite (from the sprite's alpha and luminance) or "
+         "height (from Sprite.heightMap), with normalStrength (M74). Every backend.",
+         "M74"},
+        {"2dGlobalIllumination", "half",
+         "2D global illumination by radiance cascades (GlobalIllumination2D): light bounces off coloured surfaces and "
+         "emissive visuals light the scene (M74). It needs RGBA16F render targets that blend and filter: GL, GLES3 "
+         "and WebGL2 without them draw the scene without it and log a message that says how to turn it off.",
+         "M74"},
+        {"2dWater", "",
+         "Water2D and DistortionZone2D: a reflective, refractive water area with waves and a rectangle that distorts "
+         "what is behind it, drawn from the scene's colour (M74). Every backend.",
+         "M74"},
+        {"spriteSceneColor", "",
+         "The colour of the scene drawn so far as an input of a sprite material (a copy of the picture taken before "
+         "the sprite is drawn), which Water2D, DistortionZone2D and refracting sprite materials read (M74). Every "
+         "backend.",
+         "M74"}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
