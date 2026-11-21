@@ -193,18 +193,42 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
 const float FA_OCT_C = 0.92387953;
 const float FA_OCT_S = 0.38268343;
 
-float fa_area_form(vec4 m, float shape, vec3 pc, vec3 ex, vec3 ey) {
-    if (shape < 0.5 || shape > 1.5) { return fa_ltc_rect(m, pc, ex, ey); }
-    // The disc: an octagon of the circumscribed radius 1.0539 r (the area of the disc), as the fan v0 v1 v2 v3, v0 v3 v4 v5, v0 v5 v6 v7.
-    vec3 v0 = pc + ex * FA_OCT_C + ey * FA_OCT_S;
-    vec3 v1 = pc + ex * FA_OCT_S + ey * FA_OCT_C;
-    vec3 v2 = pc - ex * FA_OCT_S + ey * FA_OCT_C;
-    vec3 v3 = pc - ex * FA_OCT_C + ey * FA_OCT_S;
-    vec3 v4 = pc - ex * FA_OCT_C - ey * FA_OCT_S;
-    vec3 v5 = pc - ex * FA_OCT_S - ey * FA_OCT_C;
-    vec3 v6 = pc + ex * FA_OCT_S - ey * FA_OCT_C;
-    vec3 v7 = pc + ex * FA_OCT_C - ey * FA_OCT_S;
-    return abs(fa_ltc_quad(m, v0, v1, v2, v3) + fa_ltc_quad(m, v0, v3, v4, v5) + fa_ltc_quad(m, v0, v5, v6, v7));
+// Vertex j (0..7) of the octagon of a disc, at the angle (2j + 1) pi / 8 in the frame ex, ey around pc.
+vec3 fa_oct_vertex(int j, vec3 pc, vec3 ex, vec3 ey) {
+    float cx = (j == 0 || j == 7) ? FA_OCT_C : ((j == 3 || j == 4) ? -FA_OCT_C : ((j == 1 || j == 6) ? FA_OCT_S : -FA_OCT_S));
+    float sy = (j == 1 || j == 2) ? FA_OCT_C : ((j == 5 || j == 6) ? -FA_OCT_C : ((j == 0 || j == 3) ? FA_OCT_S : -FA_OCT_S));
+    return pc + ex * cx + ey * sy;
+}
+
+// The two integrals of the shape over the polygon: x through the cosine (the diffuse form factor: the identity lobe), y through
+// the lobe m (the specular one). A rectangle or a tube is one quad; the disc is an octagon of the circumscribed radius 1.0539 r
+// (the area of the disc), as the fan v0 v1 v2 v3, v0 v3 v4 v5, v0 v5 v6 v7. One fa_ltc_quad in a loop over the lobes and the quads
+// rather than a call per quad and per lobe: D3D's compiler inlines every call, and the eight copies of the clipped polygon that
+// made took it about 40 s per program.
+vec2 fa_area_forms(vec4 m, float shape, vec3 pc, vec3 ex, vec3 ey) {
+    int quads = (shape < 0.5 || shape > 1.5) ? 1 : 3;
+    vec2 sum = vec2(0.0);
+    for (int k = 0; k < 2 * quads; k++) {
+        bool lobe = k >= quads;
+        int q = lobe ? k - quads : k;
+        vec3 p0 = pc - ex - ey;
+        vec3 p1 = pc + ex - ey;
+        vec3 p2 = pc + ex + ey;
+        vec3 p3 = pc - ex + ey;
+        if (quads == 3) {
+            p0 = fa_oct_vertex(0, pc, ex, ey);
+            p1 = fa_oct_vertex(2 * q + 1, pc, ex, ey);
+            p2 = fa_oct_vertex(2 * q + 2, pc, ex, ey);
+            p3 = fa_oct_vertex(2 * q + 3, pc, ex, ey);
+        }
+        float f = fa_ltc_quad(lobe ? m : vec4(1.0, 0.0, 0.0, 1.0), p0, p1, p2, p3);
+        if (lobe) {
+            sum.y += f;
+        } else {
+            sum.x += f;
+        }
+    }
+    return abs(sum);
 }
 
 // The light of the table li (an area light) shading the surface point: the radiance this light adds, attenuation (window) applied,
@@ -237,25 +261,22 @@ vec3 fa_area_shade(int li, vec3 world_pos, vec3 n, vec3 v, vec3 diffuse_color, v
     vec3 pc = fa_ltc_local(t1, n, rel);
     vec3 ex = fa_ltc_local(t1, n, right);
     vec3 ey = fa_ltc_local(t1, n, up);
-    float diff = fa_area_form(vec4(1.0, 0.0, 0.0, 1.0), shape, pc, ex, ey);
     vec2 uv = fa_ltc_uv(roughness, ndv) * FA_LTC_SIZE;
     vec4 m = fa_atlas_fetch(uv);
     vec4 br = fa_atlas_fetch(uv + vec2(FA_LTC_SIZE, 0.0));
-    float spec_form = fa_area_form(m, shape, pc, ex, ey);
+    vec2 forms = fa_area_forms(m, shape, pc, ex, ey);
     vec3 spec_color = f0 * br.x + (vec3(f90) - f0) * br.y;
-    return (diffuse_color * diff + spec_color * spec_form) * col * (scale * window);
+    return (diffuse_color * forms.x + spec_color * forms.y) * col * (scale * window);
 }
 
-// The same with the layers of a material on (FaLayers, brdf_layers.glsl): the base layer is the LTC shading above (diffuse and an
-// isotropic GGX specular, its Fresnel up to the layer's f90), scaled by what the coat lets through and by the sheen's albedo scaling;
+// The same with the layers of a material on (FaLayers, brdf_layers.glsl): the base layer is `base`, the LTC shading above (fa_area_shade
+// with the layer's f90: diffuse and an isotropic GGX specular), scaled by what the coat lets through and by the sheen's albedo scaling;
 // the sheen lobe and the coat's lobe are added as the point-light terms of the representative point of the emitter (`l`, the
 // direction of fa_light_sample_n: the point of the emitter closest to the reflection ray of the geometric normal) with the point
 // light's energy, and anisotropy is not applied. The coat's lobe uses the geometric normal, so the representative point is the right
 // one for it.
-vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 l, vec3 diffuse_color, vec3 f0, float roughness,
-                    float ndv, float window) {
-    vec3 result = fa_area_shade(li, world_pos, n, v, diffuse_color, f0, L.f90, roughness, ndv, window) *
-                  (L.keep * (L.sheen_on ? L.sheen_scale : 1.0));
+vec3 fa_area_layers(in FaLayers L, vec3 base, int li, vec3 n, vec3 v, vec3 l, float ndv, float window) {
+    vec3 result = base * (L.keep * (L.sheen_on ? L.sheen_scale : 1.0));
     vec3 h = normalize(l + v);
     float vdh = max(dot(v, h), 0.0);
     vec3 col = fa_light_rgb(li) * window;
@@ -292,12 +313,13 @@ vec3 fa_area_layers(in FaLayers L, int li, vec3 world_pos, vec3 n, vec3 v, vec3 
             // representative direction and attenuation), without the specular lobe and the material layers.
             lit += diffuse_color * (fa_light_rgb(li) * fa_light_tint) * (ndl * atten);
 #else
-            if (fa_light_is_area && !lay.on) {
-                // An area light (M73.1b): the LTC polygon of the light, diffuse and specular, in place of the point-light terms.
-                lit += fa_area_shade(li, i.world_pos, n, v, diffuse_color, f0, 1.0, roughness, ndv, atten);
-            } else if (fa_light_is_area) {
-                // An area light on a layered material: the LTC base layer, the coat and the sheen from the representative point.
-                lit += fa_area_layers(lay, li, i.world_pos, n, v, l, diffuse_color, f0, roughness, ndv, atten);
+            if (fa_light_is_area) {
+                // An area light (M73.1b): the LTC polygon of the light, diffuse and specular, in place of the point-light terms;
+                // on a layered material that is the base layer, with the coat and the sheen from the representative point. One
+                // call of fa_area_shade for both (D3D's compiler inlines every call: fa_area_forms).
+                vec3 area = fa_area_shade(li, i.world_pos, n, v, diffuse_color, f0, lay.on ? lay.f90 : 1.0, roughness, ndv, atten);
+                if (lay.on) { area = fa_area_layers(lay, area, li, n, v, l, ndv, atten); }
+                lit += area;
             } else if (lay.on) {
                 // A material layer is set (clear coat, sheen, anisotropy, specular, ior): brdf_layers.glsl.
                 lit += fa_layers_light(lay, diffuse_color, f0, n, v, l, h, ndl, ndv, ndh, vdh, alpha, a2) *

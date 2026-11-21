@@ -89,7 +89,7 @@ golden, and an area light far away against the point light of the same intensity
   integrals (magnitude, Fresnel) are two 64 x 64 tiles at the top left of the RGBA16F light atlas (view 25), packed before any cookie or
   profile; `bake_ltc_tables` writes them from `ltc_tables.h`. `fa_ltc_uv(roughness, N.V)` addresses them with the half-texel inset
   of the 64 cell grid, and the lookup is bilinear (the sampler of the atlas), as the fit assumes.
-- **Shading** (`light_loop.glsl`: `fa_area_form`, `fa_area_shade`). The shape is a polygon in world space around the light's position
+- **Shading** (`light_loop.glsl`: `fa_area_forms`, `fa_area_shade`). The shape is a polygon in world space around the light's position
   (a rectangle from `size`, a disc as an eight-gon of the same radius, a tube as a thin rectangle of its length and thickness), clipped
   by the light's plane for the one-sided shapes. The diffuse term is the form factor of the polygon with the identity lobe times
   `diffuse_color`; the specular term is the form factor of the polygon through the table's lobe (`fa_ltc_quad`), times
@@ -173,7 +173,7 @@ M73.1b (area lights, cookies, IES profiles; the user page is [RENDERING_LIGHTING
 the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The CPU half is `engine/render/src/light_atlas.h` (`.cpp`) and
 `engine/render/include/fa/render/ies.h` (`src/ies.cpp`), the wiring `collect_lights` and `upload_lights` in `renderer_draw.cpp`, the GPU side
 `light_data.glsl` (`fa_atlas_fetch`, `fa_cookie_sample`, `fa_ies_sample`, the extension texels in `fa_light_sample`) and `light_loop.glsl`
-(`fa_area_light`: `fa_area_form`, `fa_area_shade`, and a branch of the standard loop).
+(`fa_area_light`: `fa_area_forms`, `fa_area_shade`, and a branch of the standard loop).
 
 - **One image, no new unit.** The slots of the mesh fragment stage are all spoken for (16 units in the final phase), so the LTC tables
   share the image with the cookies and the profiles. The image is RGBA16F, 1024 texels wide, a power-of-two rows tall (up to 4096: 32 MB),

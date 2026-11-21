@@ -304,7 +304,7 @@ frame is presented (`firstPresentMs` is `null`). The timeline is recorded in `En
 **The shader cache** (`render/src/shader_cache.cpp`, `core/blob_cache.h`). `sokol-shdc` writes shader SOURCE (HLSL, MSL,
 GLSL) into the committed headers, not compiled code, and sokol_gfx accepts a compiled program only on Direct3D 11
 (`sg_shader_function.bytecode`). So only D3D11 has an engine cache: `make_shader` compiles each stage with `D3DCompile`
-(`d3dcompiler_47.dll` loaded with `LoadLibrary`), stores the DXBC and hands sokol the bytecode next time. The key is
+(`d3dcompiler_47.dll` loaded with `LoadLibrary`), stores the DXBC and hands sokol the bytecode next time (with no cache folder it still compiles each stage itself, without storing it). Its flags are sokol's (column-major matrices, `OPTIMIZATION_LEVEL3`) plus `PREFER_FLOW_CONTROL`: without it the compiler flattens the branches of the 3D lighting and on some custom materials recurses until its stack overflows. The key is
 `d3d11|<engine version>|<flags>|src:<sha-256 of the source>` (DXBC is the same on every driver and card; the driver compiles
 it to machine code), the files are `<cache_dir>/shaders/shader-<program>-<hash>-<stage>-<keyhash>.facache`, where `keyhash` is the first 8 hex characters of the hash of the whole key, so two engine versions or two games with a material of the same path keep separate files (the folder grows by one small file per shader per version; deleting it is safe). GL, GLES and Metal link or build from
 source inside the driver or the OS, which keep their own caches; web has no folder. `BlobCache` is generic: magic `FABC`,

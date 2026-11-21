@@ -197,28 +197,35 @@ float fa_shadow_sun(vec3 world, vec3 n, vec3 l) {
     if (count > 1 && d > fa_shadow_split.x) { ci = 1; }
     if (count > 2 && d > fa_shadow_split.y) { ci = 2; }
     if (count > 3 && d > fa_shadow_split.z) { ci = 3; }
+    // One loop over the cascades: the first that holds the position (a cascade that does not gives a negative value), then, near its
+    // end, the next one to blend into (the last fades out into light), so the seam does not show. One fa_shadow_cascade call with a
+    // bound read from the uniforms: D3D's compiler inlines each call and unrolls a loop of a constant count, which made it compile
+    // the shadow filter five times over.
+    float blend = fa_shadow_cfg.y;
     float s = -1.0;
-    for (int k = 0; k < 4; k++) {
-        if (ci >= count) { break; }
-        s = fa_shadow_cascade(ci, world, n, l);
-        if (s >= 0.0) { break; }
-        ci++;
+    float s2 = -1.0;
+    float t = 0.0;
+    int last = min(count, 4);
+    for (int c = ci; c < last; c++) {
+        float v = fa_shadow_cascade(c, world, n, l);
+        if (s >= 0.0) {
+            s2 = v;
+            break;
+        }
+        if (v < 0.0) { continue; }
+        s = v;
+        ci = c;
+        if (blend > 0.0) {
+            float start = ci > 0 ? fa_shadow_split_at(ci - 1) : fa_shadow_fwd.w;
+            float band = blend * max(fa_shadow_split_at(ci) - start, 1e-4);
+            t = clamp((d - (fa_shadow_split_at(ci) - band)) / band, 0.0, 1.0);
+        }
+        if (t <= 0.0) { break; }
     }
     if (s < 0.0) { return 1.0; }
-    // Near the end of a cascade it blends into the next one (the last fades out into light), so the seam does not show.
-    float blend = fa_shadow_cfg.y;
-    if (blend > 0.0) {
-        float start = ci > 0 ? fa_shadow_split_at(ci - 1) : fa_shadow_fwd.w;
-        float band = blend * max(fa_shadow_split_at(ci) - start, 1e-4);
-        float t = clamp((d - (fa_shadow_split_at(ci) - band)) / band, 0.0, 1.0);
-        if (t > 0.0) {
-            float s2 = 1.0;
-            if (ci + 1 < count) {
-                s2 = fa_shadow_cascade(ci + 1, world, n, l);
-                if (s2 < 0.0) { s2 = s; }
-            }
-            s = mix(s, s2, t);
-        }
+    if (t > 0.0) {
+        float b = ci + 1 < count ? (s2 < 0.0 ? s : s2) : 1.0;
+        s = mix(s, b, t);
     }
     return s;
 }
