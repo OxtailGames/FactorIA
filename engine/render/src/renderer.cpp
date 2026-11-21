@@ -292,6 +292,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
         if (meshes) {
             const bool shadows = gpu->shadows_supported();
+            // The skinned programs (the mesh fragment shader again, ~100 KB of GLSL) only where a mesh can be drawn
+            // skinned: an entity with an Animator. One added later makes them on its first draw.
+            bool animated = false;
+            world.each<Animator>([&](Entity, Animator&) { animated = true; });
             im.warmGroups.push_back([gpu] {
                 gpu->mesh_pipeline(false, false);
                 gpu->mesh_pipeline(false, true);
@@ -302,14 +306,14 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
                 gpu->mesh_pipeline(true, false, false, {}, {}, true);
                 gpu->quad_pipeline(true, false, BlendMode::Alpha);
             });
-            im.warmGroups.push_back([gpu] {
+            im.warmGroups.push_back([gpu, animated] {
                 gpu->sky_pipeline();
-                gpu->mesh_pipeline(false, false, true);
+                if (animated) gpu->mesh_pipeline(false, false, true);
             });
             if (shadows) {
-                im.warmGroups.push_back([gpu] {
+                im.warmGroups.push_back([gpu, animated] {
                     gpu->shadow_pipeline(false);
-                    gpu->shadow_pipeline(true);
+                    if (animated) gpu->shadow_pipeline(true);
                 });
             }
         }
