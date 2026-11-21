@@ -714,7 +714,75 @@ void Editor::draw_image_options(ImageModel& m) {
                 "Show the selection as a blue tint (it shows when the outline would be too long to draw).");
     }
     ImGui::EndDisabled();
+    // third row: the light preview (it only looks at the picture, so it works in Play too)
+    draw_image_light_row(m);
     ImGui::EndChild();
+}
+
+void Editor::draw_image_light_row(ImageModel& m) {
+    ImageUi& u = image_;
+    ImGui::AlignTextToFramePadding();
+    if (ImGui::Checkbox("Light", &u.lit) && u.lit) {
+        // start with the layer that most likely holds a normal map: the selected one if it is hidden, else the first hidden layer
+        const ImageLayer* sel = m.layer(m.selected_layer());
+        if (sel && !sel->visible && sel->kind != ImageLayerKind::Group) {
+            u.litLayer = m.selected_layer();
+        } else if (!m.layer(u.litLayer)) {
+            std::string firstHidden;
+            for (const ImageLayerRow& r : m.layer_rows())
+                if (!r.isGroup && !r.visible) {
+                    firstHidden = r.path;
+                    break;
+                }
+            u.litLayer = !firstHidden.empty() ? firstHidden : m.selected_layer();
+        }
+    }
+    at_track("img:light");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Preview the picture lit by a layer used as its normal map (make one with image.normal.generate, or add a "
+            "normalMap operation to a layer). A lamp follows the mouse. Nothing is saved.");
+    if (!u.lit) return;
+    ImGui::SameLine();
+    const ImageLayer* chosen = m.layer(u.litLayer);
+    ImGui::SetNextItemWidth(130);
+    if (ImGui::BeginCombo("##imglitlayer", chosen ? (chosen->name.empty() ? u.litLayer.c_str() : chosen->name.c_str())
+                                                  : "pick the normal layer")) {
+        for (const ImageLayerRow& r : m.layer_rows()) {
+            if (r.isGroup) continue;
+            ImGui::PushID(r.path.c_str());
+            const std::string label = std::string(std::size_t(r.depth) * 2, ' ') + (r.name.empty() ? r.path : r.name) +
+                                      (r.visible ? "" : " (hidden)");
+            if (ImGui::Selectable(label.c_str(), r.path == u.litLayer)) u.litLayer = r.path;
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    at_track("img:light:layer");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The layer drawn as the normal map. Hide it to see the sprite: a visible normal layer is "
+                          "part of the picture.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Orbit", &u.litOrbit);
+    at_track("img:light:orbit");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The lamp circles the picture instead of following the mouse.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90);
+    ImGui::SliderFloat("Height", &u.litHeight, 4, 400, "%.0f", ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How far above the picture the lamp is, in pixels. Low = long, harsh shading.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80);
+    ImGui::SliderFloat("Strength", &u.litIntensity, 0, 4, "%.1f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How strongly the normals change the colour (1 = like the shade operation).");
+    ImGui::SameLine();
+    ImGui::Checkbox("Flip green", &u.litFlipGreen);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The map is DirectX style (green points down the picture).");
+    if (!u.litWhy.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", u.litWhy.c_str());
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------- palette and frames --
