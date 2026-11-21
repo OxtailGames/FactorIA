@@ -45,8 +45,11 @@ void main() {
     // atan(0, 0) is undefined on some mobile GPUs: at the exact poles the direction has no azimuth, and any one will do.
     float az = (abs(r.x) + abs(r.z) > 1.0e-6) ? atan(r.x, -r.z) : 0.0;
     vec2 uv = vec2(az * 0.15915494 + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) * 0.31830989);
-    // Texels one pixel spans along the equator: its angle (the change of the unit direction across the pixel) times the texels per radian.
-    float footprint = length(fwidth(d)) * p.w * 0.15915494;
+    // Texels one pixel spans: its angle (the change of the unit direction across the pixel) times the texels per radian, which is the same
+    // along a meridian and along the equator; along a parallel at latitude L the picture's rows are 1 / cos(L) times as wide in texels as
+    // they are long, so the footprint is divided by cos(L) (kept above 0.05: at the poles the whole top row is one point) and the mip
+    // follows the longer side. Without it the poles were read from a mip that is too sharp and shimmered.
+    float footprint = length(fwidth(d)) * p.w * 0.15915494 / max(sqrt(max(1.0 - r.y * r.y, 0.0)), 0.05);
     float lod = max(log2(max(footprint, 1.0e-6)), 0.0);
     vec3 col = textureLod(sampler2D(hdri_tex, hdri_smp), uv, lod).rgb;
     if (p.z > 0.5) {

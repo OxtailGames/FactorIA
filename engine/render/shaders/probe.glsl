@@ -31,7 +31,7 @@
 // alpha q.z is the share of the new value (1 - hysteresis).
 //
 // Every program writes RGBA16F, or RGBA8 on a GPU that cannot render to half floats (the radiance is then clamped to 0..1, and the SH texels hold
-// clamp(c / 4, -1, 1) * 0.5 + 0.5, as the sky's: q.y = 1).
+// clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255, as the sky's: q.y = 1).
 @module probe
 
 @include env_ggx.glsl
@@ -215,7 +215,7 @@ void main() {
         result *= 65000.0 / m;
     }
     if (q.y > 0.5) {
-        result = clamp(result * 0.25, vec3(-1.0), vec3(1.0)) * 0.5 + 0.5;
+        result = clamp(result * 0.25, vec3(-1.0), vec3(1.0)) * (127.0 / 255.0) + 128.0 / 255.0;
     }
     frag_color = vec4(result, q.z > 0.0 ? q.z : 1.0);   // q.z: the share of the new value in a blended draw (the GI's SH rows), 0 = 1
 }
@@ -236,10 +236,10 @@ void main() {
     if (k >= 0 && k < 9) {
         c = textureLod(samplerCube(probe_cube, probe_smp), vec3(1.0, v, -u), p.x).rgb;
         if (q.w > 0.5) {
-            c = (c - 0.5) * 8.0;   // the source holds clamp(c / 4, -1, 1) * 0.5 + 0.5
+            c = (c * 255.0 - 128.0) * (4.0 / 127.0);   // the source holds clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255
         }
         if (q.y > 0.5) {
-            c = clamp(c * 0.25, vec3(-1.0), vec3(1.0)) * 0.5 + 0.5;
+            c = clamp(c * 0.25, vec3(-1.0), vec3(1.0)) * (127.0 / 255.0) + 128.0 / 255.0;
         }
     }
     frag_color = vec4(c, 1.0);

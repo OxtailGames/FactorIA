@@ -475,7 +475,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_rpb_bz;
     // The realtime GI grids (RealtimeGI; fa_gi_light below): their records are in the light data texture.
     vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
-                                // below runs), z = 1 when the draw belongs to a capture (a probe's face: the grid's light is times its bounce)
+                                // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -608,7 +608,7 @@ vec2 fa_atlas_size() {
 vec3 fa_probe_level(vec2 origin, float res, int lv, vec2 e) {
     float size = res / float(1 << lv);
     float lx = lv == 0 ? 0.0 : res + 2.0;
-    float ly = lv == 0 ? 0.0 : res - res / float(1 << (lv - 1)) + 2.0 * float(lv - 1);
+    float ly = lv == 0 ? 0.0 : res - res / float(1 << max(lv - 1, 0)) + 2.0 * float(lv - 1);  // (max: no negative shift in the branch not taken)
     vec2 px = origin + vec2(lx, ly) + vec2(1.0) + (e * 0.5 + vec2(0.5)) * size;
     return textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
 }
@@ -629,7 +629,7 @@ vec3 fa_probe_radiance(vec2 origin, float res, vec3 d, float rough) {
 vec3 fa_probe_sh_coef(vec2 origin, float res, int k) {
     vec2 px = origin + vec2(float(k) + 0.5, res + 2.5);
     vec3 v = textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
-    if (fa_atlas.y > 0.5) { v = (v - 0.5) * 8.0; }  // RGBA8: clamp(c / 4, -1, 1) * 0.5 + 0.5
+    if (fa_atlas.y > 0.5) { v = (v * 255.0 - 128.0) * (4.0 / 127.0); }  // RGBA8: clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255 (0 is the byte 128)
     return v;
 }
 
@@ -764,7 +764,7 @@ vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
     vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
     vec3 n = normalize(s.normal);
     FaLayers lay = fa_layers_setup(i, s, n, i.view_dir, metallic, roughness, f0);
-    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness) * s.occlusion; }
+    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness, s.occlusion); }
     return fa_sky_reflection(n, i.view_dir, f0, roughness) * s.occlusion;
 }
 #endif
@@ -918,7 +918,7 @@ vec3 fa_gi_grid(int rec, vec3 n, vec3 v, out float cover) {
     if (!(wsum > 1.0e-5)) { return vec3(0.0); }
     // Every probe that sees the point little leaves the sky to the rest: the grid's say fades with the weight it found.
     cover = box * smoothstep(0.0, 0.02, wsum);
-    float gain = r2.w * (fa_gi.z > 0.5 ? r3.x : 1.0);  // intensity, times bounce in a capture
+    float gain = r2.w * (fa_gi.z > 0.5 ? r3.x : 1.0);  // intensity, times bounce in a capture of the grid's probes
     return max(acc / wsum, vec3(0.0)) * gain;
 }
 
@@ -952,14 +952,15 @@ vec3 fa_realtime_or_ambient(vec3 n) {
 }
 
 // The diffuse indirect light toward n, by order: the baked texel of a lightmapped surface; else the baked light probes where they cover
-// the point (blended with the ambient light by their coverage); else the realtime GI grid where a ready one covers it (blended with the
-// ambient over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe that
-// reaches the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers' base_scale
-// darkens it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays the reflection
-// probes' and the sky's: a lightmap holds no direction, so the ambient is never counted twice (the texel replaces the diffuse ambient
-// only) and never missing.
-// The grid's code is inlined at ONE call site: Apple's Metal compiler crashes on a clip material (graph with a discard) that has it at two,
-// or that blends its result with the baked SH after the fact.
+// the point (blended with the ambient light by their coverage: the part they do not cover gets the ambient light, not the realtime GI
+// grid, a known deviation, docs/design/ARCHITECTURE_PROBES.md); else the realtime GI grid where a ready one covers it (blended with the
+// ambient over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe
+// that reaches the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers'
+// base_scale darkens it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays
+// the reflection probes' and the sky's: a lightmap holds no direction, so the ambient is never counted twice (the texel replaces the
+// diffuse ambient only) and never missing.
+// The grid's code is inlined at ONE call site: Apple's Metal compiler crashes on a clip material (graph with a discard) that has it at
+// two, or that blends its result with the baked SH after the fact (also when the blend is made inside the one function: tried).
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
@@ -1067,7 +1068,7 @@ void main() {
 #if !defined(FA_CUSTOM_LIGHT) && !defined(FA_SSS)
         // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
         if (lay.on) {
-            lit += fa_layers_ibl(lay, n, v, f0, roughness) * s.occlusion;
+            lit += fa_layers_ibl(lay, n, v, f0, roughness, s.occlusion);
         } else {
             lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
         }
