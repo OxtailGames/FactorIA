@@ -6592,7 +6592,7 @@ declare module "factoria" {
      */
     castShadows: boolean;
     /**
-     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the occluder and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
+     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
      * @since unreleased
      */
     size: number;

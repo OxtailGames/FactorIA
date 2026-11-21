@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <format>
 
 #include "fa/core/log.h"
 #include "fa/scene/bounds.h"
@@ -213,9 +214,8 @@ void assign_shadow_rows(World& world, Frame& f) {
             }
     }
 
-    // A light gets a row when a solid tile lies within its reach: the first kMaxShadowLights2D of them in rank order.
+    // A light gets a row when a solid tile lies within its reach: the (the frame already holds at most kMaxLights2D lights).
     std::vector<LightWork> work;
-    int over = 0;
     for (std::size_t i : asking) {
         const Light2DData& l = f.lights2d[i];
         LightWork w;
@@ -223,19 +223,17 @@ void assign_shadow_rows(World& world, Frame& f) {
         w.px = l.pos[0];
         w.py = l.pos[1];
         w.radius = l.pos[3];
-        w.layers = l.shadowLayers;
+        w.layers = l.layers;
         bool solid = false;
         bool cut = false;
         casters_in_reach(casters, w.px, w.py, w.radius, w.layers, w.bodies, cut);
         solid = !w.bodies.empty();
-        if (cut && f.warnedShadows2d && !*f.warnedShadows2d) {
-            *f.warnedShadows2d = true;
-            FA_WARN("render",
-                    "A Light2D reaches more than {} ShadowCaster2D; the ones after the first {} (in entity order) do "
-                    "not block it. Hint: use a smaller radius, set lightLayers on the casters so far ones skip this "
-                    "light, or merge casters",
-                    kMaxCasterBodiesPerLight, kMaxCasterBodiesPerLight);
-        }
+        if (cut)
+            warn_once(cache.contours, "lightCasters",
+                      std::format("A Light2D reaches more than {} ShadowCaster2D; the ones after the first {} (in "
+                                  "entity order) do not block it. Hint: use a smaller radius, set lightLayers on the "
+                                  "casters so far ones skip this light, or merge casters",
+                                  kMaxCasterBodiesPerLight, kMaxCasterBodiesPerLight));
         for (std::size_t k = 0; k < occluders.size(); ++k) {
             const Occluder& o = occluders[k];
             if (o.area.empty() || (o.layers & w.layers) == 0) continue;
@@ -245,19 +243,9 @@ void assign_shadow_rows(World& world, Frame& f) {
             solid = solid || o.any_solid(win);
         }
         if (!solid) continue;
-        if (int(work.size()) < kMaxShadowLights2D)
-            work.push_back(std::move(w));
-        else
-            ++over;
-    }
-    if (over > 0 && f.warnedShadows2d && !*f.warnedShadows2d) {
-        *f.warnedShadows2d = true;
-        FA_WARN("render",
-                "{} Light2D with castShadows reach a solid tile of a Tilemap with occludesLight or a ShadowCaster2D, "
-                "but a frame gives shadows to at most {} lights: the {} ranked last shine through walls. Hint: set "
-                "castShadows on fewer lights (the ones that light the most of the view come first), or give the "
-                "others a smaller radius",
-                int(work.size()) + over, kMaxShadowLights2D, over);
+        // gather gives a frame at most kMaxLights2D lights, so every light that asks and reaches something gets its row
+        // (kMaxShadowLights2D == kMaxLights2D).
+        work.push_back(std::move(w));
     }
     if (work.empty()) return;
 
@@ -291,7 +279,18 @@ void assign_shadow_rows(World& world, Frame& f) {
                 origin.push_back({o.m[0] * q.x + o.m[1] * q.y, o.m[2] * q.x + o.m[3] * q.y});
             }
             std::vector<float> casterRow(std::size_t(kShadowAngles), w.radius);
-            if (!w.bodies.empty()) cast_casters(casters, w.bodies, w.px, w.py, w.radius, casterRow.data());
+            if (!w.bodies.empty()) {
+                bool cut = false;
+                cast_casters(casters, w.bodies, w.px, w.py, w.radius, casterRow.data(), &cut);
+                if (cut)
+                    warn_once(
+                        cache.contours, "rowWork",
+                        std::format("The casters in reach of a Light2D need more than {} segment-by-angle tests "
+                                    "for its shadow row; the casters after that point (in entity order) do not "
+                                    "block that light. Hint: use a smaller radius, polygon or box casters instead "
+                                    "of detailed sprite contours, or lightLayers so far casters skip this light",
+                                    kMaxRowWork2D));
+            }
             for (int i = 0; i < kShadowAngles; ++i) {
                 float best = casterRow[std::size_t(i)];
                 for (std::size_t n = 0; n < w.windows.size(); ++n) {
