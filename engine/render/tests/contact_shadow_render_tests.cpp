@@ -134,6 +134,39 @@ TEST_CASE(
     CHECK(compare(g.render(noRecv.w), g.render(noRecvOff.w)).any == 0);
 }
 
+TEST_CASE("contact shadows: a flat floor seen at a grazing angle from far away has no acne stripes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("contactShadows")) return;
+    // No occluder at all: the ray of the contact shadow may never find the floor itself. The camera is 3.5 m up and 20 m from the point it
+    // looks at (atan(3.5 / 20) = 10 degrees over the floor), where the depth buffer of a distant floor is the coarsest and the ray
+    // skims the surface.
+    auto build = [](World& w, bool master) {
+        add_camera(w, {0.0f, 3.5f, 20.0f}, {0.0f, 0.0f, 0.0f});
+        w.settings().ambientLight = Color{0.1f, 0.1f, 0.12f, 1};
+        w.settings().contactShadows = master;
+        add_mesh(w, "plane", {0, 0, 0}, Color::hex(0xc8c8c8), {200, 1, 200});
+        Entity sun = make(w, "sun", {0, 5, 0});
+        w.get<Transform>(sun)->rotation = {-20, 60, 0};
+        auto& l = w.add<Light>(sun);
+        l.type = LightType::Directional;
+        l.intensity = 1.5f;
+        l.castShadows = false;
+        l.contactShadowLength = 1.5f;
+    };
+    World on, off;
+    build(on, true);
+    build(off, false);
+    const Image shaded = g.render(on);
+    CHECK(g.renderer.stats().contactShadowLights == 1);
+    const Image plain = g.render(off);
+    const Diff d = compare(shaded, plain);
+    const int pixels = shaded.width * shaded.height;
+    // Stripes would darken whole rows of the far floor; a small share of pixels (the horizon's edge) is the limit.
+    CHECK(d.darker < pixels / 100);
+    CHECK(d.lighter < pixels / 100);
+}
+
 TEST_CASE("contact shadows: the picture does not change from frame to frame and a longer ray shades more") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
