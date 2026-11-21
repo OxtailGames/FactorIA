@@ -1304,7 +1304,8 @@ TextureAsset* Assets::generated_normal(const std::string& path, bool fromHeight,
     for (const GeneratedNormalMemo& m : memo)
         if (m.fromHeight == fromHeight && m.milli == milli) return m.entry->tex.get();
     // A strength that changes every frame (an animated one) must not grow the maps without end: a path keeps at most
-    // kMaxNormalVariants of them, and past that the one asked is answered with the closest strength already made.
+    // kMaxNormalVariants of them (both kinds together), and past that the one asked is answered with the closest
+    // strength already made of its kind; a kind with none among them still gets its first map.
     if (int(memo.size()) >= kMaxNormalVariants) {
         const GeneratedNormalMemo* best = nullptr;
         for (const GeneratedNormalMemo& m : memo)

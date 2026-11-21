@@ -98,6 +98,9 @@ What the command does, file by file; do it by hand when you want to see each fil
    switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
    `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player
    changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
+   The Graphics tab is the tallest: in a game that also shows the analytics row (an `analytics` section in factoria.json),
+   the bottom few pixels of the options panel fall off a 720-high screen (the Back button stays visible) and the log warns
+   that the panel is larger than the screen; such a game lowers `spacing` of `graphics_section` or shortens its notes.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`: it loads the first level in the background
    (`scene.load` with `{ async: true }`) and shows the real progress.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
