@@ -102,7 +102,7 @@ bool Xmit::ready() {
 
 sg_pipeline Xmit::pipeline(const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
-        if (e.format == format) return e.pipeline;
+        if (e.format == format) return e.pipeline;  // an id of 0 = the GPU refused this format (said once, below)
     if (state_ <= 0) return {};
     sg_pipeline_desc d{};
     d.shader = shader_;
@@ -114,9 +114,14 @@ sg_pipeline Xmit::pipeline(const TargetFormat& format) {
     d.sample_count = format.samples;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "xmit-copy";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    sg_pipeline p = sg_make_pipeline(&d);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render",
+                 "Transmission: failed to create the copy pipeline for this render target format; transmissive meshes "
+                 "are blended plainly without refraction. Hint: see the sokol log lines above.");
+        if (p.id) sg_destroy_pipeline(p);
+        p = {};  // remembered as failed: no second attempt, no second message, and build() gives the picture up
+    }
     pipelines_.push_back({format, p});
     return p;
 }
@@ -179,6 +184,14 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
         ok = red[k] && red[k]->texView.id;
     }
     if (!ok) {
+        finish(targets, out);
+        return false;
+    }
+    // A format the GPU makes no copy pipeline for gives the whole copy up (the draws are then blended plainly).
+    bool pipelinesOk = pipeline(pass_into(*atlas, "xmit-atlas").format).id != 0;
+    for (int k = 1; pipelinesOk && k < lay.levels; ++k)
+        pipelinesOk = pipeline(pass_into(*red[k], "xmit-reduce").format).id != 0;
+    if (!pipelinesOk) {
         finish(targets, out);
         return false;
     }

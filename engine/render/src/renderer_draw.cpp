@@ -222,7 +222,7 @@ void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) *
 
 // Does this opaque mesh scatter light (MeshRenderer.subsurface above 0)? Only a mesh drawn by the engine's own program does: a material brings
 // its own lighting, and the sss variant of the shader (mesh_common.glsl, fs_sss) is of the engine's template.
-bool sss_scatters(const MeshItem& mi) { return !mi.material && !mi.mr->unlit && subsurface_of(*mi.mr)[0] > 0.0f; }
+bool sss_scatters(const MeshItem& mi) { return mesh_scatters(*mi.mr, mi.material, false); }
 
 // The block the mesh fragment shaders read the sun's cascaded shadow from (fa_shadows of shadow_common.glsl): where each cascade's map is in
 // the atlas image this job draws into (the matrix that takes a world position to the atlas's u, v and a 0..1 depth, the tile's rectangle

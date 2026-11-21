@@ -990,6 +990,11 @@ const HdriAsset* Assets::hdri(const std::string& pathIn) {
 
 const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
     if (pathIn.empty()) return nullptr;
+    // Asked every frame for every baked probe: a path that already is a key (the normal case: the keys are normalised paths, and a
+    // normalised path stays itself) is answered without normalising it again.
+    if (auto hit = probeBakes_.find(pathIn);
+        hit != probeBakes_.end() && (hit->second->ok || !hit->second->retryPending))
+        return hit->second.get();
     std::string key = fs::normalize(pathIn);
     if (key.empty()) key = pathIn;
     bool secondTry = false;
@@ -1692,8 +1697,8 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
                 "The page and the manifest are from different bakes: bake the lightmap again.");
             continue;
         }
-        // The size of the manifest is what this page may take (the header was checked against it above, and against what a scene
-        // may use): a page up to kLightmapMaxPageSize square is legal, whatever the budget of an environment map is.
+        // The size of the manifest is what this page may take (the header was checked against it above, and against what a
+        // scene may use): a page up to kLightmapMaxPageSize square is legal, whatever the budget of an environment map is.
         Result<ImageF> img =
             bytes ? decode_hdr(bytes->data(), bytes->size(), image_float_bytes(want.width, want.height, 3))
                   : Result<ImageF>(bytes.error());

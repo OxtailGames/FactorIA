@@ -257,6 +257,18 @@ TEST_CASE("pick_probes: a point is reflected by the probes whose box holds it, b
     CHECK(pick_probes(hard, {2.99f, 0, 0}).steps[0] == kProbeShareSteps);
 }
 
+TEST_CASE("probe box: a side and a blend band are held inside the ranges the doc strings give") {
+    CHECK(probe_box_side(10.0f) == 10.0f);
+    CHECK(probe_box_side(-4.0f) == 4.0f);
+    CHECK(probe_box_side(0.0f) == 0.01f);
+    CHECK(probe_box_side(1.0e9f) == 1.0e5f);
+    CHECK(probe_box_side(std::nanf("")) == 10.0f);
+    CHECK(probe_blend_band(1.0f) == 1.0f);
+    CHECK(probe_blend_band(-2.0f) == 0.0f);
+    CHECK(probe_blend_band(5000.0f) == 1000.0f);
+    CHECK(probe_blend_band(std::nanf("")) == 0.0f);
+}
+
 TEST_CASE("pick_probes: importance, then the smaller box, then the nearer capture, then the id; the first at full "
           "weight drops the second") {
     // Two boxes that overlap around the origin: A is bigger and more important than B; C is a second B-sized box.

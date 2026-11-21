@@ -91,15 +91,15 @@ Json material_cost_report(const MeshRenderer& mr, const MeshAsset* mesh, const M
                                    ? "A stretched highlight in the fragment shader: more work per pixel, no extra pass."
                                    : "Off (anisotropy 0)."));
 
-    // The subsurface scattering (M73.5, renderer_subsurface.h): the same test as sss_scatters in renderer_draw.cpp (a mesh with the engine's own
+    // The subsurface scattering (M73.5, renderer_subsurface.h): the same test as the renderer (mesh_scatters: an opaque mesh with the engine's own
     // lighting, lit, with a strength above 0). It draws the mesh again (sss-draw) and blurs its light (sss-blur-h, sss-blur-v, sss-add), once per
     // camera that sees such a mesh, on a GPU with RGBA16F targets (render.supports "subsurface").
-    const bool scatters = !material && !mr.unlit && subsurface_of(mr)[0] > 0.0f;
+    const bool scatters = mesh_scatters(mr, material, blended);
     features.push_back(
         feature("subsurface", "subsurface", scatters, "extraPass", scatters ? 4 : 0,
                 scatters ? "Draws the mesh again into a light image and blurs it: sss-draw, sss-blur-h, sss-blur-v and "
                            "sss-add, once per camera that sees such a mesh (only on a GPU with RGBA16F targets)."
-                         : "Off (subsurface 0, an unlit mesh, or a material of its own)."));
+                         : "Off (subsurface 0, an unlit or blended mesh, or a material of its own)."));
 
     int extra = 0;
     std::string summary;
