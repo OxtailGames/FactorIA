@@ -1,0 +1,11 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: mixes the sprite with the picture drawn so far, read shifted by (dx, dy) of the screen.",
+  "shader": "shaders/sprite_scene.fragment.glsl",
+  "params": {
+    "amount": { "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "doc": "0 = the sprite as it is, 1 = the picture drawn so far." },
+    "dx": { "type": "float", "default": 0.0, "min": -1.0, "max": 1.0, "doc": "Where the picture is read: this fraction of the screen width to the right of the pixel." },
+    "dy": { "type": "float", "default": 0.0, "min": -1.0, "max": 1.0, "doc": "Where the picture is read: this fraction of the screen height below the pixel." }
+  }
+}

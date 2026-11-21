@@ -6,6 +6,7 @@
 #include "renderer_impl.h"
 #include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
+#include "water2d.h"
 
 #include <algorithm>
 #include <array>
@@ -142,6 +143,19 @@ struct Renderer::Impl::DrawContext {
         int levels = 0;
         sg_view atlasView{};
     } xmit;
+    // M74.4: the picture drawn so far, which Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() read (water2d.h).
+    // main_pass plans the copies before the pass begins (`copyAt`: the batches of the world group a copy is made before); draw_group makes
+    // them, and `view` is the latest copy while the world group is drawn (`live`). Nothing is planned, copied or held without such a batch.
+    struct {
+        bool live = false;
+        std::vector<std::uint32_t> copyAt;
+        std::size_t next = 0;
+        std::uint64_t handle = 0;  // the pooled image of the latest copy (0 = none)
+        sg_view view{};
+        SceneMap map;
+        sg_store_action finalStore = SG_STOREACTION_STORE;
+        TargetFormat format;
+    } sceneCopy;
     // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
     // (sss_draw_pass), the stack the blur and add passes (SssFx), and the scene uniforms carry the camera's view for the shader's visibility test.
     bool sssOn = false;
@@ -3015,8 +3029,69 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     // (the size of the image the pass draws into: the game target's, or `passW` x `passH` for a smaller one)
     const float targetInv[2] = {1.0f / float(std::max(1, passW > 0 ? passW : physW)),
                                 1.0f / float(std::max(1, passH > 0 ? passH : physH))};
+    // The world group of the main pass may read the picture drawn so far (water2d.h): before the first batch of a run of such batches the pass
+    // ends, the camera's rectangle is copied and the pass goes on from what it stored (the way the transmission copy splits it).
+    auto& sc = ctx.sceneCopy;
+    const bool sceneGroup = sc.live && &batches == &ctx.gWorld.batches;
+    auto split_for_scene = [&]() {
+        gpu.end_pass();
+        if (sc.handle) transient_targets().pool.release(sc.handle);
+        sc.handle = 0;
+        sc.view = {};
+        const int row = gpu.is_gl() ? gameTarget.h - base.y - base.h : base.y;  // image rows
+        if (waterFx.copy(transient_targets(), gpu, gameTarget, base.x, row, base.w, base.h, sc.handle, sc.view)) {
+            sc.map = scene_map(vp, base.x, base.y, base.w, base.h, gameTarget.w, gameTarget.h);
+            ++stats.sceneCopies;
+        } else if (!sceneCopyWarned) {
+            sceneCopyWarned = true;
+            FA_ERROR("render", "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite "
+                               "material that calls "
+                               "fa_scene_color(): the water and the zones are not drawn and those materials read "
+                               "transparent black. Hint: lower the "
+                               "render scale or the window size, and see the log lines above.");
+        }
+        const bool last = sc.next + 1 >= sc.copyAt.size();
+        PassDesc cp = pass_into(gameTarget, "game-scene");
+        cp.colorLoad = SG_LOADACTION_LOAD;
+        cp.depthLoad = SG_LOADACTION_LOAD;
+        cp.stencilLoad = SG_LOADACTION_LOAD;
+        cp.colorStore = last ? sc.finalStore : SG_STOREACTION_STORE;
+        if (!last) {
+            cp.depthStore = SG_STOREACTION_STORE;
+            cp.stencilStore = SG_STOREACTION_STORE;
+        }
+        gpu.begin_pass(cp);
+        if (ctx.partial) apply_view(ctx.camPx);
+        ++sc.next;
+        scissor = Rect{-1, -1, -1,
+                       -1};  // the new pass starts with the base viewport: the next apply_clip sets the clip again
+    };
+    sg_view sceneBound =
+        sceneGroup && sc.view.id ? sc.view : assets->white()->view;  // what view 12 of a material shows
     for (const QuadBatch& qb : batches) {
+        if (sceneGroup && sc.next < sc.copyAt.size() && sc.copyAt[sc.next] == std::uint32_t(&qb - batches.data())) {
+            split_for_scene();
+            sceneBound = sc.view.id ? sc.view : assets->white()->view;
+        }
         apply_clip(qb.clip);
+        if (qb.effect) {
+            // Water2D / DistortionZone2D with the built-in look: one quad drawn from the copy. Outside the world group of the main pass (the
+            // sprite-outline coverage image) or without a copy there is nothing to read: not drawn.
+            if (!sceneGroup || !sc.view.id || qb.effect > fr.world.fx.size()) continue;
+            WaterFx::DrawEnv env;
+            env.vertices = vbuf;
+            env.viewProj = &vp;
+            env.map = &sc.map;
+            env.scene = sc.view;
+            env.time = fr.time;
+            env.targetInv[0] = targetInv[0];
+            env.targetInv[1] = targetInv[1];
+            env.gl = gpu.is_gl();
+            env.depthTest = depthTest;
+            env.format = sc.format;
+            if (waterFx.draw(gpu, fr.world.fx[qb.effect - 1], qb.firstQuad, env)) ++stats.drawCalls;
+            continue;
+        }
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
         // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that
         // did not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
@@ -3095,6 +3170,12 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                 fu.fa_target[0] = targetInv[0];
                 fu.fa_target[1] = targetInv[1];
                 fu.fa_target[2] = gpu.is_gl() ? 1.0f : 0.0f;
+                if (sceneGroup &&
+                    sc.view
+                        .id) {  // fa_scene_color(): where the copy is (zero = no picture: it reads transparent black)
+                    std::memcpy(fu.fa_scene, sc.map.scene, sizeof(fu.fa_scene));
+                    std::memcpy(fu.fa_world_uv, sc.map.worldUv, sizeof(fu.fa_world_uv));
+                }
                 sg_range r{&fu, std::min<std::size_t>(prog->ubSize[UB_quad_quad_fs_params], sizeof(fu))};
                 sg_apply_uniforms(UB_quad_quad_fs_params, &r);
             }
@@ -3145,6 +3226,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                     b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
+                b.views[kMaterialSpriteSceneView] = sceneBound;  // its sampler is the engine's light_smp (slot 1)
                 for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
                 for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
@@ -3217,7 +3299,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         const sg_store_action finalStore = mp.colorStore;
         // A transmissive draw splits the pass after the opaque phase (below): the first half keeps the picture, the depth and the stencil for the
         // second.
-        if (ctx.xmit.want) {
+        // The same for a world group that reads the picture drawn so far (Water2D, fa_scene_color; planned just below).
+        ctx.sceneCopy = {};
+        ctx.sceneCopy.finalStore = finalStore;
+        ctx.sceneCopy.format = mp.format;
+        if (fr.wantWorld && count_scene_readers(gWorld.batches) > 0 && waterFx.ready()) {
+            const int runs = plan_scene_copies(gWorld.batches, ctx.sceneCopy.copyAt);
+            if (runs > kMaxSceneCopies && !sceneCapWarned) {
+                sceneCapWarned = true;
+                FA_WARN("render",
+                        "A camera has {} separate runs of 2D draws that read the picture drawn so far (Water2D, "
+                        "DistortionZone2D, sprite "
+                        "materials that call fa_scene_color()): the picture is copied for the first {} only and the "
+                        "later runs read the "
+                        "last copy, so they do not see what is drawn between. Hint: give those items neighbouring "
+                        "layers so that they "
+                        "share a copy, or use fewer of them.",
+                        runs, kMaxSceneCopies);
+            }
+        }
+        const bool sceneSplits = !ctx.sceneCopy.copyAt.empty();
+        if (ctx.xmit.want || sceneSplits) {
             mp.colorStore = SG_STOREACTION_STORE;
             mp.depthStore = SG_STOREACTION_STORE;
             mp.stencilStore = SG_STOREACTION_STORE;
@@ -3407,9 +3509,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             }
             PassDesc cp = pass_into(gameTarget, plan.view ? "view-glass" : fr.wantWorld ? "game-glass" : "game-hud");
             cp.colorLoad = SG_LOADACTION_LOAD;
-            cp.colorStore = finalStore;
+            cp.colorStore = sceneSplits ? SG_STOREACTION_STORE : finalStore;
             cp.depthLoad = SG_LOADACTION_LOAD;
             cp.stencilLoad = SG_LOADACTION_LOAD;
+            if (sceneSplits) {
+                cp.depthStore = SG_STOREACTION_STORE;
+                cp.stencilStore = SG_STOREACTION_STORE;
+            }
             gpu.begin_pass(cp);
             if (partial) apply_view(camPx);
         }
@@ -3417,8 +3523,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         draw_meshes(blendedBatches, blended, true);
 
         // quad groups
+        ctx.sceneCopy.live = sceneSplits;
         draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
                    ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
+        ctx.sceneCopy.live = false;
         draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
@@ -3449,6 +3557,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         gpu.end_pass();
         if (xmitImages.atlas) xmit.finish(transient_targets(), xmitImages);
+        if (ctx.sceneCopy.handle) transient_targets().pool.release(ctx.sceneCopy.handle);
+        ctx.sceneCopy.handle = 0;
+        ctx.sceneCopy.view = {};
     }  // doMainPass
 }
 

@@ -16,6 +16,7 @@
 #include "render_scene.h"
 #include "scene2d.h"
 #include "sprite_buffer_draw.h"
+#include "water2d.h"
 
 namespace fa::render {
 
@@ -1253,6 +1254,7 @@ void Scene2D::gather(World& world, Frame& f) {
     gather_sprites(world, f);
     gather_shapes(world, f);
     gather_tilemaps_and_text(world, f);
+    gather_water_fx(world, f);
 }
 
 void gather_2d(World& world, Frame& f) {

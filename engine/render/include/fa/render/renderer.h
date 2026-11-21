@@ -153,6 +153,9 @@ struct RenderStats {
     int transmissiveMeshes = 0;
     int transmissionCopies = 0;
     int transmissionPlain = 0;
+    // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
+    // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
+    int sceneCopies = 0;
     // Subsurface scattering (M73.5), summed over the cameras of the frame.
     int subsurfaceCameras =
         0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
