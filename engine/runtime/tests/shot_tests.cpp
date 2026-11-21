@@ -424,7 +424,7 @@ TEST_CASE("render.gi_grid: empty without a RealtimeGI, lists a grid with its pro
     CHECK(nr.error.dump().find("renderer") != std::string::npos);
 }
 
-TEST_CASE("render.gi2d_field: no fields without GlobalIllumination2D, one field with it and its three PNGs, and no "
+TEST_CASE("render.gi2d_field: no fields without GlobalIllumination2D, one field with it and its four PNGs, and no "
           "renderer") {
     TempProject p("gi2d-field-command");
     Engine e;
@@ -451,18 +451,22 @@ TEST_CASE("render.gi2d_field: no fields without GlobalIllumination2D, one field 
         REQUIRE(r.result["fields"].size() == 1);
         const Json& f = r.result["fields"][0];
         CHECK(f["ready"] == true);
-        CHECK(f["width"] == 178);  // (320 + 2 x 16) / 2 at the default resolutionScale 0.5, and 2 more
-        CHECK(f["height"] == 108);
+        CHECK(f["width"] ==
+              192);  // (320 + 2 x 16) / 2 at the default resolutionScale 0.5, and 2 more, up to a multiple of 32
+        CHECK(f["height"] == 128);
+        CHECK(f["cascades"]["cascades"] == 4);  // quality medium
         const std::string prefix = (p.dir / "gi").generic_string();
         auto saved = c.call("render.gi2d_field", Json{{"save", prefix}});
         REQUIRE_MESSAGE(saved.ok, saved.error.dump());
         CHECK_FALSE(saved.result.contains("error"));
-        REQUIRE(saved.result["files"].size() == 3);
-        for (const char* name : {"emission", "occluders", "distance"}) {
+        REQUIRE(saved.result["files"].size() == 4);
+        for (const char* name : {"emission", "occluders", "distance", "irradiance"}) {
             auto img = load_image((p.dir / (std::string("gi-") + name + ".png")).generic_string());
             REQUIRE_MESSAGE(img.ok(), name);
-            CHECK(img.value().width == 178);
-            CHECK(img.value().height == 108);
+            const bool probes =
+                std::string(name) == "irradiance";  // one pixel a probe: the field's size over the spacing of 2
+            CHECK(img.value().width == (probes ? 96 : 192));
+            CHECK(img.value().height == (probes ? 64 : 128));
         }
         auto missing = c.call("render.gi2d_field", Json{{"save", prefix}, {"job", "camera:99"}});
         REQUIRE_MESSAGE(missing.ok, missing.error.dump());

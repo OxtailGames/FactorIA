@@ -2,6 +2,7 @@
 // rectangle as triangles in field texel coordinates. Nothing here touches the GPU, so the tests run it without one.
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <limits>
 #include <utility>
 
@@ -185,14 +186,79 @@ Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dS
         ch = count(extH, texel);
     }
     g.texel = texel;
-    g.width = int(std::clamp(cw, double(kGi2dMinSize), double(kGi2dMaxSize)));
-    g.height = int(std::clamp(ch, double(kGi2dMinSize), double(kGi2dMaxSize)));
+    // Rounded up to a multiple of kGi2dSizeStep (2048 is one): a zoom that adds a few texels does not change the size, so the images and the
+    // bounce's history are kept until the view has grown by a whole step.
+    auto stepped = [](double n) {
+        const int c = int(std::clamp(n, double(kGi2dMinSize), double(kGi2dMaxSize)));
+        return (c + kGi2dSizeStep - 1) / kGi2dSizeStep * kGi2dSizeStep;
+    };
+    g.width = stepped(cw);
+    g.height = stepped(ch);
     g.originX = std::floor((double(visible.x) - margin) / texel) * texel;
     g.originY = std::floor((double(visible.y) - margin) / texel) * texel;
-    // Five images of the field's size (emission, occluders, distance and the two a jump-flooding step reads and writes), 8 bytes a texel.
-    g.bytes = std::uint64_t(g.width) * std::uint64_t(g.height) * 8u * 5u;
-    g.valid = g.bytes <= kGi2dMaxBytes;
+    // kGi2dFieldImages images of the field's size alive together, 8 bytes a texel (never near 2^64: the sides are at most 2048).
+    g.bytes = std::uint64_t(g.width) * std::uint64_t(g.height) * 8u * std::uint64_t(kGi2dFieldImages);
+    g.valid = true;
     return g;
+}
+
+Gi2dQualityCounts gi2d_quality_counts(GI2DQuality q) {
+    switch (q) {
+        case GI2DQuality::Low: return {4, 3, 20};
+        case GI2DQuality::High: return {2, 5, 40};
+        case GI2DQuality::Medium: break;
+    }
+    return {2, 4, 28};
+}
+
+double Gi2dCascadePlan::interval_end(int i) const {
+    if (i < 0) return 0.0;
+    return 2.0 * double(spacing0) * (std::pow(4.0, double(i) + 1.0) - 1.0) / 3.0;
+}
+double Gi2dCascadePlan::interval_start(int i) const { return interval_end(i - 1); }
+
+Gi2dCascadePlan gi2d_cascade_plan(GI2DQuality q, const Gi2dGeometry& g, bool mobile) {
+    Gi2dCascadePlan p;
+    if (!g.valid || g.width <= 0 || g.height <= 0) {
+        p.why = "the field has no size";
+        return p;
+    }
+    const Gi2dQualityCounts c = gi2d_quality_counts(q);
+    p.spacing0 = c.spacing0;
+    p.steps = c.steps;
+    p.rays0 = c.spacing0 * c.spacing0;
+    p.gridW = g.width / c.spacing0;
+    p.gridH = g.height / c.spacing0;
+    // As many cascades as the quality allows, and no more than it takes for the last interval to reach across the field.
+    const double diagonal = std::hypot(double(g.width), double(g.height));
+    int n = 1;
+    while (n < c.cascades && p.interval_end(n - 1) < diagonal) ++n;
+    p.cascades = n;
+    p.reach = p.interval_end(n - 1);
+    const std::uint64_t texels = std::uint64_t(g.width) * std::uint64_t(g.height);
+    p.persistentBytes = texels * 8u * 3u + std::uint64_t(p.gridW) * std::uint64_t(p.gridH) * 8u * 2u;
+    p.totalBytes = g.bytes + std::uint64_t(p.gridW) * std::uint64_t(p.gridH) * 8u * 2u;
+    const std::uint64_t budget = mobile ? kGi2dMaxBytesMobile : kGi2dMaxBytes;
+    const int maxCascades = mobile ? kGi2dMaxCascadesMobile : kGi2dMaxCascades;
+    const char* const names[3] = {"low", "medium", "high"};
+    const char* const name = names[q == GI2DQuality::Low ? 0 : q == GI2DQuality::High ? 2 : 1];
+    if (c.cascades > maxCascades) {
+        p.why = std::format(
+            "GlobalIllumination2D.quality \"{}\" runs up to {} cascade passes and this platform's budget is {}. "
+            "Hint: set quality to \"medium\" or \"low\".",
+            name, c.cascades, maxCascades);
+        return p;
+    }
+    if (p.totalBytes > budget) {
+        p.why = std::format(
+            "a {}x{} global illumination field needs about {} MiB of GPU memory and this platform's budget is {} MiB. "
+            "Hint: lower GlobalIllumination2D.range or resolutionScale (quality \"{}\" does not change the memory "
+            "much).",
+            g.width, g.height, (p.totalBytes + (1u << 20) - 1) >> 20, budget >> 20, name);
+        return p;
+    }
+    p.ok = true;
+    return p;
 }
 
 std::vector<std::uint32_t> gi2d_triangulate(const std::vector<Vec2>& pts) {

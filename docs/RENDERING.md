@@ -15,9 +15,10 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on twelve pages (`docs.read rendering-2d-shadows`, `rendering-2d-emission`, `rendering-2d-water`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on thirteen pages (`docs.read rendering-2d-shadows`, `rendering-2d-emission`, `rendering-2d-gi`, `rendering-2d-water`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
 - [2D emission and light masks (M74.2)](rendering/RENDERING_2D_EMISSION.md): `Sprite.emissive` and the bloom, `lightLayers`, `Light2D.cookie`, the rim light and the normal maps generated from a sprite.
+- [2D global illumination (M74.3)](rendering/RENDERING_2D_GI.md): `GlobalIllumination2D`, radiance cascades, `quality`, the cost in passes and memory, who receives the light, and when it is off.
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
 - [Soft 2D shadows and shadow casters (M74.1)](rendering/RENDERING_2D_SHADOWS.md): `ShadowCaster2D` (box, polygon, sprite alpha), `Light2D.size` penumbra, light layers, up to 256 shadowed lights, the caches, caps and costs.
