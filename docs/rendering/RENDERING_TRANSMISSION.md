@@ -63,6 +63,8 @@ its place only in the opaque phase). Cost: one split of the main pass, one copy 
 - **Full shaders and a custom lighting get no transmission**: a mesh with a `full` material (docs/shaders/SHADERS_FULL.md) or whose material replaces the
   lighting draws as an ordinary mesh (the `transmission` field is read only by the standard shading, the `fa_surface` hook can set the new `Surface` fields:
   [SHADERS_LIGHTING.md](../shaders/SHADERS_LIGHTING.md)).
+- **Subsurface scattering is added after the glass.** The change the scattering of an opaque mesh (`subsurface`) makes is added to the picture once the blended
+  meshes are drawn into it, so glass in front of a skin or wax mesh does not tint or dim that change.
 - Fog is applied again to the result (a glass in thick fog is as foggy as the wall behind it).
 
 ### When the copy cannot be made

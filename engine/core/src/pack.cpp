@@ -100,7 +100,7 @@ Codec pack_default_codec(std::string_view path, std::span<const std::uint8_t> he
                                                            ".qoa",  ".flac",  ".m4a",  ".aac",   ".mp4",  ".m4v",
                                                            ".webm", ".mov",   ".woff", ".woff2", ".zip",  ".gz",
                                                            ".zst",  ".lz4",   ".7z",   ".xz",    ".bz2",  ".pak",
-                                                           ".hdr"};  // a Radiance .hdr is run-length coded RGBE: nothing left to compress
+                                                           ".hdr"};  // a Radiance .hdr is run-length coded RGBE
     static const std::unordered_set<std::string> zstd = {".ttf",   ".otf", ".ttc",  ".txt",  ".md",   ".csv",  ".tsv",
                                                          ".xml",   ".svg", ".html", ".htm",  ".glsl", ".wgsl", ".hlsl",
                                                          ".metal", ".po",  ".pot",  ".yaml", ".yml",  ".ini",  ".fnt"};

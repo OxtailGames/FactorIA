@@ -5,7 +5,6 @@
 // captured in index order). Probes inside geometry (render.gi_grid lists them) are not marked: that needs a read-back of the atlas, which a
 // frame never does.
 #include <algorithm>
-#include <cmath>
 
 #include "editor_internal.h"
 #include "fa/render/gi.h"
