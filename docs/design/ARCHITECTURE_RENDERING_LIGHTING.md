@@ -327,7 +327,9 @@ part has it (it must lie in 0..1 without overlap; one outside the square is refu
 whole mesh by `generate_lightmap_uv` (xatlas through `model_uv_apply`, single-threaded, `fa::det` trigonometry: the same bits on every
 platform and run, no seed or setting). The unwrap splits vertices along the seams of its charts, so the drawn mesh is not the file's mesh:
 `build_lightmap_mesh` returns the split vertices (every vertex field copied from the vertex it was split from) and the renderer keeps
-them in buffers of their own next to the mesh (`MeshAsset::lightmap`), built on the first use and dropped when the mesh file reloads.
+them in buffers of their own next to the mesh. `MeshAsset::lightmap` is a `MeshLightmap`, which holds the parts of a lightmapped mesh: a glTF
+with `TEXCOORD_1` on every part reuses its own buffers (the parts are copies); any other mesh gets its own vertex, index, uv and color buffers.
+They are built on the first use and freed with the `MeshAsset` (the mesh file reloads or the assets are cleared).
 Nothing is written next to the model. The primitives (`cube`, `sphere`, ...) are unwrapped the same way. `lightmap_mesh_geometry(mesh)` is the
 GPU-free half the baker calls, so bake and draw use the same vertices. A triangle with no area (a sphere's pole) is not placed by the
 unwrap: its UVs are clamped into the square. `kLightmapUvVersion` is bumped when the unwrap changes what it returns.

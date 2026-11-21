@@ -420,7 +420,7 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 
 ## `render.gi_grid`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
 
@@ -451,7 +451,7 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 
 ## `render.light_probes`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The baked light probes of the scene and the light a MeshRenderer receives from them.
 
@@ -467,7 +467,7 @@ A group is `stale` when its LightProbeGroup was edited (moved, resized, other sp
 
 ## `render.material_cost`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
 
@@ -512,7 +512,7 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 
 ## `render.probe_refresh` (modifies state)
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.
 
@@ -528,7 +528,7 @@ Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` fo
 
 ## `render.probes`
 
-Not released yet (on main after 0.32.0).
+Since 0.33.0.
 
 The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
 

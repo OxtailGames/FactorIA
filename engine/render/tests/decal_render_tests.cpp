@@ -144,7 +144,6 @@ void write_textures() {
 TEST_CASE("decals: a ring on a box, a ring with relief on a sphere and a tinted splash on the ground") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("decals")) return;
     write_textures();
     World plain, withDecals;
     make_scene(plain, false);
@@ -168,7 +167,6 @@ TEST_CASE("decals: a ring on a box, a ring with relief on a sphere and a tinted 
 TEST_CASE("decals: a scene without them draws the same picture as before, and the same picture twice") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("decals")) return;
     write_textures();
     World a, b;
     make_scene(a, false);
@@ -187,7 +185,6 @@ TEST_CASE("decals: a scene without them draws the same picture as before, and th
 TEST_CASE("decals: MeshRenderer.receiveDecals false and a decal layer that is not the decal's keep a mesh clean") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("decals")) return;
     write_textures();
     World plain, w;
     make_scene(plain, false);
@@ -214,7 +211,6 @@ TEST_CASE("decals: MeshRenderer.receiveDecals false and a decal layer that is no
 TEST_CASE("decals: opacity, angle fade and sort order change what they paint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("decals")) return;
     write_textures();
     World w;
     const Scene s = make_scene(w, true);
@@ -242,7 +238,6 @@ TEST_CASE("decals: opacity, angle fade and sort order change what they paint") {
 TEST_CASE("decals: a decal with only a tint is still drawn when every decal texture fails to load") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!g.renderer.supports("decals")) return;
     write_textures();
     World w;
     const Scene s = make_scene(w, true);
@@ -281,11 +276,27 @@ TEST_CASE("decals: only the reload of a texture the atlas holds asks for a rebui
     // A log that no longer reaches back to the asked generation answers "yes": a doubt rebuilds.
     for (int i = 0; i < 3000; ++i) assets.reload("assets/other.png");
     CHECK(assets.reloaded_any_of(before + 1, known));
-    // The atlas is texture memory: drawing decals makes the renderer's texture bytes include it.
-    if (!g.renderer.supports("decals")) return;
-    write_textures();
-    World w;
-    make_scene(w, true);
-    g.render(w);
-    CHECK(g.renderer.texture_bytes() > 0);
+    // The atlas is texture memory: the first frame with decals of a renderer that has drawn none makes it, and its texture bytes grow
+    // (a renderer of its own: the shared one has an atlas from the cases above).
+    RendererDesc d;
+    d.designWidth = 320;
+    d.designHeight = 180;
+    d.sampleCount = 1;
+    d.headless = true;
+    d.adoptContext = true;
+    Renderer own;
+    std::string error;
+    REQUIRE_MESSAGE(own.init(d, g.gpu.environment(), &error), error);
+    const std::uint64_t bytesBefore = own.texture_bytes();
+    if (own.supports("decals")) {
+        write_textures();
+        World w;
+        make_scene(w, true);
+        own.begin_frame();
+        own.render_world(w, 0.0f);
+        own.end_frame();
+        g.gpu.end_frame();
+        CHECK(own.texture_bytes() > bytesBefore);
+    }
+    own.shutdown();
 }
