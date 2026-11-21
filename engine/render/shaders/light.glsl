@@ -21,6 +21,7 @@ layout(location=3) in vec4 shadow;   // x = v coordinate of the light's shadow r
 out vec2 offset;    // from the light, in world units
 out vec4 light_color;
 out vec2 info;      // x = radius, y = shadow row v (or -1)
+out float light_size;   // Light2D.size: 0 = hard shadow edges
 
 void main() {
     vec2 world = pos.xy + corner * pos.w;
@@ -28,6 +29,7 @@ void main() {
     offset = corner * pos.w;
     light_color = color;
     info = vec2(pos.w, shadow.x);
+    light_size = shadow.y;
 }
 @end
 
@@ -41,6 +43,7 @@ layout(binding=1) uniform light_fs_params {
 in vec2 offset;
 in vec4 light_color;
 in vec2 info;
+in float light_size;
 out vec4 frag_color;
 
 @include_block light_shadow
@@ -49,7 +52,7 @@ void main() {
     float radius = max(info.x, 0.001);
     float att = pow(clamp(1.0 - length(offset) / radius, 0.0, 1.0), light_color.w);
     if (info.y >= 0.0) {
-        att *= light_shadow(info.y, offset, radius);
+        att *= light_shadow_sized(info.y, light_size, offset, radius);
     }
     frag_color = vec4(light_color.rgb * (att * range.x), 1.0);
 }

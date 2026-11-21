@@ -13,6 +13,7 @@
 #include "fa/scene/text_fit.h"
 #include "gradient_ramp.h"
 #include "render_internal.h"
+#include "shadow2d.h"
 
 namespace fa {
 class Compute;
@@ -30,6 +31,7 @@ struct ShadowCache {
     };
     std::unordered_map<std::uint64_t, Entry> rows;
     std::uint64_t tick = 0;  // one per drawn frame (the renderer counts it): a row not used this frame may be dropped
+    ContourCache contours;   // the outlines of the sprites with a ShadowCaster2D (shadow2d.cpp)
 };
 
 // A CameraView the UI gather met: the camera it shows rendered into an image of pxW x pxH pixels, drawn in `size` design pixels.

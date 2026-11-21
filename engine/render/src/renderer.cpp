@@ -930,7 +930,9 @@ bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<floa
 
 render::ShadowRowsStats RendererTestAccess::shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
-    if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
+    if (r.impl_)
+        out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads),
+               int(r.impl_->shadowCache.contours.contoursMade)};
     return out;
 }
 

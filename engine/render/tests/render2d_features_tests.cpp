@@ -752,18 +752,18 @@ TEST_CASE("Light2D buffer: 64 lights all light the scene") {
     }
 }
 
-TEST_CASE("Light2D buffer: lights add up and a light over the budget of shadow casters is lit without shadow") {
+TEST_CASE("Light2D buffer: lights add up and 40 lights that ask for shadows all get one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     save(solid(16, 16, Color::white()), "assets/white16.png");
     World w;
     lit_floor(w);
     tile_wall(w);
-    // 40 lights next to the wall on its left, all asking for shadows: 32 get one.
+    // 40 lights next to the wall on its left, all asking for shadows: all 40 get one (the cap is 256, shadow2d tests).
     for (int i = 0; i < 40; ++i) point_light(w, {-8.0f - 0.1f * float(i), 80.0f - 4.0f * float(i), 0}, 30, true);
     g.render(w);
     CHECK(g.renderer.stats().lights2d == 40);
-    CHECK(g.renderer.stats().lights2dShadowed == 32);
+    CHECK(g.renderer.stats().lights2dShadowed == 40);
     // Two overlapping lights add up: 0.5 + 0.5.
     World w2;
     lit_floor(w2);

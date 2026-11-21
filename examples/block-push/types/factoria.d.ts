@@ -6539,7 +6539,7 @@ declare module "factoria" {
     mode: "inherit" | "on" | "off";
   }
   /**
-   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the 256 lights a frame shades), soft with `size`. The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -6587,12 +6587,12 @@ declare module "factoria" {
      */
     elevation: number;
     /**
-     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen by lightLayers. Directional lights cast no shadows. Default false.
      * @since 0.3.0
      */
     castShadows: boolean;
     /**
-     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle. Only matters with castShadows.
+     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the occluder and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
      * @since unreleased
      */
     size: number;
@@ -6618,7 +6618,7 @@ declare module "factoria" {
     cookieScale: number;
   }
   /**
-   * Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true. Which lights it blocks is set by lightLayers.
+   * Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: docs/rendering/RENDERING_2D_SHADOWS.md.
    * 
    * Category: 2D
    * @since unreleased
@@ -7303,7 +7303,7 @@ declare module "factoria" {
      */
     occludesLight: boolean;
     /**
-     * Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
+     * Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.
      * @since unreleased
      */
     lightLayers: number;

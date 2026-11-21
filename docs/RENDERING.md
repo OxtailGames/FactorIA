@@ -19,6 +19,7 @@ This page has the render targets, the post-processing stack, the depth and norma
 
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
+- [Soft 2D shadows and shadow casters (M74.1)](rendering/RENDERING_2D_SHADOWS.md): `ShadowCaster2D` (box, polygon, sprite alpha), `Light2D.size` penumbra, light layers, up to 256 shadowed lights, the caches, caps and costs.
 - [Lighting (M73)](rendering/RENDERING_LIGHTING.md): the Light, scene and material fields of the M73 lighting, which of them draw yet, and the `render.supports` rows.
 - [Lightmaps and baked light (M73.4)](rendering/RENDERING_LIGHTMAPS.md): baked lightmaps, the bake commands, light probes and mixed lights.
 - [Decals and volumetric fog (M73.5)](rendering/RENDERING_DECALS_FOG.md): `Decal` projection, volumetric fog and light shafts.

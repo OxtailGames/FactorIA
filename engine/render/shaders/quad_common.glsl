@@ -232,7 +232,7 @@ layout(binding=1) uniform quad_fs_params {
     vec4 light_map;            // xy = 1 / the size of the target in pixels, z = the range the light buffer holds
     vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
     vec4 light_color[16];      // rgb color * intensity; w falloff exponent
-    vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow
+    vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow; y = Light2D.size
     // The fog of the camera's post stack (PostProcess.fog*) on the quads of the world: the same formula as fog.glsl. Only the full
     // program reads it (a batch under stack fog never uses quad_plain). All 0 without that fog: nothing changes.
     vec4 fog_col;              // rgb = what the quad fades to (the fog colour; 0 for an additive quad, 1 for a multiplying one), w = density
@@ -364,7 +364,7 @@ vec3 lit_color(vec4 base, float mode) {
             float dist = length(d);
             att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
             l = vec3(d, lp.z) / max(length(vec3(d, lp.z)), 0.0001);
-            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow(light_shadow_v[i].x, -d, lp.w); }
+            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow_sized(light_shadow_v[i].x, light_shadow_v[i].y, -d, lp.w); }
         }
         float ndl = use_normal ? max(dot(n, l), 0.0) : 1.0;
         total += lc.rgb * (att * ndl);
