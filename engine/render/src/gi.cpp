@@ -14,6 +14,7 @@ namespace {
 bool finite3(Vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 
 void mix_bits(std::uint64_t& h, float f) {
+    f += 0.0f;  // -0.0f and 0.0f are the same number: they must give the same key
     std::uint32_t bits;
     std::memcpy(&bits, &f, 4);
     for (int i = 0; i < 4; ++i) {
@@ -102,11 +103,27 @@ Result<GiLayout> gi_layout(const RealtimeGI& c, Vec3 worldPosition, const std::s
     g.origin = {centre.x - 0.5f * float(nx - 1) * c.spacing, centre.y - 0.5f * float(ny - 1) * c.spacing,
                 centre.z - 0.5f * float(nz - 1) * c.spacing};
     std::uint64_t h = 1469598103934665603ull;
-    for (float f : {g.origin.x, g.origin.y, g.origin.z, g.spacing, float(nx), float(ny), float(nz), float(g.resolution),
-                    g.maxDistance, g.nearPlane})
+    // The origin is not in the key (an entity that moves a little must not restart the grid: gi_layout_moved decides when it has moved
+    // enough); the tags are, because they decide what a capture draws.
+    for (float f : {g.spacing, float(nx), float(ny), float(nz), float(g.resolution), g.maxDistance, g.nearPlane})
         mix_bits(h, f);
+    for (const Json* tags : {&c.showTags, &c.hideTags}) {
+        const std::string text = tags->dump();
+        for (unsigned char ch : text) {
+            h ^= ch;
+            h *= 1099511628211ull;
+        }
+        h ^= 0xffu;  // the end of a list, so [a] [] and [] [a] differ
+        h *= 1099511628211ull;
+    }
     g.key = h;
     return g;
+}
+
+bool gi_layout_moved(const GiLayout& g, Vec3 anchor) {
+    const float limit = 0.5f * g.spacing;
+    return std::fabs(g.origin.x - anchor.x) >= limit || std::fabs(g.origin.y - anchor.y) >= limit ||
+           std::fabs(g.origin.z - anchor.z) >= limit;
 }
 
 Vec3 gi_probe_position(const GiLayout& g, int index) {

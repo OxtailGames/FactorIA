@@ -55,6 +55,8 @@ struct RendererTestAccess {
     static bool read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error);
     static bool probe_tile(Renderer& r, std::uint64_t id, render::ProbeTile& out);
     static void probe_force_rgba8(bool force);
+    static bool probe_tile_valid(Renderer& r, std::uint64_t id);
+    static int probe_volume_count(Renderer& r);
 };
 
 namespace render {
@@ -116,6 +118,12 @@ inline bool renderer_probe_tile(Renderer& r, std::uint64_t id, ProbeTile& out) {
     return RendererTestAccess::probe_tile(r, id, out);
 }
 inline void renderer_probe_force_rgba8(bool force) { RendererTestAccess::probe_force_rgba8(force); }
+// Whether the tile of probe `id` holds its picture (false while it is empty: moved, evicted, the atlas made again), and how many probe boxes
+// the last frame built for the meshes.
+inline bool renderer_probe_tile_valid(Renderer& r, std::uint64_t id) {
+    return RendererTestAccess::probe_tile_valid(r, id);
+}
+inline int renderer_probe_volume_count(Renderer& r) { return RendererTestAccess::probe_volume_count(r); }
 
 }  // namespace render
 }  // namespace fa

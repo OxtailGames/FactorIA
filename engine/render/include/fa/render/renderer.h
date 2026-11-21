@@ -555,10 +555,21 @@ public:
     // What `mesh` reflected in the last frame: {probes: [{entity, share}], sky}; the shares (0..1, in steps of 1/32) of the probes and of the
     // sky add up to 1. A mesh no probe reaches (or one that was not drawn) reflects the sky: {probes: [], sky: 1}. Empty object before init().
     Json probe_mesh_report(Entity mesh) const;
+    // Makes the renderer keep the probe picks of `mesh` (and only of it) from the next frame on, which probe_mesh_report reads. True when it
+    // already did, so the last frame's picks are there; false when the caller should draw one more frame first.
+    bool probe_watch_mesh(Entity mesh);
     // The realtime GI's grids (RealtimeGI; include/fa/render/gi.h, docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"): the report of
     // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,
     // ...}]}. It reads the probes' meta texels back from the GPU (a command, never the frame). Empty object before init() and while no grid exists.
     Json gi_report();
+    // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
+    // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
+    // below `captured` have a picture (exact unless a capture failed and is being retried).
+    struct GiProgress {
+        bool known = false;
+        int captured = 0, count = 0;
+    };
+    GiProgress gi_progress(Entity grid) const;
     // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
     // realtime probe of this renderer.
     bool probe_refresh(Entity probe);

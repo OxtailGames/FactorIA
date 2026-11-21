@@ -435,6 +435,11 @@ void Editor::draw_viewport() {
                                                 {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (auto& ed : boxEdges) dl->AddLine(c8[ed[0]], c8[ed[1]], IM_COL32(80, 200, 255, 220), 1.5f);
         }
+        if (w.has<RealtimeGI>(sel) && !primary_is_ortho()) {
+            Vec3 eye, forward;
+            r->screen_ray(Vec2{tw * 0.5f, th * 0.5f}, eye, forward);
+            draw_gi_gizmo(dl, *r, sel, eye, forward, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
+        }
         if (w.has<MeshRenderer>(sel) && !primary_is_ortho()) {
             ImVec2 c8[8];
             Vec3 lo, hi;
