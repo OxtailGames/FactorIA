@@ -67,7 +67,7 @@ lightmaps); only those with `receiveGI` on, `lightmapScale` above 0 and no `unli
 being written fails with the path and what to close (a Windows file open in another program cannot be replaced; close it and call again,
 or pass another `path`); the files of a failed bake are removed. After a good bake the pages of the same name that the new manifest no
 longer uses are deleted. The entities' squares are packed into pages of at most `maxPageSize` texels (up to 256 pages), `texelsPerMeter`
-per metre of surface, with a gutter of `dilatePasses` texels so bilinear filtering does not bleed.
+per metre of surface, with a gutter of `dilatePasses` texels (default 4, 0..64): the empty texels around each baked piece are filled with the mean of the filled ones next to them, one texel further per pass, so bilinear filtering does not bleed. Texels farther than that from a piece stay empty (black), so a mesh whose UVs are read past the gutter shows dark edges.
 
 **It shows at once.** The bake asks the renderer to read the manifest again and, with `apply` (the default), sets `SceneSettings.lightmaps`
 to it **in memory**: a later `factoria call` starts a new engine from the files, so keep the setting with `scene.save` in the same batch

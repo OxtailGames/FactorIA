@@ -84,7 +84,7 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
   direction to a directional light; colour times intensity and the type; the spot axis and `cos(outer)`; `cos(inner)`, 2 meaning "the
   default fade" and three reserved components); in a view where any light is an area light or has a cookie or an IES profile every light has **eight** texels (`kLightTexelsExt`; the stride is in `fa_ambient.w`, 0 or 4 = four), the extension at `+4 .. +7` ("The light atlas"); then one texel per cluster (slot of its first light
   index, how many lights, and since M73.5b the slot of its first decal index and how many decals: 0, 0 without decals), slice-major, then
-  row, then column; then the light indices, four to a texel; then the shadow region of the local lights (M73.2b, only with local shadows), then the decal
+  row, then column; then the light indices, four to a texel; then the shadow region of the local lights (M73.2b and M73.2c: with local shadows or with a contact shadow), then the decal
   region (only when the view has decals, see "Decals"). Light n is at texel `fa_light_base(n)` (`n * stride`); every reader of a light's texels goes through it.
 - **Who is in the table.** The directional lights come first (at most 32, `kMaxDirectionalLights`; the shadow caster is light 0) and
   belong to every cluster, they are not in the lists. Then the local lights in the order of `select_lights` (at most 1024 in all,
@@ -184,7 +184,7 @@ and ior 1.5 with specular 1 is F0 0.04 exactly.
 
 **Image-based light (approximations).** Coat: the environment along the geometric normal at the coat's roughness, with F0 0.04 and
 `fa_env_brdf`. Sheen: the environment along the normal at the sheen roughness times `sheenColor` times `E`. Anisotropy: the reflection
-vector is bent toward the tangent (the bent normal of McAuley 2015) before the lookup. None of them is energy-conserving beyond what the formulas
+vector is bent toward the stretch direction (the bent normal of McAuley 2015) before the lookup, by `smoothstep(0, 0.25, roughness)`, so it follows the stretch only as the roughness grows. `occlusion` multiplies the base layer and the sheen, not the coat. None of them is energy-conserving beyond what the formulas
 above give.
 
 **The textures.** `pack_layer_textures` (`engine/render/src/layer_textures.cpp`, called by `prepare_material` in `assets.cpp` for both
@@ -258,7 +258,7 @@ the cube the sky was drawn into, and the prefilter and the SH pass that follow a
   compares orientation and rotation).
 - `shaders/hdri.glsl` (module `hdri`, one program, generated header committed): a full-screen triangle that rebuilds the world ray from the
   inverse view-projection, rotates it by minus the rotation, maps it with `atan2` / `asin`, and samples the picture. The mip is computed in the
-  shader from `length(fwidth(dir))`, not from the UV derivatives, so the seam of `atan2` does not pick the smallest mip. The sampler repeats in u
+  shader from `length(fwidth(dir))`, not from the UV derivatives, so the seam of `atan2` does not pick the smallest mip. The footprint is divided by `max(sin(theta), 0.05)` (cos of the latitude): the texels of a row near a pole are long and the whole top row is one point, so without it the lowest mips shimmer there. The sampler repeats in u
   and clamps in v. No orientation difference between GL, Metal and D3D11: the ray comes from the same matrix as the physical sky's, not
   from the texture's row order. `fs_params.p`: rotation (radians), gain, 1 to encode sRGB, width.
 - `src/renderer_hdri.h/.cpp` (`HdriSky`): the program and the pipelines (`ready()` makes them once, logs once when it cannot, as `PhysicalSky`
@@ -311,7 +311,7 @@ case, 12 % mean error: use a directional light for a sun) and `env_sh_tests.cpp`
 the gradient, the physical sky and an HDRI picture is within 0.003, 0.005, 0.005).
 
 **Formats.** RGBA16F: the coefficients as they are (a component limited to 65000). RGBA8 (`fa_atlas.y` = 1; `force_rgba8_for_tests`):
-`clamp(c / 4, -1, 1) * 0.5 + 0.5`; a sky of radiance 1 has `c0 = 3.5`, so an LDR sky fits (0.015 from the half-float result in the test).
+`clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255` (0 is the exact byte 128, so a sky with no light reads back 0; the shader reads it back as `(t * 255 - 128) * 4 / 127`, a step of 4 / 127 per byte); a sky of radiance 1 has `c0 = 3.5`, so an LDR sky fits.
 **GLES3:** every float of `fs_sh` and of `fa_sh_eval`, `fa_sky_sh_coef`, `fa_ambient_light` is `highp` (a test scans the GLSL ES 3.00
 source); the face table is a function because sokol-shdc leaves a global constant array at mediump. `fa_ambient_light(n)` works wherever
 view 14 is bound (`surface()`, `light()`, `ambient()`, `lighting()`, the shadow and depth passes).

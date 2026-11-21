@@ -312,7 +312,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"rendering-lightmaps", "Rendering, part: lightmaps, baking, light probes and mixed lights (M73.4).",
          aud({kGameAi})},
         {"rendering-lighting",
-         "Rendering, part: the lighting of M73: Light, scene and material fields, which draw yet, the supports rows.",
+         "Rendering, part: the M73 lighting fields. Lightmaps, decals, probes: rendering-lightmaps, -decals-fog, "
+         "-probes.",
          aud({kGameAi})},
         {"rendering-passes", "Rendering, part: the passes of a frame, when each runs and what it draws.",
          aud({kGameAi})},
@@ -337,7 +338,10 @@ const std::vector<DocManifestEntry>& manifest() {
          "Scripting pages: render textures, meshes, rng, math, platform, http, i18n, fa commands.", aud({kGameAi})},
         {"scripting-tests-tools", "Scripting pages: script tests, tools, hook modules and runtime notes.",
          aud({kGameAi})},
-        {"shaders", "Custom shaders and materials: the template, uniforms and limits.", aud({kGameAi, kEngineDev})},
+        {"shaders",
+         "Custom shaders: the template, uniforms, limits. Pages: shaders-examples, -sprites, -lighting, -full, -post, "
+         "-compute.",
+         aud({kGameAi, kEngineDev})},
         {"shaders-compute",
          "Custom shaders, part: compute materials, their storage buffers and the compute.* commands.",
          aud({kGameAi, kEngineDev})},
