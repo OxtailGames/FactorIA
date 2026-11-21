@@ -622,7 +622,7 @@ TEST_CASE("gi2d budget: warnings are said once per reason across cameras, and re
         if (sys.budget_warn_once("reason B")) ++said;
     }
     CHECK(said == 2);
-    // A frame in which one job has GI and another has none does not reset (the one without GI calls nothing).
+    // A frame in which some job asked for GI does not reset (a job without GI simply never calls note_gi_asked; the frame is the unit).
     sys.begin_frame(false);
     sys.note_gi_asked();
     CHECK_FALSE(sys.budget_warn_once("reason A"));
@@ -631,6 +631,21 @@ TEST_CASE("gi2d budget: warnings are said once per reason across cameras, and re
     sys.begin_frame(false);
     CHECK(sys.budget_warn_once("reason A"));
     CHECK(sys.budget_warn_once("reason B"));
+}
+
+TEST_CASE("gi2d budget: the 16th stored reason says that the later ones are not logged, and later ones are refused") {
+    Gi2dSystem sys;
+    for (int i = 0; i < 15; ++i) {
+        CHECK(sys.budget_warn_once("reason " + std::to_string(i)));
+        CHECK_FALSE(sys.lastWasLimit);
+    }
+    CHECK(sys.budget_warn_once("reason 15"));
+    CHECK(sys.lastWasLimit);
+    CHECK(std::string(Gi2dSystem::budget_limit_note()).find("not logged") != std::string::npos);
+    CHECK_FALSE(sys.budget_warn_once("reason 16"));
+    sys.reset_warnings();
+    CHECK_FALSE(sys.lastWasLimit);
+    CHECK(sys.budget_warn_once("reason 16"));
 }
 
 TEST_CASE("gi2d budget: the fields of all the cameras of a frame share one budget, summed in 64 bits") {
@@ -750,6 +765,8 @@ TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the ca
     o.frame(w);
     const Json report = o.r.gi2d_field("", "");
     REQUIRE(report["fields"].size() == 1);
+    // The cells in view: the field's rectangle is 416 x 256 units, so about 106,000 cells are visible, well over the 60,000 cap.
+    CHECK(416 * 256 > kGi2dMaxQuads + kGi2dMaxQuads / 2);
     CHECK(report["fields"][0]["dropped"].get<int>() > 0);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() <= kGi2dMaxQuads);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() > kGi2dMaxQuads / 2);
