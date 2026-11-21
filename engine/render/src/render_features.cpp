@@ -258,13 +258,16 @@ std::vector<FeatureDef> build_table() {
         // The 2D lighting and effects of M74: planned "M74" until each package draws its row.
         {"2dSoftShadows", "",
          "Soft 2D shadows: the shadows of Light2D with castShadows get a penumbra that widens with the distance from "
-         "the occluder, set by Light2D.size (0 = hard edges), and more than 32 shadowed lights share an atlas (M74). "
-         "Every backend.",
-         "M74"},
+         "the occluder, set by Light2D.size (0 = hard edges), and every shadow-casting light in view (up to the 256 a "
+         "frame shades) gets a row of the shadow atlas, an RGBA8 image that every backend has "
+         "(docs/rendering/RENDERING_2D_SHADOWS.md; M74.1).",
+         nullptr},
         {"2dShadowCasters", "",
-         "ShadowCaster2D: sprites (from their alpha), polygons and boxes block the light of Light2D with castShadows "
-         "like the solid tiles of a Tilemap, with self-shadowing on or off (M74). Every backend.",
-         "M74"},
+         "ShadowCaster2D: sprites (the contour of their alpha), polygons and boxes block the light of Light2D with "
+         "castShadows like the solid tiles of a Tilemap with occludesLight, with self-shadowing on or off and "
+         "light layers; the CPU makes the rows, so every backend draws it (docs/rendering/RENDERING_2D_SHADOWS.md; "
+         "M74.1).",
+         nullptr},
         {"2dEmission", "",
          "Emission of 2D visuals: Sprite.emissive, emissiveMap and Tilemap.emissive glow after the lighting and feed "
          "the HDR bloom (M74). Every backend; the bloom needs RGBA16F targets as usual.",

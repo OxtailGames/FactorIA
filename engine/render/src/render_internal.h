@@ -145,7 +145,7 @@ constexpr int kMaxLights2D = 256;
 constexpr int kDirectLights2D = 16;
 // Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture); the rest shine
 // through walls.
-constexpr int kMaxShadowLights2D = 32;
+constexpr int kMaxShadowLights2D = kMaxLights2D;
 constexpr int kShadowAngles = 1024;
 
 // One Light2D as the quad shader reads it. pos: xyz + w = radius (point, xyz = position with z the height) or -1
@@ -155,6 +155,9 @@ struct Light2DData {
     float pos[4];
     float color[4];
     float extra[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
+    // Soft shadows (M74.1): Light2D.size in world units (0 = hard edges) and Light2D.lightLayers, which casters and tiles block it.
+    float shadowSize = 0.0f;
+    std::int32_t shadowLayers = -1;
 };
 
 // One corner of a point light's quad in the light buffer pass (light.glsl): the same values at the four corners.
@@ -162,7 +165,7 @@ struct LightVertex {
     float corner[2];  // -1 or 1: where the corner lies from the light, in radii
     float pos[4];     // xy position, z height, w radius
     float color[4];   // rgb * intensity, w falloff
-    float shadow[4];  // x = shadow row or -1
+    float shadow[4];  // x = shadow row or -1, y = Light2D.size (world units, 0 = hard shadow edges)
 };
 static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 
