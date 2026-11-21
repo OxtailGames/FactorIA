@@ -295,8 +295,10 @@ std::vector<FeatureDef> build_table() {
          "emissive visuals light the scene (M74). It needs RGBA16F render targets that blend and filter: GL, GLES3 "
          "and WebGL2 without them draw the scene without it and log a message that says how to turn it off. The "
          "quality "
-         "high needs more memory than a phone or a browser budgets: there the scene is drawn without it, with a "
-         "message.",
+         "high needs more cascade passes than a phone or a browser budgets (4), and the field's memory has a smaller "
+         "budget there too (96 MiB): the defaults (range 512, resolutionScale 0.5) need about 103 MiB on a view of "
+         "1920 x 1080 pixels, so a landscape phone with them draws the scene without it, with a warning in the log. "
+         "On a phone or a browser set range 128 (or resolutionScale 0.25) and use quality medium or low.",
          nullptr},
         {"2dWater", "",
          "Water2D and DistortionZone2D: a reflective, refractive water area with waves and a rectangle that distorts "
