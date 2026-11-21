@@ -133,7 +133,7 @@ drawn pose, as the sprites are drawn), as triangles in field texel coordinates:
   ear clipping, `gi2d_triangulate`), and sprites with a `ShadowCaster2D` of shape `spriteAlpha` (alpha-tested). A caster that cannot be drawn
   (a `spriteAlpha` caster without a `Sprite`, a polygon with fewer than 3 points or more than `kGi2dMaxPolygonPoints` = 512) is counted as `skipped`.
   The ear clipping is O(n^3), so it has a **counted** budget (`kGi2dMaxTriangulateWork` = 2 000 000 point tests for all the polygons of one gather, not a time):
-  when it is spent the polygon being cut keeps the triangles it has and the polygons after it give none (counted as `skipped`), the same on every machine.
+  when it is spent the polygon being cut keeps the triangles it has and the polygons after it get only the triangle that needs no test (a polygon of 3 corners), the others being counted as `skipped`; the same on every machine.
   The tilemap loop stops at `kGi2dMaxQuads` (`dropped` rises by one when the loop stops at the cap: it says that cells were left out, not how many) instead of walking the rest of the map.
 
 `render.gi2d_field` reports the counts per field (`emitters`, `occluders`, `dropped`), the sizes, the world rectangle and the `cascades` object, and with
