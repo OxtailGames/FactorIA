@@ -34,6 +34,7 @@
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
 #include "renderer_xmit.h"
+#include "water2d.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
 #include "renderer_volumetric.h"
@@ -107,7 +108,9 @@ struct Renderer::Impl {
         probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
     Xmit xmit;   // the opaque picture the transmissive meshes look through (renderer_xmit.h): its shader and pipelines
-    Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
+    WaterFx
+        waterFx;  // the copy of the picture and the shaders of Water2D, DistortionZone2D and fa_scene_color (water2d.h)
+    Ssao ssao;    // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
@@ -171,7 +174,9 @@ struct Renderer::Impl {
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
-    bool prepassWarned = false;                                  // one warning when the prepass cannot be made
+    bool sceneCopyWarned = false;  // one warning when the image of a scene copy could not be made
+    bool sceneCapWarned = false;  // one warning when a camera has more runs of scene-reading draws than kMaxSceneCopies
+    bool prepassWarned = false;   // one warning when the prepass cannot be made
     bool coverageWarned = false;  // one warning when a sprite outline has no coverage image to read
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
     // (window thread; a renderer that never asks, a headless one, stays in the standard range). frameOutput: what the frame

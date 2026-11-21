@@ -42,15 +42,18 @@ void QuadList::end_item() {
 void QuadList::append(QuadList& part) {
     const std::uint32_t base = std::uint32_t(raw.size());
     const std::uint32_t instBase = std::uint32_t(inst.size());
+    const std::uint32_t fxBase = std::uint32_t(fx.size());
     items.reserve(items.size() + part.items.size());
     for (QuadItem it : part.items) {
         it.firstVert += base;
         it.instFirst += instBase;
+        if (it.effect) it.effect += fxBase;
         it.seq = seq_++;  // the part's items keep their order among themselves and come after this list's
         items.push_back(it);
     }
     raw.insert(raw.end(), part.raw.begin(), part.raw.end());
     inst.insert(inst.end(), part.inst.begin(), part.inst.end());
+    fx.insert(fx.end(), part.fx.begin(), part.fx.end());
     part.clear();
 }
 
@@ -72,6 +75,10 @@ std::size_t QuadList::append_items(const QuadList& src, std::size_t firstItem, s
             const float* values = src.inst.data() + it.instFirst;
             it.instFirst = std::uint32_t(inst.size());
             inst.insert(inst.end(), values, values + it.use->instVec4 * 4);
+        }
+        if (it.effect) {  // the item's effect is copied along
+            fx.push_back(src.fx[it.effect - 1]);
+            it.effect = std::uint32_t(fx.size());
         }
         items.push_back(it);
     }
@@ -207,13 +214,14 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
             batches.back().lit == it.lit &&
             (!it.lit || (batches.back().tex == it.tex && batches.back().normal == it.normal)) &&
             batches.back().opaque == opaque && batches.back().use == it.use && batches.back().instances == 0 &&
-            it.instances == 0 &&  // a draw from buffers is one quad drawn N times: alone
+            it.instances == 0 &&                             // a draw from buffers is one quad drawn N times: alone
+            batches.back().effect == 0 && it.effect == 0 &&  // an effect reads the picture drawn so far: alone
             batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
         } else {
             batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.instances,
-                               it.normal, plain, opaque, it.use, instStart});
+                               it.normal, plain, opaque, it.effect, it.use, instStart});
         }
     }
 }

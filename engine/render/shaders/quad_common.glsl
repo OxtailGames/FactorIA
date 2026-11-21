@@ -14,7 +14,9 @@
 // ATTR_/UB_/VIEW_/SMP_ constants and quad_vs_params_t / quad_quad_fs_params_t members), so a param or texture of a material must
 // not take any of them (parse_material refuses them: tools/common/src/shaders_generate.cpp, template_globals reads this file and
 // its @includes, so a new global here is covered without a list to update). What a snippet may use is the contract below
-// and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb().
+// and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb(), and (fragment stage only) fa_scene_color(uv) with fa_world_to_uv(p):
+// the picture drawn so far in the camera job (view 12, `fa_scene_tex`, declared by the program only when the snippet calls it; the
+// renderer then copies the target before the item, docs/rendering/RENDERING_2D_WATER.md).
 //
 // Bindings. Uniform blocks: vertex 0 vs_params (+ 4 for the material's vertex-stage block), fragment 1 quad_fs_params (+ 5 for
 // the material). Views 0-3 (tex, normal_tex, light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the
@@ -243,6 +245,11 @@ layout(binding=1) uniform quad_fs_params {
     vec4 fa_time;              // x = seconds of game time since the scene started
     vec4 fa_target;            // xy = 1 / the size of the render target in pixels, z = 1 when render targets have their origin at the
                                // bottom (OpenGL), which flips screen_uv.y so that it runs down on every backend
+    // For a material that calls fa_scene_color() / fa_world_to_uv() (the renderer fills them only for those; zero otherwise).
+    vec4 fa_scene;             // screen_uv * xy + zw = the position in the copy of the picture drawn so far (0..1 over the camera's
+                               // rectangle, y down); the copy is the camera's rectangle of the target
+    vec4 fa_world_uv[3];       // rows of the camera's view-projection already turned into screen_uv: u = row0 . p / row2 . p,
+                               // v = row1 . p / row2 . p for p = (world x, y, z, 1)
 };
 @end
 
@@ -265,6 +272,24 @@ vec3 scene_rgb(vec3 c) {
 // What the snippet may call from fragment().
 vec4 fa_sample_main(vec2 p) { return tex_color(p); }   // the main texture of the sprite, in the colour space of the scene
 vec3 fa_scene_rgb(vec3 c) { return scene_rgb(c); }     // an sRGB colour of the author (a param of type color) in the scene's space
+
+// The picture drawn so far in the camera (everything under this item: sorted before it), at `uv` (0..1 over the render target, y down: the
+// space of i.screen_uv), bilinear and clamped to the picture's edge. Calling it is what asks the renderer to keep a copy of the picture
+// before the item is drawn (docs/shaders/SHADERS_SPRITES.md, "The scene colour"); in the HUD (space "screen") there is none and it returns
+// transparent black. The alpha is the picture's.
+vec4 fa_scene_color(vec2 uv) {
+    if (fa_scene.x <= 0.0) return vec4(0.0);   // no copy of the picture here (the HUD, a debug draw)
+    vec2 p = uv * fa_scene.xy + fa_scene.zw;
+    p.y = mix(p.y, 1.0 - p.y, fa_target.z);   // the copy keeps the image rows of the target: bottom first in OpenGL
+    return textureLod(sampler2D(fa_scene_tex, light_smp), clamp(p, vec2(0.0), vec2(1.0)), 0.0);
+}
+// Where a world position lands on the screen, as screen_uv (0..1 over the render target, y down; outside 0..1 = off screen): to read
+// fa_scene_color at another place of the world, such as the mirror image of this pixel in water.
+vec2 fa_world_to_uv(vec3 world) {
+    vec4 q = vec4(world, 1.0);
+    float w = dot(fa_world_uv[2], q);
+    return vec2(dot(fa_world_uv[0], q), dot(fa_world_uv[1], q)) / (abs(w) > 1e-6 ? w : 1.0);
+}
 
 // The screen position of the fragment as the snippet sees it: 0..1 over the render target, y running down on every backend.
 vec2 fa_screen_uv() {
@@ -311,6 +336,7 @@ layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D normal_tex;   // lit quads: the normal map (a 1x1 image when unused)
 layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer path: the point lights added up (light.glsl)
 layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
+layout(binding=12) uniform texture2D fa_scene_tex; // fa_scene_color(): the picture drawn so far (declared by the program only when the snippet calls it)
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
 layout(binding=2) uniform sampler shadow_smp;     // nearest
@@ -506,7 +532,9 @@ void main() {
 // engine's own plain program (no FA_MATERIAL) has no uniform block at all.
 @fs fs_plain
 layout(binding=0) uniform texture2D tex;
+layout(binding=12) uniform texture2D fa_scene_tex;
 layout(binding=0) uniform sampler smp;
+layout(binding=1) uniform sampler light_smp;
 
 in vec2 uv;
 in vec4 color;

@@ -35,8 +35,8 @@ TEST_CASE("m74 2d fields: every new field and component is reflected with a doc 
         {"Tilemap", {"lightLayers", "emissive", "emissiveIntensity"}},
         {"GlobalIllumination2D", {"enabled", "quality", "intensity", "bounce", "range", "resolutionScale"}},
         {"Water2D",
-         {"size", "tint", "reflection", "refraction", "waveAmplitude", "waveLength", "waveSpeed", "material"}},
-        {"DistortionZone2D", {"size", "strength", "material"}}};
+         {"size", "tint", "reflection", "refraction", "waveAmplitude", "waveLength", "waveSpeed", "layer", "material"}},
+        {"DistortionZone2D", {"size", "strength", "layer", "material"}}};
     for (const auto& [type, names] : expected) {
         const TypeInfo* t = TypeRegistry::global().find(type);
         REQUIRE_MESSAGE(t != nullptr, type);

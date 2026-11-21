@@ -635,6 +635,10 @@ static_assert(kMeshFragmentViews[0].view == 0 && kMeshFragmentViews[1].view == 1
 // likewise.
 constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaxMaterialTextures,
               kMaterialSpriteVsFirstSampler = kMaterialSpriteFirstSampler + kMaxMaterialTextures;
+// The picture drawn so far, for a sprite material whose snippet calls fa_scene_color() (M74.4): the program declares this view
+// (and the engine's light_smp sampler) only then, so only the draws of such a material bind it (renderer_draw.cpp, water2d.h).
+constexpr int kMaterialSpriteSceneView = kMaterialSpriteVsFirstView + kMaxMaterialTextures;
+static_assert(kMaterialSpriteSceneView == 12, "fa_scene_tex is binding 12 of shaders/quad_common.glsl");
 
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
@@ -823,6 +827,19 @@ TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, A
 // ---------------------------------------------------------------------------
 // Batches (CPU side, before upload)
 // ---------------------------------------------------------------------------
+// One 2D effect that reads the picture drawn so far (M74.4: Water2D, DistortionZone2D with the built-in look), made by
+// gather_water_fx (water2d.h) and drawn by WaterFx. Lives in QuadList::fx; QuadItem::effect is its index + 1. Everything is in
+// world units and in the colour space of the scene (the tint is already converted).
+struct Fx2D {
+    bool water = true;  // false: the DistortionZone2D ripple
+    float origin[2]{};  // water: the middle of the surface (the top edge) in the world; zone: its centre
+    float up[2]{0, 1};  // the unit vector of the entity's up axis in the world (away from the water)
+    float size[2]{};    // the area's width (across `up`) and height (along it) after the entity's scale
+    float tint[4]{};    // water: scene colour, a = opacity of the body
+    float reflection = 0, refraction = 0, amplitude = 0, length = 1, speed = 0;  // water
+    float strength = 0;                                                          // zone
+};
+
 struct QuadItem {
     int layer = 0;
     float secondary = 0;  // larger = drawn earlier
@@ -842,6 +859,8 @@ struct QuadItem {
     const MaterialUse* use = nullptr;  // QuadList::set_material(): the item's material (null = the built-in programs)
     std::uint32_t instFirst = 0;       // use->instVec4 > 0: where the item's instanced values start in QuadList::inst
     int instances = 0;                 // QuadList::set_buffer_draw(): > 0 draws the item's one quad this many times
+    std::uint32_t effect =
+        0;  // QuadList::set_effect(): 1 + the index in QuadList::fx of the built-in 2D effect; 0 = none
 };
 
 struct QuadBatch {
@@ -863,6 +882,9 @@ struct QuadBatch {
     // Only opaque BlendMode::Alpha items (QuadList::set_opaque): drawn without blending, the same pixels for less work on
     // software rasterizers. Batches only merge with an equal `opaque`.
     bool opaque = false;
+    // 1 + the index in QuadList::fx of a built-in 2D effect (Fx2D; the batch is that one quad, drawn by WaterFx and never merged
+    // with another); 0 = a plain batch. (Here, in the padding after `opaque`, so the struct does not grow.)
+    std::uint32_t effect = 0;
     // The material of the items of the batch (null = the built-in programs). Batches only merge with an equal pointer;
     // an `error` use draws with the built-in programs but stays a batch of its own, so the draw can count it.
     const MaterialUse* use = nullptr;
@@ -881,6 +903,7 @@ public:
     std::vector<Vertex2D> raw;
     std::vector<QuadItem> items;
     std::vector<float> inst;  // the instanced values of the items that have them (QuadItem::instFirst)
+    std::vector<Fx2D> fx;     // the built-in 2D effects of the items that have one (QuadItem::effect)
 
     void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,
                     const Rect& clip = Rect{});
@@ -916,6 +939,12 @@ public:
     // vertex() moves, drawn `instances` times in one call. Call it after set_material, with the item's one quad still
     // to come or done.
     void set_buffer_draw(int instances) { cur_.instances = instances; }
+    // Makes the item opened by begin_item() the built-in 2D effect `fx` (Water2D, DistortionZone2D): its one quad is the area the
+    // effect covers, drawn by WaterFx from the picture drawn so far. Such an item is a batch of its own.
+    void set_effect(const Fx2D& e) {
+        fx.push_back(e);
+        cur_.effect = std::uint32_t(fx.size());
+    }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
@@ -930,6 +959,7 @@ public:
         raw.clear();
         items.clear();
         inst.clear();
+        fx.clear();
         open_ = false;
     }
     // Moves the items of `part` (a list a job filled, with no item open) after the items of this one, in their order:
@@ -1112,6 +1142,10 @@ public:
     // temporary. A component whose params change after it was asked in the same frame (a script wrote them while
     // rendering) is answered for its current values and logged once, in every build.
     MaterialRef sprite_material(const std::string& path, const Json& overrides);
+    // sprite_material for values made on the spot (Water2D hands its fields to its material as params): nothing is remembered by
+    // the address of `overrides`, so a temporary is fine; the answer is interned like any other, so equal values share one use.
+    // Same thread rule as sprite_material.
+    MaterialRef sprite_material_once(const std::string& path, const Json& overrides);
     // The same for a custom post pass (PostProcess.customPasses, renderer_custom_post.h): a "post" material and the
     // entry's materialParams. `use->error` is set when the material did not build or is not of kind "post" (one
     // warning); the pass is then skipped, not drawn magenta. Call it on the render thread while the frame is planned.

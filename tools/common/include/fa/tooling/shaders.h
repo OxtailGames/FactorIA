@@ -74,6 +74,9 @@ inline constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler =
 // the fragment ones.
 inline constexpr int kMaterialSpriteVsFirstView = kMaterialSpriteFirstView + kMaterialMaxTextures,
                      kMaterialSpriteVsFirstSampler = kMaterialSpriteFirstSampler + kMaterialMaxTextures;
+// The picture drawn so far (fa_scene_color(), M74.4): view 12 of a sprite program whose snippet calls it, after the vertex-stage
+// textures; the sampler is the engine's light_smp.
+inline constexpr int kMaterialSpriteSceneView = kMaterialSpriteVsFirstView + kMaterialMaxTextures;
 // A sky material's textures (kind "sky") are fragment-stage only too, and the sky program binds no texture of its own,
 // so they are views 0.. and samplers 0.. (render_internal.h has the same numbers).
 inline constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
