@@ -107,17 +107,16 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          "{\"id\":\"camera\",\"resolved\":true}" FA_COMMAND_DETAILS
          "The resolved stack is the one the renderer draws, computed on the CPU (it works with graphics=false): the "
          "camera's own "
-         "PostProcess (or, without one, the deprecated Camera.bloom* and colorFilter fields that stand in for it), "
-         "then every "
+         "PostProcess, then every "
          "volume the camera is inside (or within blendDistance of) by ascending priority, each blended by its weight "
          "and how deep "
-         "the camera is. `layers` lists them: {index, from, kind (own, legacy, volume), entity, priority (volumes), "
+         "the camera is. `layers` lists them: {index, from, kind (own, volume), entity, priority (volumes), "
          "weight, "
          "influence, strength}; `strength` is weight times influence. `effects` has every effect in the canonical "
          "order: {name, "
          "enabled, layers (the indexes that write it), fields} where `fields` (only for an effect that runs) maps each "
          "parameter "
-         "to {value, from, strength}: `from` is \"own\", \"legacy\", \"volume:<entity id>\" or \"default\" (no layer "
+         "to {value, from, strength}: `from` is \"own\", \"volume:<entity id>\" or \"default\" (no layer "
          "wrote it). "
          "`count` is how many effects run. Without `id` the main camera is used (the camera that draws first: active, "
          "primary, not "
@@ -134,7 +133,7 @@ void register_postprocess_commands(Engine&, Engine::Impl& I) {
          parse_schema(R"({"type":"object","properties":{
                "id":{"type":"string","description":"Entity id (or name) that has the PostProcess component; with resolved true, the Camera entity (default: the main camera)."},
                "fields":{"type":"array","items":{"type":"string"},"description":"Only these fields (names as in api.components, e.g. bloomIntensity). Default: every field. Not with resolved."},
-               "resolved":{"type":"boolean","default":false,"description":"true = the stack the camera draws (its own PostProcess or legacy fields, plus the volumes it is inside) with the source of every value."}}})"),
+               "resolved":{"type":"boolean","default":false,"description":"true = the stack the camera draws (its own PostProcess, plus the volumes it is inside) with the source of every value."}}})"),
          true, "scene"},
         [&I](const Json& a) {
             check_args_known(a, {"id", "fields", "resolved"}, "postprocess.get");

@@ -88,14 +88,8 @@
     "Button.texture": "0.1.6",
     "Button.tooltip": "0.3.0",
     "Camera": "0.1.0",
-    "Camera.bloom": "0.1.0",
-    "Camera.bloomIntensity": "0.1.0",
-    "Camera.bloomRadius": "0.1.0",
-    "Camera.bloomScreenSpace": "0.1.0",
-    "Camera.bloomThreshold": "0.1.0",
     "Camera.clear": "0.1.0",
     "Camera.clearColor": "0.1.0",
-    "Camera.colorFilter": "0.2.0",
     "Camera.depth": "0.1.0",
     "Camera.farPlane": "0.1.0",
     "Camera.fov": "0.1.0",
@@ -3070,38 +3064,7 @@
   },
   "deprecated": {
     "commands": {},
-    "components": {
-      "Camera.bloom": {
-        "since": "0.31.0",
-        "use": "PostProcess.bloomEnabled",
-        "note": "Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt)."
-      },
-      "Camera.bloomIntensity": {
-        "since": "0.31.0",
-        "use": "PostProcess.bloomIntensity",
-        "note": "Same meaning and range."
-      },
-      "Camera.bloomRadius": {
-        "since": "0.31.0",
-        "use": "PostProcess.bloomRadius",
-        "note": "Same meaning and range."
-      },
-      "Camera.bloomScreenSpace": {
-        "since": "0.31.0",
-        "use": "PostProcess.bloomScreenSpace",
-        "note": "Same meaning: whether the screen-space UI glows too."
-      },
-      "Camera.bloomThreshold": {
-        "since": "0.31.0",
-        "use": "PostProcess.bloomThreshold",
-        "note": "Same meaning and range; PostProcess.bloomKnee softens the start of the glow."
-      },
-      "Camera.colorFilter": {
-        "since": "0.31.0",
-        "use": "PostProcess.colorFilterMode",
-        "note": "Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value."
-      }
-    },
+    "components": {},
     "script": {}
   }
 }

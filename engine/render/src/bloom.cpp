@@ -142,7 +142,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             if (!warned_) {
                 warned_ = true;
                 FA_ERROR("render",
-                         "Camera.bloom: cannot create the intermediate targets for a {}x{} game target; "
+                         "PostProcess bloom: cannot create the intermediate targets for a {}x{} game target; "
                          "bloom is skipped",
                          targetW, targetH);
             }

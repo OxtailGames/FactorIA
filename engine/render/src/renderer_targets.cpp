@@ -149,7 +149,7 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
                 pixel_format_name(gpu.scene_format()), pixel_format_name(gpu.scene_format()),
                 gpu.scene_is_float()
                     ? ""
-                    : " (colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)");
+                    : " (colours above white are clamped, PostProcess bloom is weaker, hdr_scene() is false)");
         return;
     }
     // Nothing of the chain works: it is not the format; keep the first one and its errors.
@@ -236,7 +236,7 @@ void Renderer::Impl::make_game_targets() {
     d.height = physH;
     d.colorFormat = gpu.scene_format();
     d.samples = gpu.sample_count();
-    d.resolveAsColor = true;  // Camera.bloom adds its glow to the resolved image
+    d.resolveAsColor = true;  // PostProcess bloom adds its glow to the resolved image
     d.depthFormat = kSceneDepthFormat;
     gameTarget = make_target(d);
 }
@@ -581,10 +581,11 @@ bool Renderer::Impl::ensure_filter_target() {
     d.colorFormat = gpu.display_format();
     filterTarget = make_target(d);
     if (!filterTarget.valid()) {
-        FA_ERROR("render",
-                 "Post-processing (PostProcess, Camera.colorFilter): cannot create the {}x{} target; the game is drawn "
-                 "without it",
-                 physW, physH);
+        FA_ERROR(
+            "render",
+            "Post-processing (PostProcess, PostProcess.colorFilter): cannot create the {}x{} target; the game is drawn "
+            "without it",
+            physW, physH);
         destroy_target(filterTarget);
         return false;
     }

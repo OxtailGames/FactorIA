@@ -255,7 +255,9 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
                 warn(fptr, "field '" + key + "' of " + type.name + " should be spelled '" + f->name + "'",
                      "Field names are case-sensitive camelCase; accepted anyway.");
             } else {
-                error(fptr, "Unknown field '" + key + "' on " + type.name, did_you_mean(key, fieldNames));
+                std::string removed = removed_field_hint(type.name, key);
+                error(fptr, "Unknown field '" + key + "' on " + type.name,
+                      removed.empty() ? did_you_mean(key, fieldNames) : std::move(removed));
                 continue;
             }
         }

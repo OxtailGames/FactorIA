@@ -280,26 +280,9 @@ float post_volume_influence(const PostProcess& v, const Mat4& m, Vec3 point, boo
     return std::clamp(1.0f - dist / blend, 0.0f, 1.0f);
 }
 
-bool legacy_post_of_camera(const Camera& cam, PostProcess& out) {
-    if (!cam.bloom && cam.colorFilter == ColorFilter::None) return false;
-    out = postprocess_neutral();
-    const BloomSettings b =
-        sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
-    out.bloomEnabled = b.enabled;
-    out.bloomThreshold = b.threshold;
-    out.bloomIntensity = b.intensity;
-    out.bloomRadius = b.radius;
-    out.bloomScreenSpace = b.screenSpace;
-    out.bloomKnee = 0.0f;
-    out.colorFilterEnabled = cam.colorFilter != ColorFilter::None;
-    out.colorFilterMode = cam.colorFilter;
-    return true;
-}
-
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn,
-                             PostTrace* trace) {
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, PostTrace* trace) {
     PostStack out;
-    if (!world.any<PostProcess>() && !implicitOwn) return out;
+    if (!world.any<PostProcess>()) return out;
 
     struct Volume {
         Entity entity;
@@ -322,17 +305,13 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const Post
         if (s > 0.0f) volumes.push_back({e, &p, s, influence});
     });
 
-    const bool legacy = !own;
-    if (!own)
-        own =
-            implicitOwn;  // the Camera.bloom* / Camera.colorFilter fields of a camera that has no PostProcess of its own
     if (own) {
         const float s = strength_of(*own);
         if (s > 0.0f) {
             int layer = 0;
             if (trace) {
                 layer = int(trace->layers.size());
-                trace->layers.push_back({legacy ? PostLayer::Kind::Legacy : PostLayer::Kind::Own, cam.entity, s, 1.0f});
+                trace->layers.push_back({PostLayer::Kind::Own, cam.entity, s, 1.0f});
             }
             apply_component(out.fx, *own, s, trace, layer);
             add_custom_passes(out, world, *own, s, cam.entity, trace, layer);

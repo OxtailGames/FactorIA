@@ -12,7 +12,7 @@ meters. Details in `core/math.h` and `scene/components.h`.
 sokol_gfx backends: D3D11 (Windows), Metal (macOS/iOS), GL 4.3 core (Linux),
 GLES3 (Android). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
-target, so headless and windowed images match. `Camera.bloom` is a post-process
+target, so headless and windowed images match. The bloom of a `PostProcess` is a post-process
 that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
 `shaders/bloom.glsl`), so screenshots include it. The target is RGBA16F (`Gpu::scene_format()`) when the GPU renders to
 it with blending, filtering and the requested MSAA, else RGBA8 (`FA_SCENE_FORMAT=rgba8` forces the fallback;
@@ -25,7 +25,7 @@ back: a CameraView, a bloom level or the colour filter image that cannot be made
 shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` forces that): a float target keeps a colour above white (`MeshRenderer.emissive` times
 `emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
 8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
-reading it, and the colour filter clamps its input for every mode but `none`. With `Camera.bloomScreenSpace = false`
+reading it, and the colour filter clamps its input for every mode but `none`. With `PostProcess.bloomScreenSpace = false`
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. The colour filter is the last post-process
@@ -82,7 +82,7 @@ client with its own pipelines and keeps using sokol directly.
 the path there was before. Otherwise `Renderer::render` makes one world job per camera (own viewport and scissor, own culling, own
 2D and 3D lights, own clear of its rectangle) and one more job for the screen-space groups, drawn once over the whole target after
 them. The 2D light buffer is built per camera job, from the lights that reach that camera. Bloom, `bloomScreenSpace` and
-`colorFilter` run once, on the finished target, with the lowest-`depth` camera's settings. `RenderStats` is per frame and adds up
+the colour filter (all of `PostProcess`) run once, on the finished target, with the lowest-`depth` camera's settings. `RenderStats` is per frame and adds up
 over the cameras. `world_to_screen`, `screen_to_world` and `screen_ray` take an optional camera; without one they use
 `camera_at(point)` (the camera whose viewport contains the point, else the first drawn), and `cameras()` lists those drawn. The
 audio listener without an `AudioListener` is the first camera drawn. Known limit: a screen-space visual with `lit: true` is lit
@@ -217,7 +217,7 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   the light buffer (`light-buffer`), the shadow map (`shadow`, only when a light casts), the world (`game`, `view` for a
   view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
   of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
-  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), per camera of the frame the exposure measure (`camera:<i>/exposure-luma`,
+  glow (`hud-over-bloom`, with `PostProcess.bloomScreenSpace = false`), per camera of the frame the exposure measure (`camera:<i>/exposure-luma`,
   `camera:<i>/exposure-adapt`), the final pass (`post` of each camera over its own rectangle, plus `post-base` when no camera's pass
   covers the whole picture first), the HUD over it (`hud-over-post`), the colour filter (`color-filter`) and, where the backend
   stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it

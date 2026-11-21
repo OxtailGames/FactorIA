@@ -6,13 +6,12 @@
 //   run_post_pass     the final pass (post.glsl): the lens, exposure, tonemap, the output encode, the display-space effects of
 //                     post_fx.h (grade, vignette, sharpen, outline, pixelate, posterize, grain), a dither, the colour filter, fused
 //
-// A frame without a PostProcess and without Camera.bloom / Camera.colorFilter has an empty plan: no pass is declared and no target is
+// A frame without a PostProcess and has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
 // the final pass -> (the HUD, drawn over the final picture in display space) -> the colour filter when the HUD went in between.
 // Every camera job has its own PostPlan, prepass, coverage image and AutoExposure (M71-C3a): its final pass draws into the camera's
 // rectangle of the picture (PostRect), the effects run in camera-local coordinates and the prepass and the coverage image have the size
-// of that rectangle. Bloom and the colour filter stay one per frame, from the camera that draws first (Camera.bloom* and
-// Camera.colorFilter are its fields, and the aliases of the stack).
+// of that rectangle. Bloom and the colour filter stay one per frame, from the camera that draws first (PostProcess bloom and colorFilter).
 #pragma once
 
 #include <cstdint>
@@ -123,7 +122,7 @@ struct PostPlan {
     float adaptationSpeed = 2.0f;  // per second
     bool tonemap = false;
     int tonemapMode = 0;  // TonemapMode as an int: 0 none (a clip), 1 neutral, 2 aces, 3 agx, 4 reinhard
-    int colorFilter = 0;  // Camera.colorFilter / PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
+    int colorFilter = 0;  // PostProcess.colorFilterMode as an int, 0 none .. 5 tritanopia
     bool linear =
         false;  // a linear scene that has exposure, a tonemap, an effect or a colour filter: the target holds linear light,
                 // the final pass encodes it
@@ -248,7 +247,7 @@ struct PostPlan {
 PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceEffects = 0, std::uint64_t frame = 0,
                         float designScale = 1.0f, const CameraInfo* frameCam = nullptr);
 
-// Camera.bloom* / PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
+// PostProcess bloom fields -> supported ranges (sanitize_bloom for the stack): the knee and the dirt intensity too.
 BloomSettings bloom_from_stack(const PostStack& stack);
 
 // What the final pass draws (post.glsl): `convert` is true for the final pass itself (not the colour-filter-only pass): it runs the
