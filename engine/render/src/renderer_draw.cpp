@@ -2246,7 +2246,7 @@ void Renderer::Impl::fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, b
         if (!idx || idx > probeVolumes.size() || !(shares[k] > 0.0f)) continue;
         const ProbeVolume& v = probeVolumes[std::size_t(idx) - 1];
         const auto it = ps.entries.find(v.id);
-        if (it == ps.entries.end() || !it->second.placed || it->second.captures == 0) continue;
+        if (it == ps.entries.end() || !it->second.placed || !it->second.tileValid) continue;
         const ProbeTile& t = it->second.tile;
         tile[k][0] = float(t.x);
         tile[k][1] = float(t.y);

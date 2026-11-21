@@ -43,7 +43,8 @@ that draws. `render.probes` shows what the renderer holds. How it is built: docs
   floats the atlas is RGBA8, a realtime probe is captured in the scene's own (gamma) space, and `probe.bake` answers `unavailable`
   (a baked page is HDR).
 - **What a mesh reflects.** Every lit mesh (an `unlit` one reflects nothing) is given up to TWO probes by the position of its bounds'
-  centre, and the sky keeps the rest of the light. A probe reaches a mesh inside its box, with weight 1 deeper than `blendDistance`
+  centre (ONE pick per mesh, not per pixel: a large mesh, such as a floor across several rooms, gets the probes of its centre everywhere, so
+  split it into one mesh per room), and the sky keeps the rest of the light. A probe reaches a mesh inside its box, with weight 1 deeper than `blendDistance`
   from the box's face and falling to 0 at the face (0 distance: a hard edge); weights are rounded to 1/32, so the meshes of a row of
   crates still share a draw. Of the probes that reach it, the larger `importance` is first, then the smaller box, then the nearer
   capture position, then the smaller id; the second is used only while the first is below weight 1 and takes what the first leaves

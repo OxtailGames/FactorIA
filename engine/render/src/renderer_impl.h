@@ -490,6 +490,8 @@ struct Renderer::Impl {
     // Renderer::probe_mesh_report (render.probes with `entity`) answers from. Filled by probes_note_picks() right after the scene is built.
     std::vector<std::pair<std::uint64_t, ProbePick>> meshPicks;
     void probes_note_picks();
+    // The mesh whose picks probes_note_picks keeps (render.probes with `entity`); 0 = none.
+    std::uint64_t meshPickWatch = 0;
     // Writes the sky's entry of the atlas from the baked environment cube when it is not there yet or is out of date (the tail of the
     // "sky-env" pass, and probes_plan for an atlas that was just made).
     void probes_write_sky();

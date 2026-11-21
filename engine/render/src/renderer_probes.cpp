@@ -136,8 +136,7 @@ void Renderer::Impl::probes_build_volumes(World& world) {
     if (ps.entries.empty() || ps.world != &world || ps.sceneGeneration != world.scene_generation()) return;
     // The entries are a map by id: the same order on every machine, and the volumes' indices (part of the batch keys) follow it.
     for (const auto& [id, en] : ps.entries) {
-        if (!en.placed || en.captures == 0 || !world.alive(en.entity) || !world.active_in_hierarchy(en.entity))
-            continue;
+        if (!en.placed || !en.tileValid || !world.alive(en.entity) || !world.active_in_hierarchy(en.entity)) continue;
         const ReflectionProbe* rp = world.get<ReflectionProbe>(en.entity);
         if (!rp) continue;
         const Mat4 m = world.drawn_matrix(en.entity, true);
@@ -170,9 +169,9 @@ void Renderer::Impl::probes_build_volumes(World& world) {
 
 void Renderer::Impl::probes_note_picks() {
     meshPicks.clear();
-    if (probeVolumes.empty()) return;
+    if (probeVolumes.empty() || meshPickWatch == 0) return;  // only the mesh `render.probes` was asked about is kept
     for (const SceneMesh& sm : renderScene.meshes())
-        if (sm.refl.any()) meshPicks.emplace_back(sm.entity.bits(), sm.refl);
+        if (sm.entity.bits() == meshPickWatch && sm.refl.any()) meshPicks.emplace_back(sm.entity.bits(), sm.refl);
 }
 
 void Renderer::Impl::probes_write_sky() {
@@ -295,7 +294,8 @@ void Renderer::Impl::probes_plan(World& world) {
         return;
     }
     // A RealtimeGI needs the band of blocks below the square (gi.h): an atlas made without it is made again, once.
-    const int atlasHeight = ps.gi.wants.empty() ? 0 : kGiAtlasHeight;
+    // (not on a GPU that cannot blend into RGBA16F: the grids are "unsupported" there and the band would be 1 MB of nothing)
+    const int atlasHeight = ps.gi.wants.empty() || ps.gpu.rgba8() ? 0 : kGiAtlasHeight;
     if (ps.atlas.valid() && ps.atlas.height < atlasHeight) ps.gpu.destroy_atlas(ps.atlas);
     bool atlasRemade = false;
     if (!ps.atlas.valid()) {
@@ -307,6 +307,7 @@ void Renderer::Impl::probes_plan(World& world) {
         ps.skyKey = 0;
         for (auto& [id, en] : ps.entries) {
             en.placed = false;
+            en.tileValid = false;  // the new atlas is empty
             en.uploadedTile = ProbeTile{};
             en.uploadedGain = 0.0f;
             en.bakedSerial = 0;
@@ -391,13 +392,15 @@ void Renderer::Impl::probes_plan(World& world) {
         const bool moved = !en.placed || !same_tile(en.tile, *t);
         en.tile = *t;
         en.placed = true;
+        if (moved) en.tileValid = false;  // the new tile holds nothing until the next capture or upload
         if (en.realtime) {
             if (en.state == "failed" && ps.frame >= en.retryFrame) en.state = "pending";
             specs.push_back(ProbeSpec{en.id, en.update, en.importance, en.resolution});
             if (moved && en.captures > 0) movedAgain.push_back(en.id);
         } else {
-            const bool stale =
-                en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) || en.uploadedGain != en.gain;
+            // `moved`: a tile that was given back and comes back (even at the same place) holds nothing until the page is uploaded again.
+            const bool stale = moved || en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) ||
+                               en.uploadedGain != en.gain;
             if (stale) {
                 ps.uploads.push_back(en.id);
                 en.state = "pending";
@@ -499,6 +502,7 @@ void Renderer::Impl::probes_finish() {
         auto it = ps.entries.find(job.id);
         if (it == ps.entries.end() || !it->second.placed) continue;
         ps.gpu.filter(gpu, ps.atlas, job.slot, it->second.tile, it->second.gain, &calls);
+        it->second.tileValid = true;
     }
     for (std::uint64_t id : ps.uploads) {
         auto it = ps.entries.find(id);
@@ -508,6 +512,7 @@ void Renderer::Impl::probes_finish() {
         if (!bake || !bake->ok) continue;
         if (ps.gpu.upload(gpu, ps.atlas, en.tile, *bake->page, bake->manifest.sh, en.gain, &calls)) {
             en.uploadedTile = en.tile;
+            en.tileValid = true;
             en.uploadedGain = en.gain;
             en.bakedSerial = bake->serial;
             en.bakedHash = bake->manifest.hash;
@@ -728,6 +733,13 @@ Json Renderer::probe_report() const {
     return out;
 }
 
+bool Renderer::probe_watch_mesh(Entity mesh) {
+    if (!initialized()) return false;
+    const bool already = impl_->meshPickWatch == mesh.bits();
+    impl_->meshPickWatch = mesh.bits();
+    return already;
+}
+
 Json Renderer::probe_mesh_report(Entity mesh) const {
     if (!initialized()) return Json::object();
     const Impl& im = *impl_;
@@ -772,5 +784,15 @@ bool RendererTestAccess::probe_tile(Renderer& r, std::uint64_t id, render::Probe
 }
 
 void RendererTestAccess::probe_force_rgba8(bool force) { render::ProbeGpu::force_rgba8_for_tests(force); }
+
+bool RendererTestAccess::probe_tile_valid(Renderer& r, std::uint64_t id) {
+    if (!r.initialized()) return false;
+    const auto it = r.impl_->probes.entries.find(id);
+    return it != r.impl_->probes.entries.end() && it->second.placed && it->second.tileValid;
+}
+
+int RendererTestAccess::probe_volume_count(Renderer& r) {
+    return r.initialized() ? int(r.impl_->probeVolumes.size()) : 0;
+}
 
 }  // namespace fa

@@ -402,6 +402,8 @@ TEST_CASE("render.gi_grid: empty without a RealtimeGI, lists a grid with its pro
     const Json& listed = r.result["grids"][0];
     // A GPU that cannot blend into RGBA16F says "unsupported" and why; one that can lists the 3 x 1 x 3 probes.
     if (listed["state"] == "unsupported") {
+        MESSAGE("render.gi_grid: this GPU cannot blend into RGBA16F, the grid is unsupported: ",
+                listed["message"].dump());
         CHECK(listed["message"].is_string());
     } else {
         CHECK(listed["probes"] == 9);
