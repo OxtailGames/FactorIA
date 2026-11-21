@@ -38,9 +38,13 @@ bool engine_caches_here() {
 // D3DCompile is loaded from d3dcompiler_47.dll like sokol does (no import library, no header of the compiler needed).
 using PD3DCompile = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR,
                                      UINT, UINT, ID3DBlob**, ID3DBlob**);
-constexpr UINT kCompileFlags = D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3;
-// The flags sokol_gfx uses when shader_debugging is off (sokol_gfx.h, _sg_d3d11_compile_shader). The cache key names them.
-constexpr const char* kCompileFlagsText = "column_major+O3";
+// The flags sokol_gfx uses when shader_debugging is off (sokol_gfx.h, _sg_d3d11_compile_shader) plus PREFER_FLOW_CONTROL: without
+// it d3dcompiler_47 flattens the branches of the 3D lighting into one straight line and, on some programs (a custom material
+// whose lighting() walks the lights and then reads the shadow of one), recurses until its stack overflows and the process
+// dies (fxc /O3 crashes the same way; /Gfp is this flag). The cache key names them.
+constexpr UINT kCompileFlags =
+    D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_PREFER_FLOW_CONTROL;
+constexpr const char* kCompileFlagsText = "column_major+O3+flow";
 
 bool d3d_compile_stage(const sg_shader_function& fn, std::vector<std::uint8_t>& out, std::string& error) {
     static HMODULE dll = LoadLibraryA("d3dcompiler_47.dll");
@@ -148,7 +152,10 @@ sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
     const auto start = std::chrono::steady_clock::now();
     sg_shader shader{};
 #if defined(SOKOL_D3D11)
-    if (engine_caches_here() && !fs::cache_dir().empty() && desc) {
+    // D3D11: the engine compiles every stage with its own flags (kCompileFlags), through the disk cache when there is a cache
+    // folder and directly when there is none; sokol compiles a stage only when this fails, and reports why.
+    if (engine_caches_here() && desc) {
+        const bool cached = !fs::cache_dir().empty();
         const std::string name = label ? label : desc->label ? desc->label : "shader";
         const std::string keyBase = std::string("d3d11|") + FA_ENGINE_VERSION + "|" + kCompileFlagsText;
         sg_shader_desc copy = *desc;
@@ -162,8 +169,11 @@ sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
         const Stage stages[] = {{&copy.vertex_func, &vs, "vs"}, {&copy.fragment_func, &fsb, "fs"}};
         for (const Stage& st : stages) {
             if (st.fn->bytecode.ptr || !st.fn->source) continue;  // given as bytecode already, or no such stage
-            if (!cached_stage_bytecode(fs::cache_dir() / "shaders", keyBase, name, st.name, *st.fn, d3d_compile_stage,
-                                       *st.bytes, g_stats)) {
+            std::string error;
+            const bool made = cached ? cached_stage_bytecode(fs::cache_dir() / "shaders", keyBase, name, st.name,
+                                                             *st.fn, d3d_compile_stage, *st.bytes, g_stats)
+                                     : d3d_compile_stage(*st.fn, *st.bytes, error);
+            if (!made) {
                 viaCache = false;  // sokol compiles it and reports what is wrong
                 break;
             }
