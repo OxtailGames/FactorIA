@@ -5,6 +5,10 @@ Part of [SHADERS.md](../SHADERS.md): nine worked examples of mesh materials (a p
 Each example is a material file plus a snippet; the test suite compiles them all, so they are known to work. Put the
 snippet's path in the material's `shader` and the material's path on an entity as shown on [SHADERS.md](../SHADERS.md).
 
+These nine are mesh materials. The examples of **sprite** materials (a dissolve with a hit flash, and a frosted pane and magnifier that read the
+picture drawn behind them with `fa_scene_color`) are sections 10 and 11 of [SHADERS_SPRITES.md](SHADERS_SPRITES.md); the 2D water of the engine is
+[Rendering: 2D water](../rendering/RENDERING_2D_WATER.md), whose `Water2D.material` takes a material like those.
+
 ## 1. Pulsing emission (`fa_time`)
 
 File `materials/pulse.material.json`:
