@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
 
 ## Unreleased
 
+- M74 P0: the shared API of the ambitious 2D lighting and effects. New components `ShadowCaster2D`, `GlobalIllumination2D`, `Water2D` and `DistortionZone2D`; new fields `Light2D.size`, `lightLayers`, `cookie`, `cookieRotationDeg`, `cookieScale`, `Sprite.emissive`, `emissiveIntensity`, `emissiveMap`, `lightLayers`, `rimColor`, `rimIntensity`, `rimWidth`, `normalFrom`, `heightMap`, `normalStrength`, `Shape2D.lightLayers` and `Tilemap.lightLayers`, `emissive`, `emissiveIntensity`; ten new `render.supports` rows (`2dSoftShadows`, `2dShadowCasters`, `2dEmission`, `2dLightLayers`, `2dLightCookies`, `2dRimLight`, `2dGeneratedNormals`, `2dGlobalIllumination`, `2dWater`, `spriteSceneColor`). Their defaults leave every existing scene as it was.
+
 ## 0.33.0
 
 3D lighting of a leading engine (M73): lit scenes use clustered forward lighting with up to 1024 lights per view, area lights shaded with LTC, light cookies and IES profiles, cascaded, point, spot and PCSS soft shadows plus contact shadows, a physical sky and HDRI environments, reflection probes in an atlas, baked lightmaps and light probes (`lightmap.bake`), projected decals, volumetric fog and light shafts, subsurface scattering, realtime GI from a probe grid, and the material layers clear coat, sheen, anisotropy, specular/IOR and transmission (also from glTF extensions). The mesh shader template hash changed, so material twins and shader caches exported with earlier versions no longer match: export the game again (twins) and let the caches recompile.
