@@ -227,7 +227,13 @@ export function lightingShown(s = load()) {
   const choice = lightingChoice(s);
   if (choice) return choice;
   const gi = lightingEntities()[0]?.get("GlobalIllumination2D");
-  return gi && gi.enabled ? gi.quality : "off";
+  if (!gi || !gi.enabled) return "off";
+  return lightingChoices().includes(gi.quality) ? gi.quality : "medium"; // "high" is not offered on a phone or in a browser
+}
+
+/** Whether the "2D lighting" row can matter in this scene: it has a Sprite, or the player's settings recorded a lighting choice. A 3D scene has neither. */
+export function lightingRelevant(s = load()) {
+  return s.graphics.lighting2d != null || world.entities().some((e) => e.has("Sprite"));
 }
 
 /** Whether the effect `id` of GRAPHICS_EFFECTS is on now in the scene (in any of its PostProcess components; false when the scene has none). */
