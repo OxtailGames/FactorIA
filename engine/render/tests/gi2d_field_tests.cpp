@@ -575,3 +575,153 @@ TEST_CASE("gi2d field: the command's report writes the images as PNG files") {
     CHECK(bad.contains("error"));
     CHECK_FALSE(std::filesystem::exists(fs::path_from_utf8(prefix + "-x-emission.png")));
 }
+
+TEST_CASE("gi2d triangulation: a polygon is cut with a counted amount of work, never a time") {
+    // A regular polygon with the most corners a caster may have is cut completely: n - 2 triangles.
+    auto circle = [](std::size_t n) {
+        std::vector<Vec2> pts;
+        for (std::size_t i = 0; i < n; ++i) {
+            const double a = 6.283185307179586 * double(i) / double(n);
+            pts.push_back({float(std::cos(a) * 100.0), float(std::sin(a) * 100.0)});
+        }
+        return pts;
+    };
+    const std::vector<Vec2> full = circle(kGi2dMaxPolygonPoints);
+    CHECK(gi2d_triangulate(full).size() == (kGi2dMaxPolygonPoints - 2) * 3);
+    // One more corner than the limit gives nothing (the caster is counted as skipped).
+    CHECK(gi2d_triangulate(circle(kGi2dMaxPolygonPoints + 1)).empty());
+    // A budget spent early stops the cutting with what is cut (so far fewer triangles), and is used up in a count that does not depend on
+    // the machine: the same call twice leaves the same amount.
+    std::size_t work = 300;
+    const std::size_t a = gi2d_triangulate(full, &work).size();
+    CHECK(work == 0);
+    CHECK(a < (kGi2dMaxPolygonPoints - 2) * 3);
+    std::size_t again = 300;
+    CHECK(gi2d_triangulate(full, &again).size() == a);
+    // The budget a whole gather has covers many polygons of normal size.
+    std::size_t budget = kGi2dMaxTriangulateWork;
+    for (int i = 0; i < 100; ++i) CHECK(gi2d_triangulate(circle(32), &budget).size() == 30 * 3);
+    CHECK(budget > kGi2dMaxTriangulateWork / 2);
+}
+
+TEST_CASE("gi2d budget: the fields of all the cameras of a frame share one budget, summed in 64 bits") {
+    Gi2dSettings largest;
+    largest.on = true;
+    largest.range = 100000.0f;
+    largest.resolutionScale = 1.0f;
+    const Gi2dGeometry cap = gi2d_geometry(Rect{-960, -540, 1920, 1080}, 1.0f, largest);  // 2048 x 2048
+    REQUIRE(cap.valid);
+    const Gi2dCascadePlan big = gi2d_cascade_plan(GI2DQuality::High, cap, false);
+    REQUIRE(big.ok);
+    CHECK(gi2d_total_budget_why(0, big, false).empty());
+    CHECK(gi2d_total_budget_why(big.totalBytes, big, false).empty());               // two of 272 MiB are inside 640 MiB
+    const std::string why = gi2d_total_budget_why(2 * big.totalBytes, big, false);  // the third is not
+    CHECK(why.find("MiB") != std::string::npos);
+    CHECK(why.find("640") != std::string::npos);
+    CHECK(why.find("range") != std::string::npos);
+    // A sum that does not fit in 64 bits saturates instead of wrapping around to a small number.
+    CHECK_FALSE(gi2d_total_budget_why(std::numeric_limits<std::uint64_t>::max() - 1, big, false).empty());
+    // A phone or a browser has one budget for all the cameras: 96 MiB.
+    Gi2dSettings little;
+    little.on = true;
+    little.range = 8.0f;
+    little.resolutionScale = 1.0f;
+    const Gi2dCascadePlan phone =
+        gi2d_cascade_plan(GI2DQuality::Medium, gi2d_geometry(Rect{-160, -90, 320, 180}, 1.0f, little), true);
+    REQUIRE(phone.ok);
+    CHECK(gi2d_total_budget_why(0, phone, true).empty());
+    CHECK_FALSE(gi2d_total_budget_why(kGi2dMaxTotalBytesMobile, phone, true).empty());
+}
+
+TEST_CASE("gi2d budget: the warning of a phone says which settings to change") {
+    Gi2dSettings s;
+    s.on = true;  // the defaults: range 512, resolutionScale 0.5
+    const Gi2dGeometry g = gi2d_geometry(Rect{-960, -540, 1920, 1080}, 1.0f, s);
+    REQUIRE(g.valid);
+    const Gi2dCascadePlan phone = gi2d_cascade_plan(GI2DQuality::Medium, g, true);
+    CHECK_FALSE(phone.ok);  // about 103 MiB against 96
+    CHECK(phone.why.find("range 128") != std::string::npos);
+    CHECK(phone.why.find("resolutionScale 0.25") != std::string::npos);
+    CHECK(gi2d_cascade_plan(GI2DQuality::Medium, g, false).ok);
+    // The two ways out the message gives do fit the phone.
+    Gi2dSettings narrow = s;
+    narrow.range = 128.0f;
+    CHECK(gi2d_cascade_plan(GI2DQuality::Medium, gi2d_geometry(Rect{-960, -540, 1920, 1080}, 1.0f, narrow), true).ok);
+    Gi2dSettings coarse = s;
+    coarse.resolutionScale = 0.25f;
+    CHECK(gi2d_cascade_plan(GI2DQuality::Medium, gi2d_geometry(Rect{-960, -540, 1920, 1080}, 1.0f, coarse), true).ok);
+}
+
+TEST_CASE("gi2d field: an unlit sprite and an unlit tilemap with emissive glow into the field") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE(o.ok);
+    if (!o.gi_ready()) return;
+    write_white();
+    World w;
+    camera_at(w, {0, 0, 0});
+    add_gi2d(w, 32.0f, 1.0f);
+    Entity sprite = make(w, "glow", {-60, 20, 0});
+    auto& s = w.add<Sprite>(sprite);
+    s.texture = "assets/white16.png";
+    s.size = {20, 20};
+    s.lit = false;  // the default: the sprite itself is not lit, and still lights the scene around it
+    s.color = Color{0, 0, 0, 1};
+    s.emissive = Color{1, 0, 0, 1};
+    s.emissiveIntensity = 2.0f;
+    Entity map = make(w, "lamps", {40, 30, 0});
+    auto& tm = w.add<Tilemap>(map);
+    tm.tileset = "assets/white16.png";
+    tm.tileSize = {16, 16};
+    tm.lit = false;
+    tm.color = Color{0, 0, 0, 1};
+    tm.emissive = Color{0, 0, 1, 1};
+    tm.emissiveIntensity = 3.0f;
+    Json rows = Json::array();
+    for (int r = 0; r < 2; ++r) rows.push_back(Json::array({0, 0}));
+    set_tilemap_tiles(tm, rows);
+    o.frame(w);
+    const Gi2dFieldInfo info = renderer_gi2d_info(o.r, 0);
+    REQUIRE(info.ready);
+    CHECK(info.emitters == 5);  // the sprite and four cells
+    FieldImage em;
+    REQUIRE(read_field(o, 0, em));
+    const float* red = em.at(em.tx(-60.5), em.ty(20.5));
+    CHECK(red[0] == doctest::Approx(2.0f).epsilon(0.02));
+    // The tilemap's cells hang down from its position: x 40..72, y -2..30.
+    const float* blue = em.at(em.tx(56.0), em.ty(14.0));
+    CHECK(blue[2] == doctest::Approx(3.0f).epsilon(0.02));
+    CHECK(std::fabs(em.at(em.tx(0.5), em.ty(0.5))[2]) < 0.001f);
+}
+
+TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the cap and says so") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE(o.ok);
+    if (!o.gi_ready()) return;
+    write_white();
+    World w;
+    camera_at(w, {0, 0, 0});
+    add_gi2d(w, 32.0f, 1.0f);
+    // 270 x 270 cells of one unit, seen in the field's rectangle (416 x 256 texels) for the most part: over kGi2dMaxQuads.
+    Entity map = make(w, "sea", {-135, 135, 0});
+    auto& tm = w.add<Tilemap>(map);
+    tm.tileset = "assets/white16.png";
+    tm.tileSize = {1, 1};
+    tm.lit = false;
+    tm.color = Color{0, 0, 0, 1};
+    tm.emissive = Color{0.1f, 0.1f, 0.1f, 1};
+    Json row = Json::array();
+    for (int c = 0; c < 270; ++c) row.push_back(0);
+    Json rows = Json::array();
+    for (int r = 0; r < 270; ++r) rows.push_back(row);
+    set_tilemap_tiles(tm, rows);
+    o.frame(w);
+    const Json report = o.r.gi2d_field("", "");
+    REQUIRE(report["fields"].size() == 1);
+    CHECK(report["fields"][0]["dropped"].get<int>() > 0);
+    CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() <= kGi2dMaxQuads);
+    CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() > kGi2dMaxQuads / 2);
+}
