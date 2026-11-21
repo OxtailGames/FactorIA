@@ -69,6 +69,39 @@ std::string deprecation_removal_version(std::string_view since) {
     return std::to_string(major) + "." + std::to_string(minor + 2) + ".0";
 }
 
+std::string removed_field_hint(std::string_view component, std::string_view field) {
+    struct Removed {
+        std::string_view component, field, text;
+    };
+    // The six Camera post-processing fields (deprecated in 0.31.0): the PostProcess component has them all.
+    constexpr std::string_view kBloom =
+        "add a PostProcess component to the camera's entity and set bloomEnabled (and "
+        "bloomIntensity/bloomThreshold/bloomRadius/bloomScreenSpace/colorFilter there).";
+    static const Removed kRemoved[] = {
+        {"Camera", "bloom", kBloom},
+        {"Camera", "bloomIntensity", kBloom},
+        {"Camera", "bloomRadius", kBloom},
+        {"Camera", "bloomScreenSpace", kBloom},
+        {"Camera", "bloomThreshold", kBloom},
+        {"Camera", "colorFilter",
+         "add a PostProcess component to the camera's entity, set colorFilterEnabled to true and colorFilterMode to "
+         "the filter (none, greyscale, highContrast, protanopia, deuteranopia, tritanopia)."},
+    };
+    // The field name is compared without regard to case: a scene that says "Bloom" meant the removed field too.
+    auto same_field = [](std::string_view a, std::string_view b) {
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                return false;
+        return true;
+    };
+    for (const Removed& r : kRemoved)
+        if (r.component == component && same_field(r.field, field))
+            return std::string(component) + "." + std::string(r.field) +
+                   " was removed in 0.33.0: " + std::string(r.text);
+    return {};
+}
+
 std::string deprecation_summary(const Deprecation& d) {
     std::string out = d.since == "unreleased" ? "Deprecated before its first release" : "Deprecated since " + d.since;
     out += d.use.empty() ? " - no replacement" : " - use `" + d.use + "`";

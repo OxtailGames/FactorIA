@@ -40,12 +40,8 @@ struct SokolErrors {
 // A few hundred additive shapes, bloom with the HUD drawn after it (second pass), screen-space text.
 void build_busy_scene(World& w) {
     Entity cam = make(w, "cam");
-    auto& c = w.add<Camera>(cam);
-    c.clearColor = Color{0.02f, 0.02f, 0.04f, 1.0f};
-    c.bloom = true;
-    c.bloomThreshold = 0.4f;
-    c.bloomIntensity = 0.8f;
-    c.bloomScreenSpace = false;
+    w.add<Camera>(cam).clearColor = Color{0.02f, 0.02f, 0.04f, 1.0f};
+    set_bloom(w, cam, true, 0.4f, 0.8f, 20.0f, false);
     for (int i = 0; i < 300; ++i) {
         Entity e = make(w, "s", {float(i % 20) * 14 - 130, float(i / 20) * 9 - 60, 0});
         auto& s = w.add<Shape2D>(e);

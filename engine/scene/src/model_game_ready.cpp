@@ -62,7 +62,7 @@ bool same_material(const MeshMaterial& a, const MeshMaterial& b) {
     return a.name == b.name && a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b &&
            a.color.a == b.color.a && a.texture == b.texture && a.metallic == b.metallic && a.roughness == b.roughness &&
            a.emissive.r == b.emissive.r && a.emissive.g == b.emissive.g && a.emissive.b == b.emissive.b &&
-           a.doubleSided == b.doubleSided && a.blend == b.blend;
+           a.doubleSided == b.doubleSided && a.blend == b.blend && a.layers == b.layers;
 }
 
 // The triangles of a mesh that are drawn, with the submesh each belongs to.

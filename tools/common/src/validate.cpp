@@ -21,6 +21,7 @@
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
 #include "fa/render/builtin_fonts.h"
+#include "fa/render/hdri.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/components.h"
 #include "fa/runtime/plugins.h"
@@ -76,6 +77,7 @@ struct Ctx {
     ProjectArtUse artUse;   // where the scenes draw each texture, for those rules (texelsPerUnit)
     std::map<std::string, Error>
         videoProblems;  // video path -> why the decoder refuses it (empty message = fine), each file is opened once
+    std::map<std::string, std::string> hdriProblems;  // environment map path -> why hdri_check refuses it ("" = fine)
     std::vector<localization_detail::SceneText>
         sceneTexts;                  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;  // the "localization" section of factoria.json
@@ -246,6 +248,32 @@ void check_asset_value(Ctx& c, const std::string& file, const std::string& point
         }
         c.error(file, pointer, "Asset '" + path + "' (" + f.assetType + ") does not exist.", hint);
         return;
+    }
+    if (f.assetType ==
+        "hdri") {  // it exists: is it a picture the renderer reads? (a .png named .hdr, a cube cross, a light probe)
+        auto seen = c.hdriProblems.find(path);
+        if (seen == c.hdriProblems.end()) {
+            std::string problem;
+            if (to_lower(stdfs::path(path).extension().generic_string()) != ".hdr") {
+                problem = "'" + path +
+                          "' is not a .hdr file: only Radiance .hdr panoramas are read. Hint: Convert it to an "
+                          "equirectangular .hdr and import it with assets.import.";
+            } else {
+                // The header is all hdri_check reads: not the whole panorama, which can be hundreds of megabytes.
+                std::ifstream in(stdfs::path(c.dir) / stdfs::path(path), std::ios::binary);
+                std::vector<char> head(16384);  // hdr_info's own header limit
+                in.read(head.data(), std::streamsize(head.size()));
+                auto check =
+                    hdri_check(reinterpret_cast<const std::uint8_t*>(head.data()), std::size_t(in.gcount()), path);
+                if (!check.ok())
+                    problem =
+                        check.error().message + (check.error().hint.empty() ? "" : " Hint: " + check.error().hint);
+            }
+            seen = c.hdriProblems.emplace(path, problem).first;
+        }
+        if (!seen->second.empty())
+            c.error(file, pointer, "The environment map cannot be used: " + seen->second,
+                    "Import an equirectangular .hdr with assets.import (a panorama twice as wide as it is tall).");
     }
     if (f.assetType == "video") {  // it exists: can the engine play it? (a renamed .mp4 is the usual mistake)
         auto seen = c.videoProblems.find(path);

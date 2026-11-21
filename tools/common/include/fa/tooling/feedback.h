@@ -214,7 +214,8 @@ struct CollectOptions {
 };
 // `paths`: ENGINE_FEEDBACK.json files, or directories (the file in the dir, or any
 // ENGINE_FEEDBACK.json found below it). Report JSON:
-// { sources[], projects[], totalEntries, errors[], clusters: [ { rank, title, category, severity, score,
+// { sources[], projects[], totalEntries, errors[], notes[] (files skipped on purpose, e.g. a non-feedback file that is
+//   not JSON), clusters: [ { rank, title, category, severity, score,
 //   totalOccurrences, installations, verifiedInstallations, projects[],
 //   entries[{project,id,severity,status,occurrences,trust,similarity}], bestSuggestion, sampleWorkarounds[] } ] }
 // score = sum over the cluster's projects (a local project or one installation) of severity weight (the worst of its

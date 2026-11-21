@@ -50,6 +50,7 @@
 #include "fa/runtime/play_session.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/light_probes.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/qr.h"
@@ -443,7 +444,7 @@ public:
         atShareEnv_;  // the autotest: a fake transport and a config folder of its own, no network
     void draw_audio_panel();
     // Post-processing panel (postfx_panel.cpp; View > Post-processing): the stack a camera draws in the order the effects run, with
-    // each effect's switch, fields, the source of each value (the camera's own PostProcess, a volume, the deprecated Camera fields),
+    // each effect's switch, fields, the source of each value (the camera's own PostProcess, a volume),
     // and what this renderer draws (render.supports); edits and the preset buttons are postprocess.set / postprocess.apply_preset
     // calls through edit_command (one undo step each) on the camera's own PostProcess or on a volume; the A/B checkbox switches
     // the renderer's stack off without touching the data (Renderer::set_post_bypass). The autotest drives postfx_edit / postfx_preset.
@@ -713,6 +714,36 @@ public:
                              std::string* error = nullptr);
     bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
     bool showSceneSettings_ = false;
+
+    // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
+    // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a
+    // job thread; the panel polls lightmap.bake_status a few times a second (a cheap call, never a wait). The bake is started with
+    // apply false and the panel sets SceneSettings.lightmaps itself through edit_command (one undo step, a dirty scene), only when the
+    // scene it was started on is still the open one and the game is not running. The autotest drives lightmap_start / lightmap_cancel.
+    struct LightmapUi {
+        float texelsPerMeter = 16;
+        int samples = 64;
+        int shadowSamples = 16;
+        int pageSizeIndex = 2;         // kLightmapPageSizes
+        int skyIndex = 0;              // kLightmapSkies
+        std::string path;              // "" = next to the open scene
+        std::string job;               // the running or last job's id ("" = none)
+        std::string scene;             // the scene (scenePath_) the job was started on
+        const void* engine = nullptr;  // the engine whose registry holds the job (another project: the job is gone)
+        std::string state;             // running | done | failed | cancelled | "" (nothing started)
+        std::string phase;
+        double progress = 0, elapsed = 0, eta = -1;
+        std::uint64_t rays = 0;
+        std::string error, hint, note;  // a refused start, a failed or cancelled job, what the hand-over did
+        Json result;                    // the finished job's result (lightmap.bake)
+        double lastPoll = -1;           // time_ of the last lightmap.bake_status
+    };
+    void draw_lightmap_panel();
+    bool lightmap_start(std::string* error = nullptr);
+    void lightmap_cancel();
+    void lightmap_poll();
+    LightmapUi lightmap_;
+    bool showLightmap_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -1086,7 +1117,32 @@ public:
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
-    bool showNav_ = false;               // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    bool showNav_ = false;  // draw the NavMesh3D walkable cells (Window > Show navmesh)
+    // the LightProbeGroup gizmo (probe_gizmo.cpp; the Lightmap panel's "Show probes"): the probes of each group as they are now, by entity id
+    struct ProbeGizmoCache {
+        std::uint64_t key = 0;
+        bool built = false;
+        std::string
+            error;  // non-empty: the group has a mistake (the Inspector and the bake say which); nothing is drawn
+        ProbeSet set;
+        bool showGizmo = true;  // LightProbeGroup.showGizmo of the entity
+        bool stale = false;     // baked file exists but has no group like this one (edited or added since the bake)
+        // Per group of `set`: the group of the baked set it matches (null: grey, not baked as it is now); valid for the frame in `probeCacheFrame_`.
+        std::vector<const ProbeGroup*> baked;
+    };
+    bool showProbes_ = true;  // View > Show light probes (and the Lightmap panel's checkbox)
+    std::map<std::string, ProbeGizmoCache> probeGizmo_;
+    int probeCacheFrame_ = -1;
+    int probeStaleGroups_ = 0;  // LightProbeGroups whose baked probes are not what the scene asks for now
+    int probeGroupsBaked_ = 0;  // LightProbeGroups of the scene that match the baked file
+    const ProbeSet* baked_probes_ = nullptr;
+    // Updates probeGizmo_ for this frame (a group is rebuilt only when it changed) and the two counters above; once per frame.
+    void refresh_probe_cache(Renderer& r);
+    void draw_probe_gizmos(ImDrawList* dl, Renderer& r, Vec3 eye, Vec3 forward,
+                           const std::function<ImVec2(Vec3)>& project_world);
+    // The selected RealtimeGI's grid box and probe points (gi_gizmo.cpp), perspective views only; `project_world` maps a world point to the screen.
+    void draw_gi_gizmo(ImDrawList* dl, Renderer& r, Entity grid, Vec3 eye, Vec3 forward,
+                       const std::function<ImVec2(Vec3)>& project_world);
     std::vector<NavLinkDraw> navLinks_;  // last links drawn (same rule as navCells_)
     std::vector<NavCell>
         navCells_;  // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
@@ -1417,6 +1473,12 @@ public:
     const MaterialInfoEntry& material_info_for(const std::string& path);  // material.info of a material, cached
     Json assetReport_;  // Renderer::asset_report(), refreshed twice a second
     double assetReportAt_ = -1e9;
+    // MeshRenderer "Render cost" block (M73-P6b): the answer of render.material_cost for the inspected entity, asked at most twice a second.
+    // The editor only shows it: the one place that decides the cost is the renderer (material_cost.cpp).
+    std::string renderCostId_;
+    Json renderCost_;
+    double renderCostAt_ = -1e9;
+    void draw_render_cost(const std::string& id);
     std::map<std::string, std::pair<double, std::vector<std::string>>>
         assetFiles_;  // asset type -> files, refreshed every 2 s
 
@@ -1815,6 +1877,7 @@ public:
     void at_section_O3(AtScript& at);  // autotest_model_particles.cpp
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
+    void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp

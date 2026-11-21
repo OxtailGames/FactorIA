@@ -6,6 +6,7 @@
 
 #include "doctest.h"
 #include "editor_internal.h"
+#include "fa/scene/postprocess.h"
 
 using namespace fa;
 using namespace fa::editor;
@@ -169,9 +170,9 @@ TEST_CASE("commands that only write files do not count as scene edits") {
 }
 
 // The AI reads these registrations (api.components) and writes through the same patch_component call as scene.set_component.
-TEST_CASE("reflected fields: Camera bloom, Shape2D diamond and Tilemap columns have docs, ranges and defaults") {
+TEST_CASE("reflected fields: PostProcess bloom, Shape2D diamond and Tilemap columns have docs, ranges and defaults") {
     World w;  // registers the built-in components
-    const TypeInfo* cam = TypeRegistry::global().find("Camera");
+    const TypeInfo* cam = TypeRegistry::global().find("PostProcess");
     REQUIRE(cam);
     auto field = [](const TypeInfo& t, const char* name) -> const FieldInfo& {
         for (const FieldInfo& f : t.fields)
@@ -179,19 +180,19 @@ TEST_CASE("reflected fields: Camera bloom, Shape2D diamond and Tilemap columns h
         FAIL("no field " << name << " on " << t.name);
         return t.fields.front();
     };
-    CHECK(field(*cam, "bloom").kind == FieldKind::Bool);
+    CHECK(field(*cam, "bloomEnabled").kind == FieldKind::Bool);
     const FieldInfo& threshold = field(*cam, "bloomThreshold");
     const FieldInfo& intensity = field(*cam, "bloomIntensity");
     const FieldInfo& radius = field(*cam, "bloomRadius");
     CHECK(threshold.kind == FieldKind::Float);
     CHECK(threshold.minValue == 0.0f);
-    CHECK(threshold.maxValue == 1.0f);
+    CHECK(threshold.maxValue == 20.0f);
     CHECK(intensity.minValue == 0.0f);
     CHECK(intensity.maxValue == 10.0f);
     CHECK(radius.minValue == 1.0f);
     CHECK(radius.maxValue == 128.0f);
     CHECK(field(*cam, "bloomScreenSpace").kind == FieldKind::Bool);
-    for (const char* n : {"bloom", "bloomThreshold", "bloomIntensity", "bloomRadius", "bloomScreenSpace"}) {
+    for (const char* n : {"bloomEnabled", "bloomThreshold", "bloomIntensity", "bloomRadius", "bloomScreenSpace"}) {
         CAPTURE(n);
         CHECK(field(*cam, n).doc.size() > 40);  // the doc string is what the AI reads
     }
@@ -212,13 +213,13 @@ TEST_CASE("reflected fields: Camera bloom, Shape2D diamond and Tilemap columns h
 
     // Writing through patch_component: in range works, out of range is refused with a teaching message and leaves the value alone.
     Entity e = w.create("cam", "cam");
-    REQUIRE(patch_component(w, e, *cam, Json::object({{"bloom", true}, {"bloomIntensity", 3.5}})).ok());
-    CHECK(w.get<Camera>(e)->bloom);
-    CHECK(w.get<Camera>(e)->bloomIntensity == doctest::Approx(3.5f));
+    REQUIRE(patch_component(w, e, *cam, Json::object({{"bloomEnabled", true}, {"bloomIntensity", 3.5}})).ok());
+    CHECK(w.get<PostProcess>(e)->bloomEnabled);
+    CHECK(w.get<PostProcess>(e)->bloomIntensity == doctest::Approx(3.5f));
     auto bad = patch_component(w, e, *cam, Json::object({{"bloomRadius", 500}}));
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().to_string().find("128") != std::string::npos);
-    CHECK(w.get<Camera>(e)->bloomRadius == doctest::Approx(20.0f));
+    CHECK(w.get<PostProcess>(e)->bloomRadius == doctest::Approx(20.0f));
     REQUIRE(patch_component(w, e, *shape, Json::object({{"shape", "diamond"}})).ok());
     CHECK(w.get<Shape2D>(e)->shape == ShapeType::Diamond);
     REQUIRE(patch_component(w, e, *tilemap, Json::object({{"columns", 0}})).ok());

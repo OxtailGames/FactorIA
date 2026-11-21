@@ -263,7 +263,9 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph. lights and lightsDropped count the 3D lights of the main pass (at most 32); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
+
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ## `game.resume` (modifies state)
 
@@ -388,17 +390,17 @@ Capabilities: read, state, writeProject
 
 Since 0.31.0.
 
-Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game picture, or report which view is on.
+Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on.
 
 Capabilities: read, state
 
-A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
+A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past the last or with no shadow); `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
 
-The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao or cascades (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `view` | string ["none","depth","normals","ao"] | no | none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view. |
+| `view` | string ["none","depth","normals","ao","cascades"] | no | none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view. |
 
 ## `render.frame_graph`
 
@@ -415,6 +417,18 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
+
+## `render.gi_grid`
+
+Since 0.33.0.
+
+The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.
+
+Capabilities: read
+
+Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is "updating" (probes not captured yet), "ready", "invalid" (`message` names the field and the fix), "noRoom" (more than `probeLimit` probes), "failed" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay until the next capture succeeds) or "unsupported" (no RGBA16F blending). `invalidProbes` counts the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the renderer supports it). {grids: [], atlas: null} while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} See docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+
+Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
 
 ## `render.inspect`
 
@@ -434,6 +448,38 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `window` | integer | no | A step is a change of at least threshold within this many samples. Default 2. |
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
+
+## `render.light_probes`
+
+Since 0.33.0.
+
+The baked light probes of the scene and the light a MeshRenderer receives from them.
+
+Capabilities: read
+
+Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the scene's lightmap manifest (SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives their spherical harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at MeshRenderer.probeAnchor). Without `entity`: {lightmaps, baked, probes, invalid, groups: [{id, kind: "grid" | "points", count, invalid, stale}], unbaked: [ids]}; `invalid` probes sit inside geometry and are skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: "probes" | "lightmap" | "sky" | "none", position, coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine [r, g, b] coefficients), ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; `sky` means no probe reaches it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes {"entity":"Player"}
+
+A group is `stale` when its LightProbeGroup was edited (moved, resized, other spacing or points) since the bake; `unbaked` lists the scene's groups the baked file does not hold (added or edited since): bake again for both. Both are left out when the scene has no baked probes. Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not exist; `unavailable` without graphics (graphics=false). The same is Renderer::light_probes_report in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes. |
+
+## `render.material_cost`
+
+Since 0.33.0.
+
+What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work.
+
+Capabilities: read
+
+The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are on and what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, cost, extraPasses, note}]}. `phase` is "opaque" or "blended" (blended meshes are drawn after the opaque ones, far to near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is "extraPass" (transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, one that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per pass), "phase" (blended: no pass, a different place in the frame) or "shader" (clear coat, sheen, anisotropy: more work per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the top-level one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer halves). The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets no layers and no transmission). Example: render.material_cost {"id":"window"}
+
+Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no MeshRenderer, `unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not loaded yet. The same answer is Renderer::material_cost in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The id of an entity with a MeshRenderer. |
 
 ## `render.output`
 
@@ -464,6 +510,40 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## `render.probe_refresh` (modifies state)
+
+Since 0.33.0.
+
+Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.
+
+Capabilities: read, state
+
+Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left out): the one that an `onDemand` probe waits for, and a way to refresh a `timeSliced` or `everyFrame` probe after the scene around it changed. The capture is made in the next frames, a few cube faces each (render.probes shows `facesDone` and `captures`; the faces per frame are the renderer's budget, 2 by default), so draw a few frames before reading it. Result: {refreshed: [entity ids], skipped: [{entity, reason}]}. Without `entity`, a probe that has no tile yet is listed in `skipped` with the reason; with `entity` it is an error. Example: render.probe_refresh {"entity": "lobby"}
+
+Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not exist; `invalid_argument` when the named entity has no ReflectionProbe or is a baked one; `unavailable` without graphics (graphics=false) or when the named probe has no tile in the atlas. The same is Renderer::probe_refresh in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | The probe's entity (id or name). Default: every realtime probe. |
+
+## `render.probes`
+
+Since 0.33.0.
+
+The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.
+
+Capabilities: read
+
+Reads the state of the reflection probes (ReflectionProbe components, docs/design/ARCHITECTURE_PROBES.md) after drawing a frame when none is current. Result: {atlas: {size, format ("RGBA16F" or "RGBA8"), tiles, usedTexels, reservedTexels, capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, probes: [{entity, mode, update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, lastFrame, facesDone | bakedMap, hash?}]}. `state` is "ready", "pending", "capturing", "noRoom", "noBake" or "failed". The lit meshes sample the atlas (the sky is its entry 0, `sky`). The result is {probes: [], atlas: null} while no ReflectionProbe has been drawn. With `entity` (a mesh), the result also has `mesh: {probes: [{entity, share}], sky}`: which probes that mesh reflected in the last frame and how much of its reflection each holds (0..1, steps of 1/32; the probes and the sky add up to 1). Errors: `unavailable` without graphics; `invalid_argument` for an `entity` that is not a string or has no MeshRenderer. Example: render.probes {} or render.probes {"entity": "sphere"}. What each state means: docs/rendering/RENDERING_PROBES.md, the render.probes item.
+
+The first ask for a mesh draws one more frame (the renderer keeps the picks of that one mesh only): the debug-draw lines queued since the last draw are consumed and a time-sliced capture moves on by a frame. An ask without `entity` ends that watch.
+
+`state`: "ready"; "pending" (waiting for its first capture); "capturing" (facesDone of 6 faces drawn); "noRoom" (the atlas has no tile for it: `message` says why); "noBake" (a baked probe with no readable bakedMap: run probe.bake); "failed" (retried after 30 frames). `overLimit` counts the active probes beyond the 256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A capture is asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. A mesh no probe reaches reflects the sky. The atlas of the realtime and baked probes is one image 1024 texels wide (1024 x 1024, 8 MB as RGBA16F, unless a RealtimeGI makes it taller); `usedTexels` is what the tiles cover and `reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | A mesh entity (id or name): the result also says which probes it reflects. |
+
 ## `render.reset_post_history` (modifies state)
 
 Since 0.32.0.
@@ -488,13 +568,13 @@ What this renderer can do on this graphics backend and GPU: float targets, linea
 
 Capabilities: read
 
-Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (none is today): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
+Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature. |
+| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature. |
 
 ## `vfx.budget`
 

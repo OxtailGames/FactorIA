@@ -30,6 +30,8 @@ constexpr FaceBasis kFaces[6] = {
     {{0, 0, -1}, {-1, 0, 0}, {0, 1, 0}},  // -Z
 };
 
+bool g_forceRgba8 = false;
+
 bool usable(sg_pixel_format f) {
     const sg_pixelformat_info i = sg_query_pixelformat(f);
     return i.sample && i.filter && i.render;
@@ -91,11 +93,13 @@ void env_face_matrix(const EnvFace& face, float out[16]) {
     out[15] = 1.0f;
 }
 
+void Environment::force_rgba8_for_tests(bool force) { g_forceRgba8 = force; }
+
 bool Environment::ready(Gpu&) {
     if (state_ != 0) return state_ > 0;
     // The cube needs a format the GPU renders to and filters: the half-float one keeps the sky's brightness (a sun, an
     // HDR sky), RGBA8 is the fallback (GLES 3 without the half-float render extension).
-    format_ = usable(SG_PIXELFORMAT_RGBA16F)
+    format_ = usable(SG_PIXELFORMAT_RGBA16F) && !g_forceRgba8
                   ? SG_PIXELFORMAT_RGBA16F
                   : (usable(SG_PIXELFORMAT_RGBA8) ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE);
     bool ok = format_ != SG_PIXELFORMAT_NONE;
@@ -103,7 +107,7 @@ bool Environment::ready(Gpu&) {
         const sg_backend backend = sg_query_backend();
         shaders_[int(Prog::Copy)] = make_shader(env_copy_shader_desc(backend), "env_copy");
         shaders_[int(Prog::Prefilter)] = make_shader(env_prefilter_shader_desc(backend), "env_prefilter");
-        shaders_[int(Prog::Irradiance)] = make_shader(env_irradiance_shader_desc(backend), "env_irradiance");
+        shaders_[int(Prog::Sh)] = make_shader(env_sh_shader_desc(backend), "env_sh");
         for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
     }
     if (ok) {
@@ -113,7 +117,7 @@ bool Environment::ready(Gpu&) {
         sd.mipmap_filter = SG_FILTER_LINEAR;
         sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
         sd.label = "env-sampler";
-        if (!sampler_.id) sampler_ = sg_make_sampler(&sd);  // blank_view() may have made it already: never leak it
+        if (!sampler_.id) sampler_ = sg_make_sampler(&sd);
         for (int i = 0; i < kEnvPyramid; ++i) {
             const int size = kEnvSize >> i;
             const std::string name = "env-s" + std::to_string(i);
@@ -125,7 +129,7 @@ bool Environment::ready(Gpu&) {
                 ok = ok && valid(pyramidAtt_[i][f]);
             }
         }
-        pre_ = make_cube(kEnvSize, kEnvLevels, format_, "env-prefiltered");
+        pre_ = make_cube(kEnvSize, kEnvLevels + 1, format_, "env-prefiltered");  // + the SH mip
         preTex_ = texture_view(pre_, "env-prefiltered");
         ok = ok && valid(pre_) && valid(preTex_);
         for (int m = 0; m < kEnvLevels; ++m)
@@ -133,12 +137,10 @@ bool Environment::ready(Gpu&) {
                 preAtt_[m][f] = face_view(pre_, m, f, "env-prefiltered");
                 ok = ok && valid(preAtt_[m][f]);
             }
-        irr_ = make_cube(kEnvIrrSize, 1, format_, "env-irradiance");
-        irrTex_ = texture_view(irr_, "env-irradiance");
-        ok = ok && valid(irr_) && valid(irrTex_) && valid(sampler_);
+        ok = ok && valid(sampler_);
         for (int f = 0; f < 6; ++f) {
-            irrAtt_[f] = face_view(irr_, 0, f, "env-irradiance");
-            ok = ok && valid(irrAtt_[f]);
+            shAtt_[f] = face_view(pre_, kEnvShMip, f, "env-sh");
+            ok = ok && valid(shAtt_[f]);
         }
     }
     if (ok) {
@@ -152,9 +154,7 @@ bool Environment::ready(Gpu&) {
             d.colors[0].pixel_format = format_;
             d.sample_count = 1;
             d.face_winding = SG_FACEWINDING_CCW;
-            d.label = p == int(Prog::Copy)        ? "env-copy"
-                      : p == int(Prog::Prefilter) ? "env-prefilter"
-                                                  : "env-irradiance";
+            d.label = p == int(Prog::Copy) ? "env-copy" : p == int(Prog::Prefilter) ? "env-prefilter" : "env-sh";
             pipelines_[p] = sg_make_pipeline(&d);
             ok = ok && sg_query_pipeline_state(pipelines_[p]) == SG_RESOURCESTATE_VALID;
         }
@@ -175,33 +175,8 @@ bool Environment::ready(Gpu&) {
 
 sg_pipeline Environment::pipeline(Prog prog) { return pipelines_[int(prog)]; }
 
-sg_view Environment::blank_view(Gpu&) {
-    if (blankTex_.id) return blankTex_;
-    // 1x1 black faces: bound while no sky environment is used, so a program that declares the slot has a valid view.
-    const std::uint8_t px[6 * 4] = {0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255};
-    sg_image_desc d{};
-    d.type = SG_IMAGETYPE_CUBE;
-    d.width = 1;
-    d.height = 1;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.data.mip_levels[0] = {px, sizeof(px)};
-    d.label = "env-blank";
-    blank_ = make_cube_image(d);
-    blankTex_ = texture_view(blank_, "env-blank");
-    if (!sampler_.id) {
-        sg_sampler_desc sd{};
-        sd.min_filter = SG_FILTER_LINEAR;
-        sd.mag_filter = SG_FILTER_LINEAR;
-        sd.mipmap_filter = SG_FILTER_LINEAR;
-        sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
-        sd.label = "env-sampler";
-        sampler_ = sg_make_sampler(&sd);
-    }
-    return blankTex_;
-}
-
 void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
-                       const char* label, int* drawCalls) {
+                       const char* label, int* drawCalls, bool lit) {
     PassDesc pd;
     pd.label = label;
     pd.color = dst;
@@ -224,21 +199,22 @@ void Environment::draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int fac
     }
     sg_range vr{&vu, sizeof(vu)};
     sg_apply_uniforms(UB_env_env_vs_params, &vr);
-    if (prog != Prog::Copy) {
-        env_env_params_t fu{};
-        fu.p[0] = roughness;
-        fu.p[1] = samples;
-        sg_range fr{&fu, sizeof(fu)};
-        sg_apply_uniforms(UB_env_env_params, &fr);
-    }
+    // `lit`: the pass writes a level the meshes read, so it applies the bake's gain (and the convolutions its limit); the pyramid
+    // that the convolutions read is the sky as it is.
+    env_env_params_t fu{};
+    fu.p[0] = roughness;
+    fu.p[1] = samples;
+    fu.p[2] = prog == Prog::Copy ? 0.0f : active_.tapLimit;
+    fu.p[3] = lit ? active_.gain : 1.0f;
+    sg_range fr{&fu, sizeof(fu)};
+    sg_apply_uniforms(UB_env_env_params, &fr);
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
-void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
-    baked_ = false;
-    if (state_ <= 0) return;
+// Part A of a bake: the sky into S0 and the pyramid under it (6 + 18 passes).
+void Environment::bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls) {
     const TargetFormat fmt{format_, SG_PIXELFORMAT_NONE, 1};
     // The sky itself: the material's program into the six faces of S0.
     for (int f = 0; f < 6; ++f) {
@@ -259,23 +235,66 @@ void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* dra
     for (int s = 1; s < kEnvPyramid; ++s)
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Copy, pyramidAtt_[s][f], pyramidTex_[s - 1], f, 0.0f, 0.0f, "env-down", drawCalls);
-    // The prefiltered cube: mip 0 is the sky, mip k the GGX lobe of roughness k / (levels - 1) read from the pyramid
-    // image of about the size of the mip (it never reads the image it draws into).
-    for (int f = 0; f < 6; ++f)
-        draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls);
-    for (int m = 1; m < kEnvLevels; ++m) {
+}
+
+// Part B and C: the levels `first` .. `last` of the prefiltered cube (level 0 is the sky itself, level k the GGX lobe of
+// roughness k / (levels - 1) read from the pyramid image of about the size of the level: it never reads the image it draws
+// into).
+void Environment::bake_levels(Gpu& gpu, int first, int last, int* drawCalls) {
+    for (int m = first; m <= last; ++m) {
+        if (m == 0) {
+            for (int f = 0; f < 6; ++f)
+                draw(gpu, Prog::Copy, preAtt_[0][f], pyramidTex_[0], f, 0.0f, 0.0f, "env-level0", drawCalls, true);
+            continue;
+        }
         const float roughness = float(m) / float(kEnvLevels - 1);
         const float samples = m <= 2 ? 32.0f : 64.0f;
         for (int f = 0; f < 6; ++f)
             draw(gpu, Prog::Prefilter, preAtt_[m][f], pyramidTex_[std::min(m, kEnvPyramid - 1)], f, roughness, samples,
-                 "env-prefilter", drawCalls);
+                 "env-prefilter", drawCalls, true);
     }
-    // The irradiance: the cosine lobe of the smallest pyramid image.
+}
+
+// The spherical harmonics of the smallest pyramid image, into mip kEnvShMip of the prefiltered cube (env.glsl, fs_sh): the face +X
+// holds the nine coefficients, the other five are zeroed (no texel of the mip is ever garbage). `roughness` carries "this is the
+// data face" and `samples` "the cube is RGBA8" (the program's p.x and p.y).
+void Environment::bake_sh(Gpu& gpu, int* drawCalls) {
     for (int f = 0; f < 6; ++f)
-        draw(gpu, Prog::Irradiance, irrAtt_[f], pyramidTex_[kEnvPyramid - 1], f, 0.0f, 128.0f, "env-irradiance",
-             drawCalls);
+        draw(gpu, Prog::Sh, shAtt_[f], pyramidTex_[kEnvPyramid - 1], f, f == 0 ? 1.0f : 0.0f,
+             format_ == SG_PIXELFORMAT_RGBA8 ? 1.0f : 0.0f, "env-sh", drawCalls, true);
+}
+
+void Environment::bake(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
+    baked_ = false;
+    slice_ = 0;
+    if (state_ <= 0) return;
+    active_ = look_;
+    bake_sky(gpu, sky, drawCalls);
+    bake_levels(gpu, 0, kEnvLevels - 1, drawCalls);
+    bake_sh(gpu, drawCalls);
     baked_ = true;
     key_ = key;
+}
+
+void Environment::bake_slice(Gpu& gpu, std::uint64_t key, const SkyDraw& sky, int* drawCalls) {
+    if (state_ <= 0) return;
+    if (slice_ == 0) {  // a new sequence: the sky of this frame is what it bakes
+        active_ = look_;
+        bake_sky(gpu, sky, drawCalls);
+        pendingKey_ = key;
+        slice_ = 1;
+        return;
+    }
+    if (slice_ == 1) {
+        bake_levels(gpu, 0, 2, drawCalls);
+        slice_ = 2;
+        return;
+    }
+    bake_levels(gpu, 3, kEnvLevels - 1, drawCalls);
+    bake_sh(gpu, drawCalls);
+    slice_ = 0;
+    baked_ = true;
+    key_ = pendingKey_;
 }
 
 void Environment::destroy_images() {
@@ -294,18 +313,14 @@ void Environment::destroy_images() {
             if (v.id) sg_destroy_view(v);
             v = {};
         }
+    for (sg_view& v : shAtt_) {
+        if (v.id) sg_destroy_view(v);
+        v = {};
+    }
     if (preTex_.id) sg_destroy_view(preTex_);
     preTex_ = {};
     if (pre_.id) sg_destroy_image(pre_);
     pre_ = {};
-    for (sg_view& v : irrAtt_) {
-        if (v.id) sg_destroy_view(v);
-        v = {};
-    }
-    if (irrTex_.id) sg_destroy_view(irrTex_);
-    irrTex_ = {};
-    if (irr_.id) sg_destroy_image(irr_);
-    irr_ = {};
 }
 
 void Environment::release() {
@@ -320,13 +335,13 @@ void Environment::release() {
     }
     if (sampler_.id) sg_destroy_sampler(sampler_);
     sampler_ = {};
-    if (blankTex_.id) sg_destroy_view(blankTex_);
-    blankTex_ = {};
-    if (blank_.id) sg_destroy_image(blank_);
-    blank_ = {};
     state_ = 0;
     baked_ = false;
     key_ = 0;
+    slice_ = 0;
+    pendingKey_ = 0;
+    tagKey_ = 0;
+    look_ = active_ = Look{};
 }
 
 }  // namespace fa::render

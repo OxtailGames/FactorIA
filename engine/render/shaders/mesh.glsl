@@ -5,12 +5,17 @@
 
 @block fa_user
 void surface(in SurfaceInput i, inout Surface s) {}
+// The engine's own program reads the lightmap UV attribute of every mesh (mesh_common.glsl, fa_extra_attrs).
+#define FA_LM_BUILTIN
 @end
 
 @include mesh_common.glsl
 
 @program mesh vs fs
 @program mesh_skin vs_skin fs
+// The subsurface variants (M73.5): the diffuse light and the scatter parameters in two targets, drawn by renderer_subsurface.cpp.
+@program mesh_sss vs fs_sss
+@program mesh_skin_sss vs_skin fs_sss
 @program shadow shadow_vs shadow_fs
 @program shadow_skin shadow_vs_skin shadow_fs
 @program prepass prepass_vs prepass_fs

@@ -28,7 +28,9 @@ const char* kScene = R"({
   "format": "factoria.scene/1",
   "entities": [
     { "id": "cam", "components": { "Camera": {}, "PostProcess": { "bloomEnabled": true, "bloomIntensity": 0.9 } } },
-    { "id": "plain", "name": "plain", "components": { "Transform": {} } }
+    { "id": "plain", "name": "plain", "components": { "Transform": {} } },
+    { "id": "glass", "components": { "Transform": {}, "MeshRenderer": { "mesh": "sphere", "transmission": 0.8, "thickness": 0.5 } } },
+    { "id": "clay", "components": { "Transform": {}, "MeshRenderer": { "mesh": "cube" } } }
   ]
 })";
 
@@ -61,8 +63,9 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
-    for (const char* name : {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset",
-                             "render.supports", "render.debug_view", "render.reset_post_history"}) {
+    for (const char* name :
+         {"postprocess.get", "postprocess.set", "postprocess.presets", "postprocess.apply_preset", "render.supports",
+          "render.debug_view", "render.reset_post_history", "render.light_probes", "render.material_cost"}) {
         INFO(name);
         const CommandInfo* info = e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -73,6 +76,8 @@ TEST_CASE("postprocess and render.supports commands are documented and closed") 
     CHECK(e.commands().info("postprocess.get")->readOnly);
     CHECK(e.commands().info("postprocess.presets")->readOnly);
     CHECK(e.commands().info("render.supports")->readOnly);
+    CHECK(e.commands().info("render.light_probes")->readOnly);
+    CHECK(e.commands().info("render.material_cost")->readOnly);
     CHECK_FALSE(e.commands().info("postprocess.set")->readOnly);
     e.shutdown();
 }
@@ -385,7 +390,8 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
     if (!r.ok) {
         CHECK(r.error["code"] == "unavailable");  // graphics=false: no GPU to ask
     } else {
-        CHECK(r.result["features"].size() == 7 + std::size_t(kPostEffectCount));
+        CHECK(r.result["features"].size() ==
+              29 + std::size_t(kPostEffectCount));  // 8 capabilities and engine features, 21 lighting rows of M73
         r = c.call("render.supports", Json::parse(R"({"feature":"bloom"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["feature"] == "bloom");
@@ -505,6 +511,57 @@ TEST_CASE("render.reset_post_history names the camera it forgets, and says there
         CHECK(r.error["code"] == "unavailable");
     } else {
         CHECK(r.result["reset"] == "all");
+    }
+    e.shutdown();
+}
+
+TEST_CASE("render.material_cost teaches its errors and answers with the renderer's own report") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK_FALSE(c.call("render.material_cost", Json::object()).ok);
+    CHECK_FALSE(c.call("render.material_cost", Json::parse(R"({"id":7})")).ok);
+    CHECK_FALSE(c.call("render.material_cost", Json::parse(R"({"id":"glass","idd":"x"})")).ok);
+    auto r = c.call("render.material_cost", Json::parse(R"({"id":"nobody"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "not_found");
+    r = c.call("render.material_cost", Json::parse(R"({"id":"plain"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_argument");  // no MeshRenderer
+    CHECK(r.error["message"].get<std::string>().find("MeshRenderer") != std::string::npos);
+
+    r = c.call("render.material_cost", Json::parse(R"({"id":"glass"})"));
+    if (!r.ok) {
+        CHECK(r.error["code"] == "unavailable");  // graphics=false: no frame to cost
+    } else {
+        CHECK(r.result["id"] == "glass");
+        CHECK(r.result["phase"] == "blended");
+        REQUIRE(r.result["features"].is_array());
+        bool found = false;
+        for (const Json& f : r.result["features"]) {
+            if (f["name"] != "transmission") continue;
+            found = true;
+            CHECK(f["active"] == true);
+            CHECK(f["cost"] == "extraPass");
+            CHECK(f["extraPasses"].get<int>() >= 2);
+            CHECK(r.result["extraPasses"].get<int>() >= f["extraPasses"].get<int>());
+        }
+        CHECK(found);
+        CHECK(r.result["summary"].get<std::string>().find("transmission") != std::string::npos);
+        // The same report as the C++ call (the one the editor's Inspector shows).
+        const MeshRenderer* mr = e.world().get<MeshRenderer>(e.world().find_by_id("glass"));
+        REQUIRE(mr != nullptr);
+        Json direct = e.renderer()->material_cost(*mr);
+        direct["id"] = "glass";
+        CHECK(direct == r.result);
+
+        r = c.call("render.material_cost", Json::parse(R"({"id":"clay"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["phase"] == "opaque");
+        CHECK(r.result["extraPasses"] == 0);
+        CHECK(r.result["summary"] == "No extra passes: one draw of the opaque phase.");
     }
     e.shutdown();
 }

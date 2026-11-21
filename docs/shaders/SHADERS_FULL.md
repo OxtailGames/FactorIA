@@ -76,7 +76,7 @@ other `fa_` name is an error with a "did you mean" hint. Your own names must not
 | `fa_world_position(p)` | `fa_model * vec4(p, 1)`, as a `vec3`: use it for every position you move, so skinning and instancing apply. |
 | `fa_world_direction(n)` | A model-space direction to the world, normalized and right for non-uniform scale. |
 | `fa_view_proj` | The `mat4` from world to clip space of the camera. |
-| `fa_light_vp`, `fa_shadow_coord(world)` | The directional light's matrix, and `fa_light_vp * vec4(world, 1)`: pass the second in a varying to `fa_shadow()` and `fa_light()`. |
+| `fa_light_vp`, `fa_shadow_coord(world)` | The matrix of the shadow pass being drawn (what the shadow program of your material places the mesh with), and the shadow coordinate of a world position: pass it in a varying to `fa_shadow()` and `fa_light()`. It holds the world position itself (the fragment stage picks the cascade of the sun's shadow and projects it), so do not read its `xyz` as a light-space position. |
 | `fa_uv_scale` | `vec4`, `xy` is `MeshRenderer.uvScale`. |
 | `fa_instance_index` | `int`, 0 to `MeshRenderer.instances` - 1: the instance of a material with `buffers`, which also reads them in both stages as `<name>.data[i].<field>` and needs `"shadow": "custom"` (or `"none"`); [Drawing from a compute buffer](SHADERS_COMPUTE.md#drawing-from-a-compute-buffer). |
 | `FA_TIME`, `FA_CAMERA` | Seconds of game time (`float`) and the camera's world position (`vec3`); also in the fragment stage. |
@@ -89,9 +89,11 @@ other `fa_` name is an error with a "did you mean" hint. Your own names must not
 | `fa_base_sample(uv)` | The `MeshRenderer`'s base colour texture at `uv`, in the scene's colour space, times `MeshRenderer.color`. |
 | `fa_base_color` | `MeshRenderer.color` as a `vec4`. `fa_emissive.rgb` is `MeshRenderer.emissive`. |
 | `fa_camera_pos`, `fa_ambient`, `fa_env_sky`, `fa_env_horizon` | `vec4`s: camera position, the ambient light, the sky and horizon colours (`.rgb` or `.xyz`). |
-| `fa_light_count()` | How many lights the engine selected for this mesh (at most 32), in its own order. |
+| `fa_light_count()` | How many of the first lights of the engine's table (the directional lights first, at most 32), in its own order. With hundreds of lights in the scene, loop over `fa_cluster_light_count(world_pos)` instead. |
+| `fa_cluster_light_count(world_pos)`, `fa_cluster_light_index(n, world_pos)` | The lights that reach the cluster of a world position (clustered lighting, M73.1a): how many, and the table index of the n-th, to give to `fa_light`. Look the cluster up once per fragment: both calls do it again. |
 | `fa_light(i, world_pos, geometric_normal, shadow_coord)` | A `LightSample` for light `i` seen from that point: `direction` (to the light), `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance` and `type` (0 directional, 1 point, 2 spot). Only the first directional light has a shadow; it is `1.0` when the mesh does not receive shadows. |
 | `fa_environment(dir, roughness)`, `fa_env_brdf(roughness, ndv)`, `fa_sky_reflection(n, v, f0, roughness)` | The sky light of the engine's own meshes: the sky colour in a direction (from `fa_env_sky` and `fa_env_horizon`), the environment BRDF `vec2`, and the reflection of the sky in a surface with normal `n` seen from direction `v` (to the eye), `f0` its reflectance at normal incidence. [Your own light loop and the sky light](SHADERS_LIGHTING.md) explains them. |
+| `fa_apply_decals(world_pos, geometric_normal, inout albedo, inout normal)` | Paints the `Decal` components of the position's cluster over an albedo and a shading normal (M73.5b). The engine's meshes get it for free; a full shader calls it once, in uniform control flow, before it lights (it takes derivatives), or it ignores decals. See [Your own light loop and the sky light](SHADERS_LIGHTING.md), "Decals". |
 | `fa_shadow(coord, n, l)` | The fraction of light that reaches a point from the directional shadow map (1 = lit), for your own use. |
 | `fa_apply_fog(color, world_pos)` | The scene's fog applied to a colour. A full shader is **not fogged** unless it calls this. |
 | `fa_srgb_to_linear(c)`, `fa_linear_to_srgb(c)` | The colour space conversions of the engine. |
@@ -132,6 +134,10 @@ and instanced like any opaque mesh of the same material (see "Skinning and insta
   reads that only feed `fa_frag_color`, in `#ifndef FA_SHADOW_PASS`, and keep the `discard` outside it. Skinned and instanced
   meshes work.
 - `"none"`: the material casts no shadow.
+
+The template also holds the engine's own helpers of the light loop and the shadow lookups (and the macros `FA_SHADOW_TEX` and `FA_SHADOW_SMP`),
+because it includes the shared files, but only the names this page lists are for you: the others are internal, and their signatures and the
+data behind them change between versions.
 
 A mesh with a full material **receives** shadows only as far as your fragment stage reads `fa_shadow()` or `fa_light()`.
 

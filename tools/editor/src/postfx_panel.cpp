@@ -1,6 +1,6 @@
 // Post-processing panel (View > Post-processing): the stack a camera draws, in the order its effects run. Every effect shows whether it
 // runs, what this renderer draws of it (the render.supports table: unsupported, with the reason), and its fields with the source of
-// each value (the camera's own PostProcess, a volume, the deprecated Camera.bloom* fields). Nothing here edits the world directly: an
+// each value (the camera's own PostProcess, or a volume). Nothing here edits the world directly: an
 // edit is a postprocess.set call and a preset button a postprocess.apply_preset call, both through Editor::edit_command (the path of
 // the Console and the AI, one undo step each), on the camera's own PostProcess or on the volume chosen as the edit target. The A/B
 // checkbox turns the stack off in the renderer (Renderer::set_post_bypass) and changes no data. The stack shown is
@@ -207,7 +207,7 @@ void Editor::draw_postfx_panel() {
         ImGui::SameLine();
         ImGui::Checkbox("Stack off (A/B)", &postFx_.compare);
         at_track("postfx:ab");
-        tip("Draws the game without any post-processing (no PostProcess component and no Camera.bloom or colorFilter) "
+        tip("Draws the game without any post-processing (no PostProcess component) "
             "to compare "
             "it with the stack on. It changes no data and is not saved; it ends when this panel is closed, collapsed "
             "or hidden behind another tab. "
@@ -280,7 +280,7 @@ void Editor::draw_postfx_panel() {
     if (resolved.contains("layers") && resolved["layers"].is_array()) {
         for (const Json& l : resolved["layers"]) {
             const std::string from = l.value("from", std::string());
-            ImGui::TextColored(from == "own" || from == "legacy" ? kGreen : kProjectBlue, "%s", from.c_str());
+            ImGui::TextColored(from == "own" ? kGreen : kProjectBlue, "%s", from.c_str());
             ImGui::SameLine();
             ImGui::TextDisabled("strength %.2f (weight %.2f)", l.value("strength", 0.0), l.value("weight", 0.0));
             if (l.contains("priority")) {
@@ -381,7 +381,7 @@ void Editor::draw_postfx_panel() {
                     at_track("postfx:label:" + f.name);
                     tip(f.doc);
                     ImGui::SameLine();
-                    const bool mine = from == "own" || from == "legacy";
+                    const bool mine = from == "own";
                     ImGui::TextColored(mine ? kGreen
                                        : from.rfind("volume:", 0) == 0
                                            ? kProjectBlue

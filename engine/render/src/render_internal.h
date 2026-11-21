@@ -2,11 +2,13 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,8 +20,13 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/video.h"
+#include "fa/render/lightmap_geometry.h"
+#include "fa/render/probe.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/light_probes.h"
+#include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/camera_geometry.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
@@ -90,8 +97,10 @@ inline std::uint32_t pack_vertex_color(float r, float g, float b, float a) {
 }
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
-constexpr int kMaxLights =
-    32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
+// The lights of a view in the light table of the data texture (src/light_clusters.h, shaders/light_data.glsl): the most relevant
+// ones when the scene has more (RenderStats.lightsDropped counts the rest). 4 texels of 16 bytes each (8 when a light has an area, a cookie or
+// a profile): 64 KB (128 KB) at the limit.
+constexpr int kMaxLights = 1024;
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 // The vertex buffers beyond the mesh (0), the model matrices (1) and the skin (2) that a custom material's programs may
 // read (docs/design/CUSTOM_SHADERS.md, "Per-instance params and vertex channels"): the packed per-instance params (up
@@ -160,7 +169,7 @@ static_assert(sizeof(LightVertex) == 56, "LightVertex is 14 floats");
 // ---------------------------------------------------------------------------
 // GPU resources
 // ---------------------------------------------------------------------------
-// Shader programs of the Camera.bloom post-process (bloom.glsl).
+// Shader programs of the PostProcess bloom (bloom.glsl).
 enum class BloomStage : std::uint8_t { Bright, Down, Blur, Composite, Count };
 // The two programs of the automatic exposure (exposure.glsl): the log-luminance of the frame, and the adaptation of the stored EV.
 enum class ExposureStage : std::uint8_t { Luma, Adapt, Count };
@@ -275,6 +284,12 @@ struct SubMesh {
     TextureAsset* emissiveTex = nullptr;   // glTF emissiveTexture
     float normalScale = 1.0f;
     float occlusionStrength = 1.0f;
+    // The glTF material layers (KHR_materials_clearcoat, _sheen, _anisotropy, _specular, _ior; M73.6). `layersPacked`: what the
+    // importer packed into the maps the part binds (pack_layer_textures): 1 = the occlusion map also holds the clear coat (g),
+    // its roughness (b) and the sheen roughness (a), 2 = the metallic-roughness map also holds the anisotropy strength (r) and the
+    // specular (a); 3 = both. 0 = those maps are the model's own.
+    MaterialLayers layers;
+    int layersPacked = 0;
     // glTF pbrMetallicRoughness factors, used instead of MeshRenderer.metallic / roughness when `hasPbr`.
     bool hasPbr = false;
     float metallic = 0.0f, roughness = 0.6f;
@@ -283,12 +298,53 @@ struct SubMesh {
     bool blended = false;
 };
 
+// What a mesh is drawn with when it is lit by a lightmap (made on first use by Assets::lightmap_use, M73.4a): its parts with the lightmap
+// UV as `uv1Vb` (the attribute a material's "uv1" channel reads). A mesh whose glTF has TEXCOORD_1 on every part is drawn with its own
+// buffers (`parts` are copies of MeshAsset::parts); any other is drawn with split vertices (lightmap_geometry.h) in buffers of its own,
+// which every part shares (`ibOffset`).
+struct MeshLightmap {
+    bool ok = false;     // false: the geometry could not be built (reported once); the mesh is drawn without a lightmap
+    std::string uvKind;  // "gltf" or "generated"
+    std::string hashHex;         // lightmap_hash_hex of the geometry: compared with the manifest entry's meshHash
+    std::vector<SubMesh> parts;  // one per part of the mesh, in the same order
+    sg_buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
+};
+
 struct MeshAsset {
     std::string key;
     std::vector<SubMesh> parts;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     bool placeholder = false;
     std::vector<std::string> untraced;  // as TextureAsset::untraced (its parts' textures are reported after it)
+    std::unique_ptr<MeshLightmap>
+        lightmap;  // built by Assets::lightmap_use for a mesh a manifest lists; dropped when the mesh reloads
+};
+
+// One page of the scene's baked lightmap on the GPU: an RGBA16F image of the .hdr (row 0 = v 0 = the file's first row).
+struct LightmapPageGpu {
+    std::string file;
+    int width = 0, height = 0;
+    sg_image image{};
+    sg_view view{};
+    std::size_t bytes = 0;
+    bool ok =
+        false;  // false: the file could not be read (reported once); entities on this page are drawn without a lightmap
+};
+// The scene's lightmap manifest and its pages (SceneSettings.lightmaps), loaded by Assets::lightmaps.
+struct LightmapSetAsset {
+    std::string path;
+    LightmapManifest manifest;
+    std::vector<LightmapPageGpu> pages;
+    ProbeSet probes;  // M73.4d: the light probes of the bake (CPU only); probes.baked() false = none
+    bool ok = false;  // false: the manifest did not load (reported once); nothing is lightmapped
+    std::size_t bytes = 0;
+};
+// What one drawn entity needs of the lightmap: its geometry, the page it reads and the rectangle of it (page uv = lightmap uv * (sx, sy)
+// + (ox, oy)). `mesh` null = the entity is not lightmapped.
+struct LightmapUse {
+    const MeshLightmap* mesh = nullptr;
+    const LightmapPageGpu* page = nullptr;
+    float scaleOffset[4] = {1, 1, 0, 0};
 };
 
 // A texture or a glTF model decoded off the main thread for background loading (Renderer::background_work): everything
@@ -305,11 +361,32 @@ struct PreparedTexture {
 };
 struct PreparedTextureRef {  // one texture slot of a glTF material
     enum class Kind { None, Path, Image, Missing } kind = Kind::None;
-    std::string path;         // Path: the project path of the image file
-    std::string name;         // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
-    Image image;              // Image
+    std::string path;  // Path: the project path of the image file
+    std::string name;  // Image: the embedded image's name; Missing: the failure's key ("" = no failure recorded)
+    std::shared_ptr<const Image>
+        image;                // Image (shared: every part of a material holds the same composite, not a copy)
     std::string error, hint;  // Missing
 };
+// The textures of the layer extensions of one glTF material, as the file names them (None = the material has none).
+struct LayerTextureRefs {
+    PreparedTextureRef clearcoat, clearcoatRoughness, clearcoatNormal, sheenColor, sheenRoughness, anisotropy, specular,
+        specularColor;
+    bool any() const;
+};
+// Packs the extension textures of a material into the maps a mesh part already binds, because no texture unit is free
+// (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The material layers"): the occlusion map becomes R occlusion (255 when the
+// material has none), G clearcoatTexture.R, B clearcoatRoughnessTexture.G, A sheenRoughnessTexture.A; the metallic-roughness
+// map becomes R anisotropyTexture.B, G and B of metallicRoughnessTexture, A specularTexture.A; a channel with no texture is 255.
+// All the sources of a map are resampled (bilinear, fixed point: the same bytes on every machine) to the largest width and
+// height among them. `occlusion` and `metalRough` are replaced by the composites (kind Image) and the returned bits tell which
+// (1, 2). Nothing is dropped silently: a texture that is not packed (the clear coat's normal map, the sheen colour, the specular
+// colour and the direction of the anisotropy texture: there is no channel for them), one that cannot be read, and a set that is
+// larger than kMaxLayerPackPixels, are named in `warnings` with `what` (file and material) and what is used instead.
+int pack_layer_textures(LayerTextureRefs& refs, const std::string& what, const std::string& compositeName,
+                        PreparedTextureRef& occlusion, PreparedTextureRef& metalRough,
+                        std::vector<std::string>& warnings);
+inline constexpr std::uint64_t kMaxLayerPackPixels = std::uint64_t(4096) * 4096;  // pixels of one packed map
+
 struct PreparedPart {
     std::vector<MeshVertex> verts;
     std::vector<std::uint32_t> idx;
@@ -427,17 +504,132 @@ constexpr int kMaterialPostHistoryView = kMaterialPostFirstView + kMaxMaterialTe
 // binds only those.
 constexpr int kMaterialVsFirstView = kMaterialFirstView + kMaxMaterialTextures,
               kMaterialVsFirstSampler = kMaterialFirstSampler + kMaxMaterialTextures;
-// The baked sky of a sky material (renderer_env.h, mesh_common.glsl fa_fs_head): the prefiltered cube is fragment view
-// 14, the irradiance cube view 15 and their sampler sampler 10, after the vertex-stage copies. A draw binds them (a
-// blank cube when there is no sky material).
+// The probe atlas (renderer_probes.h, mesh_common.glsl fa_fs_head, M73-P3c): one 2D image, fragment view 14 (entry 0 is the baked sky of a sky
+// material, the others the reflection probes and the GI grid; octahedral levels and a row of nine SH coefficients per tile), and its sampler
+// sampler 10 (bilinear, clamp), after the vertex-stage copies. A draw binds it (a white image while no atlas exists). The names keep
+// "Env" from when this slot was the sky's cube. View 15 (the irradiance cube until M73.3a) is free.
 constexpr int kMaterialEnvView = kMaterialVsFirstView + kMaxMaterialTextures,
-              kMaterialEnvIrrView = kMaterialEnvView + 1,
               kMaterialEnvSampler = kMaterialVsFirstSampler + kMaxMaterialTextures;
 // The read-only storage buffers of a mesh material (fa/tooling/shaders.h kMeshBufferFirstView; M72.4): the vertex stage
 // reads buffer i at view kMeshBufferFirstView + i, the fragment stage at kMeshBufferFirstView + <buffer count> + i.
 // Such a material takes the model matrix of its entity from the vertex uniform block kMeshInstanceBaseUniform (one
 // entity draws many GPU instances).
 constexpr int kMaxMeshBuffers = 4, kMeshBufferFirstView = 16, kMeshInstanceBaseUniform = 6;
+
+// ---- The texture slots of the mesh fragment shader: the plan for all of M73 (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md) ----
+// GLES3 and WebGL2 guarantee 16 texture units per stage (32 combined) and sokol has kMeshSamplerSlots = 12 sampler slots, so the
+// lighting of M73 cannot give every feature its own texture: the packages pack their data into the few slots below, and none
+// renumbers another's. A package that needs a slot takes the row of this table (it already has its number), a package that needs
+// one more than the table has packs its data into a row or changes the table together with the static_asserts below.
+//   - The material keeps its four views (6..9) and samplers (2..5); its vertex-stage copies (views 10..13, samplers 6..9) are in the
+//     VERTEX stage and do not count against the fragment units.
+//   - Views 16..23 are the read-only storage buffers of a mesh material (kMeshBufferFirstView, M72.4; GL 4.3 / Metal / D3D11 only,
+//     they are not texture units). The new views of M73 therefore start at 24.
+//   - Data read with texelFetch needs no sampler (sampler -1). Every linear, clamped atlas shares sampler 10 (today's env sampler).
+//   - Phases: 0 = before M73 (12 units), 1 = M73.1, M73.2, M73.4, M73.5 and M73.3a landed (15 units bound + the reserved screen slot = 16): the irradiance cube is retired,
+//     the sky's nine spherical-harmonics coefficients live in mip 5 of the sky cube (view 14, renderer_env.h) and the unit it freed is
+//     the screen slot (view 28), the prepass the contact shadows march through (M73.2c, nearest sampler 1) and later the opaque colour
+//     of transmission (M73.6b); 2 = M73.3b/c landed: the prefiltered
+//     cube is replaced by the probe atlas (same view 14).
+// Reused today's slots: view 1 (the shadow map becomes the shadow atlas, same nearest sampler 1), view 14 (the sky cube becomes the
+// reflection-probe atlas) and sampler 10. Freed: view 15 (the irradiance cube), for fa_screen_tex.
+inline constexpr int kMeshSamplerSlots = 12, kMeshMaxFragmentUnits = 16;
+inline constexpr int kMeshNewViewFirst = kMeshBufferFirstView + 2 * kMaxMeshBuffers;  // 24: after the storage buffers
+inline constexpr int kMeshLinearClampSampler = 10;
+struct MeshFragmentView {
+    const char* name;           // the name in the shader (or the planned one)
+    int view;                   // sokol view slot
+    int sampler;                // sokol sampler slot, -1 when the data is read with texelFetch
+    int firstPhase, lastPhase;  // the phases (see above) in which the slot is bound
+    const char* what;           // what it holds and which package brings it
+};
+inline constexpr MeshFragmentView kMeshFragmentViews[] = {
+    {"fa_tex", 0, 0, 0, 2, "base color (today)"},
+    {"fa_shadow_tex", 1, 1, 0, 2,
+     "today the single directional shadow map; from M73.2 the shadow atlas (cascades, spot and point faces), same "
+     "slot"},
+    {"fa_normal_tex", 2, 0, 0, 2, "normal map (today)"},
+    {"fa_mr_tex", 3, 0, 0, 2, "metallic-roughness map (today)"},
+    {"fa_occlusion_tex", 4, 0, 0, 2, "occlusion map (today)"},
+    {"fa_emissive_tex", 5, 0, 0, 2, "emissive map (today)"},
+    {"material texture 0", 6, 2, 0, 2, "a custom material's textures (today): views 6..9, samplers 2..5"},
+    {"material texture 1", 7, 3, 0, 2, "(see above)"},
+    {"material texture 2", 8, 4, 0, 2, "(see above)"},
+    {"material texture 3", 9, 5, 0, 2, "(see above)"},
+    {"fa_env_tex", 14, 10, 0, 1,
+     "the baked sky of a sky material: a cube, mips 0..4 the sky prefiltered by roughness, mip 5 its spherical "
+     "harmonics (the diffuse ambient; M73.3a); M73.3b/c replaces it by the probe atlas"},
+    {"fa_irr_tex", 15, 10, 0, 0, "the irradiance cube, retired by M73.3a (spherical harmonics in mip 5 of fa_env_tex)"},
+    {"fa_probe_atlas", 14, 10, 2, 2,
+     "M73.3b/c: reflection probes and the sky, octahedral 2D, prefiltered by roughness (replaces fa_env_tex)"},
+    {"fa_light_data", 24, 1, 1, 2,
+     "M73.1a (today): RGBA32F, texelFetch with the nearest sampler 1: the lights, the clusters' light lists; later the "
+     "decals, the sky's SH"},
+    {"fa_light_atlas", 25, 10, 1, 2,
+     "M73.1b (today): one RGBA16F atlas (src/light_atlas.h) with the LTC tables of the area lights in a reserved block "
+     "at its top "
+     "left (they take no unit of their own), then the light cookies and IES profiles; bilinear, clamped"},
+    {"fa_lightmap", 26, 10, 1, 2,
+     "M73.4a: the page of the baked lightmap of the entity drawn (RGBA16F, one page per draw; a white texel when it "
+     "has none), read at its lightmap UV"},
+    {"fa_decal_atlas", 27, 10, 1, 2,
+     "M73.5b (today): the albedo and normal textures of the projected decals, RGBA8 with mips (their boxes and tiles "
+     "are in "
+     "fa_light_data)"},
+    {"fa_screen_tex", 28, 1, 1, 2,
+     "the screen slot, read with texelFetch through the nearest sampler 1 (sampler 10 filters, which an unfilterable "
+     "image "
+     "cannot pair with): M73.2c (today) the prepass of the opaque phase (r = linear view depth, a = 1 on a mesh) for "
+     "the "
+     "contact shadows, a white image while none is drawn; in the blended phase of a frame with a transmissive mesh "
+     "(M73.6b) the "
+     "refraction atlas (renderer_xmit.h): the opaque picture and its halves, read with texelFetch too, bilinear and "
+     "trilinear by hand"},
+};
+inline constexpr int kMeshFragmentViewCount = int(sizeof(kMeshFragmentViews) / sizeof(kMeshFragmentViews[0]));
+
+// How many fragment texture units a mesh program binds in a phase (0, 1 or 2).
+constexpr int mesh_fragment_units(int phase) {
+    int n = 0;
+    for (const MeshFragmentView& v : kMeshFragmentViews)
+        if (v.firstPhase <= phase && phase <= v.lastPhase) ++n;
+    return n;
+}
+// True when no two slots bound in the same phase share a view, every view is below sokol's 32 and outside the storage buffers'
+// range (16..23), every sampler is below 12, and a slot M73 adds takes a view from 24 up (the one exception: the probe atlas takes
+// over view 14 of the sky cube).
+constexpr bool mesh_fragment_views_valid() {
+    for (int i = 0; i < kMeshFragmentViewCount; ++i) {
+        const MeshFragmentView& a = kMeshFragmentViews[i];
+        if (a.view < 0 || a.view >= SG_MAX_VIEW_BINDSLOTS || a.sampler >= kMeshSamplerSlots ||
+            a.firstPhase > a.lastPhase)
+            return false;
+        const bool storageRange = a.view >= kMeshBufferFirstView && a.view < kMeshNewViewFirst;
+        if (storageRange) return false;
+        // The views of M73 (not today's) start after the storage buffers.
+        if (a.firstPhase > 0 && a.view < kMeshNewViewFirst && !(a.view == 14 && a.firstPhase == 2)) return false;
+        for (int j = i + 1; j < kMeshFragmentViewCount; ++j) {
+            const MeshFragmentView& b = kMeshFragmentViews[j];
+            const bool overlap = a.firstPhase <= b.lastPhase && b.firstPhase <= a.lastPhase;
+            if (overlap && a.view == b.view) return false;
+        }
+    }
+    return true;
+}
+static_assert(mesh_fragment_views_valid(), "kMeshFragmentViews: two slots share a view, or a slot is out of range");
+static_assert(mesh_fragment_units(0) <= kMeshMaxFragmentUnits && mesh_fragment_units(1) <= kMeshMaxFragmentUnits &&
+                  mesh_fragment_units(2) <= kMeshMaxFragmentUnits,
+              "the mesh fragment shader would bind more than the 16 texture units GLES3 and WebGL2 guarantee: pack "
+              "data into a slot");
+// The slots of today are the ones the shaders and the material tooling already use.
+static_assert(kMeshFragmentViews[0].view == 0 && kMeshFragmentViews[1].view == 1 && kMeshFragmentViews[5].view == 5 &&
+                  kMeshFragmentViews[6].view == kMaterialFirstView &&
+                  kMeshFragmentViews[9].view == kMaterialFirstView + kMaxMaterialTextures - 1 &&
+                  kMeshFragmentViews[6].sampler == kMaterialFirstSampler &&
+                  kMeshFragmentViews[10].view == kMaterialEnvView &&
+                  kMeshFragmentViews[10].sampler == kMaterialEnvSampler &&
+                  kMeshFragmentViews[10].sampler == kMeshLinearClampSampler,
+              "kMeshFragmentViews no longer matches today's slots (mesh_common.glsl, fa/tooling/shaders.h)");
 // A sprite material's textures are bound twice as well: the fragment stage reads texture i at kMaterialSpriteFirstView
 // + i, the vertex stage (vertex() may sample it, as fa_vs_<name>) at kMaterialSpriteVsFirstView + i, the samplers
 // likewise.
@@ -769,17 +961,17 @@ class Assets;
 class Fonts;
 class FontSet;
 
-// Camera.bloom* (flat fields on Camera), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
-// the fallbacks for NaN values and equal the Camera component defaults.
+// The bloom of a PostProcess stack (PostProcess.bloom*), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
+// the fallbacks for NaN values and equal the PostProcess defaults.
 struct BloomSettings {
     bool enabled = false;
     float threshold =
-        0.7f;  // 0 .. 0.99 (Camera.bloom), 0 .. 20 (PostProcess): brightness (max of r, g, b) where the glow starts
+        0.7f;  // 0 .. 20 (above 1: HDR light of a linear scene): brightness (max of r, g, b) where the glow starts
     float intensity = 1.2f;   // 0 .. 10, multiplier of the glow added to the frame
     float radius = 20.0f;     // 1 .. 128 design pixels
-    bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
+    bool screenSpace = true;  // PostProcess.bloomScreenSpace: false = screen-space items are drawn after the bloom
     float knee =
-        0.0f;  // 0 .. 1, PostProcess.bloomKnee: how softly the glow starts above the threshold (0 = the hard start of Camera.bloom)
+        0.0f;  // 0 .. 1, PostProcess.bloomKnee: how softly the glow starts above the threshold (0 = a hard start)
     float dirtIntensity = 1.0f;  // 0 .. 10, PostProcess.bloomLensDirtIntensity
     std::string dirt;            // PostProcess.bloomLensDirt: the texture path ("" = none)
 };
@@ -791,9 +983,11 @@ struct CameraInfo : CameraGeometry {
     bool studio =
         false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
     float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
+    // A reflection probe capture with ReflectionProbe.clear = color: the picture's background is clearColor, no sky is drawn behind the
+    // meshes (the meshes are still lit by the sky). Only the probe captures set it.
+    bool noSky = false;
     // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
-    // the camera is built; a camera without a PostProcess of its own gets one made of its Camera.bloom* and Camera.colorFilter fields.
-    // Null when the world has no PostProcess and the camera no legacy bloom or filter field: the usual case costs one pointer, not a copy.
+    // the camera is built; Null when the world has no PostProcess: the usual case costs one pointer, not a copy.
     std::shared_ptr<const PostStack> postStack;
     // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
     BloomSettings bloom;
@@ -815,6 +1009,33 @@ struct LutAsset {
         false;  // the first read or parse failed: the next ask reads the file once more before it is an error
 };
 
+// An equirectangular .hdr on the GPU (SceneSettings.environmentMap): RGBA16F with its whole mip chain (include/fa/render/hdri.h says what
+// the file goes through). `view` is empty when the file could not be loaded (Assets::hdri then answers null). `serial` is different for every
+// successful load, so a file that is reloaded is a different environment even at the same path.
+struct HdriAsset {
+    std::string path;
+    sg_image image{};
+    sg_view view{};
+    int width = 0, height = 0;  // what the GPU has (mip 0)
+    std::size_t bytes = 0;
+    std::uint64_t serial = 0;
+    bool retryPending = false;  // as LutAsset: the first failure is tried once more on the next ask
+};
+
+// A baked reflection probe (ReflectionProbe.bakedMap, probe.h): the manifest and its page, read and checked on the CPU (the renderer
+// uploads the page into its probe atlas). `ok` is false when the manifest or the page could not be read; `error` says why (what
+// `render.probes` shows). `serial` is different for every successful load, so a rebaked file is a different probe at the same path.
+struct ProbeBakeAsset {
+    std::string path, pagePath;
+    bool ok = false;
+    std::string error;
+    ProbeManifest manifest;
+    std::shared_ptr<const ImageF>
+        page;  // probe_page_width x probe_page_height, RGB linear light (fa/core/image_float.h)
+    std::uint64_t serial = 0;
+    bool retryPending = false;  // the first failure may be a pair being rewritten: the next ask reads once more
+};
+
 // Texture/mesh/font caches keyed by project-relative path.
 class Assets {
 public:
@@ -823,6 +1044,12 @@ public:
     // The LUT of a .cube file, loaded on first use and cached (a failed load too: one logged error, null from then on, until the file
     // changes on disk and reload() forgets it). Null for an empty path, a missing file or a malformed one.
     const LutAsset* lut(const std::string& path);
+    // The HDRI of a .hdr file, loaded on first use and cached like a LUT (a failed load too: one logged error, null from then on, until the
+    // file changes on disk and reload() forgets it). Null for an empty path, a missing or malformed file, or a GPU that cannot filter RGBA16F.
+    const HdriAsset* hdri(const std::string& path);
+    // The baked probe of a *.probe.json manifest, loaded on first use and cached (a failed one too, with `error`, until the file changes
+    // on disk and reload() forgets it). Null for an empty path; never null otherwise (check `ok`). No GPU object: the renderer uploads it.
+    const ProbeBakeAsset* probe_bake(const std::string& manifestPath);
     TextureAsset* texture(const std::string& path);                // never null (placeholder on failure)
     TextureAsset* white();                                         // 1x1 white
     TextureAsset* placeholder() { return placeholderTex_.get(); }  // the missing-texture checker
@@ -904,6 +1131,12 @@ public:
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
+    // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and asks whether one of its own
+    // textures was reloaded since a generation (`paths` are normalised keys). True too when the log of the last reloads no longer reaches
+    // back to `since`, so a doubt rebuilds the atlas and never leaves a stale one.
+    // Paths compare exactly, case-sensitive, as Assets already does for textures.
+    std::uint64_t reload_generation() const { return reloadGeneration_; }
+    bool reloaded_any_of(std::uint64_t since, const std::set<std::string>& paths) const;
     void clear();
     Json report() const;
     std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
@@ -912,6 +1145,21 @@ public:
                       const std::string& hint);
     bool failure_logged(const std::string& kind, const std::string& path) const;
     int texture_count() const { return int(textures_.size()); }
+
+    // The scene's lightmap (SceneSettings.lightmaps, M73.4a): the manifest and its pages, loaded on first use and cached (a failed load too:
+    // one logged error, null from then on, until a file of it changes on disk and reload() forgets it). Null for "" or a manifest that did
+    // not load. Asking with another path drops the set of the old one.
+    const LightmapSetAsset* lightmaps(const std::string& manifestPath);
+    // Whether `entityId` (EntityInfo.id) is lit by a lightmap of `set` when drawn with `mesh` (MeshRenderer.mesh `meshName`): it has an
+    // entry for that mesh, the mesh still has the geometry the bake saw (a changed model is reported once, the entity is drawn without a
+    // lightmap) and its page loaded. Builds the mesh's lightmap vertices on the first ask.
+    bool lightmap_use(const LightmapSetAsset& set, const std::string& entityId, MeshAsset& mesh,
+                      const std::string& meshName, LightmapUse& out);
+    // A buffer of at least `vertices` zero uv pairs: the uv1 attribute of the engine's own mesh program of a mesh that has no lightmap
+    // (the program always declares it). Grows; the buffer of an earlier call may be destroyed by a later one, so ask again every draw.
+    // `vertices` must be the part's own vertex count (SubMesh::vertexCount, the whole shared buffer for a lightmap mesh): the draw reads uv1
+    // at every index of the part, so an index at or past `vertices` would read past the zeros.
+    sg_buffer zero_uv1(std::size_t vertices);
 
     // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
     // there already (loaded on first use meanwhile: the prepared one is dropped). `files`: the project files its read and
@@ -954,6 +1202,13 @@ private:
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
+    void destroy_mesh_lightmap(MeshAsset& m);
+    void destroy_lightmap_set();
+    std::unique_ptr<LightmapSetAsset> lightmapSet_;
+    std::string
+        lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
+    sg_buffer zeroUv1_{};
+    std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {
         std::unique_ptr<MeshAsset> asset;
         std::uint64_t version = 0;  // MeshStore::Entry::version the GPU copy was made from
@@ -978,6 +1233,11 @@ private:
     std::unordered_map<std::string, std::unique_ptr<TextureAsset>> textures_;
     std::unordered_map<std::string, std::unique_ptr<LutAsset>> luts_;
     void destroy_lut(LutAsset& l);
+    std::unordered_map<std::string, std::unique_ptr<HdriAsset>> hdris_;
+    std::uint64_t hdriSerial_ = 0;
+    std::unordered_map<std::string, std::unique_ptr<ProbeBakeAsset>> probeBakes_;
+    std::uint64_t probeBakeSerial_ = 0;
+    void destroy_hdri(HdriAsset& h);
     std::unordered_map<std::string, std::unique_ptr<MeshAsset>> meshes_;
     std::vector<std::unique_ptr<TextureAsset>> anonymous_;  // glTF embedded images
     struct VideoTexture {
@@ -999,7 +1259,11 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
-    std::map<std::string, ProceduralMesh> procedural_;          // "mesh:N" -> its GPU copy
+    std::uint64_t reloadGeneration_ = 0;
+    // The paths of the latest reloads: entry i belongs to generation reloadLogBase_ + i + 1 (the file, and the texture a twin file belongs to).
+    std::vector<std::array<std::string, 2>> reloadLog_;
+    std::uint64_t reloadLogBase_ = 0;
+    std::map<std::string, ProceduralMesh> procedural_;  // "mesh:N" -> its GPU copy
     const MeshStore* meshStore_ = nullptr;
     std::uint64_t meshStoreSerial_ = 0;
     std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
@@ -1033,6 +1297,16 @@ private:
 };
 
 bool build_primitive(const std::string& name, std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx);
+
+// The lightmap geometry of a mesh plus what drawing it needs (lightmap_geometry.cpp): `geo` as lightmap_mesh_geometry returns it, the
+// vertices to draw (the file's vertices, split along the unwrap's seams when `geo.uvKind` is "generated") and COLOR_1 per drawn vertex when
+// every part has it.
+struct LightmapBuild {
+    LightmapMeshGeometry geo;
+    std::vector<MeshVertex> verts;
+    std::vector<std::uint32_t> color1;
+};
+Result<LightmapBuild> build_lightmap_mesh(const std::string& mesh);
 
 // Font loading, glyph atlas, text layout.
 struct FontFace;
@@ -1125,11 +1399,12 @@ public:
     // `extras` = the per-instance params and declared channels of that custom material (MaterialAsset::extras()):
     // vertex buffers 3, 4 and 5 at the attributes after the matrix (and the joints). The shader id decides the
     // pipeline: a material's programs and its extras change together, so the key does not name them.
+    // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {});
+                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras);
+                              MeshExtras extras = {}, bool glass = false) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
@@ -1163,12 +1438,27 @@ public:
     // `shader` = a program of a custom material (its prepass or prepass_skin), default = the built-in one. The vertex layout is the
     // main program's (every attribute), the culling the main pass's: `doubleSided` as for mesh_pipeline. Invalid when the built-in
     // shader cannot be made.
+    // `cullFront`: the BACK faces are drawn instead of the front ones, double-sided or not (the realtime GI's distance pictures: a probe
+    // whose first hit is a back face is inside geometry).
     sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {}, MeshExtras extras = {});
+                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false);
     sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
                                  MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
+    // The subsurface pass (M73.5, mesh_common.glsl fs_sss): the diffuse light of the meshes that scatter into colour 0 (rgb light, a = linear
+    // depth) and their scatter radius and strength into colour 1, both RGBA16F with a depth buffer, never multisampled. The shaders are made
+    // on first use; sss_ready() is false when they cannot be made (the effect is skipped).
+    static TargetFormat sss_target_format() {
+        return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
+    }
+    // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
+    sg_shader builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label);
+    bool sss_ready();
+    // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
+    const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }
+    // The main pass's vertex layout and culling, no blending, depth written: the draw of the prepass's depth plus the two colours.
+    sg_pipeline sss_pipeline(bool doubleSided, bool skinned);
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
     sg_pipeline prepass_view_pipeline(const TargetFormat& format);
@@ -1274,14 +1564,14 @@ public:
     bool srgb_textures() const { return srgbTextures_; }
 
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
-    // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
+    // cannot be created, in which case the bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
     sg_pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
     sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
         return bloom_pipeline(stage, TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, sampleCount});
     }
-    // Camera.colorFilter: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
+    // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
     bool colorfilter_ready();
     // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
@@ -1341,23 +1631,56 @@ public:
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
+    // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
+    // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
+    // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
+    // command buffer is made, at its first pass or copy, so a write before it overwrote data the GPU was still reading whenever
+    // the GPU was a frame or two behind (a probe's second face drew with the instances of another face; only a loaded
+    // GPU showed it). This makes the frame's command buffer, and so waits for the same frame sokol waits for anyway at the first
+    // pass, with an empty copy: no extra synchronisation, only earlier (the CPU may wait a little before the writes of a frame
+    // where it would have waited at its first pass). Its copy is GPU work outside a frame: committed() is false until the next
+    // sg_commit, so a read-back commits first. Nothing on the other backends (OpenGL and Direct3D 11 order the write in the
+    // driver, Vulkan makes the frame's command buffers in the write).
+    // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
+    void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
     sg_buffer acquire_transient(std::size_t bytes);
+    // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
+    // that holds `texels` (width * rows * 4 floats), written now and valid until the pool restarts like the buffers' (after a
+    // commit). Call it once per view and frame, outside a pass, and bind the view this frame.
+    struct LightImage {
+        sg_image image{};
+        sg_view view{};
+    };
+    LightImage write_light_image(int rows, const float* texels);
+    // Frees the pooled light images from index `keep` on (the pool is restarted, none is in use).
+    void trim_light_images(std::size_t keep);
     // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
     // frame, and a second draw before the commit (editor screenshots, render_now) must not reuse a bound buffer.
     // Many draws without a commit (game.step and tests in the editor, which commits once per UI frame; FB-0005) end
     // the sokol frame here, outside any pass, so the pool stays bounded without rewriting a bound buffer.
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
-        if (!committed_ && transientUsed_ >= 16) sg_commit();
-        if (committed_ || transientUsed_ >= 16) transientUsed_ = 0;
+        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16;
+        if (!committed_ && full) sg_commit();
+        if (committed_ || full) {
+            // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
+            lightImagesPeak_ = std::max(lightImagesPeak_, lightImagesUsed_);
+            if (++lightImagesRestarts_ >= 256) {
+                trim_light_images(lightImagesPeak_);
+                lightImagesPeak_ = 0;
+                lightImagesRestarts_ = 0;
+            }
+            transientUsed_ = lightImagesUsed_ = 0;
+        }
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
     // GPU work was recorded outside a frame (a compute dispatch or buffer write): a read back must commit it first.
     void note_work() { committed_ = false; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
-    bool committed() const { return committed_; }
+    // The pacer's copy (begin_transient_writes) counts too, until a commit moves frame_ on.
+    bool committed() const { return committed_ && pacerCopyFrame_ != frame_ + 1; }
     // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
     // listener counts them). A write-transient image is written once in it, before it is bound (Assets::video_texture).
     std::uint64_t frame() const { return frame_; }
@@ -1376,6 +1699,7 @@ public:
     sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
     sg_shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
     sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
+    sg_shader sssShader_{}, sssSkinShader_{};
     sg_shader light_shader_{};
 
 private:
@@ -1396,6 +1720,8 @@ private:
     int exposureState_ = 0;     // same meaning as bloomState_
     int ssaoState_ = 0;         // same meaning as bloomState_
     MaterialProgram prepassProgram_[2];
+    MaterialProgram sssProgram_[2];
+    int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
@@ -1432,7 +1758,21 @@ private:
     };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
+    struct LightImg {
+        sg_image image{};
+        sg_view view{};
+        int rows = 0;
+    };
+    std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
+    std::size_t lightImagesUsed_ = 0;
+    std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim
+    std::uint32_t lightImagesRestarts_ = 0;
     bool committed_ = true;
+    sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
+    std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
+    // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet).
+    std::uint64_t pacerCopyFrame_ = 0;
+    bool pacerFailed_ = false;  // the pacer buffers could not be made: said once, not tried again
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
@@ -1454,7 +1794,7 @@ struct TargetDesc {
     int width = 1, height = 1;
     sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
     int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
-    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): Camera.bloom adds its glow to
+    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): the bloom adds its glow to
     // the finished, resolved game image.
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)

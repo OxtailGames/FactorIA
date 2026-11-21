@@ -46,6 +46,7 @@ namespace fa {
 
 class Renderer;
 class Compute;
+struct ProbeSet;  // fa/scene/light_probes.h
 // Test accessors (GPU objects, the frame graph, pool counts, history images) live in
 // engine/render/src/renderer_test_access.h: the one friend below opens Impl for the render tests; the public API has no
 // test hooks.
@@ -53,7 +54,7 @@ struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao };
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -127,8 +128,42 @@ struct RenderStats {
     int views = 0;  // CameraViews drawn this frame (each one renders its camera into an image first)
     int renderTargets =
         0;  // cameras with Camera.renderTarget drawn into their texture this frame (before the cameras that show them)
-    int lights = 0;           // 3D lights sent to the shader (at most 32); Light2D is counted in lights2d
-    int lightsDropped = 0;    // 3D lights over the limit that were left out (the least relevant ones)
+    int lights =
+        0;  // 3D lights in the light tables of the frame's views (at most 1024 per view, 32 directional); Light2D is counted in lights2d
+    int lightsDropped = 0;  // 3D lights over those limits that were left out (the least relevant ones)
+    int lightsCulled =
+        0;  // point, spot and area lights whose range is outside the camera's view: not in the table, they light nothing drawn
+    // Clustered lighting (M73.1), summed over the views of the frame: the grid is about 64 px tiles by 24 depth slices.
+    int lightClusters = 0;        // clusters of the grids built (a view with local lights builds one)
+    int lightClusterEntries = 0;  // light indices in the lists of those clusters (at most 524288 per view)
+    int lightClusterClipped =
+        0;  // entries left out because a cluster already had 128 lights or the view 524288 entries: a hint to lower the ranges
+    int lightMaxPerCluster =
+        0;  // the longest list of a cluster (the most lights any one fragment loops over, besides the directional ones)
+    // Volumetric fog (M73.5), summed over the cameras of the frame.
+    int volumetricCameras = 0;        // cameras that drew the volumetric fog (SceneSettings.volumetricFog)
+    int volumetricLights = 0;         // lights (Light.volumetric above 0) whose shafts those cameras drew
+    int volumetricLightsDropped = 0;  // lights with volumetric above 0 left out: more than volumetricQuality allows
+    // Contact shadows (M73.2c): lights (Light.contactShadowLength above 0, with SceneSettings.contactShadows on) whose ray the meshes of the
+    // frame march against the depth prepass; 0 when no camera could make the prepass.
+    int contactShadowLights = 0;
+    // Transmission (M73-P6b): visible transmissive mesh instances of the frame (glass, liquids; MeshRenderer.transmission), the copies of the
+    // opaque picture made for them (one per camera with such a draw; 0 means no copy was made: bit-identical to a frame without the feature),
+    // and the cameras whose transmissive meshes were blended plainly, with no refraction, because the copy could not be made.
+    int transmissiveMeshes = 0;
+    int transmissionCopies = 0;
+    int transmissionPlain = 0;
+    // Subsurface scattering (M73.5), summed over the cameras of the frame.
+    int subsurfaceCameras =
+        0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
+    int subsurfaceDraws =
+        0;  // draw calls of the scattering meshes (the sss pass; the main pass draws them too, those are in drawCalls)
+    // Projected decals (M73.5b), summed over the views of the frame.
+    int decals = 0;  // Decal entities drawn: in a view's decal table, at most 256 per view
+    int decalsDropped =
+        0;  // Decals in view that were left out: over the 256 of the view, or their albedo texture could not be used
+    int decalClusterClipped =
+        0;  // decal-list entries lost to the 32 decals per cluster or the 131072 entries per view: 0 is normal
     int lights2d = 0;         // Light2D lights shading the 2D visuals (at most 256)
     int lights2dDropped = 0;  // Light2D lights left out: off-view ones, then the ones over the 256 of the budget
     int lights2dShadowed =
@@ -451,7 +486,7 @@ public:
     // never asks. false frees the copy.
     void set_editor_view(bool on);
     // True when the game target holds colours above white (a 16-bit float format): MeshRenderer.emissiveStrength above 1 then
-    // reaches Camera.bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
+    // reaches the bloom with its full strength. False on a GPU that cannot render to RGBA16F with blending, filtering and the
     // requested multisampling (or with FA_SCENE_FORMAT=rgba8), or that lists it but cannot make the game target's images in it
     // (the renderer then rebuilds them in RGBA8 when the targets are first created): everything clamps at white, bloom included.
     // Reports the format the game target really has; only that target falls back, so it stays true when a CameraView, a bloom
@@ -467,7 +502,12 @@ public:
     // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
     std::string shader_dialect() const;
     void clear_asset_cache();
-    Json asset_report() const;            // loaded assets + failures (missing files with hints)
+    Json asset_report() const;  // loaded assets + failures (missing files with hints)
+    // What the material of a MeshRenderer costs the renderer: the extra passes of its features (a transmissive mesh copies the opaque
+    // picture, a full-shader material draws once per pass), its phase and the features that only add fragment work; the command
+    // render.material_cost and the Inspector's cost view show this report (material_cost.h). Loads the mesh and the material when they are
+    // not loaded yet; {} before init().
+    Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
@@ -506,10 +546,53 @@ public:
     // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
     Json frame_graph_report() const;
 
+    // Reflection probes (ReflectionProbe; include/fa/render/probe.h, docs/design/ARCHITECTURE_PROBES.md). The renderer captures the realtime
+    // probes a few faces a frame, uploads the baked ones, and keeps every probe's tile in one atlas image that the lit meshes sample
+    // (M73-P3c; the sky is entry 0 of it).
+    // The report of the `render.probes` command: {atlas: {size, format, tiles, usedTexels, reservedTexels, ...}, sky: {...}, faceBudget,
+    // probes: [{entity, mode, state, tile, captures, lastFrame, ...}]}. Empty object before init() and while no probe exists.
+    Json probe_report() const;
+    // What `mesh` reflected in the last frame: {probes: [{entity, share}], sky}; the shares (0..1, in steps of 1/32) of the probes and of the
+    // sky add up to 1. A mesh no probe reaches (or one that was not drawn) reflects the sky: {probes: [], sky: 1}. Empty object before init().
+    Json probe_mesh_report(Entity mesh) const;
+    // Makes the renderer keep the probe picks of `mesh` (and only of it) from the next frame on, which probe_mesh_report reads. True when it
+    // already did, so the last frame's picks are there; false when the caller should draw one more frame first. kNullEntity stops
+    // the watch (and frees the picks).
+    bool probe_watch_mesh(Entity mesh);
+    // The realtime GI's grids (RealtimeGI; include/fa/render/gi.h, docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"): the report of
+    // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,
+    // ...}]}. It reads the probes' meta texels back from the GPU (a command, never the frame). Empty object before init() and while no grid exists.
+    Json gi_report();
+    // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
+    // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
+    // below `captured` have a picture (exact unless a capture failed and is being retried).
+    struct GiProgress {
+        bool known = false;
+        int captured = 0, count = 0;
+    };
+    GiProgress gi_progress(Entity grid) const;
+    // Asks for the probe's next capture as soon as the budget allows (an `onDemand` probe captures only then). False when it is not a
+    // realtime probe of this renderer.
+    bool probe_refresh(Entity probe);
+    // The most faces of realtime probes drawn in a frame, in all (1..12; default 2: a probe is complete every three frames).
+    void probe_set_budget(int faces);
+    // A synchronous capture of one probe, for probe.bake and tests: the six faces drawn at once into an image of their own (the atlas of
+    // the realtime probes is not touched), filtered like a realtime capture. `page` is the tile without its SH row (probe.h,
+    // probe_page_width x probe_page_height texels, RGB linear light, row 0 first), `sh` the nine coefficients. `intensity` is not applied
+    // (the component's intensity is a gain of the reader). Needs a half-float atlas; false with `error` otherwise.
+    struct ProbePage {
+        int resolution = 0;
+        int width = 0, height = 0;  // probe_page_width x probe_page_height
+        std::vector<float> rgb;     // width * height * 3, linear light, row 0 = the top row
+        float sh[9][3]{};
+    };
+    bool probe_capture(World& world, Entity probe, ProbePage& out, std::string* error = nullptr);
+
     // Whether this renderer can do `feature` on the backend and GPU it runs on: a capability of the GPU ("floatTargets",
-    // "r11g11b10", "sampledDepth", "computeShaders"), an engine feature ("linearColor", "hdrOutput") or a post effect (the
+    // "r11g11b10", "sampledDepth", "computeShaders", "float32Targets"), an engine feature ("linearColor", "hdrOutput", and the
+    // lighting rows of M73 such as "cascadedShadows", planned until their package lands; "clusteredLights" is drawn) or a post effect (the
     // names of kPostEffectOrder: "bloom", "tonemap", ...). False for a name that is not in feature_names(), before init(), on the
-    // headless (dummy) backend, and for what the engine does not draw (no effect is left out today;
+    // headless (dummy) backend, and for what the engine does not draw (the lighting rows of M73 not yet landed;
     // linearColor is drawn on every GPU): it never claims what the renderer cannot do. "hdrOutput" is true when the display
     // the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on
     // D3D11), whatever the scene's hdrOutput setting. `render.supports` answers the same with the reason.
@@ -519,6 +602,14 @@ public:
     // The answer of the `render.supports` command: {backend, backendLabel, features: [{name, kind, supported, status, doc,
     // backends}]}. Empty object before init().
     Json supports_report() const;
+
+    // The baked light probes of the scene's lightmap manifest (SceneSettings.lightmaps, M73.4d), loaded on first use and kept until the files change; null
+    // when the scene has no manifest, it lists no probes or the file did not load (asset_report lists the failure). Valid until the next frame.
+    const ProbeSet* light_probes(World& world);
+    // The answer of the `render.light_probes` command: {lightmaps, baked, probes, invalid, groups: [{id, kind, count, invalid}]} and, for
+    // `entity` (kNullEntity: none), {entity: {id, name, source: "probes" | "lightmap" | "sky", position, coverage, probesUsed, sh, ambient}}: what
+    // that MeshRenderer receives, by the rules of the frame. Needs init().
+    Json light_probes_report(World& world, Entity entity);
 
     // HDR display output (fa/platform/hdr_output.h; docs/RENDERING.md, "HDR output"). Once per frame before present(), on the
     // window's thread: asks the display the window is on and switches the window's swapchain to an HDR format when
@@ -532,7 +623,7 @@ public:
     HdrOutputInfo output_info() const;
 
     // The editor's A/B switch of the Post-processing panel: true draws every following frame as if no camera had a post-processing
-    // stack (no PostProcess, no deprecated Camera.bloom* or colorFilter), without touching any data; false (the default) draws
+    // stack (no PostProcess), without touching any data; false (the default) draws
     // them. Not saved and not part of a scene: a game never sets it. Takes effect on the next frame. While it is on it applies to every
     // capture too (game.screenshot, render.inspect, what an AI asks to see), not only to the window.
     void set_post_bypass(bool bypass);

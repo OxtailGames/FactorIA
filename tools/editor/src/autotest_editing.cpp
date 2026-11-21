@@ -601,6 +601,26 @@ void Editor::at_section_L(AtScript& at) {
                      "the Inspector lists the params of MeshRenderer.material, typed by material.info");
             at_check(!at_enabled("insp:MeshRenderer:matreset:pulse"), "...a param with no override cannot be reset");
         });
+        // The "Render cost" block under the MeshRenderer fields shows what render.material_cost answers (the renderer's own count; the
+        // editor computes nothing): it is there, and its summary is the one a fresh command call returns.
+        step(40, [this] {
+            at_check(at_visible("insp:MeshRenderer:cost"),
+                     "the Inspector shows a Render cost block under the MeshRenderer fields");
+            const CommandResult fresh = engine_->commands().call("render.material_cost", Json::object({{"id", "gem"}}));
+            at_check(fresh.ok && fresh.result.is_object() && fresh.result.contains("summary") &&
+                         fresh.result["summary"].is_string(),
+                     "render.material_cost answers for the inspected mesh");
+            const std::string shown =
+                renderCost_.is_object() && renderCost_.contains("summary") && renderCost_["summary"].is_string()
+                    ? renderCost_["summary"].get<std::string>()
+                    : std::string("(none)");
+            const std::string asked = fresh.ok && fresh.result.is_object() && fresh.result.contains("summary") &&
+                                              fresh.result["summary"].is_string()
+                                          ? fresh.result["summary"].get<std::string>()
+                                          : std::string("(error)");
+            at_check(renderCostId_ == "gem" && shown == asked,
+                     "...and its summary is the command's own ('" + shown + "' against '" + asked + "')");
+        });
         // Scrolled once the material's build report is in: an error under the material field (no shader compiler on this
         // machine) pushes the params down, out of a small window's Inspector.
         step(2, [this] { inspScrollTo_ = "MeshRenderer.materialParams"; });

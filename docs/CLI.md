@@ -167,7 +167,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `actions` (`{"move_left": true}`: an action forced down or released, what `input.record` writes for `game.input` by action name), `mouse`, `gamepad`, `touch`, `clipboard` and `http` (the answers of the game's `http.fetch` calls, `docs/NETWORKING.md`; see `docs/AI_GUIDE.md` 11.2); a top-level `"date": "YYYY-MM-DD"` (editor recordings have it) sets `game.today()` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
-| `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a `Camera.colorFilter` of the game is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |
+| `--screenshot-simulate MODE` | Save the screenshots as a colour-blind viewer sees them: `greyscale`, `protanopia`, `deuteranopia` or `tritanopia` (Machado 2009, severity 1.0, applied to the sRGB pixels in linear light; `greyscale` is Rec. 709 luminance). Only the saved PNGs change (not the video, not what the game draws; a colour filter of the game's `PostProcess` is part of the frame and shows in both). The same option is `simulate` of `game.screenshot`. |
 | `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
 | `--state-out f.json` | Final world state dump (relative to the current directory) |
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
@@ -262,7 +262,7 @@ factoria call game.screenshot '{"frames":24,"everyFrames":4,"columns":4,"path":"
 factoria call render.inspect '{"from":[100,90],"to":[220,90],"threshold":20}'   # where the brightness jumps along a line
 factoria call render.pick '{"position":[160,90]}'   # what draws that pixel, topmost first
 factoria call render.frame_graph '{"profileFrames":8}'   # the last frame's passes with the CPU and (D3D11/OpenGL) GPU time of each; the profiler is on for the call
-factoria call render.debug_view '{"view":"depth"}'   # the next screenshot shows the depth prepass ("normals", "none"; no argument reports the view)
+factoria call render.debug_view '{"view":"depth"}'   # the next screenshot shows the depth prepass ("normals", "ao", "cascades", "none"; no argument reports the view)
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```

@@ -19,7 +19,7 @@
 //      coverage image, both read by texel from aux_tex), the pixelate (the position every step above reads is moved to the centre of
 //      its block, so the whole of 0 to 5 is evaluated once per block) and the posterize (levels per channel); the grain and the dither
 //      keep the real pixel
-//   6. the colour filter (Camera.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
+//   6. the colour filter (PostProcess.colorFilter), on the encoded picture, the same filters as colorfilter.glsl
 //
 // One pass per camera (M71-C3a): a camera that does not cover the whole picture draws this pass into the rectangle of its viewport (the
 // pass sets the viewport), reads the same rectangle of the source (rc, mask bit 2048) and runs every step above in camera-local

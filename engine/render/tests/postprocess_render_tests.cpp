@@ -1,6 +1,6 @@
 // M71: the post-processing stack on the GPU (src/postprocess.h, post.glsl, exposure.glsl): the passes a frame declares (none when
 // nothing is on), the final pass (exposure, tonemap, the encode with a dither, the colour filter), the automatic exposure, the HUD drawn
-// over the final picture, the volumes, and the Camera.bloom* / Camera.colorFilter fields standing in for a PostProcess.
+// over the final picture, the volumes, and the PostProcess bloom and colour filter.
 #include "test_util.h"
 
 #include <algorithm>
@@ -179,9 +179,6 @@ TEST_CASE("post stack: a game without a conversion or a filter never asks for th
     FlatScene glow(0.1f);
     glow.post().bloomEnabled = true;  // the bloom has its own shaders
     g.render(glow.world);
-    FlatScene legacy(0.1f);
-    legacy.world.get<Camera>(legacy.cam)->bloom = true;  // the deprecated field: the same
-    g.render(legacy.world);
     CHECK(gpu->post_ready_calls() == before);
     // A conversion or a filter does ask for it (the counter is how a game that needs none is known never to compile it).
     FlatScene mapped(0.4f);
@@ -617,56 +614,6 @@ TEST_CASE("volumes: a camera moving into a box volume blends the effect in, gold
         }
     }
     expect_golden(strip, "post_volume_blend");
-}
-
-// ---- Camera.bloom* and Camera.colorFilter (deprecated) ----
-
-TEST_CASE("deprecated Camera.bloom and Camera.colorFilter draw what the same PostProcess draws") {
-    Gfx& g = gfx();
-    REQUIRE(g.ok);
-    auto scene = [](World& w) {
-        Entity cam = make(w, "cam");
-        w.add<Camera>(cam).clearColor = Color{0.02f, 0.02f, 0.04f, 1};
-        Entity neon = make(w, "neon", {-30, 10, 0});
-        auto& s = w.add<Shape2D>(neon);
-        s.shape = ShapeType::Rectangle;
-        s.size = {50, 30};
-        s.color = Color{1.0f, 0.2f, 0.8f, 1};
-        s.blend = BlendMode::Additive;
-        return cam;
-    };
-    World legacy, modern;
-    const Entity lc = scene(legacy), mc = scene(modern);
-    {
-        Camera& c = *legacy.get<Camera>(lc);
-        c.bloom = true;
-        c.bloomThreshold = 0.6f;
-        c.bloomIntensity = 1.5f;
-        c.bloomRadius = 14.0f;
-        c.colorFilter = ColorFilter::Deuteranopia;
-        PostProcess& p = modern.add<PostProcess>(mc);
-        p.bloomEnabled = true;
-        p.bloomThreshold = 0.6f;
-        p.bloomIntensity = 1.5f;
-        p.bloomRadius = 14.0f;
-        p.bloomKnee = 0.0f;
-        p.colorFilterEnabled = true;
-        p.colorFilterMode = ColorFilter::Deuteranopia;
-    }
-    const Image a = g.render(legacy);
-    const std::vector<std::string> legacyOrder = order_of(g);
-    const Image b = g.render(modern);
-    CHECK(order_of(g) == legacyOrder);
-    CHECK(index_of(legacyOrder, "camera:0/bloom-composite") > 0);
-    CHECK(legacyOrder.back() == "camera:0/color-filter");
-    CHECK(a.rgba == b.rgba);
-
-    // A camera with a PostProcess of its own is the PostProcess's: the legacy fields stop counting.
-    modern.get<Camera>(mc)->bloom = true;
-    modern.get<Camera>(mc)->colorFilter = ColorFilter::Greyscale;
-    modern.get<PostProcess>(mc)->colorFilterMode = ColorFilter::Deuteranopia;
-    const Image c = g.render(modern);
-    CHECK(c.rgba == b.rgba);
 }
 
 namespace {

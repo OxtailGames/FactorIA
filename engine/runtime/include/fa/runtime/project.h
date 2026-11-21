@@ -44,7 +44,7 @@ inline constexpr const char* kFeedbackFileName = "ENGINE_FEEDBACK.json";
 
 // The asset type of a project file, from its name (case-insensitive): "texture" (.png .jpg .jpeg .tga .bmp), "audio" (.wav .ogg
 // .mp3 .qoa), "font" (.ttf .otf), "mesh" (.obj .gltf .glb), "script" (.js), "scene" (.scene.json), "prefab" (.prefab.json),
-// "material" (.material.json) or "other". The one classifier: assets.list, the Inspector's asset fields and the Project panel use it.
+// "material" (.material.json), "hdri" (.hdr, an equirectangular environment image: SceneSettings.environmentMap, never a texture) or "other". The one classifier: assets.list, the Inspector's asset fields and the Project panel use it.
 std::string asset_type_of(std::string_view path);
 
 // One native plugin of "plugins" (fa/runtime/plugins.h, docs/EXTENDING.md "Native plugins").

@@ -169,7 +169,7 @@ checked by a test. Burst effects are prefabs: `world.spawnPrefab(...)`, as in [A
 ### A hit spark
 
 A short burst of bright streaks that fly out, are braked by drag, fall a little and cool from white to red. `trail` draws each as
-a short comet. Additive blending makes them glow, especially with the camera's bloom.
+a short comet. Additive blending makes them glow, especially with the bloom of the camera's `PostProcess`.
 
 Example `hit-spark`:
 

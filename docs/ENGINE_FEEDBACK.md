@@ -500,6 +500,12 @@ project, and on `feedback.check_fixed`, every open entry with the same category 
 projects and ranks them. Each group lists title, category, installations (projects), verified installations, total
 occurrences, the best suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.
 
+The JSON report also has `errors` (paths and files that could not be read, each with its reason) and `notes` (what was
+skipped on purpose and is no error: with several paths, such as `collect examples/*`, a file that is not called
+`ENGINE_FEEDBACK.json` and cannot be read as JSON, or is JSON without an `entries` array, is skipped and named in
+`notes`; named alone it is an error). The Markdown report shows them as "Problems reading files" and "Notes".
+`collect` is a CLI command only: there is no MCP tool for it.
+
 The score of a group is the sum, over the projects (a pulled installation is one project) that have an entry in it, of
 `severity weight x trust x min(occurrences, 3)`:
 

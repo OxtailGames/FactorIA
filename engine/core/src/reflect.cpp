@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "fa/core/deprecation.h"
 #include "fa/core/strings.h"
 
 namespace fa {
@@ -435,7 +436,9 @@ Result<void> object_patch_from_json(const TypeInfo& t, void* object, const Json&
     for (auto it = patch.begin(); it != patch.end(); ++it) {
         const FieldInfo* f = t.field(it.key());
         if (!f) {
-            note(make_error("Unknown field '" + it.key() + "' on " + t.name, did_you_mean(it.key(), fieldNames)));
+            std::string removed = removed_field_hint(t.name, it.key());
+            note(make_error("Unknown field '" + it.key() + "' on " + t.name,
+                            removed.empty() ? did_you_mean(it.key(), fieldNames) : std::move(removed)));
             continue;
         }
         if (f->readOnly && it.value() == field_to_json(*f, scratch.get()))

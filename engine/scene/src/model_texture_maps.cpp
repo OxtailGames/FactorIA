@@ -156,106 +156,16 @@ Vec3 texel_normal(const Geo& g, const Texels& t, std::size_t i) {
 
 // ---- BVH ---------------------------------------------------------------------------------------------------------------------
 
+// The tree and the ray test live in fa::TriBvh (fa/scene/bvh.h), shared with the lightmap baker.
 void Bvh::build(const Geo& g) {
-    g_ = &g;
-    nodes_.clear();
-    order_.clear();
-    centroid_.assign(g.tri.size(), Vec3{});
-    for (std::size_t t = 0; t < g.tri.size(); ++t) {
-        centroid_[t] = (g.corner(t, 0) + g.corner(t, 1) + g.corner(t, 2)) / 3.0f;
-        if (g.area[t] > 0) order_.push_back(std::uint32_t(t));
-    }
-    if (order_.empty()) return;
-    nodes_.reserve(order_.size() / 2 + 2);
-    build_range(0, std::uint32_t(order_.size()));
+    std::vector<Vec3> corners;
+    corners.reserve(g.tri.size() * 3);
+    for (std::size_t t = 0; t < g.tri.size(); ++t)
+        for (int k = 0; k < 3; ++k) corners.push_back(g.corner(t, k));
+    tree_.build(corners.data(), g.tri.size());
 }
 
-std::uint32_t Bvh::build_range(std::uint32_t first, std::uint32_t count) {
-    const std::uint32_t self = std::uint32_t(nodes_.size());
-    nodes_.emplace_back();
-    Vec3 lo = g_->corner(order_[first], 0), hi = lo;
-    Vec3 clo = centroid_[order_[first]], chi = clo;
-    for (std::uint32_t k = first; k < first + count; ++k) {
-        for (int c = 0; c < 3; ++c) {
-            lo = min(lo, g_->corner(order_[k], c));
-            hi = max(hi, g_->corner(order_[k], c));
-        }
-        clo = min(clo, centroid_[order_[k]]);
-        chi = max(chi, centroid_[order_[k]]);
-    }
-    nodes_[self].lo = lo;
-    nodes_[self].hi = hi;
-    if (count <= 4) {
-        nodes_[self].leaf = true;
-        nodes_[self].a = first;
-        nodes_[self].b = count;
-        return self;
-    }
-    const Vec3 ext = chi - clo;
-    const int axis = ext.x >= ext.y && ext.x >= ext.z ? 0 : (ext.y >= ext.z ? 1 : 2);
-    std::sort(order_.begin() + first, order_.begin() + first + count, [&](std::uint32_t l, std::uint32_t r) {
-        const float cl = centroid_[l][axis], cr = centroid_[r][axis];
-        return cl != cr ? cl < cr : l < r;  // a total order: the same tree on every platform
-    });
-    const std::uint32_t half = count / 2;
-    const std::uint32_t left = build_range(first, half);
-    const std::uint32_t right = build_range(first + half, count - half);
-    nodes_[self].a = left;
-    nodes_[self].b = right;
-    return self;
-}
-
-float Bvh::nearest(Vec3 o, Vec3 d, float tmax, std::int32_t skip) const {
-    if (nodes_.empty()) return -1;
-    const Vec3 inv{std::fabs(d.x) > 1e-12f ? 1.0f / d.x : 1e12f, std::fabs(d.y) > 1e-12f ? 1.0f / d.y : 1e12f,
-                   std::fabs(d.z) > 1e-12f ? 1.0f / d.z : 1e12f};
-    float best = tmax;
-    bool hit = false;
-    std::uint32_t stack[96];
-    int sp = 0;
-    stack[sp++] = 0;
-    auto box = [&](const Node& n) {
-        float t0 = 0, t1 = best;
-        for (int a = 0; a < 3; ++a) {
-            float ta = (n.lo[a] - o[a]) * inv[a], tb = (n.hi[a] - o[a]) * inv[a];
-            if (ta > tb) std::swap(ta, tb);
-            t0 = std::max(t0, ta);
-            t1 = std::min(t1, tb);
-            if (t0 > t1) return false;
-        }
-        return true;
-    };
-    while (sp > 0) {
-        const Node& n = nodes_[stack[--sp]];
-        if (!box(n)) continue;
-        if (n.leaf) {
-            for (std::uint32_t k = n.a; k < n.a + n.b; ++k) {
-                const std::uint32_t t = order_[k];
-                if (std::int32_t(t) == skip) continue;
-                const Vec3 p0 = g_->corner(t, 0), e1 = g_->corner(t, 1) - p0, e2 = g_->corner(t, 2) - p0;
-                const Vec3 pv = cross(d, e2);
-                const float det = dot(e1, pv);
-                if (std::fabs(det) < 1e-14f) continue;
-                const float idet = 1.0f / det;
-                const Vec3 tv = o - p0;
-                const float u = dot(tv, pv) * idet;
-                if (u < 0 || u > 1) continue;
-                const Vec3 qv = cross(tv, e1);
-                const float v = dot(d, qv) * idet;
-                if (v < 0 || u + v > 1) continue;
-                const float tt = dot(e2, qv) * idet;
-                if (tt > 1e-7f && tt < best) {
-                    best = tt;
-                    hit = true;
-                }
-            }
-        } else {
-            stack[sp++] = n.b;
-            stack[sp++] = n.a;
-        }
-    }
-    return hit ? best : -1;
-}
+float Bvh::nearest(Vec3 o, Vec3 d, float tmax, std::int32_t skip) const { return tree_.nearest(o, d, tmax, skip); }
 
 // ---- occlusion and thickness -------------------------------------------------------------------------------------------------
 

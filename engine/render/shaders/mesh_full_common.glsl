@@ -9,11 +9,13 @@
 // so the author's `void main()` is the entry the engine's own main calls, after it has set up the model matrix (instancing and
 // skinning), the instanced params and the declared mesh channels. Every engine identifier starts with fa_ (FA_ for macros).
 //
-// The declarations of the fragment resources (views 0 and 1, samplers 0 and 1, fa_mesh_fs_params, fa_lights) and the helper
-// functions copied from mesh_common.glsl (fa_shadow, the light sample, the fog, the colour space fixes) are copies, not includes:
-// mesh_common.glsl's fa_fs_surface also declares the engine's own varyings, which a full shader does not have. A test
-// (shader_template_test.cpp) compares the uniform blocks with mesh_common.glsl's, so they cannot drift apart. The sky functions
-// (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light) are the exception: they are mesh_common.glsl's block fa_env_funcs, included.
+// The declarations of the fragment resources (views 0 and 1, samplers 0 and 1, fa_mesh_fs_params) and the helpers copied from
+// mesh_common.glsl (the fog, the colour space fixes) are copies, not includes: mesh_common.glsl's fa_fs_surface also declares the
+// engine's own varyings, which a full shader does not have. A test (shader_template_test.cpp) compares the uniform block
+// fa_mesh_fs_params with mesh_common.glsl's, so they cannot drift apart. The light uniform block and the light sample
+// (light_data.glsl: fa_light_data), the shadow lookup (shadow_common.glsl: fa_shadow_common) and the sky functions (fa_environment,
+// fa_env_brdf, fa_sky_reflection, fa_ambient_light: fa_env_funcs) are the exception: they are blocks of mesh_common.glsl's files,
+// included here, so the engine's own meshes and a full shader read the lights and the shadow through the same code.
 
 // ---- vertex stage ----
 
@@ -87,8 +89,10 @@ vec3 fa_world_direction(vec3 n) {
     float s = dot(c0, cross(c1, c2)) < 0.0 ? -1.0 : 1.0;
     return normalize((cross(c1, c2) * n.x + cross(c2, c0) * n.y + cross(c0, c1) * n.z) * s);
 }
-// The shadow-map coordinate of a world position: pass it in a varying to fa_shadow() of the fragment stage.
-vec4 fa_shadow_coord(vec3 world) { return fa_light_vp * vec4(world, 1.0); }
+// The shadow coordinate of a world position: pass it in a varying to fa_shadow() of the fragment stage. Since M73.2 it is the world
+// position itself (the fragment stage picks the cascade of the sun's shadow and projects it); `fa_light_vp` is still the light's matrix of
+// a pass that casts the shadow of the material.
+vec4 fa_shadow_coord(vec3 world) { return vec4(world, 1.0); }
 @end
 
 @block fa_full_vs_tail
@@ -112,15 +116,34 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_full_shadow_smp;
 @image_sample_type fa_full_shadow_tex unfilterable_float
 @sampler_type fa_full_shadow_smp nonfiltering
-// The baked sky of a sky material (as mesh_common.glsl's fa_fs_head: views 14 and 15, sampler 10; used while fa_env_sky.w is 1).
-layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
+// What fa_shadow_sun (shadow_common.glsl) samples. The names differ from mesh_common.glsl's (sokol-shdc wants a texture name to be
+// unique in the whole top file, and the top of a full material also holds the engine's own programs).
+#define FA_SHADOW_TEX fa_full_shadow_tex
+#define FA_SHADOW_SMP fa_full_shadow_smp
+// The light data texture (light_data.glsl; view 24), read with texelFetch through the shadow map's nearest sampler.
+layout(binding=24) uniform texture2D fa_full_light_tex;
+@image_sample_type fa_full_light_tex unfilterable_float
+#define FA_LIGHT_TEX fa_full_light_tex
+#define FA_LIGHT_SMP fa_full_shadow_smp
+// The light atlas (as mesh_common.glsl's fa_fs_head: view 25, sampler 10): the cookies and IES profiles of the lights a full shader
+// reads through fa_light(). The area lights' LTC shading is the engine's own meshes' (a full shader sees an area light as a point light).
+layout(binding=25) uniform texture2D fa_full_light_atlas;
+#define FA_ATLAS_TEX fa_full_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
+// The decal atlas (light_data.glsl, block fa_decals; view 27, sampler 10): read by fa_apply_decals.
+layout(binding=27) uniform texture2D fa_full_decal_tex;
+#define FA_DECAL_TEX fa_full_decal_tex
+#define FA_DECAL_SMP fa_env_smp
+// The probe atlas (as mesh_common.glsl's fa_fs_head: view 14, sampler 10): the sky's tile and the reflection probes' (fa_env_funcs). A full
+// shader has no fragment world position, so a probe's box does not correct its reflection here (FA_ENV_PARALLAX is not defined).
+layout(binding=14) uniform texture2D fa_probe_atlas;
 layout(binding=10) uniform sampler fa_env_smp;
 
 // A copy of mesh_common.glsl's fa_mesh_fs_params (a test compares them): the same CPU struct fills both.
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -132,21 +155,63 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
-    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
-    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
+    vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
+                                // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
+    vec4 fa_env_horizon;        // rgb horizon color; w unused
     vec4 fa_time;               // x = seconds of game time since the scene started
-};
-
-layout(binding=2) uniform fa_lights {
-    vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
-    vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
-    vec4 fa_light_dir[32];      // xyz spot axis (direction light points); w cos(spot half angle)
+    // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
+    // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
+    vec4 fa_cl_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_cl_vpy;             // row 1: clip y
+    vec4 fa_cl_vpw;             // row 3: clip w
+    vec4 fa_cl_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
+    vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
+                                // w = clusters (tiles x * tiles y * slices)
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
+    // Contact shadows (M73.2c): a full shader has none, it only has to keep the block the CPU fills the same size.
+    vec4 fa_ct_a;
+    vec4 fa_ct_b;
+    vec4 fa_ct_vpx;
+    vec4 fa_ct_vpy;
+    vec4 fa_ct_vpw;
+    vec4 fa_ct_fwd;
+    // Transmission and volume (M73.6b): a full shader has none either.
+    vec4 fa_tr_a;
+    vec4 fa_tr_b;
+    // Light probes (M73.4d): a full shader has no lighting either; the 9 vec4 keep the block the same size.
+    vec4 fa_probe_sh[9];
+    // The reflection probes (M73-P3c): see mesh_common.glsl.
+    vec4 fa_atlas;
+    vec4 fa_rpa_tile;
+    vec4 fa_rpa_pos;
+    vec4 fa_rpa_bx;
+    vec4 fa_rpa_by;
+    vec4 fa_rpa_bz;
+    vec4 fa_rpb_tile;
+    vec4 fa_rpb_pos;
+    vec4 fa_rpb_bx;
+    vec4 fa_rpb_by;
+    vec4 fa_rpb_bz;
+    // The realtime GI grids: see mesh_common.glsl.
+    vec4 fa_gi;
 };
 
 @include_block fa_inst_flags
 @include_block fa_inst_in
 @include_block fa_types
+// The light uniform block and fa_light_sample (light_data.glsl), the same declaration as the engine's own meshes; the shadow lookup
+// fa_shadow_sun (shadow_common.glsl).
+@include_block fa_cube_face
+@include_block fa_light_data
+@include_block fa_decals
+@include_block fa_shadow_common
 @include_block fa_user
 
 // The sky the surface reflects and the ambient light (fa_environment, fa_env_brdf, fa_sky_reflection, fa_ambient_light): the same code as
@@ -189,62 +254,40 @@ vec4 fa_base_sample(vec2 uv) {
     return t * fa_base_color;
 }
 
-// The fraction of light that reaches a surface (1 = lit) from the directional shadow map: `coord` is fa_shadow_coord() of the
+// The fraction of light that reaches a surface (1 = lit) from the directional light's cascaded shadow: `coord` is fa_shadow_coord() of the
 // vertex stage, n the geometric normal, l the direction to the light. 1 when the MeshRenderer does not receive shadows.
 float fa_shadow(vec4 coord, vec3 n, vec3 l) {
-    if (fa_pbr.z < 0.5) { return 1.0; }
-    vec3 p = coord.xyz / coord.w;
-    vec2 suv = p.xy * 0.5 + 0.5;
-    bool is_gl = fa_counts.z > 0.5;
-    if (is_gl) { p.z = p.z * 0.5 + 0.5; } else { suv.y = 1.0 - suv.y; }
-    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 || p.z > 1.0) { return 1.0; }
-    float bias = fa_pbr.w * (1.0 + 2.0 * (1.0 - clamp(dot(n, l), 0.0, 1.0)));
-    float lit = 0.0;
-    float texel = fa_counts.y;
-    for (int ix = -1; ix <= 1; ix++) {
-        for (int iy = -1; iy <= 1; iy++) {
-            float depth = textureLod(sampler2D(fa_full_shadow_tex, fa_full_shadow_smp), suv + vec2(float(ix), float(iy)) * texel, 0.0).r;
-            lit += (p.z - bias <= depth) ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    return fa_shadow_sun(coord.xyz / coord.w, n, l);
 }
 
-// The lights of the scene, as the engine's own light loop selects them.
+// The first lights of the scene's light table: the directional lights, then the most relevant local ones, at most 32 (fa_counts.x of
+// them). What a full shader that has no position to ask for a cluster loops over; fa_cluster_light_count() is the list of a position.
 int fa_light_count() { return min(int(fa_counts.x), 32); }
-// Light i (0 .. fa_light_count() - 1) as seen from a surface point: the direction to the light, its colour times intensity times
-// attenuation times shadow, the attenuation and the shadow separately, the distance and the type (0 directional, 1 point,
-// 2 spot). `coord` is fa_shadow_coord() of the vertex stage (only the first directional light is shadowed); `gn` the geometric normal.
+// Light li (0 .. fa_light_count() - 1, or an index of fa_cluster_light_index()) as seen from a surface point: the direction to the
+// light, its colour times intensity times attenuation times shadow, the attenuation and the shadow separately, the distance and the
+// type (0 directional, 1 point, 2 spot). `coord` is fa_shadow_coord() of the vertex stage (the first directional light has the sun's
+// shadow, a point or spot light with a shadow map this frame its own); `gn` the geometric normal.
 LightSample fa_light(int li, vec3 world_pos, vec3 gn, vec4 coord) {
-    float type = fa_light_color[li].w;
-    vec3 l;
-    float atten = 1.0;
-    float dist = 0.0;
-    if (type < 0.5) {
-        l = normalize(fa_light_pos[li].xyz);
-    } else {
-        vec3 to_light = fa_light_pos[li].xyz - world_pos;
-        dist = length(to_light);
-        l = to_light / max(dist, 1e-4);
-        float range = max(fa_light_pos[li].w, 1e-3);
-        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-        atten = x * x;
-        if (type > 1.5) {
-            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-            float cos_outer = fa_light_dir[li].w;
-            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-        }
+    LightSample ls = fa_light_sample_n(li, world_pos, gn);
+    if (ls.type == 0 && li == 0) {
+        ls.shadow = fa_shadow(coord, gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
+    } else if (ls.type != 0 && ls.attenuation > 0.0) {
+        ls.shadow = fa_shadow_local(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
+        ls.color = ls.color * ls.shadow;
     }
-    float shadow = 1.0;
-    if (type < 0.5 && li == 0) { shadow = fa_shadow(coord, gn, l); }
-    LightSample ls;
-    ls.direction = l;
-    ls.color = fa_light_color[li].rgb * (atten * shadow);
-    ls.attenuation = atten;
-    ls.shadow = shadow;
-    ls.distance = dist;
-    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
     return ls;
+}
+// The lights that reach a world position (M73.1, clustered lighting): the directional lights and the local lights of the position's
+// cluster, hundreds in the scene but a few here. fa_cluster_light_index(n, p) for n in 0 .. fa_cluster_light_count(p) - 1 is the
+// index to give to fa_light(). Both look the cluster up again: call fa_cluster_light_count once and keep the position.
+int fa_cluster_light_count(vec3 world_pos) {
+    return int(fa_cl_info.z) + fa_cluster_lookup(world_pos).y;
+}
+int fa_cluster_light_index(int n, vec3 world_pos) {
+    int ndir = int(fa_cl_info.z);
+    if (n < ndir) { return n; }
+    return fa_cluster_index(fa_cluster_lookup(world_pos).x, n - ndir);
 }
 
 // The scene's fog (SceneSettings fog, or the stack's fog on a blended mesh) applied to a colour drawn at a world position: the

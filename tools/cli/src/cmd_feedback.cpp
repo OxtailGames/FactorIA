@@ -642,13 +642,17 @@ Command make_feedback_command() {
     collect.name = "collect";
     collect.summary = "Aggregate many projects' feedback into a ranked roadmap (engine developers).";
     collect.usage = "<dirs-or-files...> [--out report.md|report.json]";
-    collect.details = "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count "
-                      "unless --include-closed (which also reads the ENGINE_FEEDBACK.archive.json next to each file).\n"
-                      "Efficiency entries (what the engine's gaps cost in time and tokens) are ranked apart, by the "
-                      "total saving of the fix across installations next to\n"
-                      "what the fix costs: each gets a verdict (doc now / command: worth it / engine change: below "
-                      "threshold, N of the $1000 / 20 hours it needs) and a\n"
-                      "ready reason for `feedback reject`. JSON: the `efficiency` array.";
+    collect.details =
+        "Similar titles are grouped and ranked by occurrences x severity weight. Only open entries count "
+        "unless --include-closed (which also reads the ENGINE_FEEDBACK.archive.json next to each file).\n"
+        "Efficiency entries (what the engine's gaps cost in time and tokens) are ranked apart, by the "
+        "total saving of the fix across installations next to\n"
+        "what the fix costs: each gets a verdict (doc now / command: worth it / engine change: below "
+        "threshold, N of the $1000 / 20 hours it needs) and a\n"
+        "ready reason for `feedback reject`. JSON: the `efficiency` array.\n"
+        "`errors` lists the files that could not be read. `notes` lists what was skipped on purpose: a file "
+        "that is not called ENGINE_FEEDBACK.json and cannot be read as JSON is skipped (with a note) when "
+        "several paths are given, and an error when it is the only one.";
     collect.maxPositional = -1;
     collect.flags = {
         {"out", "FILE", "Write the report here (.json => JSON, otherwise Markdown). Default: Markdown on stdout."},

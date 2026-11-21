@@ -25,13 +25,10 @@ struct BloomHudScene {
     Entity cam;
     BloomHudScene() {
         cam = make(world, "cam");
-        Camera& c = world.add<Camera>(cam);
-        c.clearColor = Color{kBloomDimmed, kBloomDimmed, 0.04f, 1.0f};
-        c.bloom = true;
-        c.bloomThreshold = 0.5f;
-        c.bloomIntensity = 1.0f;
-        c.bloomRadius = 40.0f;       // a wide glow: the pyramid has downsample passes
-        c.bloomScreenSpace = false;  // the HUD is drawn after the bloom: the "hud-over-bloom" pass
+        world.add<Camera>(cam).clearColor = Color{kBloomDimmed, kBloomDimmed, 0.04f, 1.0f};
+        // radius 40: a wide glow, the pyramid has downsample passes; screen space off: the HUD is drawn after the bloom, the
+        // "hud-over-bloom" pass
+        set_bloom(world, cam, true, 0.5f, 1.0f, 40.0f, false);
         Entity neon = make(world, "neon");
         auto& s = world.add<Shape2D>(neon);
         s.shape = ShapeType::Rectangle;
@@ -46,7 +43,7 @@ struct BloomHudScene {
         b.space = RenderSpace::Screen;
         b.pivot = {0, 1};
     }
-    Camera& camera() { return *world.get<Camera>(cam); }
+    PostProcess& post() { return *world.get<PostProcess>(cam); }
 };
 
 // A second renderer on the test GPU (the first one stays as it is).
@@ -181,15 +178,15 @@ TEST_CASE("frame graph: with the bloom off or the HUD in the bloom there is no p
     Gfx& g = gfx();
     REQUIRE(g.ok);
     BloomHudScene s;
-    s.camera().bloom = false;
+    s.post().bloomEnabled = false;
     g.render(s.world);
     const render::FrameGraph* graph = render::renderer_frame_graph(g.renderer);
     REQUIRE(graph != nullptr);
     CHECK(graph->order_names() == std::vector<std::string>{"camera:0/game"});
     CHECK(resource_count(graph->to_json(), "transient") == 0);
 
-    s.camera().bloom = true;
-    s.camera().bloomScreenSpace = true;  // the HUD is in the picture the bloom reads
+    s.post().bloomEnabled = true;
+    s.post().bloomScreenSpace = true;  // the HUD is in the picture the bloom reads
     g.render(s.world);
     const std::vector<std::string> order = passes_of(graph->order_names(), "camera:0");
     CHECK(order.front() == "game");
@@ -201,7 +198,7 @@ TEST_CASE("frame graph: the colour filter is the last pass of the frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     BloomHudScene s;
-    s.camera().colorFilter = ColorFilter::Greyscale;
+    set_color_filter(s.world, s.cam, ColorFilter::Greyscale);
     g.render(s.world);
     const render::FrameGraph* graph = render::renderer_frame_graph(g.renderer);
     REQUIRE(graph != nullptr);
@@ -416,10 +413,9 @@ TEST_CASE("frame graph: the transients of a frame with 3 views of the same size 
     int oneViewTransients = 0, oneViewSlots = 0;
     {
         World one;
-        Camera& cam = one.add<Camera>(make(one, "game"));
-        cam.bloom = true;
-        cam.bloomThreshold = 0.0f;
-        cam.bloomRadius = 40.0f;
+        const Entity game = make(one, "game");
+        one.add<Camera>(game);
+        set_bloom(one, game, true, 0.0f, 1.2f, 40.0f);
         view_camera(one, "stage0", {500, 0, 0});
         view_widget(one, "view0", "stage0", 10);
         g.render(one);
@@ -430,10 +426,9 @@ TEST_CASE("frame graph: the transients of a frame with 3 views of the same size 
         CHECK(oneViewTransients >= 3);
     }
     World w;
-    Camera& cam = w.add<Camera>(make(w, "game"));
-    cam.bloom = true;
-    cam.bloomThreshold = 0.0f;
-    cam.bloomRadius = 40.0f;
+    const Entity game = make(w, "game");
+    w.add<Camera>(game);
+    set_bloom(w, game, true, 0.0f, 1.2f, 40.0f);
     view_camera(w, "stage0", {500, 0, 0});
     view_camera(w, "stage1", {600, 0, 0});
     view_camera(w, "stage2", {700, 0, 0});

@@ -20,6 +20,7 @@
 #include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
+#include "fa/scene/material_layers.h"
 #include "fa/scene/mesh_geometry.h"
 #include "fa/scene/mesh_surface.h"
 
@@ -36,6 +37,7 @@ struct MeshMaterial {
     Color emissive{0, 0, 0, 1};      // emissive factor (rgb)
     bool doubleSided = false;        // draw back faces too
     bool blend = false;              // alpha-blended (drawn far to near with the other transparent meshes)
+    MaterialLayers layers;           // clear coat, sheen, anisotropy, specular, ior factors (KHR_materials_*; M73.6)
 };
 
 // A run of the index list drawn with one material.

@@ -30,8 +30,15 @@ void register_mesh_commands(
     Engine& engine,
     Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
 
+void register_lightmap_commands(
+    Engine& engine,
+    Engine::Impl&
+        impl);  // lightmap_commands.cpp: lightmap.bake, lightmap.bake_start, lightmap.bake_status, lightmap.bake_cancel
+
 void register_project_secret_commands(
     Engine& engine,
     Engine::Impl& impl);  // project_secret_commands.cpp: project.create_storage_secret
+
+void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
 }  // namespace fa

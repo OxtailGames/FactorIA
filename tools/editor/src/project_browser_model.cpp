@@ -126,8 +126,8 @@ FolderNode build_folder_tree(const ProjectListing& listing) {
 }
 
 const std::vector<std::string>& browser_type_filters() {
-    static const std::vector<std::string> v = {"all",    "texture", "audio",  "font",     "mesh",
-                                               "script", "scene",   "prefab", "material", "vfx"};
+    static const std::vector<std::string> v = {"all",   "texture", "audio",    "font", "mesh", "script",
+                                               "scene", "prefab",  "material", "vfx",  "hdri"};
     return v;
 }
 

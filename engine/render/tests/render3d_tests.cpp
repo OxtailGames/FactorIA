@@ -269,29 +269,162 @@ TEST_CASE("frustum test of a box, both depth conventions") {
 
 TEST_CASE("lights over the limit: the most relevant ones are kept") {
     using fa::render::LightData;
+    static_assert(fa::render::kMaxLights == 1024 && fa::render::kMaxDirectionalLights == 32);
     std::vector<LightData> lights;
-    for (int i = 0; i < 40; ++i) {
+    for (int i = 0; i < 1040; ++i) {
         LightData l;
-        l.rank = i == 39 ? 0 : 2;
+        l.rank = i == 1039 ? 0 : 2;
         l.score = float(i);
         lights.push_back(l);
     }
     int dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
+    CHECK(dropped == 16);
+    REQUIRE(lights.size() == 1024);
+    CHECK(lights[0].rank == 0);           // the shadow caster first
+    CHECK(lights[1].score == 1038.0f);    // then the most relevant
+    CHECK(lights.back().score == 16.0f);  // scores 0..15 are the ones gone
+    // 40 directional lights: 32 stay, the brightest ones, and the local lights keep their place after them.
+    lights.clear();
+    for (int i = 0; i < 40; ++i) {
+        LightData l;
+        l.rank = 1;
+        l.score = float(i);
+        lights.push_back(l);
+    }
+    LightData local;
+    local.score = 5.0f;
+    lights.push_back(local);
+    dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
     CHECK(dropped == 8);
-    REQUIRE(lights.size() == 32);
-    CHECK(lights[0].rank == 0);          // the shadow caster first
-    CHECK(lights[1].score == 38.0f);     // then the most relevant
-    CHECK(lights.back().score == 8.0f);  // scores 0..7 are the ones gone
-    // Through the renderer: 40 point lights, 32 reach the shader.
+    REQUIRE(lights.size() == 33);
+    CHECK(lights[0].score == 39.0f);
+    CHECK(lights[31].score == 8.0f);
+    CHECK(lights[32].rank == 2);
+    // Through the renderer: 40 point lights in view all reach the shader (before the clusters of M73.1 it was 32).
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
     add_camera(w, {0, 3, 7}, {0, 0, 0});
     add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
-    for (int i = 0; i < 40; ++i) add_light(w, LightType::Point, {float(i) - 20, 2, 0}, {0, 0, 0}, 0.2f);
+    for (int i = 0; i < 40; ++i) add_light(w, LightType::Point, {float(i) * 0.1f - 2, 2, 0}, {0, 0, 0}, 0.2f);
     g.render(w);
-    CHECK(g.renderer.stats().lights == 32);
-    CHECK(g.renderer.stats().lightsDropped == 8);
+    CHECK(g.renderer.stats().lights == 40);
+    CHECK(g.renderer.stats().lightsDropped == 0);
+    CHECK(g.renderer.stats().lightClusters > 0);
+    CHECK(g.renderer.stats().lightMaxPerCluster == 40);
+}
+
+TEST_CASE(
+    "clustered lights: the frustum cull keeps a light outside the view whose range reaches in, with few lights too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10}, {0, 0, 0});
+    add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xd0d0d0), {20, 1, 20});
+    // Far to the side, outside the view: the first reaches into it, the second does not.
+    Entity reaching = add_light(w, LightType::Point, {60, 0, 0}, {0, 0, 0}, 1.0f);
+    w.get<Light>(reaching)->range = 100.0f;
+    Entity outside = add_light(w, LightType::Point, {-60, 0, 0}, {0, 0, 0}, 1.0f);
+    w.get<Light>(outside)->range = 2.0f;
+    g.render(w);
+    CHECK(g.renderer.stats().lights == 1);
+    CHECK(g.renderer.stats().lightsCulled == 1);
+    // With only the reaching light nothing is culled.
+    w.destroy(outside);
+    g.render(w);
+    CHECK(g.renderer.stats().lights == 1);
+    CHECK(g.renderer.stats().lightsCulled == 0);
+}
+
+TEST_CASE("clustered lights: 256 coloured point lights over a floor, every one reaches the shader (golden)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 11, 9}, {0, 0, 0});
+    w.settings().ambientLight = Color{0.02f, 0.02f, 0.03f, 1};
+    add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xd0d0d0), {20, 1, 20});
+    add_mesh(w, "sphere", {-2.0f, 0.2f, 0}, Color::hex(0xf0f0f0));
+    add_mesh(w, "cube", {2.0f, 0.1f, 1.0f}, Color::hex(0xf0f0f0), {1.2f, 1.2f, 1.2f});
+    // A 16 x 16 grid, 1.4 m apart, each light with a range that reaches its neighbours: a floor lit by 256 lights, which the 32 of
+    // the shader before M73.1 could not.
+    for (int z = 0; z < 16; ++z)
+        for (int x = 0; x < 16; ++x) {
+            const float hue = float((x * 7 + z * 3) % 12) / 12.0f;
+            const float r = std::fabs(hue * 6.0f - 3.0f) - 1.0f, gr = 2.0f - std::fabs(hue * 6.0f - 2.0f),
+                        b = 2.0f - std::fabs(hue * 6.0f - 4.0f);
+            Entity e = add_light(w, LightType::Point, {(float(x) - 7.5f) * 1.4f, 1.0f, (float(z) - 7.5f) * 1.4f},
+                                 {0, 0, 0}, 1.0f,
+                                 Color{std::min(std::max(r, 0.15f), 1.0f), std::min(std::max(gr, 0.15f), 1.0f),
+                                       std::min(std::max(b, 0.15f), 1.0f), 1});
+            w.get<Light>(e)->range = 2.2f;
+        }
+    Image img = g.render(w);
+    const auto& st = g.renderer.stats();
+    CHECK(st.lights + st.lightsCulled == 256);  // a light outside the view (the frustum cull) never reaches the shader
+    CHECK(st.lights > 200);
+    CHECK(st.lightsDropped == 0);
+    CHECK(st.lightClusters > 0);
+    CHECK(st.lightMaxPerCluster >= 2);
+    CHECK(st.lightMaxPerCluster < 128);
+    CHECK(st.lightClusterClipped == 0);
+    // The corners of the floor are far from the middle, and are lit by their own lights: no part of the grid was left dark.
+    int lit = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x) {
+            const Color c = img.pixel(x, y);
+            if (c.r + c.g + c.b > 0.15f) ++lit;
+        }
+    CHECK(lit > img.width * img.height / 3);
+    expect_golden(img, "3d_clustered_256_lights", 0.006);
+}
+
+TEST_CASE("clustered lights: a view with meshes and no local light has no clusters (a zeroed fa_cl_info once read "
+          "cluster -1)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    float info[4];
+    // No Light at all, ambient only: the early return of upload_lights must still leave "no clusters" (x = -1).
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        w.settings().ambientLight = Color{0.3f, 0.3f, 0.3f, 1};
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        const Image img = g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] == -1.0f);
+        CHECK(info[1] == 0.0f);
+        CHECK(info[2] == 0.0f);
+        CHECK(info[3] == 0.0f);
+        CHECK(g.renderer.stats().lights == 0);
+        CHECK(g.renderer.stats().lightClusters == 0);
+        // Ambient only: the middle of the sphere is dark (a ghost white point light would make it bright).
+        const Color mid = img.pixel(img.width / 2, img.height / 2);
+        CHECK(mid.r < 0.5f);
+    }
+    // Only a directional light: no clusters either, and the table holds its one light.
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        add_light(w, LightType::Directional, {0, 5, 0}, {-0.5f, -1, -0.3f}, 1.0f);
+        g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] == -1.0f);
+        CHECK(info[2] == 1.0f);
+        CHECK(g.renderer.stats().lightClusters == 0);
+    }
+    // A point light: the clusters exist (x is a texel index, not -1).
+    {
+        World w;
+        add_camera(w, {0, 3, 7}, {0, 0, 0});
+        add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+        add_light(w, LightType::Point, {0, 2, 0}, {0, 0, 0}, 1.0f);
+        g.render(w);
+        fa::render::renderer_last_cluster_info(g.renderer, info);
+        CHECK(info[0] >= 0.0f);
+        CHECK(info[1] == 24.0f);
+        CHECK(info[3] > 0.0f);
+    }
 }
 
 TEST_CASE("lights with a NaN score sort last and the order stays total") {
@@ -674,14 +807,27 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     const Json& program = (*twin)["programs"]["mesh"];
     auto desc = render::material_shader_desc("empty mesh", program, slots);
     REQUIRE(desc.ok());
-    CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
-    CHECK(slots.ubMask == 0b111);  // vs params, fs params, lights
-    CHECK(slots.viewMask ==
-          (0b111111u | 1u << render::kMaterialEnvView | 1u << render::kMaterialEnvIrrView));  // + the sky environment
+    // The engine's own program also reads the lightmap UV (a uv1 attribute: the template's FA_LM_BUILTIN); a material's twin has it only
+    // when the material declares "uv1".
+    sg_shader_desc builtin = *mesh_mesh_shader_desc(sg_query_backend());
+    builtin.attrs[ATTR_mesh_mesh_fa_attr_uv1] = {};
+    CHECK(describe_desc(*desc) == describe_desc(builtin));
+    CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
+    CHECK(
+        slots.viewMask ==
+        (0b111111u | 1u << render::kMaterialEnvView | 1u << VIEW_mesh_fa_light_tex | 1u << VIEW_mesh_fa_decal_tex |
+         1u << VIEW_mesh_fa_light_atlas | 1u << VIEW_mesh_fa_lightmap |
+         1u << VIEW_mesh_fa_screen_tex));  // + the sky environment, the light data, the light atlas, the decal atlas, the lightmap and the screen slot
+    // M73.2c: the screen slot (view 28) is the prepass of the contact shadows, read with texelFetch through the nearest sampler 1.
+    CHECK(VIEW_mesh_fa_screen_tex == 28);
+    // M73.3a: the irradiance cube (view 15) is gone, its unit is the reserved screen slot, and the program binds fewer than 16 units
+    // (the material's four textures of its own are not in this program's mask: they are views 6..9 of the mask above).
+    CHECK((slots.viewMask & (1u << 15)) == 0);
+    CHECK(render::mesh_fragment_units(1) <= render::kMeshMaxFragmentUnits);
     CHECK(slots.samplerMask == (0b11u | 1u << render::kMaterialEnvSampler));
     CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
     CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));
-    CHECK(slots.ubSize[2] == sizeof(mesh_fa_lights_t));
+    CHECK(slots.ubSize[7] == sizeof(mesh_fa_shadows_t));
 
     Json broken = program;
     broken["reflection"]["uniform_blocks"][0]["slot"] = 99;
@@ -1014,6 +1160,85 @@ TEST_CASE(
     }
     CHECK(hi - lo <= 4);
     CHECK(lo >= 10);
+}
+
+TEST_CASE("materials: light() gets an area light from the closest point of its emitter, not from its centre") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    ErrorLog log;
+    // A tube 8 m long, 1 m over a floor with the two-band toon (lit above a cosine of 0.5): a point of the floor 2.5 m from the middle of
+    // the tube sees its centre at 68 degrees (the dark band) but the tube straight above it (the lit band).
+    auto frame = [&](LightType type) {
+        World w;
+        Entity cam = make(w, "cam", {0, 6, 0});
+        w.get<Transform>(cam)->rotation = {-90, 0, 0};
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        Entity f = add_mesh(w, "plane", {0, 0, 0}, Color::white(), {12, 1, 12});
+        w.get<MeshRenderer>(f)->material = "materials/toon.material.json";
+        Entity e = add_light(w, type, {0, 1, 0}, {-90, 0, 0}, 1.0f);
+        Light* l = w.get<Light>(e);
+        l->castShadows = false;
+        l->range = 20.0f;
+        l->shape = LightShape::Tube;
+        l->size = {8.0f, 0.2f};
+        return g.render(w);
+    };
+    const Image area = frame(LightType::Area);
+    const Image point = frame(LightType::Point);
+    CHECK(log.messages().empty());
+    const double perMetre = double(area.height) / (2.0 * 6.0 * std::tan(30.0 * 3.14159265 / 180.0));
+    const int cx = area.width / 2, cy = area.height / 2, side = cx + int(2.5 * perMetre);
+    auto lum = [&](const Image& img, int x) {
+        return double(img.rgba[(std::size_t(cy) * std::size_t(img.width) + std::size_t(x)) * 4 + 1]);
+    };
+    // The point light at the tube's centre: the side of the floor is in the dark band, far under the lit one.
+    CHECK(lum(point, side) < 0.6 * lum(point, cx));
+    // The area light: the closest point of the tube keeps the side in the lit band, like the floor under the middle.
+    CHECK(lum(area, side) > 0.75 * lum(area, cx));
+}
+
+TEST_CASE(
+    "materials: the contact shadow of a light reaches light() through the LightSample, and a full shader has none") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("contactShadows")) return;
+    MaterialScope scope;
+    ErrorLog log;
+    // A grazing sun without a shadow map and a box on a floor drawn with the two-band toon (custom lighting): the contact ray darkens the
+    // LightSample the snippet gets (ls.shadow, ls.color), so the lit band turns to the dark one next to the box.
+    auto frame = [&](bool contact) {
+        World w;
+        Entity cam = make(w, "cam", {0.5f, 3.0f, 5.0f});
+        w.get<Transform>(cam)->rotation = {-30.0f, 5.0f, 0};
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().contactShadows = true;
+        Entity f = add_mesh(w, "plane", {0, 0, 0}, Color::white(), {16, 1, 16});
+        w.get<MeshRenderer>(f)->material = "materials/toon.material.json";
+        add_mesh(w, "cube", {0, 0.3f, 0}, Color::white(), {1.2f, 0.6f, 1.2f});
+        Entity e = add_light(w, LightType::Directional, {0, 5, 0}, {-20, 60, 0}, 1.5f);
+        Light* l = w.get<Light>(e);
+        l->castShadows = false;
+        l->contactShadowLength = contact ? 1.5f : 0.0f;
+        return g.render(w);
+    };
+    const Image plain = frame(false);
+    const Image shaded = frame(true);
+    CHECK(log.messages().empty());
+    int darker = 0, lighter = 0;
+    for (std::size_t i = 0; i < plain.rgba.size(); i += 4) {
+        const int d = int(plain.rgba[i + 1]) - int(shaded.rgba[i + 1]);
+        darker += d > 20;
+        lighter += d < -20;
+    }
+    CHECK(darker > 100);
+    CHECK(lighter == 0);
 }
 
 TEST_CASE("materials: the sky (IBL) is one call away from lighting(), ambient() and a full shader") {
@@ -1439,8 +1664,8 @@ TEST_CASE("sky materials: a material whose sky() is empty draws exactly the buil
     CHECK(diff_images(material, again, 0.0f).maxError == 0.0);
     // the sky is really in the picture: the top of the frame is not the clear colour of a frame without a sky
     CHECK(builtIn.pixel(160, 2).b > 0.3f);
-    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the irradiance cube
-    // is divided by pi and the prefiltered one holds the colour): measured on the pixels of the cube (the middle of the
+    // A sky of one colour lights the mesh like an ambient light and a gradient of that colour did (the sky's SH ambient
+    // is the colour itself and the prefiltered cube holds the colour): measured on the pixels of the cube (the middle of the
     // frame), where a difference would be, not diluted by the sky around it.
     const double cubeDiff = rect_mean_diff(builtIn, material, 138, 76, 182, 104);
     MESSAGE("mean difference on the cube: " << cubeDiff);
@@ -1550,7 +1775,7 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image lit = g.render(w);
     const int cx = lit.width / 2, cy = lit.height / 2;
     const Color top = lit.pixel(cx, cy - 34), bottom = lit.pixel(cx, cy + 34);
-    // What the sky lights is a ratio, not an absolute brightness (the irradiance and the filtering differ per driver):
+    // What the sky lights is a ratio, not an absolute brightness (the SH and the filtering differ per driver):
     // the green side is lit and its green is well above its red, the red side the other way round.
     INFO("top " << top.r << " " << top.g << " " << top.b << ", bottom " << bottom.r << " " << bottom.g << " "
                 << bottom.b);
@@ -1565,7 +1790,7 @@ TEST_CASE("sky materials: a diffuse mesh takes the ambient light of the sky that
     const Image dark = g.render(bare);
     const Color d = dark.pixel(cx, cy - 34);
     CHECK(std::max({d.r, d.g, d.b}) < 0.1f);
-    // A sky of one color gives that color as ambient (the irradiance is divided by pi): the same light on every side.
+    // A sky of one color gives that color as ambient (the SH ambient is the radiance, not the irradiance): the same light on every side.
     const Json flat =
         Json::object({{"zenith", Json::array({0.5, 0.5, 0.5, 1.0})}, {"ground", Json::array({0.5, 0.5, 0.5, 1.0})}});
     World uniform;
@@ -1657,25 +1882,16 @@ TEST_CASE("sky materials: a turning sun bakes again only a sky whose snippet rea
     }
 }
 
-TEST_CASE("sky materials: a sky that appears after the first frame of meshes makes no second sampler") {
+TEST_CASE("sky materials: a sky that appears after the first frame of meshes renders without fallbacks") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    {  // a frame of meshes without a sky material: the blank cube and the sampler of the environment are made
+    {  // a frame of meshes without a sky material
         World w;
         add_sky_scene(w, "");
         g.render(w);
     }
-    // then the sky: ready() must keep the sampler that blank_view() made (it once made a new one and leaked the first)
-    render::Gpu& gpu = *render::renderer_gpu(g.renderer);
-    render::Environment env;
-    env.blank_view(gpu);
-    const sg_sampler first = env.sampler();
-    REQUIRE(first.id != 0);
-    REQUIRE(env.ready(gpu));
-    CHECK(env.sampler().id == first.id);
-    env.release();
-    {  // and through the renderer
+    {  // then the sky, through the renderer
         World w;
         add_sky_scene(w, "materials/skygrad.material.json");
         w.settings().skyColor = Color{0.47f, 0.48f, 0.49f, 1};

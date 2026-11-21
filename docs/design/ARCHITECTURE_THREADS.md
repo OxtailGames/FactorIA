@@ -17,6 +17,21 @@ arrives in a frame with no step waits for the next. Every writer (`on_key`, `on_
 A paused engine only redraws and keeps the edges (`discard_idle_motion` drops wheel, motion and text, not presses). A new
 system that runs inside a fixed step and reads input needs nothing: it answers for the step's view.
 
+### GPU frames in flight and the CPU's writes
+The GPU runs one or two sokol frames behind the CPU (`SG_NUM_INFLIGHT_FRAMES` = 2). Two kinds of data have a copy per frame in
+flight, and the rule for each is what keeps the CPU from overwriting what the GPU still reads:
+- **Uniforms** (`sg_apply_uniforms`) are written inside a pass, after the frame's command buffer exists, so they are safe.
+- **Write-transient buffers and images** (`Gpu::acquire_transient`, `Gpu::write_light_image`, the video textures, the staging
+  buffers of the procedural meshes) are written by the CPU OUTSIDE a pass, usually while the frame is planned. The write of frame N
+  goes into the copy that frame N-2 read. sokol's Metal backend waits for N-2 only when it makes the frame's command buffer (the
+  first pass or copy of the frame), after those writes. So every writer calls `Gpu::begin_transient_writes()` first: on Metal it
+  makes the frame's command buffer with an empty copy, which moves the wait sokol does anyway to before the writes (no extra
+  synchronisation, only earlier: a little of the CPU/GPU overlap of the planning is lost on Metal); on the other backends it does nothing. A new place that writes a write-transient resource calls it too. Without
+  it a frame whose data differs from the frame before (every face of a time-sliced probe capture has other visible instances)
+  drew with the data of another frame whenever the GPU was behind, which a static scene never shows.
+- Everything else the GPU reads (images, meshes, the frame graph's targets) is written by the GPU in submission order, or made new
+  for the frame; sokol's Metal backend keeps what a destroyed resource held for `SG_NUM_INFLIGHT_FRAMES + 1` commits.
+
 ## Jobs and threads
 See `engine/core/include/fa/core/jobs.h`. One process-wide pool of worker threads (`fa::jobs`) that engine code hands
 pieces of work to: `submit(name, fn, deps)` returns a `Handle` to `wait` for, `Group` waits for several,

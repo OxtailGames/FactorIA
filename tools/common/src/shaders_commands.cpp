@@ -391,6 +391,49 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
     options.setup = context;
     for (const std::string& path : materials) {
         ++report.materialsChecked;
+        // fa_instance_index only counts when a Sprite draws its quad several times from compute buffers: in a sprite
+        // material without buffers it is always 0. One warning per material (this loop visits each once).
+        const MaterialParse parsed = read_material(projectDir, path);
+        const MaterialDef& material = parsed.material;
+        if (parsed.ok() && material.kind == "sprite" && material.buffers.empty() && !material.shader.empty()) {
+            if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / material.shader)) {
+                // The snippet without its comments (a note that names the value is no use of it) and without string
+                // literals (`#include "a//b.glsl"` holds no comment). A material snippet has no #include of its own:
+                // the compiler does not resolve one, so only this file is read.
+                std::string code;
+                const std::string& src = *text;
+                for (std::size_t at = 0; at < src.size();) {
+                    if (src[at] == '"') {
+                        const std::size_t end = src.find_first_of("\"\n", at + 1);
+                        at = end == std::string::npos ? src.size() : (src[end] == '"' ? end + 1 : end);
+                        code += ' ';
+                    } else if (src.compare(at, 2, "//") == 0) {
+                        while (at < src.size() && src[at] != '\n') ++at;
+                    } else if (src.compare(at, 2, "/*") == 0) {
+                        const std::size_t end = src.find("*/", at + 2);
+                        at = end == std::string::npos ? src.size() : end + 2;
+                        code += ' ';
+                    } else {
+                        code += src[at++];
+                    }
+                }
+                // the identifier by hand, as a whole word (no regex built per material)
+                const std::string word = "fa_instance_index";
+                const auto is_word = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+                bool reads = false;
+                for (std::size_t at = code.find(word); at != std::string::npos && !reads; at = code.find(word, at + 1))
+                    reads = (at == 0 || !is_word(code[at - 1])) &&
+                            (at + word.size() >= code.size() || !is_word(code[at + word.size()]));
+                if (reads)
+                    report.warnings.push_back(
+                        {material.shader, "",
+                         "this sprite snippet reads fa_instance_index, but the material declares no buffers, so the "
+                         "value is always 0 (a Sprite draws its quad instances times only from compute buffers)",
+                         "Add \"buffers\" to " + path +
+                             " (docs/shaders/SHADERS_COMPUTE.md) and set Sprite.instances, or remove the use of "
+                             "fa_instance_index."});
+            }
+        }
         auto result = compile_material(projectDir, path, options);
         if (!result.ok()) {
             const std::string state = material_snippet_state(projectDir, path);

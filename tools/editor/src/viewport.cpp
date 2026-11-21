@@ -410,10 +410,36 @@ void Editor::draw_viewport() {
             }
         }
     }
+    if (!primary_is_ortho() && showProbes_) {
+        Vec3 eye,
+            forward;  // the camera's position and forward axis: a probe behind it projects mirrored, so it is not drawn
+        r->screen_ray(Vec2{tw * 0.5f, th * 0.5f}, eye, forward);
+        draw_probe_gizmos(dl, *r, eye, forward, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
+    }
     // Every selected entity is outlined: the primary (what the Inspector and the gizmo follow) in yellow, the others in orange.
     // selection_peek(): the set is read every frame, so it is not pruned here; an id that is gone is skipped.
     auto draw_outline = [&](Entity sel, bool isPrimary) {
         const ImU32 col = isPrimary ? IM_COL32(255, 205, 60, 255) : IM_COL32(255, 135, 40, 235);
+        if (const ReflectionProbe* rp = w.get<ReflectionProbe>(sel); rp && !primary_is_ortho()) {
+            // The region a reflection probe lights (boxOffset +- boxSize / 2 in the entity's axes, scale included, as the renderer
+            // reads it): a thin cyan box, so the user sees which meshes the probe reaches.
+            const Vec3 half{rp->boxSize.x * 0.5f, rp->boxSize.y * 0.5f, rp->boxSize.z * 0.5f};
+            ImVec2 c8[8];
+            for (int i = 0; i < 8; ++i)
+                c8[i] = project(sel,
+                                Vec3{rp->boxOffset.x + ((i & 1) ? half.x : -half.x),
+                                     rp->boxOffset.y + ((i & 2) ? half.y : -half.y),
+                                     rp->boxOffset.z + ((i & 4) ? half.z : -half.z)},
+                                false);
+            static const int boxEdges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3},
+                                                {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+            for (auto& ed : boxEdges) dl->AddLine(c8[ed[0]], c8[ed[1]], IM_COL32(80, 200, 255, 220), 1.5f);
+        }
+        if (w.has<RealtimeGI>(sel) && !primary_is_ortho()) {
+            Vec3 eye, forward;
+            r->screen_ray(Vec2{tw * 0.5f, th * 0.5f}, eye, forward);
+            draw_gi_gizmo(dl, *r, sel, eye, forward, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
+        }
         if (w.has<MeshRenderer>(sel) && !primary_is_ortho()) {
             ImVec2 c8[8];
             Vec3 lo, hi;

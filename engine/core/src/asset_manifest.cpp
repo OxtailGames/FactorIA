@@ -137,12 +137,14 @@ AssetKind kind_of(std::string_view path) {
     static const char* models[] = {".gltf", ".glb", ".obj", ".fbx"};
     static const char* fonts[] = {".ttf", ".otf"};
     static const char* video[] = {".mp4", ".webm", ".mpg", ".mpeg", ".mov", ".mkv"};
+    static const char* hdri[] = {".hdr"};
     auto in = [&](const auto& list) { return std::find(std::begin(list), std::end(list), ext) != std::end(list); };
     if (in(textures)) return AssetKind::Texture;
     if (in(audio)) return AssetKind::Audio;
     if (in(models)) return AssetKind::Model;
     if (in(fonts)) return AssetKind::Font;
     if (in(video)) return AssetKind::Video;
+    if (in(hdri)) return AssetKind::Hdri;
     return AssetKind::Other;
 }
 
@@ -153,6 +155,7 @@ const char* kind_name(AssetKind kind) {
         case AssetKind::Model: return "model";
         case AssetKind::Font: return "font";
         case AssetKind::Video: return "video";
+        case AssetKind::Hdri: return "hdri";
         case AssetKind::Other: break;
     }
     return "other";

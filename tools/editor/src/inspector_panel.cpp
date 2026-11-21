@@ -518,6 +518,49 @@ void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, con
     ImGui::PopID();
 }
 
+// "Render cost" under the MeshRenderer fields: render.material_cost of the entity (what the renderer will do for this material: extra
+// passes, phase, the features that only add shader work). The answer is the renderer's own (render/src/material_cost.cpp); the editor
+// asks again at most twice a second and never computes a cost itself.
+void Editor::draw_render_cost(const std::string& id) {
+    if (!engine_ || !engine_->renderer() || !engine_->renderer()->initialized()) return;
+    if (renderCostId_ != id || renderCostAt_ + 0.5 < time_ || renderCost_.is_null()) {
+        renderCostId_ = id;
+        renderCostAt_ = time_;
+        const CommandResult r = engine_->commands().call("render.material_cost", Json::object({{"id", id}}));
+        renderCost_ = r.ok ? r.result : Json(nullptr);
+    }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Render cost");
+    at_track("insp:MeshRenderer:cost");
+    if (ImGui::BeginItemTooltip()) {
+        ImGui::TextUnformatted(
+            "What this material costs the renderer, as the renderer itself counts it (render.material_cost): extra "
+            "passes, the phase it is drawn in, and the features that only add shader work.");
+        ImGui::EndTooltip();
+    }
+    if (!renderCost_.is_object() || !renderCost_.contains("summary") || !renderCost_["summary"].is_string()) {
+        ImGui::TextDisabled("not available");
+        return;
+    }
+    ImGui::TextWrapped("%s", renderCost_["summary"].get<std::string>().c_str());
+    if (renderCost_.contains("features") && renderCost_["features"].is_array())
+        for (const Json& f : renderCost_["features"]) {
+            if (!f.is_object() || !f.contains("active") || !f["active"].is_boolean() || !f["active"].get<bool>())
+                continue;
+            const std::string name =
+                f.contains("name") && f["name"].is_string() ? f["name"].get<std::string>() : std::string("?");
+            const std::string note =
+                f.contains("note") && f["note"].is_string() ? f["note"].get<std::string>() : std::string();
+            ImGui::BulletText("%s", name.c_str());
+            if (!note.empty() && ImGui::BeginItemTooltip()) {
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+                ImGui::TextUnformatted(note.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+        }
+}
+
 void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     World& w = world();
     const std::string id = w.id_of(e);
@@ -685,6 +728,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
             }
             ImGui::EndTable();
         }
+        if (type.name == "MeshRenderer") draw_render_cost(id);
     }
     ImGui::PopID();
 }

@@ -13,8 +13,17 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Commands](ARCHITECTURE_COMMANDS.md): the command (tool) system, capabilities.
 - [Files and block codecs](ARCHITECTURE_FILES.md): `fa::fs`, the file rules, block codecs.
 - [Game loop, jobs and loading](ARCHITECTURE_THREADS.md): the game loop, jobs and threads, systems that run as jobs, background loading.
-- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds, the PostProcess stack.
+- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds (the PostProcess stack has its own page below).
+- [Rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md): the linear HDR frame, the `PostProcess` data, the effect order and the CPU resolve, the stack's passes, history and the final pass.
 - [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field.
+- [Baked lighting: the CPU lightmap baker](ARCHITECTURE_BAKING.md): the triangle BVH, the path tracer, the lightmap and probe API, the determinism rules.
+- [Rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md): the shader files of the mesh program, the texture slots, the feature rows and the new fields.
+- [Rendering, shadows and decals of M73](ARCHITECTURE_SHADOWS_DECALS.md): the shadow atlas, the shadows of point and spot lights, the decals.
+- [Volumetric fog and light shafts](ARCHITECTURE_VOLUMETRIC.md): the plan, the march and apply passes, the combination with the analytic fog, the bounds, the stats.
+- [Subsurface scattering](ARCHITECTURE_SUBSURFACE.md): the diffusion profile and its fit, the sss draw, the depth-aware blur and add passes, the fallback, the limits.
+- [Area lights, the LTC tables](ARCHITECTURE_AREA_LIGHTS.md): the fitted Linearly Transformed Cosines tables, the CPU reference of the polygon integral, `ltc.glsl`.
+- [Screen-space effects of the mesh shader](ARCHITECTURE_SCREEN_EFFECTS.md): the screen slot (view 28), the contact shadows' ray march, transmission's refraction atlas and pass split.
+- [Reflection probes](ARCHITECTURE_PROBES.md): the octahedral tile, the atlas and its allocator, the capture and filter passes, the time-sliced scheduler, the baked files, what the mesh shader must do.
 - [Animation, UI, platform, localization, docs](ARCHITECTURE_RUNTIME.md): animation, UI, platform services, localization, headless, docs.
 
 ## Design principles

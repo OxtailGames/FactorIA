@@ -46,13 +46,9 @@ struct PostStack {
 // Where the values of a PostStack came from, filled by resolve_post_stack when the caller passes one (the postprocess.get command and
 // the editor's panel show it; the renderer never asks, so a frame pays nothing).
 struct PostLayer {
-    enum class Kind {
-        Own,
-        Volume,
-        Legacy
-    };  // the camera's own PostProcess, a volume, the deprecated Camera.bloom* / colorFilter
+    enum class Kind { Own, Volume };  // the camera's own PostProcess, a volume
     Kind kind = Kind::Own;
-    Entity entity = kNullEntity;  // the entity that holds it (the camera for Own and Legacy)
+    Entity entity = kNullEntity;  // the entity that holds it (the camera for Own)
     float weight = 1.0f;          // PostProcess.weight, clamped to 0..1
     float influence = 1.0f;  // how deep the camera is inside the volume (1 for the camera's own and for global volumes)
     float strength() const { return weight * influence; }  // what the layer was applied with
@@ -67,11 +63,6 @@ struct PostTrace {
     std::unordered_map<std::string, int> fieldLayer;
     std::vector<int> customLayers;  // the indices into `layers` whose customPasses were added (one per added entry)
 };
-
-// The PostProcess standing in for the deprecated Camera.bloom* and Camera.colorFilter fields of `cam` (hard knee, the same picture as
-// before the stack existed): false (and `out` left alone) when the camera uses neither. Shared by Renderer::Impl::build_camera and
-// post_stack_report, so both see the same stack.
-bool legacy_post_of_camera(const Camera& cam, PostProcess& out);
 
 // What an effect reads from the prepass (renderer_draw.cpp, "prepass"; ARCHITECTURE_RENDERING.md, "PostProcess"): the linear view-space
 // depth of the opaque 3D meshes, and their view-space normals. Pure tables, so the gating of the prepass is testable without a GPU. The
@@ -110,10 +101,7 @@ float post_volume_influence(const PostProcess& vol, const Mat4& world, Vec3 poin
 //  - everything else (switches, modes, textures and LUTs, curves, the autofocus entity, strings) switches to the component's value
 //    when s >= 0.5 and stays when below.
 // Entities that are not active in the hierarchy contribute nothing. Costs one count when the world has no PostProcess.
-// `implicitOwn` (optional) stands in for the camera's own component when it has none (or it is disabled): the renderer passes one made
-// of the deprecated Camera.bloom* and Camera.colorFilter fields, so a camera that uses them still gets its bloom and filter.
 // `trace` (optional) records which layer every value came from.
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn = nullptr,
-                             PostTrace* trace = nullptr);
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, PostTrace* trace = nullptr);
 
 }  // namespace fa::render

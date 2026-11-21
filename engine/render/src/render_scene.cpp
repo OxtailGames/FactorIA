@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
+#include <unordered_map>
 
 #include "fa/core/log.h"
 #include "render_jobs.h"
@@ -39,7 +41,17 @@ void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmi
     }
 }
 
+bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
+    // An unlit mesh transmits nothing (fill_fs zeroes it): no copy of the picture, no glass culling.
+    if (mr.unlit || (material && (material->full || material->lighting == "unlit"))) return false;
+    if (std::isfinite(mr.transmission) && mr.transmission > 0.0f) return true;
+    for (const SubMesh& p : mesh.parts)
+        if (p.layers.transmission > 0.0f) return true;
+    return false;
+}
+
 bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
+    if (mesh_is_transmissive(mr, mesh, material)) return true;
     // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
     // whatever Color.a or the glTF material say.
     if (material) return material->alphaMode == "blend";
@@ -118,7 +130,25 @@ void MaterialHashCache::hashes(Entity e, const Json* params, const Json* colors,
     colorsHash = en->colorsHash;
 }
 
-void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets) {
+namespace {
+// The probes are read at the sample point snapped to this lattice (metres, round to the nearest node), so meshes within a
+// quarter of a metre of each other get the same light, the same key and one instanced draw (a coin field is a few draws, not
+// one per coin). A moving object's light steps by at most the gradient over this distance.
+constexpr float kProbeSnap = 0.25f;
+float probe_snap(float v) { return std::floor(v / kProbeSnap + 0.5f) * kProbeSnap; }
+}  // namespace
+
+// A missing or disabled anchor entity is the same as none. A point that is not finite reads nothing (NaN: coverage 0).
+Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, Vec3 bmin, Vec3 bmax) {
+    Vec3 p = model.transform_point((bmin + bmax) * 0.5f);
+    if (mr.probeAnchor != kNullEntity && world.alive(mr.probeAnchor) && world.active_in_hierarchy(mr.probeAnchor))
+        p = world.drawn_matrix(mr.probeAnchor).translation();
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return {NAN, NAN, NAN};
+    return {probe_snap(p.x), probe_snap(p.y), probe_snap(p.z)};
+}
+
+void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
+                        const std::vector<ProbeVolume>* probeVolumes) {
     meshes_.clear();
     scope_ = scopeRoot;
     built_ = true;
@@ -140,6 +170,14 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     // resolved, also one no camera shows (a tag filter, outside every frustum): a broken path warns once even then.
     std::vector<MaterialHashCache::Entry*>& entries = entries_;
     entries.assign(meshes_.size(), nullptr);
+    const LightmapSetAsset* lightmaps = assets.lightmaps(world.settings().lightmaps);
+    const ProbeSet* probes =
+        lightmaps && lightmaps->probes.baked() && lightmaps->probes.size() > 0 ? &lightmaps->probes : nullptr;
+    hasProbes_ = probes != nullptr;
+    if (probes)
+        probeLights_.assign(meshes_.size(), ProbeLight{});
+    else
+        probeLights_.clear();
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         SceneMesh& sm = meshes_[i];
         const MeshRenderer& mr = *sm.mr;
@@ -161,6 +199,15 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             sm.material = nullptr;
         }
         sm.normalTex = mr.normalMap.empty() ? nullptr : assets.texture(mr.normalMap);
+        // A baked lightmap lights the entity when the manifest lists it (by its stable id) with this very mesh. The engine's own shader
+        // reads it; so does a custom mesh material that declares "uv1" in vertexAttributes (the lightmap UV travels in that channel); a
+        // full-shader material, one drawn from compute buffers and one without the channel do not, and are lit as without a lightmap.
+        const bool materialReads =
+            !sm.material || (sm.material->ok && !sm.material->full && sm.material->buffers.empty() && sm.material->uv1);
+        if (lightmaps && mr.receiveGI && mr.lightmapScale > 0.0f && materialReads) {
+            static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
+            assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh, mr.mesh.empty() ? kCube : mr.mesh, sm.lm);
+        }
         sm.hasLods = !mr.lods.empty();
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
         const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
@@ -195,6 +242,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         }
     });
     rjobs::run("render.mesh_cull", split, [&](const jobs::Chunk& c) {
+        std::unordered_map<std::uint64_t, std::size_t>
+            probeCache;  // snapped node -> the mesh of this chunk that read it
+        constexpr std::size_t kProbeCacheMax = 4096;
         for (std::size_t i = c.begin; i < c.end; ++i) {
             SceneMesh& sm = meshes_[i];
             const MeshRenderer& mr = *sm.mr;
@@ -208,6 +258,40 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                 sm.colorsHash = en->colorsHash;
             }
             mesh_cull_bounds(*sm.mesh, world.get<Animator>(sm.entity), sm.bmin, sm.bmax, sm.anim);
+            if (sm.anim) sm.lm = {};  // a skinned mesh is deformed: its baked light would not follow it
+            if (probes && mr.receiveGI && !mr.unlit && !sm.lm.mesh &&
+                (!sm.material || (sm.material->ok && !sm.material->full && sm.material->buffers.empty()))) {
+                // A mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives the baked probes at the centre of its
+                // box, or at the MeshRenderer.probeAnchor entity.
+                const Vec3 at = probe_point(world, mr, sm.model, sm.bmin, sm.bmax);
+                if (std::isfinite(at.x)) {
+                    // probe_light_at is a pure function of the snapped point, so a mesh on a node an earlier mesh of this chunk
+                    // already read gets that result (a field of coins is a few lookups): the same value, whatever the order.
+                    const bool cacheable =
+                        std::fabs(at.x) < 1.0e5f && std::fabs(at.y) < 1.0e5f && std::fabs(at.z) < 1.0e5f;
+                    std::uint64_t key = 0;
+                    if (cacheable) {  // llround of a huge value is undefined, so only a point in range is snapped
+                        const std::int64_t kx = std::int64_t(std::llround(at.x / kProbeSnap)),
+                                           ky = std::int64_t(std::llround(at.y / kProbeSnap)),
+                                           kz = std::int64_t(std::llround(at.z / kProbeSnap));
+                        key = (std::uint64_t(kx & 0x1fffff) << 42) | (std::uint64_t(ky & 0x1fffff) << 21) |
+                              std::uint64_t(kz & 0x1fffff);
+                    }
+                    auto hit = cacheable ? probeCache.find(key) : probeCache.end();
+                    if (hit != probeCache.end()) {
+                        probeLights_[i] = probeLights_[hit->second];
+                    } else {
+                        probeLights_[i] = probe_light_at(*probes, at);
+                        if (cacheable && probeCache.size() < kProbeCacheMax) probeCache.emplace(key, i);
+                    }
+                } else {
+                    probeLights_[i] = ProbeLight{};
+                }
+                if (probeLights_[i].coverage > 0.0f) {
+                    sm.probe = &probeLights_[i];
+                    sm.probeKey = probe_light_key(probeLights_[i]);
+                }
+            }
             sm.blended = mesh_is_blended(mr, *sm.mesh, sm.material);
             if (sm.material && !sm.material->buffers.empty()) {
                 // A mesh drawn from compute buffers (mesh_buffer_draw.h) is a batch of its own (the entity is part of
@@ -226,6 +310,18 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                     sm.bmax = {h, h, h};
                 }
             }
+            if (probeVolumes && !probeVolumes->empty() && !mr.unlit) {
+                // The reflection probes of the mesh (M73-P3c): chosen at the centre of its box, a pure function of the position, so the
+                // same scene picks the same whatever the job split. The pick is part of the batch key.
+                const Vec3 at = sm.model.transform_point((sm.bmin + sm.bmax) * 0.5f);
+                sm.refl = pick_probes(*probeVolumes, at);
+                if (sm.refl.any()) {
+                    std::uint64_t k = std::uint64_t(sm.refl.key()) * 0x9e3779b97f4a7c15ull;
+                    k ^= k >> 31;
+                    sm.probeKey = (sm.probeKey ^ k) * 0xff51afd7ed558ccdull + sm.refl.key();
+                    if (sm.probeKey == 0) sm.probeKey = 1;
+                }
+            }
         }
     });
     if (wholeWorld) hashes_.end_frame();
@@ -236,8 +332,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     lodNames_.clear();
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         const SceneMesh& sm = meshes_[i];
-        fields_[i] = {sm.mesh, sm.tex,      sm.normalTex,  sm.mr,         sm.entity,
-                      sm.anim, sm.material, sm.paramsHash, sm.colorsHash, sm.flash};
+        fields_[i] = {sm.mesh,       sm.tex,   sm.normalTex,          sm.mr,
+                      sm.entity,     sm.anim,  sm.material,           sm.paramsHash,
+                      sm.colorsHash, sm.flash, sm.lm.mesh != nullptr, sm.probeKey};
         if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;

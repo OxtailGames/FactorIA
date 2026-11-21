@@ -7,4 +7,6 @@ fa_add_tests(authoring)
 if(TARGET fa_test_authoring)
     # confinement_variants.h is shared with the runtime tests: included by name, not by a relative path.
     target_include_directories(fa_test_authoring PRIVATE ${FA_ROOT}/engine/runtime/tests)
+    # lightmap_bake_job.h (what the lightmap commands compute) is tested without the command plumbing.
+    target_include_directories(fa_test_authoring PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()

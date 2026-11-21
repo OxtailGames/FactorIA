@@ -20,6 +20,7 @@
 #include "fa/ai/savers.h"
 #include "fa/core/date.h"
 #include "fa/core/jobs.h"
+#include "fa/scene/postprocess.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/net.h"
 #include "fa/tooling/play_auto.h"
@@ -339,15 +340,16 @@ void Editor::at_section_D(AtScript& at) {
             [this] { at_check(capture_window(atShotBefore_), "captured the window without bloom"); });
     });
     step(3, [this] {
-        // The command the AI uses; the values are inside the documented ranges (threshold 0..1, intensity 0..10, radius 1..128).
+        // The command the AI uses (a PostProcess on the camera); the values are inside the documented ranges (threshold 0..20,
+        // intensity 0..10, radius 1..128).
         const CommandResult r = engine_->commands().call(
             "scene.set_component",
             Json::parse(
-                R"({"id":"camera","component":"Camera","fields":{"bloom":true,"bloomThreshold":0.8,"bloomIntensity":1.6,"bloomRadius":40}})"));
-        at_check(r.ok, "scene.set_component: Camera.bloom on");
+                R"({"id":"camera","component":"PostProcess","fields":{"bloomEnabled":true,"bloomKnee":0,"bloomThreshold":0.8,"bloomIntensity":1.6,"bloomRadius":40}})"));
+        at_check(r.ok, "scene.set_component: PostProcess bloom on");
         Entity cam = world().find_by_id("camera");
-        at_check(!cam.is_null() && std::fabs(world().get<Camera>(cam)->bloomRadius - 40.0f) < 0.001f,
-                 "the Camera bloom fields were written");
+        const PostProcess* post = cam.is_null() ? nullptr : world().get<PostProcess>(cam);
+        at_check(post && std::fabs(post->bloomRadius - 40.0f) < 0.001f, "the PostProcess bloom fields were written");
     });
     step(5, [this] {
         atPostFrame_.push_back([this] {
@@ -378,9 +380,8 @@ void Editor::at_section_D(AtScript& at) {
             };
             const double before = ring_sum(atShotBefore_), now = ring_sum(after);
             FA_INFO("autotest", "bloom ring brightness: off {:.1f}, on {:.1f}", before, now);
-            at_check(
-                now > before + 6.0,
-                "Camera.bloom is visible in the editor viewport (the glow brightens the area around the bright shape)");
+            at_check(now > before + 6.0, "The PostProcess bloom is visible in the editor viewport (the glow brightens "
+                                         "the area around the bright shape)");
         });
     });
     snap("editor_bloom.png");

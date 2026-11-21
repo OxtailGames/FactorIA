@@ -897,8 +897,9 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
                 const Mat4 lm = world.world_matrix(le);
                 const Vec3 d = normalize(lm.transform_dir(kForward));
                 textLights.push_back({int(l.type == LightType::Directional ? 0
-                                          : l.type == LightType::Point     ? 1
-                                                                           : 2),
+                                          : l.type == LightType::Spot
+                                              ? 2
+                                              : 1),  // the 2D lighting has no area light: it counts as a point light
                                       lm.translation(), d, Vec3{l.color.r, l.color.g, l.color.b} * l.intensity, l.range,
                                       std::cos(radians(l.spotAngle))});
             });

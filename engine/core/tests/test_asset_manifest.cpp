@@ -31,6 +31,8 @@ TEST_CASE("asset manifest: kinds by extension") {
     CHECK(assets::kind_of("assets/ship.glb") == assets::AssetKind::Model);
     CHECK(assets::kind_of("assets/ui.ttf") == assets::AssetKind::Font);
     CHECK(assets::kind_of("assets/intro.mp4") == assets::AssetKind::Video);
+    CHECK(assets::kind_of("assets/hdri/sky.HDR") == assets::AssetKind::Hdri);
+    CHECK(std::string(assets::kind_name(assets::AssetKind::Hdri)) == "hdri");
     CHECK(assets::kind_of("scripts/a.js") == assets::AssetKind::Other);
     CHECK(std::string(assets::kind_name(assets::AssetKind::Audio)) == "audio");
 }

@@ -28,10 +28,16 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "decal_atlas.h"
+#include "light_clusters.h"
 #include "renderer_env.h"
+#include "renderer_probes.h"
 #include "renderer_ssr.h"
+#include "renderer_xmit.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_volumetric.h"
+#include "renderer_subsurface.h"
 #include "renderer_custom_post.h"
 #include "hdr_encode.h"
 #include "postprocess.h"
@@ -43,6 +49,7 @@
 #include "renderer_ssao.h"
 #include "font_set.h"
 #include "frame_graph.h"
+#include "light_atlas.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -51,6 +58,8 @@
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
+#include "renderer_hdri.h"
+#include "renderer_sky_phys.h"
 #include "shaders/sky.glsl.h"
 
 namespace fa {
@@ -90,17 +99,24 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
+    PhysicalSky physSky;  // the physical sky's tables and programs (renderer_sky_phys.h)
+    HdriSky hdriSky;      // the program that draws SceneSettings.environmentMap (renderer_hdri.h)
     Environment
         skyEnv;  // the baked sky that lights the meshes (renderer_env.h; used only with SceneSettings.skyMaterial)
+    ProbeSystem
+        probes;  // the reflection probes: their atlas, captures and baked pages (renderer_probes.h, renderer_probes.cpp)
     Ssr ssr;     // screen-space reflections (renderer_ssr.h): its shaders and pipelines
+    Xmit xmit;   // the opaque picture the transmissive meshes look through (renderer_xmit.h): its shader and pipelines
     Ssao ssao;   // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
-    FogFx fogFx;  // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
+    FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
+    VolumetricFx volFx;  // SceneSettings.volumetricFog (renderer_volumetric.h): its shaders and pipelines
+    SssFx sssFx;         // MeshRenderer.subsurface (renderer_subsurface.h): the blur and add shaders and pipelines
     CustomPost
         customPost;  // the passes of PostProcess.customPasses (renderer_custom_post.h): the intermediate images it probed
-    Bloom bloom;     // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
-    // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
+    Bloom bloom;     // PostProcess bloom post-process (its levels are transients of the frame graph, see bloom.h)
+    // PostProcess.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
@@ -184,8 +200,13 @@ struct Renderer::Impl {
     bool read_floats(bool present, std::vector<float>& out, std::string* error);
     Target floatTarget;               // the RGBA16F image read_floats draws into (tests only; freed with the targets)
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
-    Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
-    static constexpr int kShadowSize = 2048;
+    // The shadow atlas (shadow_cascades.h): R32F colour + depth (shadowTarget.texView is what the mesh programs sample). It grows to the
+    // part of the atlas a frame uses and never shrinks while the renderer lives. A target a later job of the frame outgrew is kept in
+    // shadowRetired (the earlier jobs of the same frame still draw into it) and freed when the next frame's graph begins.
+    Target shadowTarget;
+    std::vector<Target> shadowRetired;
+    static constexpr std::uint64_t kShadowAtlasMaxBytes = 512ull << 20;  // the most the atlas may take (R32F + depth)
+    bool warnedNoFloat32 = false;  // the "no shadows without float32 targets" warning, once
 
     DebugDraw debug;
     RenderStats stats;
@@ -204,6 +225,51 @@ struct Renderer::Impl {
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
+    bool warnedLightsDropped = false;   // one warning when a view has more lights than it can light
+    bool warnedClusterClipped = false;  // one warning when a cluster or view list ran over its limit
+    bool warnedDirectionalIes = false;  // one warning each for a Light.ies on a directional light,
+    bool warnedAreaCookie = false;      // a Light.cookie on an area light
+    bool warnedAreaIes = false;         // and a Light.ies on an area light (none of them uses it)
+    // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
+    LightAtlas lightAtlas;
+    // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the
+    // frame's jobs have run, like a MeshItem's MeshRenderer).
+    struct DecalItem {
+        Mat4 world;
+        const Decal* decal = nullptr;
+    };
+    // The atlas of the decal textures: one RGBA8 image with mips (view 27), rebuilt when a decal names a texture it does not hold, when a
+    // texture is reloaded (Assets::reload_generation) or when the scene's colour space changes; known = every path the build was asked for
+    // (a texture that failed or did not fit is not asked for again until then). A replaced image is kept in decalRetired until the next
+    // frame's graph begins (an earlier job of the same frame may still draw with it).
+    struct DecalAtlasState {
+        sg_image image{};
+        sg_view view{};
+        render::DecalAtlasLayout layout;
+        std::set<std::string> known;
+        std::uint64_t generation = 0;
+        int colorMode = 0;
+        bool built = false;
+        std::uint64_t bytes = 0;
+    };
+    DecalAtlasState decalAtlas;
+    std::vector<std::pair<sg_image, sg_view>> decalRetired;
+    bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false, warnedDecalPaths = false;
+    std::set<std::string> warnedDecalTextures;  // the textures reported as unreadable or left out (once each)
+    // Makes sure the atlas holds `paths` (every texture of every Decal of the world); false when decals cannot be drawn with textures.
+    bool ensure_decal_atlas(const std::vector<std::string>& paths, bool linear);
+    // The records of the decals of a view, in drawing order, and their boxes; a decal whose albedo is not in the atlas is skipped.
+    // `skipped` counts the decals left out for a missing albedo.
+    void make_decal_records(const std::vector<DecalItem>& items, bool linear, render::DecalPack& pack,
+                            std::vector<render::DecalBox>& boxes, int& skipped);
+    static std::string decal_path_key(const std::string& path);
+    void free_retired_decal_atlases();
+    void destroy_decal_atlas();
+    // The image a mesh program reads at view 27: the atlas, or the white image while there is none.
+    sg_view decal_view_or(sg_view fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
+    void collect_decals(DrawContext& ctx);
+    bool warnedShadowBudget =
+        false;  // one warning when point or spot lights lost their shadow to the atlas or view budget
     // SceneSettings.skyMaterial: the last material that could not draw the sky and was reported (one log line per
     // material).
     std::string warnedSkyMaterial;
@@ -213,8 +279,6 @@ struct Renderer::Impl {
     MaterialAsset* sky_material(const SceneSettings& ss);
     std::string
         warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
-    std::unordered_set<std::uint64_t>
-        warnedLegacyIgnored;  // cameras whose Camera.bloom/colorFilter a PostProcess of their own hides
     std::unordered_set<std::string>
         warnedCustomPass;        // the problems of PostProcess.customPasses entries already logged (once per scene)
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
@@ -359,7 +423,8 @@ struct Renderer::Impl {
     // that went above paper white (the copy clamps it).
     bool editor_copy_wanted() const;
     void update_editor_copy();
-    bool create_shadow_targets();
+    bool create_shadow_targets(int width, int height);
+    void free_retired_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
@@ -395,6 +460,10 @@ struct Renderer::Impl {
         bool customPost = false;
         const Target* target = nullptr;
         CustomHistoryFrame history;
+        // A face of a realtime GI capture (renderer_gi.cpp): the job also draws the depth prepass of its camera twice (the front faces, the back
+        // faces) and the "gi-distance" pass turns both into the distance picture `gi->distIndex` of the probe system. `gi->drawn` tells
+        // whether it did (a face with no opaque mesh has no picture: every ray of it is maxDistance long).
+        GiFacePlan* gi = nullptr;
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
@@ -405,6 +474,41 @@ struct Renderer::Impl {
     // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
     // between begin_frame_graph() and run_frame_graph().
     void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
+    // The reflection probes (renderer_probes.cpp). probes_plan() runs after the cameras' jobs and before run_frame_graph(): it keeps the
+    // atlas tiles of the probes in the world, draws the faces of the realtime captures as view jobs ("probe:<n>") and decides the uploads.
+    // probes_finish() runs after run_frame_graph(): it copies the faces into the scratch cubes, filters the completed captures into the
+    // atlas, uploads the baked pages and writes the sky's entry.
+    void probes_plan(World& world);
+    void probes_finish();
+    // The boxes of this frame's probes that hold a capture (probe_select.h), built once per frame before the scene's meshes pick theirs
+    // (gather_meshes); kept for fill_fs, which looks the picked probes' tiles up through them. Empty = every mesh reflects the sky.
+    std::vector<ProbeVolume> probeVolumes;
+    void probes_build_volumes(World& world);
+    // The reflection picks of the main scene's meshes that reach a probe (entity bits, pick), kept after the scene is reset: what
+    // Renderer::probe_mesh_report (render.probes with `entity`) answers from. Filled by probes_note_picks() right after the scene is built.
+    std::vector<std::pair<std::uint64_t, ProbePick>> meshPicks;
+    void probes_note_picks();
+    // The mesh whose picks probes_note_picks keeps (render.probes with `entity`); 0 = none.
+    std::uint64_t meshPickWatch = 0;
+    // Writes the sky's entry of the atlas from the baked environment cube when it is not there yet or is out of date (the tail of the
+    // "sky-env" pass, and probes_plan for an atlas that was just made).
+    void probes_write_sky();
+    // The reflection part of the fragment parameters of one draw: the atlas, the sky's tile and the (up to two) probes the mesh reflects.
+    void fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu);
+    // The realtime GI grids (renderer_gi.cpp), a part of the same frame: gi_plan() runs inside probes_plan() once the atlas exists (it has the
+    // band of probe blocks), gi_finish() inside probes_finish(). gi_collect() reads the RealtimeGI components (cheap when there are none).
+    void gi_collect(World& world);
+    // The records of the ready grids the meshes of this frame read (probes_build_volumes calls it): GiSystem::records, upload_lights packs them.
+    void gi_build_records(World& world);
+    void gi_plan(World& world, bool atlasRemade);
+    void gi_finish();
+    void gi_release();
+    // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
+    void probe_face_frame(Frame& fr, World& world, const ReflectionProbe& rp, Vec3 position, int face, int resolution);
+    void
+    probes_release();  // the atlas, the scratch cubes and the programs (shutdown, and when the world has no probe left)
+    bool probe_sync_capture(World& world, Entity probe, Renderer::ProbePage& out, std::string* error);
+    bool probe_read_atlas(int x, int y, int w, int h, std::vector<float>& out, std::string* error);
     // The drawing of Renderer::capture_world and capture_camera: `frames` frames (the passes that keep a history see
     // the frame before it) of the world seen by `ci` into an image of w x h pixels, read back into `out` (straight
     // alpha). `withCustom`: the camera's custom passes are drawn, over `historyCamera`'s history, which the frames
@@ -444,7 +548,10 @@ struct Renderer::Impl {
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
-    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv;
+    ResourceId sharedGame, sharedLight, sharedShadow, sharedEnv, sharedSkyLut;
+    // The physical sky (SceneSettings.skyModel): its tables are drawn by the first job of a frame that shows the sky
+    // ("sky-view" pass); the later jobs read them.
+    std::uint64_t skyLutFrame = ~std::uint64_t(0);
     // The sky environment of the frame (plan_env): the first job that wants one decides which sky is baked
     // (envFrameKey) and whether the "sky-env" pass is declared; a later job of the frame with another key falls back to
     // the analytic gradient.
@@ -474,9 +581,13 @@ struct Renderer::Impl {
     void collect_lights(DrawContext& ctx);
     void shadow_bounds(DrawContext& ctx);
     void cull_and_batch(DrawContext& ctx);
+    void plan_transmission(DrawContext& ctx);
     void build_quad_stream(DrawContext& ctx);
     void upload_instances(DrawContext& ctx);
     void scene_uniforms(DrawContext& ctx);
+    void upload_lights(DrawContext& ctx);
+    // fa_cl_info (what the shader reads of the clusters) of the last job's scene uniforms, for the render tests.
+    float lastClusterInfo[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
     // The sky environment of the job (SceneSettings.skyMaterial): sets ctx.envActive / envBake / envKey and the flag of
     // fuScene.
     void plan_env(DrawContext& ctx);
@@ -488,14 +599,18 @@ struct Renderer::Impl {
                                      bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
-                       const MaterialInputs& in, bool shadowPass);
+                       const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
     void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
-    void prepass_pass(DrawContext& ctx, const Target& t);
+    // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
+    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false);
+    // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
+    // `pre` is the prepass the shader's visibility test reads.
+    void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);
     // The outline's image (M71-C2): plan_outline settles it after plan_prepass (a depth outline needs the prepass, a sprite outline a
     // coverage image of the 2D world; without it the effect is dropped from the plan), coverage_pass draws the 2D world's alpha into `t`.
     void plan_outline(DrawContext& ctx);

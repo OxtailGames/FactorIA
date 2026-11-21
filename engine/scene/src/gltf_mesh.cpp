@@ -148,6 +148,33 @@ Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, co
         mm.emissive = Color{m->emissive_factor[0], m->emissive_factor[1], m->emissive_factor[2], 1};
         mm.doubleSided = m->double_sided;
         mm.blend = m->alpha_mode == cgltf_alpha_mode_blend;
+        // The layer extensions (M73.6): the factors are kept. An editable mesh has one texture per material (the base colour), so
+        // the textures of the layers are not carried: the factors alone are used, and the report names each texture.
+        const std::string what = std::format("{}: material '{}'", path, name);
+        read_material_layers(*m, what, mm.layers, out.warnings);
+        auto lost = [&](const cgltf_texture_view& v, const char* texture) {
+            if (v.texture && v.texture->image)
+                out.warnings.push_back(std::format(
+                    "{}: {} is not carried into an editable mesh, so the material's factor is used for the whole "
+                    "surface (the model file used as MeshRenderer.mesh keeps its layer textures).",
+                    what, texture));
+        };
+        if (m->has_clearcoat) {
+            lost(m->clearcoat.clearcoat_texture, "clearcoatTexture");
+            lost(m->clearcoat.clearcoat_roughness_texture, "clearcoatRoughnessTexture");
+            lost(m->clearcoat.clearcoat_normal_texture, "clearcoatNormalTexture");
+        }
+        if (m->has_sheen) {
+            lost(m->sheen.sheen_color_texture, "sheenColorTexture");
+            lost(m->sheen.sheen_roughness_texture, "sheenRoughnessTexture");
+        }
+        if (m->has_anisotropy) lost(m->anisotropy.anisotropy_texture, "anisotropyTexture");
+        if (m->has_specular) {
+            lost(m->specular.specular_texture, "specularTexture");
+            lost(m->specular.specular_color_texture, "specularColorTexture");
+        }
+        if (m->has_transmission) lost(m->transmission.transmission_texture, "transmissionTexture");
+        if (m->has_volume) lost(m->volume.thickness_texture, "thicknessTexture");
         out.materials.push_back(mm);
         return materialIndex[m] = out.materials.size() - 1;
     };

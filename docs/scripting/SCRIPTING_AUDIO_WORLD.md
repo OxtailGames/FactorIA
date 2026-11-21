@@ -242,8 +242,8 @@ first camera. With one camera and the default viewport nothing changes. `mouse.w
 the pointer. Each camera draws into `Camera.viewport` (a part of the screen, 0..1, top-left origin): two or more primary cameras
 make a split screen, see the recipe in AI_GUIDE section 9.29. A script that sets `viewport` live gets a value outside the
 screen clamped to it, with one warning.
-The `Camera` component fields are live, for example `camera.main.get("Camera").bloomIntensity = 2` changes the glow
-(`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`; see AI_GUIDE section 9.20).
+The `Camera` component fields are live, for example `camera.main.get("Camera").orthoSize = 200` zooms. The glow is a
+`PostProcess` on the camera's entity: `camera.main.entity.get("PostProcess").bloomIntensity = 2` (see AI_GUIDE section 9.20).
 
 ### debug
 `line(a, b, color?)`, `rect(x, y, w, h, color?)`, `circle(center, r, color?)`, `text(screenPos, str, color?)`.

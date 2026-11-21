@@ -20,14 +20,14 @@
 
 namespace fa::render {
 
-// Camera.bloom* -> supported ranges. NaN and infinities fall back to the defaults.
+// PostProcess bloom -> supported ranges. NaN and infinities fall back to the defaults.
 BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius, bool screenSpace = true);
 
 // Where the glow is added. `att` is a color-attachment view of the game target. With MSAA the glow can go either
 // into the single-sample RESOLVED image (att = the resolve image's own attachment view, the default flow) or into the
 // multisampled image itself (att = the MSAA view, `resolve` = the resolve attachment view, `samples` = its sample
 // count): the pass then resolves at its end, and the multisampled image keeps the glow so that a later pass (the HUD
-// of Camera.bloomScreenSpace = false) can draw on top of it with MSAA and resolve again.
+// of PostProcess.bloomScreenSpace = false) can draw on top of it with MSAA and resolve again.
 struct BloomTarget {
     sg_view att{};
     sg_view resolve{};

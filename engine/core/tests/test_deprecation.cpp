@@ -185,3 +185,20 @@ TEST_CASE("deprecation: the lock-free pre-check never misses an entry and almost
         CHECK(d.may_contain_component("Comp" + std::to_string(i)));
     }
 }
+
+TEST_CASE("removed_field_hint names the PostProcess for the removed Camera post fields, whatever the case") {
+    const std::string bloom = removed_field_hint("Camera", "bloom");
+    CHECK(bloom.find("Camera.bloom was removed in 0.33.0") == 0);
+    CHECK(bloom.find("PostProcess") != std::string::npos);
+    const std::string filter = removed_field_hint("Camera", "colorFilter");
+    CHECK(filter.find("Camera.colorFilter was removed in 0.33.0") == 0);
+    CHECK(filter.find("colorFilterMode") != std::string::npos);
+    // The field name ignores case, and the hint spells it as the table does.
+    CHECK(removed_field_hint("Camera", "Bloom") == bloom);
+    CHECK(removed_field_hint("Camera", "COLORFILTER") == filter);
+    // A field never removed, a field of another component, an unknown component.
+    CHECK(removed_field_hint("Camera", "fov").empty());
+    CHECK(removed_field_hint("Light", "bloom").empty());
+    CHECK(removed_field_hint("camera", "bloom").empty());
+    CHECK(removed_field_hint("Camera", "").empty());
+}

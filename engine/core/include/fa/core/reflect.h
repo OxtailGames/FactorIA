@@ -70,7 +70,7 @@ struct FieldInfo {
     std::string doc;                     // one or two sentences; shown to humans and AIs
     std::vector<std::string> enumNames;  // Enum: value i <-> enumNames[i] (lowercase)
     std::string
-        assetType;  // Asset: "texture" | "mesh" | "audio" | "video" | "font" | "script" | "scene" | "prefab" | "any"
+        assetType;  // Asset: "texture" | "mesh" | "audio" | "video" | "font" | "script" | "scene" | "prefab" | "hdri" | "any"
     float minValue = 0.0f;  // UI/validation hint; minValue == maxValue means unbounded
     float maxValue = 0.0f;
     bool serialized = true;  // false = runtime-only state (not saved to scenes)

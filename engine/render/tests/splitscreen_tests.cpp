@@ -307,14 +307,7 @@ TEST_CASE("split screen: bloom and the HUD work over the frame of several camera
     World w;
     Entity left = camera(w, "left", {0, 0, 0}, {0, 0, 0.5f, 1}, kGrey, 0);
     camera(w, "right", {500, 0, 0}, {0.5f, 0, 0.5f, 1}, kDark, 1);
-    {
-        auto& c = *w.get<Camera>(left);
-        c.bloom = true;
-        c.bloomThreshold = 0.5f;
-        c.bloomIntensity = 1.0f;
-        c.bloomRadius = 12.0f;
-        c.bloomScreenSpace = false;
-    }
+    set_bloom(w, left, true, 0.5f, 1.0f, 12.0f, false);
     square(w, {0, 0, 0}, kYellow);
     square(w, {500, 0, 0}, kBlue);
     Entity hud = make(w, "hud", {160, 90, 0});

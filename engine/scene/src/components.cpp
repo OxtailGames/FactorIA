@@ -386,7 +386,8 @@ void register_builtin_components(TypeRegistry& r) {
          "Camera",
          "Renders the scene to the screen. Every active camera with primary=true draws its view into its viewport "
          "(the whole screen by default), in ascending depth order: the lowest depth draws first and is \"the\" "
-         "camera (camera.main; the bloom and colorFilter of the frame are its). Two or more cameras with their own "
+         "camera (camera.main; the bloom and colorFilter of the frame are those of its PostProcess). Two or more "
+         "cameras with their own "
          "viewport make split-screen (two players side by side, four in quarters) or an inset (a minimap). Each camera "
          "culls, lights and sorts its own view; screen-space items (UI, HUD) are drawn once over the whole screen, "
          "after all the cameras. 3D cameras look down their local -Z axis.",
@@ -422,7 +423,7 @@ void register_builtin_components(TypeRegistry& r) {
                "Draw order of the cameras: the lowest depth draws first, the highest on top where viewports overlap. "
                "The lowest "
                "is the camera that camera.main, a screen conversion without a camera and the post effects (bloom, "
-               "colorFilter) use. Cameras with the same depth keep the order of creation.")
+               "colorFilter of a PostProcess) use. Cameras with the same depth keep the order of creation.")
         .field(
             "viewport", &Camera::viewport,
             "The part of the screen this camera draws into: [x, y, width, height], each from 0 to 1, with [0, 0] the "
@@ -442,7 +443,8 @@ void register_builtin_components(TypeRegistry& r) {
             "on its "
             "own, so a Light2D only lights the cameras it reaches. The post-processing stack of a "
             "camera (exposure, tonemap and the screen effects, outline included) runs over that camera's own "
-            "rectangle; only bloom, bloomScreenSpace and colorFilter are applied once to the finished frame, with the "
+            "rectangle; only the PostProcess bloom, bloomScreenSpace and colorFilter are applied once to the finished "
+            "frame, with the "
             "settings of the lowest-depth camera that draws, and the other cameras' values of those are ignored. UI "
             "and screen-space items cover the whole screen, not one viewport. "
             "camera.screenToWorld(point, camera) and camera.at(point) tell which camera is under a screen point. "
@@ -485,63 +487,6 @@ void register_builtin_components(TypeRegistry& r) {
                "bright and "
                "may wash out pale colours.")
         .range(0, 8)
-        .field(
-            "bloom", &Camera::bloom,
-            "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
-            "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
-            "included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend \"additive\" on "
-            "Sprite, Shape2D or "
-            "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
-            "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for "
-            "headless runs). "
-            "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With "
-            "several "
-            "cameras the bloom settings of the lowest-depth camera apply to the whole frame.")
-        .field(
-            "bloomThreshold", &Camera::bloomThreshold,
-            "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
-            "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
-            "saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest "
-            "pixels do (values above 0.99 behave like 0.99).")
-        .range(0, 1)
-        .field(
-            "bloomIntensity", &Camera::bloomIntensity,
-            "Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, "
-            "1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.")
-        .range(0, 10)
-        .field("bloomRadius", &Camera::bloomRadius,
-               "Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a "
-               "gaussian blur "
-               "whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 "
-               "(the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide "
-               "glows are softer). Limited to 1..128.")
-        .range(1, 128)
-        .field("bloomScreenSpace", &Camera::bloomScreenSpace,
-               "Only used when bloom is true. true (default): the whole finished frame glows, screen-space items "
-               "(Sprite, Shape2D, Text with space \"screen\", and debug text) included, so a bright neon title or HUD "
-               "icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) "
-               "stays "
-               "crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright "
-               "text "
-               "over a glowing world; leave it true to make a screen-space title or logo glow.")
-        .enum_field(
-            "colorFilter", &Camera::colorFilter,
-            {"none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"},
-            "Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame "
-            "(HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at "
-            "and "
-            "--record-video show it too. A game's options screen sets it from the player's choice (it is not saved "
-            "by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. "
-            "highContrast: "
-            "contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize "
-            "correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity "
-            "1.0) "
-            "and the lost information is shifted into the channels the player still sees (Fidaner's method), so "
-            "colours "
-            "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
-            "without changing what the player sees, use the `simulate` option of game.screenshot / "
-            "--screenshot-simulate "
-            "instead. With several cameras the lowest-depth camera's filter covers the whole frame.")
         .field("renderTarget", &Camera::renderTarget,
                "Makes this camera draw into a TEXTURE instead of the screen, live every frame: a name such as "
                "\"book\". The texture "
@@ -1615,7 +1560,7 @@ void register_builtin_components(TypeRegistry& r) {
             "space", &ParticleEmitter::space, {"world", "screen"},
             "world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin "
             "TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with "
-            "Camera.bloomScreenSpace "
+            "PostProcess.bloomScreenSpace "
             "= false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, "
             "negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.")
         .field(
@@ -1886,7 +1831,8 @@ void register_builtin_components(TypeRegistry& r) {
                "1 = as written; "
                "above 1 the glow is brighter than white, which a color array cannot say (an array with a channel over "
                "1 is read "
-               "as 0..255), and with `Camera.bloom` it makes a bigger, brighter halo. The screen still shows at most "
+               "as 0..255), and with `PostProcess.bloomEnabled` it makes a bigger, brighter halo. The screen still "
+               "shows at most "
                "white. "
                "Meshes that differ only here are not drawn in the same batch.")
         .range(0, 100)
@@ -1967,15 +1913,129 @@ void register_builtin_components(TypeRegistry& r) {
             "entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's "
             "view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity "
             "that is off screen.")
-        .range(0, 1000000);
+        .range(0, 1000000)
+        .field("lightmapScale", &MeshRenderer::lightmapScale,
+               "Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the "
+               "scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface "
+               "(16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the "
+               "bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into "
+               "the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "
+               "\"Baking\").")
+        .range(0, 100)
+        .field("contributeGI", &MeshRenderer::contributeGI,
+               "Whether the surface bounces light onto others in a lightmap bake and in the realtime global "
+               "illumination. No effect yet: M73.4 brings the bake and M73.5 the realtime GI.")
+        .field("receiveGI", &MeshRenderer::receiveGI,
+               "Whether the surface is lit by the baked lightmap (when the manifest of SceneSettings.lightmaps has an "
+               "entry for this entity: the baked irradiance replaces the ambient light and the sky's diffuse "
+               "light, and lights with mode baked are skipped on it). false = the entity ignores its lightmap entry "
+               "and is lit in realtime, and a bake leaves it out as a receiver. A mesh with no lightmap entry (a "
+               "moving object, lightmapScale 0, a skinned mesh) that stands inside a LightProbeGroup takes the "
+               "baked probe light as its ambient light; receiveGI false turns that off too. The realtime global "
+               "illumination (M73.5) reads it as well.")
+        .field("probeAnchor", &MeshRenderer::probeAnchor,
+               "The entity whose world position samples the light probes for this mesh (a character's chest, a "
+               "car's centre). Empty (default) = the centre of the mesh's bounds. Only meshes without a lightmap "
+               "entry read the probes, see LightProbeGroup. A missing or disabled entity is the same as empty.")
+        .field("clearcoat", &MeshRenderer::clearcoat,
+               "Strength 0..1 of a clear coat layer over the surface (car paint, lacquer; glTF "
+               "KHR_materials_clearcoat). 0 = none. A glTF model with the extension brings its own value; a value here "
+               "replaces it.")
+        .range(0, 1)
+        .field("clearcoatRoughness", &MeshRenderer::clearcoatRoughness,
+               "Roughness 0..1 of the clear coat layer (the engine keeps it at 0.05 or more). The default 0.03 leaves "
+               "the model's own value.")
+        .range(0, 1)
+        .field(
+            "sheenColor", &MeshRenderer::sheenColor,
+            "Colour of the cloth sheen at grazing angles (velvet, satin; glTF KHR_materials_sheen). Black (default) = "
+            "no sheen. A colour here replaces the one of a glTF model (KHR_materials_sheen).")
+        .field("sheenRoughness", &MeshRenderer::sheenRoughness,
+               "Roughness 0..1 of the sheen layer (the engine keeps it at 0.1 or more). The default 0.5 leaves the "
+               "model's own value.")
+        .range(0, 1)
+        .field("anisotropy", &MeshRenderer::anisotropy,
+               "Stretch -1..1 of the highlight along the tangent direction (brushed metal, hair; glTF "
+               "KHR_materials_anisotropy); 0 = round highlights; negative stretches across the tangent. A value here "
+               "replaces the model's own.")
+        .range(-1, 1)
+        .field("anisotropyRotation", &MeshRenderer::anisotropyRotation,
+               "Degrees that turn the direction of the anisotropic stretch around the normal. 0 leaves the model's own "
+               "rotation.")
+        .range(-360, 360)
+        .field("specular", &MeshRenderer::specular,
+               "Strength 0..1 of the specular reflection of a non-metal surface (glTF KHR_materials_specular); 1 = the "
+               "usual look; 0 removes the reflection, and with ior 1.5 the reflectance at normal incidence is 4% x "
+               "specular. "
+               "Another value replaces the model's own.")
+        .range(0, 1)
+        .field("ior", &MeshRenderer::ior,
+               "Index of refraction, 1..3 (glTF KHR_materials_ior): 1.5 is glass and plastic, 1.33 water, 2.4 "
+               "diamond. It sets the reflectance of a non-metal at normal incidence, ((ior - 1) / (ior + 1))^2 (1.5 = "
+               "4%). "
+               "Another value replaces the model's own.")
+        .range(1, 3)
+        .field("transmission", &MeshRenderer::transmission,
+               "How much light 0..1 passes through the surface instead of reflecting, as glass does (glTF "
+               "KHR_materials_transmission). 0 = opaque. The mesh is drawn after the opaque ones (like a blended mesh) "
+               "and shows "
+               "the opaque picture behind it, refracted and blurred by roughness "
+               "(docs/rendering/RENDERING_TRANSMISSION.md).")
+        .range(0, 1)
+        .field("thickness", &MeshRenderer::thickness,
+               "Metres the light travels inside the volume of a transmissive surface (glTF KHR_materials_volume). "
+               "0 = a thin surface (no tint, no offset of the refraction); the thicker, the more the refraction shifts "
+               "the "
+               "picture behind and the more attenuationColor tints it. It is in world metres, not scaled by the "
+               "entity's scale.")
+        .range(0, 1000)
+        .field("attenuationColor", &MeshRenderer::attenuationColor,
+               "Colour the light takes after travelling attenuationDistance inside the volume (tinted glass, "
+               "liquids), with attenuationDistance. White (default) = no tint.")
+        .field("attenuationDistance", &MeshRenderer::attenuationDistance,
+               "Metres of travel inside the volume at which the light has the colour attenuationColor. 0 (default) = "
+               "the volume does not tint the light (glTF infinity reads as 0).")
+        .range(0, 100000)
+        .field("subsurface", &MeshRenderer::subsurface,
+               "Strength 0..1 of the screen-space subsurface scattering (skin, wax, marble): the diffuse light "
+               "of the surface is blurred over subsurfaceRadius metres, so light that enters the lit side leaves "
+               "the shadow side softly, and the specular stays sharp. 0 (default) = none and no extra cost. Drawn "
+               "for opaque meshes with the engine's own material program; see docs/rendering/RENDERING_LIGHTING.md.")
+        .range(0, 1)
+        .field("subsurfaceRadius", &MeshRenderer::subsurfaceRadius,
+               "Metres the diffuse light spreads inside the surface, for the colour channel with the widest "
+               "spread (subsurfaceColor 1): about 0.005..0.02 for skin, 0.02..0.06 for wax. Clamped to 0..0.5. "
+               "Has an effect only when subsurface is above 0.")
+        .range(0, 0.5f)
+        .field("subsurfaceColor", &MeshRenderer::subsurfaceColor,
+               "How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue "
+               "lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same "
+               "(marble). Alpha is ignored. Has an effect only when subsurface is above 0.")
+        .field("receiveDecals", &MeshRenderer::receiveDecals,
+               "true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it "
+               "(a character that must stay clean, a mesh drawn by a custom shader that does not call "
+               "fa_apply_decals). Drawn since M73.5b.")
+        .field("decalLayer", &MeshRenderer::decalLayer,
+               "0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` "
+               "mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.")
+        .range(0, 15);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
-                 "rotated by the Transform), point and spot lights shine from the entity's position.",
+                 "rotated by the Transform), point and spot lights shine from the entity's position, an area light "
+                 "from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them "
+                 "directional): each fragment reads only the lights of its cluster. The fields after castShadows "
+                 "belong to the lighting of M73; the doc string of each says whether the renderer draws it yet "
+                 "(docs/rendering/RENDERING_LIGHTING.md).",
                  "3D")
         .enum_field(
-            "type", &Light::type, {"directional", "point", "spot"},
-            "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward.")
+            "type", &Light::type, {"directional", "point", "spot", "area"},
+            "directional: sun-like, infinite distance. point: radiates in all directions. spot: cone along forward. "
+            "area: a rectangle, disc or tube (`shape`, `size`) that lights with soft highlights and a diffuse "
+            "term that follows its extent (linearly transformed cosines; drawn since M73.1b). Far from a surface it "
+            "lights like a point light of the same `intensity`; near it, it is bounded, never infinitely bright. "
+            "Materials with a lighting() or light() hook and full shaders get it as the light of one point of the "
+            "emitter (the nearest to the reflection of the view), not the whole shape.")
         .field("color", &Light::color, "Light color.")
         .field("intensity", &Light::intensity, "Brightness multiplier.")
         .range(0, 1000)
@@ -1983,7 +2043,345 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0.01f, 100000)
         .field("spotAngle", &Light::spotAngle, "Spot only: cone half-angle in degrees.")
         .range(1, 89)
-        .field("castShadows", &Light::castShadows, "Cast shadows. Only supported on directional lights for now.");
+        .field("castShadows", &Light::castShadows,
+               "Cast shadows (M73.2). A directional light shadows with cascades (the first one that casts: see "
+               "SceneSettings.shadowCascades); a spot light with one perspective map and a point (or area) light with "
+               "six, an area light from the centre of its emitter (with shadowFilter pcss the penumbra is as wide "
+               "as the emitter: see shadowSoftness), "
+               "all in the same atlas (SceneSettings.shadowAtlasSize). The point and spot lights that cast share a "
+               "budget per frame: the most important for the camera (brightness, range, distance) keep their maps, get "
+               "smaller ones when the atlas is full and lose the shadow when even that does not fit (a warning names "
+               "the fix once).")
+        .field("innerAngle", &Light::innerAngle,
+               "Spot only: half-angle in degrees of the cone inside which the light is at full strength; it fades to "
+               "nothing at spotAngle (a larger value is used as spotAngle). 0 (default) = the cone fades as it "
+               "does today (a smoothstep of the cosine from the edge of the cone inwards). Drawn since M73.1a.")
+        .range(0, 89)
+        .enum_field(
+            "shape", &Light::shape, {"rectangle", "disc", "tube"},
+            "Area lights only: the shape of the emitter. rectangle and disc lie in the entity's X and Y axes and "
+            "emit from their front, the side the entity's forward direction points to (nothing behind); a tube "
+            "is a line of light along the entity's X axis and emits all around. Drawn since M73.1b.")
+        .field("size", &Light::size,
+               "[width, height] in metres of a rectangle, [diameter, -] of a disc (x), [length, thickness] of a tube "
+               "(area lights); of a directional light with a cookie, the metres one copy of the cookie covers along "
+               "the light's X and Y axes (the cookie repeats over the world, starting at the world origin). Other "
+               "lights ignore it.")
+        .range(0.001f, 1000)
+        .asset_field(
+            "cookie", &Light::cookie, "texture",
+            "A texture the light projects (window blinds, a leaf canopy, a flashlight's shape). A spot light "
+            "projects it through its cone (the edge of the cone is the edge of the picture); a directional "
+            "light projects it straight along its forward direction, repeated every `size` metres. Its "
+            "colour multiplies the light's (premultiplied by its alpha); the texture is resampled to 254 x 254 "
+            "texels. A point light projects it all around: the picture is read as an equirectangular panorama (the "
+            "centre in the light's forward direction), stored as six faces of 254 texels, so 1024 x 512 or more "
+            "is useful. Area lights ignore it (a warning says so once). "
+            "Empty = none. Drawn since M73.1b; render.supports lightCookies.")
+        .asset_field("ies", &Light::ies, "any",
+                     "An IES profile (.ies file, LM-63 photometric type C; import it with assets.import) with the "
+                     "measured light distribution of a real lamp, on a point or spot light. The profile's nadir "
+                     "points along the entity's forward direction. The table is divided by its peak, so `intensity` "
+                     "stays the brightness at the brightest direction and the file only shapes the light. Empty = the "
+                     "plain distribution. Drawn since M73.1b; render.supports iesProfiles.")
+        .field(
+            "shadowResolution", &Light::shadowResolution,
+            "Texels per side of each shadow map of this light, 0..4096. Directional: per cascade (a value under 128 "
+            "is raised to 128, rounded down to a power of two); 0 (default) = the engine picks, 2048 for one cascade "
+            "and 1024 for several. Point and spot: per tile (a point light has six, one per face), 64..2048 rounded "
+            "down to a power of two; 0 = from the distance to the camera (1024, 512 per face of a point light, "
+            "smaller as the camera moves away from the light's range). When the maps do not fit the atlas "
+            "(SceneSettings.shadowAtlasSize) the largest are halved, the least important first, down to 128 for "
+            "the sun and 64 for the others.")
+        .range(0, 4096)
+        .field(
+            "shadowBias", &Light::shadowBias,
+            "Depth offset of the shadow test in metres along the light, 0..1, against shadow acne; it grows with "
+            "the slope of the surface. 0 (default) = the engine's own bias, 1.5 texels of the map (of the tile at the "
+            "surface's distance for a point or spot light).")
+        .range(0, 1)
+        .field("shadowNormalBias", &Light::shadowNormalBias,
+               "Offset along the surface normal, in metres 0..1, against shadow acne on slopes. 0 (default) = the "
+               "engine's own, 1.5 texels of the map (of the tile at the surface's distance for a point or spot light).")
+        .range(0, 1)
+        .enum_field("shadowFilter", &Light::shadowFilter, {"pcf", "hard", "pcss"},
+                    "How the edge of the shadow is filtered. pcf (default): a small fixed blur. hard: no filtering, "
+                    "the sharpest and cheapest. pcss: a penumbra that grows with the distance to the caster, sized "
+                    "by shadowSoftness.")
+        .field("shadowSoftness", &Light::shadowSoftness,
+               "With shadowFilter pcss: the size of the light for the penumbra, 0..10 (1 = the usual: a sun about 6 "
+               "degrees wide; for an area light 1 = the size of its emitter, `size`). 0 = the narrowest penumbra, a "
+               "plain PCF of 1.5 texels (use shadowFilter hard for a hard shadow).")
+        .range(0, 10)
+        .field(
+            "shadowDistance", &Light::shadowDistance,
+            "How far from the camera, in metres, this light draws shadows. Directional: the end of the last cascade. "
+            "Point and spot: the shadow fades out between 75% of this distance and this distance from the camera, "
+            "and a light farther away than this plus its range gets no map at all (it costs nothing). 0 (default) = "
+            "the scene's SceneSettings.shadowDistance; when that is 0 too, a point or spot light has no limit.")
+        .range(0, 100000)
+        .enum_field("mode", &Light::mode, {"realtime", "baked", "mixed"},
+                    "realtime (default): lit every frame. baked: its light is computed once into the lightmaps "
+                    "(lightmap.bake) and an entity lit by a lightmap no longer gets it at run time; an entity with no "
+                    "lightmap entry is still lit by it every frame, so nothing goes dark before the bake (with "
+                    "castShadows, a point or spot light of this mode gets a shadow map only while a mesh with no "
+                    "lightmap is within its range: the lightmapped ones skip it). mixed: "
+                    "lit every frame like a realtime light, with shadows (its bounce light in the lightmaps and the "
+                    "light probes for moving objects: M73.4c and M73.4d).")
+        .field("volumetric", &Light::volumetric,
+               "Strength 0..10 of this light's shafts in the volumetric fog: how much of its light the fog scatters "
+               "towards the camera (1 = as bright as the light makes a white surface). It only matters with "
+               "SceneSettings.volumetricFog on; the light's shadows cut the shafts when castShadows is on. 0 "
+               "(default) = no shafts, and a directional light needs a value above 0 too. A camera scatters up to "
+               "4 directional lights and its most important point and spot lights (4, 8 or 16 by "
+               "SceneSettings.volumetricQuality); stats volumetricLightsDropped counts the others.")
+        .range(0, 10)
+        .field("contactShadowLength", &Light::contactShadowLength,
+               "Metres of the screen-space contact shadow of this light: from every pixel a short ray (12 steps) "
+               "marches toward the light through the depth the camera sees, and what it runs into shadows the light, "
+               "which adds fine shadows where objects touch the floor or each other, closing the gap a shadow map "
+               "leaves at the contact line. 0 (default) = off; 0.1 to 1 is typical, the ray never goes past the "
+               "light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass "
+               "(render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's "
+               "shadow, so it also works with a light that has castShadows off. A directional light, a spot and a "
+               "point light have it (an area light marches toward the point of its emitter that lights the pixel). "
+               "Screen space: only what is in the "
+               "picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor "
+               "receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).")
+        .range(0, 10);
+
+    r.add<Decal>(
+         "Decal",
+         "A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, "
+         "graffiti, dirt, road markings, the cracks of a wall. The box is the Transform's world matrix applied to a "
+         "cube "
+         "of side 1 (scale = size in metres); the decal projects along the entity's forward (-Z), its image is upright "
+         "when seen from +Z (the top of the image is +Y). Every mesh with receiveDecals inside the box takes it, the "
+         "albedo blended over the surface and the normal bent, with no extra geometry and one draw per mesh. Up to "
+         "256 decals are drawn at once (the ones that reach the view). It is drawn by the lit forward shaders only: a "
+         "mesh drawn by a custom shader must call fa_apply_decals (docs/shaders/SHADERS_LIGHTING.md). Not the same as "
+         "the decals of a model's `texturing` section, which bake a picture into the UV texture of one model. The "
+         "textures of all the "
+         "decals share one atlas; see docs/rendering/RENDERING_DECALS_FOG.md, \"Decals\".",
+         "3D")
+        .asset_field("albedo", &Decal::albedo, "texture",
+                     "The colour texture painted onto the surface (its alpha is the shape of the decal). Empty = the "
+                     "decal is a flat patch of `color` over the whole box. The texture is read as sRGB colour.")
+        .asset_field("normal", &Decal::normal, "texture",
+                     "Optional normal map (tangent space, +Y up, the file is read as linear data) that bends the "
+                     "normal of the surface under the decal (bullet dents, bumpy paint, a raised sticker). Empty = "
+                     "the normal stays.")
+        .field("color", &Decal::color,
+               "Tint multiplied with the albedo texture; its alpha is multiplied with the texture's alpha. White "
+               "(default) leaves the texture as it is.")
+        .field("opacity", &Decal::opacity,
+               "0..1: strength of the whole decal, for fading it out (a bloodstain that dries).")
+        .range(0, 1)
+        .field("normalStrength", &Decal::normalStrength,
+               "0..4: how strongly `normal` bends the surface (1 = the map as painted, 0 = not at all).")
+        .range(0, 4)
+        .field("angleFade", &Decal::angleFade,
+               "Degrees 0..90. The decal is at full strength while the angle between the surface's normal and the "
+               "projector's axis (the decal looks along its local -Z) is under this; beyond it the strength falls as "
+               "cos(angle) / cos(angleFade) and reaches 0 only when the surface is edge-on (90 degrees), so a smaller "
+               "value keeps the decal from smearing along walls seen at a slant. 90 keeps full strength until the "
+               "surface is edge-on. Default 60.")
+        .range(0, 90)
+        .field("sortOrder", &Decal::sortOrder,
+               "Decals are drawn in ascending order of this value (a larger one lands on top of a smaller one); "
+               "equal values keep the order in which the world visits its Decal components (a stable sort). When "
+               "more than 32 decals cover one cluster of the view the lowest values are kept.")
+        .range(-1000000, 1000000)
+        .field("layers", &Decal::layers,
+               "Bit mask 0..65535 of the MeshRenderer.decalLayer values this decal draws on: bit 0 is layer 0, bit 1 "
+               "layer 1, up to bit 15. 0 (default) = every layer.")
+        .range(0, 65535);
+
+    r.add<ReflectionProbe>(
+         "ReflectionProbe",
+         "Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube "
+         "unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical "
+         "harmonics, and keeps it in the engine's probe atlas. The box (boxSize, boxOffset) is the region the probe "
+         "lights: a lit mesh inside it reflects the probe (and takes its diffuse light where no lightmap or light "
+         "probe covers it), "
+         "blended with the next probe or the sky in the blendDistance band at the box edge; where boxes overlap the "
+         "one "
+         "with the larger importance wins, a mesh outside every box reflects the sky. A baked probe is written once by "
+         "the "
+         "command probe.bake (HDR pages on disk, referenced by bakedMap, reloaded when they change); a realtime probe "
+         "is captured while the game runs, within a budget per frame (update). The command render.probes shows the "
+         "atlas "
+         "and, with `entity`, which probes a mesh reflects. "
+         "See docs/rendering/RENDERING_LIGHTING.md, \"Reflection probes\".",
+         "3D")
+        .enum_field("mode", &ReflectionProbe::mode, {"baked", "realtime"},
+                    "baked (default): the probe shows what probe.bake wrote to bakedMap (nothing until it is baked; "
+                    "it costs no GPU time while the game runs). realtime: the scene is captured from this position "
+                    "while the game runs, as `update` says.")
+        .field("boxSize", &ReflectionProbe::boxSize,
+               "Size in metres of the box the probe lights, along the entity's local X, Y and Z (the entity's scale "
+               "multiplies it). Each side 0.01..100000. Default [10, 10, 10].")
+        .field("boxOffset", &ReflectionProbe::boxOffset,
+               "Where the centre of the box is, in metres from the entity's origin along its local axes (the capture "
+               "is taken from the origin). Default [0, 0, 0].")
+        .field("blendDistance", &ReflectionProbe::blendDistance,
+               "Metres, 0..1000: the band inside the edge of the box where the probe fades out into the next one. "
+               "Default 1.")
+        .range(0, 1000)
+        .field("importance", &ReflectionProbe::importance,
+               "-1000..1000. Where boxes overlap the probe with the larger importance is drawn on top, and when the "
+               "atlas has no room the probe with the smallest importance is evicted first. Default 0.")
+        .range(-1000, 1000)
+        .field("resolution", &ReflectionProbe::resolution,
+               "Texels per side of the probe's map: 32, 64, 128 (default) or 256 (another value is rounded to the "
+               "nearest of these). A map of 128 costs about 128 KB in RGBA16F with its blurry versions.")
+        .range(32, 256)
+        .field("nearPlane", &ReflectionProbe::nearPlane,
+               "Metres, 0.01..100: the nearest distance the capture draws. Default 0.1.")
+        .range(0.01f, 100)
+        .field("farPlane", &ReflectionProbe::farPlane,
+               "Metres, 0.1..100000: the farthest distance the capture draws; farther than this the capture shows "
+               "`clear`. Default 100.")
+        .range(0.1f, 100000)
+        .enum_field("clear", &ReflectionProbe::clear, {"sky", "color"},
+                    "What the capture shows where no mesh is drawn: sky (default, the scene's sky) or color "
+                    "(clearColor).")
+        .field("clearColor", &ReflectionProbe::clearColor,
+               "The colour of the empty space with clear color (alpha is ignored; values above 1 are allowed, an "
+               "HDR colour). Default black.")
+        .field("showTags", &ReflectionProbe::showTags,
+               "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
+               "empty the capture draws only the entities that have one of these tags or a parent that does (as "
+               "Camera.showTags).")
+        .field("hideTags", &ReflectionProbe::hideTags,
+               "Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the "
+               "capture (as Camera.hideTags). Default [].")
+        .enum_field("update", &ReflectionProbe::update, {"everyFrame", "timeSliced", "onDemand"},
+                    "Only for mode realtime. A capture is six cube faces and the filtering, and all realtime probes "
+                    "together draw at most the renderer's face budget a frame (2 by default), so a capture takes "
+                    "several frames. everyFrame: a new capture starts as soon as the last one is done, before the "
+                    "probes of the other kinds (use it for one or two probes). timeSliced (default): the probes take "
+                    "turns, the more important and the longest ago captured first. onDemand: captured when the probe "
+                    "appears and then only when the command render.probe_refresh asks for it.")
+        .asset_field("bakedMap", &ReflectionProbe::bakedMap, "any",
+                     "Project-relative path of the .probe.json that probe.bake wrote for this probe (it lists the .hdr "
+                     "pages next to it). Empty = not baked. A baked probe whose file is missing or older than its "
+                     "format logs one warning and stays empty; the file is watched and reloaded when it changes.")
+        .field("intensity", &ReflectionProbe::intensity,
+               "0..100: multiplies what the probe reflects and the diffuse light it gives. Default 1.")
+        .range(0, 100)
+        .field("boxProjection", &ReflectionProbe::boxProjection,
+               "True (default): the reflection is corrected for the box (the room's walls are where the box edge "
+               "is), which suits an interior. False: the reflection is the one of an infinitely far environment.");
+
+    r.add<LightProbeGroup>(
+         "LightProbeGroup",
+         "Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them "
+         "(spherical harmonics, as the direct light of the baked lights, the sky and their bounces). A MeshRenderer "
+         "that has no lightmap of its own (a character, a door, a pickup, anything with lightmapScale 0 or a skinned "
+         "mesh) reads the probes around it and takes that light as its ambient light, so it is not lit by the flat sky "
+         "while it walks through a baked room. The grid is axis-aligned in the world: its centre is the entity's world "
+         "position + `offset`, `size` is the box and `spacing` the distance between probes; the entity's rotation and "
+         "scale do not turn it. `points` adds single probes. A probe inside a wall or prop (most of its rays hit the "
+         "back of a surface) is flagged invalid by the bake and skipped at runtime. Outside every group the object is "
+         "lit by the sky's ambient light as before. A group makes at most 16384 grid probes and a scene 65536 in all. "
+         "docs/rendering/RENDERING_LIGHT_PROBES.md.",
+         "3D")
+        .field(
+            "size", &LightProbeGroup::size,
+            "[x, y, z] metres: the box the grid fills, centred on the entity's world position + offset. 0 on an axis "
+            "makes one layer of probes on that axis (a floor of probes for a flat level). Default [10, 4, 10].")
+        .field("spacing", &LightProbeGroup::spacing,
+               "Metres between two probes of the grid, 0.25..100. A probe is a ray-traced point: halving the spacing "
+               "makes eight times the probes in a box. 1 to 2 m is usual for rooms. The count along an axis is "
+               "floor(size / spacing) + 1.")
+        .range(0.25f, 100)
+        .field("offset", &LightProbeGroup::offset,
+               "[x, y, z] metres: where the box's centre is relative to the entity's world position. Lift it so the "
+               "layers of probes are at the height of the objects' centres, not at their feet.")
+        .field("grid", &LightProbeGroup::grid,
+               "true (default): the box of `size` is filled with a grid of probes. false: only the single `points` "
+               "are probes (size, spacing and offset are ignored).")
+        .field("points", &LightProbeGroup::points,
+               "Extra single probes: an array of [x, y, z] world positions, up to 256. A manual probe lights the "
+               "objects within 5 metres of it (the nearer, the stronger), next to the grid's own. Use them for a "
+               "corridor or a corner the grid is too coarse for. A bad entry is an error when baking.")
+        .field("showGizmo", &LightProbeGroup::showGizmo,
+               "The editor draws every probe of this group as a small sphere coloured by the baked light it holds "
+               "(grey before the first bake, red when the bake found it inside geometry). Not drawn in the game.");
+
+    r.add<RealtimeGI>(
+         "RealtimeGI",
+         "Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world "
+         "(centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the "
+         "renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six "
+         "small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine "
+         "spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared "
+         "distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` "
+         "probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is "
+         "blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit "
+         "the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without "
+         "this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the "
+         "game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the "
+         "sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands "
+         "render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene "
+         "shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\".",
+         "3D")
+        .field("size", &RealtimeGI::size,
+               "[x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world "
+               "position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside "
+               "the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces "
+               "it lights. Default [20, 6, 20].")
+        .field(
+            "offset", &RealtimeGI::offset,
+            "[x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0].")
+        .field("spacing", &RealtimeGI::spacing,
+               "Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving "
+               "the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 "
+               "m is usual for rooms. Default 2.")
+        .range(0.25f, 100)
+        .field("probesPerFrame", &RealtimeGI::probesPerFrame,
+               "1..32: how many probes this grid refreshes a frame; each one draws the scene six times at "
+               "`resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. "
+               "All grids together refresh at most 32 a frame. Default 2.")
+        .range(1, 32)
+        .field("resolution", &RealtimeGI::resolution,
+               "Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an "
+               "error). 32 sees small bright lights better and costs about four times as much.")
+        .range(16, 32)
+        .field("intensity", &RealtimeGI::intensity,
+               "0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing "
+               "it does not capture again. Default 1.")
+        .range(0, 16)
+        .field("bounce", &RealtimeGI::bounce,
+               "0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces "
+               "the "
+               "light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures "
+               "of a ReflectionProbe always see the grid at full strength. Default 1.")
+        .range(0, 1)
+        .field("hysteresis", &RealtimeGI::hysteresis,
+               "0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of "
+               "each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces "
+               "the old value at once (flickers when the scene moves).")
+        .range(0, 0.99f)
+        .field("nearExclusion", &RealtimeGI::nearExclusion,
+               "Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the "
+               "captures), so a prop right next to a probe does not paint it. Default 0.1.")
+        .range(0.01f, 10)
+        .field("maxDistance", &RealtimeGI::maxDistance,
+               "Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than "
+               "this a ray shows the sky and counts as this distance. Default 30.")
+        .range(1, 1000)
+        .field("backfaceTolerance", &RealtimeGI::backfaceTolerance,
+               "0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction "
+               "of its directions hit the back of a surface before the front of any. Default 0.25.")
+        .range(0.02f, 0.9f)
+        .field("showTags", &RealtimeGI::showTags,
+               "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
+               "empty a capture draws only the entities that have one of these tags or a parent that does.")
+        .field("hideTags", &RealtimeGI::hideTags,
+               "Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the "
+               "captures (use it for the player or for particles). Default [].");
 
     r.add<Animator>(
          "Animator",
@@ -3676,33 +4074,34 @@ void register_builtin_components(TypeRegistry& r) {
         .read_only();
 
     {
-        auto cv = r.add<CameraView>("CameraView",
-                                    "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): "
-                                    "draws the camera named by `camera` into "
-                                    "this entity's rectangle, so an item turning on a stage, a character portrait or a "
-                                    "map lives in a menu with the "
-                                    "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the "
-                                    "modal Panel of any widget. The camera "
-                                    "is rendered into an image of the size of the rectangle (its aspect follows it; "
-                                    "Camera.viewport is ignored) before "
-                                    "the frame's UI is drawn, then that image is drawn in the rectangle. Give the "
-                                    "camera primary = false, or it also "
-                                    "draws in the main view; the camera and the widget must both be active. The "
-                                    "background is drawn at `layer`, the "
-                                    "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of "
-                                    "at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
-                                    "fill and rim lights, wherever it stands. bloom and colorFilter of the camera are "
-                                    "ignored (the frame has one set of "
-                                    "post effects). A pointer press, drag, release and the wheel over it are the game "
-                                    "event `ui.viewPointer` ({id, phase, "
-                                    "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script "
-                                    "can turn what it shows. It "
-                                    "is a widget for hit-testing (it blocks clicks to the world below it) but is not "
-                                    "focusable. Costs one more render "
-                                    "pass per view per frame, and the image per view: keep it as small as the picture "
-                                    "needs (see `resolution`). "
-                                    "Defaults: 320 x 240, no background colour.",
-                                    "UI");
+        auto cv = r.add<CameraView>(
+            "CameraView",
+            "A 3D (or 2D) view inside the UI (docs/MENUS.md, \"A camera inside the UI\"): "
+            "draws the camera named by `camera` into "
+            "this entity's rectangle, so an item turning on a stage, a character portrait or a "
+            "map lives in a menu with the "
+            "clipping of a ScrollList, the `layer` order, the right-to-left mirroring and the "
+            "modal Panel of any widget. The camera "
+            "is rendered into an image of the size of the rectangle (its aspect follows it; "
+            "Camera.viewport is ignored) before "
+            "the frame's UI is drawn, then that image is drawn in the rectangle. Give the "
+            "camera primary = false, or it also "
+            "draws in the main view; the camera and the widget must both be active. The "
+            "background is drawn at `layer`, the "
+            "picture at `layer` + 1: a widget meant to sit over the picture needs a layer of "
+            "at least `layer` + 2. Camera.lighting = \"studio\" lights it with its own key, "
+            "fill and rim lights, wherever it stands. bloom and colorFilter of the camera's PostProcess are "
+            "ignored (the frame has one set of "
+            "post effects). A pointer press, drag, release and the wheel over it are the game "
+            "event `ui.viewPointer` ({id, phase, "
+            "x, y, u, v, dx, dy, wheel}; `ui.on(\"viewPointer\", fn)` in scripts) so a script "
+            "can turn what it shows. It "
+            "is a widget for hit-testing (it blocks clicks to the world below it) but is not "
+            "focusable. Costs one more render "
+            "pass per view per frame, and the image per view: keep it as small as the picture "
+            "needs (see `resolution`). "
+            "Defaults: 320 x 240, no background colour.",
+            "UI");
         ui_box_fields(cv)
             .field("camera", &CameraView::camera,
                    "Id or name of the Camera entity to draw (an id is tried first, then a name). \"\" or an entity "
@@ -3902,7 +4301,175 @@ void register_builtin_components(TypeRegistry& r) {
                "comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.")
         .range(80, 1000)
         .asset_field("skyMaterial", &SceneSettings::skyMaterial, "material", sky_material_doc().c_str())
-        .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str());
+        .field("skyMaterialParams", &SceneSettings::skyMaterialParams, sky_material_params_doc().c_str())
+        .field("shadowCascades", &SceneSettings::shadowCascades,
+               "Cascades of the directional light's shadow map, 1..4: each covers a longer stretch from the camera, so "
+               "shadows stay sharp near it. Each is fitted to its slice of the view and keeps its texels still while "
+               "the camera moves (no shimmer). 1 (default) = a single map. A GPU without float32Targets draws no "
+               "shadow (render.supports cascadedShadows; docs/rendering/RENDERING_LIGHTING.md).")
+        .range(1, 4)
+        .field("shadowCascadeSplit", &SceneSettings::shadowCascadeSplit,
+               "Where the cascades split along shadowDistance, 0..1: 0 = evenly spaced, 1 = logarithmic (a lot of "
+               "detail near the camera), 0.5 (default) between.")
+        .range(0, 1)
+        .field("shadowCascadeBlend", &SceneSettings::shadowCascadeBlend,
+               "Fraction 0..0.5 of a cascade over which it blends into the next, hiding the seam. 0 = a hard seam.")
+        .range(0, 0.5f)
+        .field(
+            "shadowDistance", &SceneSettings::shadowDistance,
+            "How far from the camera, in metres, shadows are drawn. 0 (default) = the engine's own fit around the "
+            "view (the camera's far plane, or what the casters need when that is shorter: the distance to the farthest "
+            "caster corner and a body's length, rounded up, the same whichever way the camera looks). A light's own "
+            "shadowDistance overrides it. The cascades split this stretch.")
+        .range(0, 100000)
+        .field("shadowAtlasSize", &SceneSettings::shadowAtlasSize,
+               "The most texels per side the shadow atlas that holds every shadow map may have, 512..8192 (4096 "
+               "default; the GPU's own limit also applies). Only the part the maps need is allocated (R32F: four "
+               "bytes a texel, 2048 x 2048 = 16 MB); when they do not fit, the maps shrink, then the least "
+               "important is dropped, the same every frame.")
+        .range(512, 8192)
+        .field("contactShadows", &SceneSettings::contactShadows,
+               "Master switch of the screen-space contact shadows: the lights with Light.contactShadowLength above 0 "
+               "march a short ray toward the light through the depth the camera sees and shadow what it runs into, "
+               "adding fine shadows where objects touch. Off (default) = nothing changes, no depth prepass is made "
+               "for it and the picture is bit-identical. Needs a GPU that can render the depth prepass "
+               "(render.supports contactShadows); on one that cannot, nothing is drawn. Screen space: no "
+               "off-screen casters, no thin objects, and transparent meshes neither cast nor receive it "
+               "(docs/rendering/RENDERING_LIGHTING.md, \"Contact shadows\").")
+        .asset_field(
+            "environmentMap", &SceneSettings::environmentMap, "hdri",
+            "An HDR image (.hdr, equirectangular: twice as wide as it is tall) of the surroundings. It lights and "
+            "reflects in every mesh (image-based lighting, baked on the GPU into the same cubes a sky uses), and "
+            "it is drawn as the background too unless a skyMaterial is set or environmentBackground is off. It "
+            "wins over the sky's own lighting (a skyMaterial or the physical sky) but not over a skyMaterial's "
+            "background. Empty (default) = the sky material, the physical sky or the gradient. Pictures wider "
+            "than 4096 are shrunk when loaded; values are limited to 60000 and one sample of the blur to 64, "
+            "so a sun in the picture does not speckle the reflections. Import one with assets.import; "
+            "render.supports {\"feature\": \"environmentMap\"} says whether the GPU can.")
+        .field("environmentIntensity", &SceneSettings::environmentIntensity,
+               "Brightness multiplier of the environment map (background and lighting) and of the lighting a sky "
+               "material or the physical sky gives, 0..100 (1 default: unchanged). It does not brighten the sky that "
+               "a skyMaterial or the physical sky draws as the background.")
+        .range(0, 100)
+        .field("environmentRotation", &SceneSettings::environmentRotation,
+               "Degrees the environment map is turned around the up axis (positive = counter-clockwise seen from "
+               "above: what was at +X ends up at -Z at 90), -360..360. Looking along -Z shows the middle of the "
+               "picture.")
+        .range(-360, 360)
+        .field("environmentBackground", &SceneSettings::environmentBackground,
+               "Whether the environment map is also drawn as the background (true, default). False keeps the sky "
+               "material, the physical sky or the gradient as the background and uses the picture for the lighting "
+               "and the reflections only. A skyMaterial that is set always draws the background.")
+        .enum_field(
+            "skyModel", &SceneSettings::skyModel, {"gradient", "physical"},
+            "gradient (default): the skyColor and horizonColor gradient. physical: a sky computed from the sun, the "
+            "air and the clouds (the sky* and cloud* fields below). The sun is the directional light the renderer "
+            "puts first: the one with castShadows, else the brightest directional light; its direction, colour and "
+            "intensity drive the sky, so turning the "
+            "light turns the sun across it, and the same sky lights and reflects in every mesh (image-based "
+            "lighting: rebuilt in one frame after a big change, over three frames while the sun or the clouds move "
+            "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
+            "physical sky. render.supports {\"feature\": \"physicalSky\"} says whether the GPU can (it needs RGBA16F "
+            "render targets); where it cannot, the gradient is drawn.")
+        .field("skySunSize", &SceneSettings::skySunSize,
+               "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
+               "a larger disc is easier to see in a small window. Only used with skyModel physical.")
+        .range(0.1f, 10)
+        .field("skyTurbidity", &SceneSettings::skyTurbidity,
+               "Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep "
+               "blue sky, 2 (default) a clear day, 6 and more a hazy white-yellow sky with a big glow around the "
+               "sun. Only used with skyModel physical.")
+        .range(1, 10)
+        .field("skyGroundAlbedo", &SceneSettings::skyGroundAlbedo,
+               "Physical sky: the colour of the ground the atmosphere sees below the horizon (it lights the air near "
+               "the horizon and the lower half of the reflections). Default grey 0.3; snow is 0.8, dark soil 0.15. "
+               "Alpha is ignored. Only used with skyModel physical.")
+        .field("skyExposure", &SceneSettings::skyExposure,
+               "Physical sky: multiplier of the sky's brightness, of the light it gives the meshes (image-based "
+               "lighting) and of the sun disc, 0..16. At 1 (default) the sky is as bright as the sun's light says: "
+               "the sky is scaled by the colour times the intensity of the sun light, so the sky and a surface facing "
+               "the sun keep the proportion they have in a real noon (the sky is much dimmer than the sun-lit "
+               "surface). Only used with skyModel physical.")
+        .range(0, 16)
+        .field("skyTintsSun", &SceneSettings::skyTintsSun,
+               "Physical sky: true (default) multiplies the colour of the sun (the directional light the sky follows) "
+               "by what "
+               "the air and the clouds let through, relative to a noon sun: a sun on the horizon turns orange and "
+               "dim, a sun behind a thick cloud cover turns weak, and the colour you chose is the colour of the "
+               "sun at noon. false keeps the light exactly as authored (the sky still follows its direction). "
+               "Only used with skyModel physical.")
+        .field("cloudCoverage", &SceneSettings::cloudCoverage,
+               "Physical sky: how much of the sky the clouds cover, 0..1. 0 is a clear sky, 0.25 (default) a few "
+               "clouds, 1 a full overcast. The directional light also weakens with it (skyTintsSun), and the "
+               "clouds shade the image-based lighting. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudDensity", &SceneSettings::cloudDensity,
+               "Physical sky: how thick and dark the clouds are, 0..1: 0.2 thin white wisps, 0.6 (default) "
+               "cumulus, 1 heavy grey clouds with dark bellies. Only used with skyModel physical.")
+        .range(0, 1)
+        .field("cloudAltitude", &SceneSettings::cloudAltitude,
+               "Physical sky: height of the cloud layer above the camera ground in metres, 300..12000 (default "
+               "2500). Higher clouds look smaller and finer. The layer follows the viewing direction, not the "
+               "camera position (like a skybox). Only used with skyModel physical.")
+        .range(300, 12000)
+        .field("cloudWind", &SceneSettings::cloudWind,
+               "Physical sky: metres per second [x, z] the clouds drift along the world axes (beyond 1000 it is "
+               "clamped). The drift follows the game clock (never the wall clock), so a replay shows the same sky. "
+               "[0, 0] stands still. Only used with skyModel physical.")
+        .field("volumetricFog", &SceneSettings::volumetricFog,
+               "Turns on the volumetric fog: a medium the lights shine through, drawn from the camera to the surface "
+               "behind each pixel (or volumetricDistance, in the sky). Lights with volumetric above 0 and the "
+               "ambient light are scattered by it, and the shadows of the sun and of the point and spot lights cut "
+               "shafts into it. Its colour is fogColor. While it is on, the scene's fogDensity and the PostProcess "
+               "fog are off for the cameras that draw it (they would fog twice). Off (default) = nothing changes. "
+               "An orthographic or studio camera, a camera that draws no depth prepass, or a GPU without RGBA16F "
+               "render targets draws no volumetric fog and keeps its analytic one (render.supports {\"feature\": "
+               "\"volumetricFog\"}); a scene with no light and no ambient is a black medium. "
+               "docs/rendering/RENDERING_DECALS_FOG.md, \"Volumetric fog and light shafts\".")
+        .field("volumetricDensity", &SceneSettings::volumetricDensity,
+               "Volumetric fog: how thick the medium is, as extinction per metre at the height base: the light "
+               "reaching the camera through a distance d is cut by exp(-density * d). 0.02 (default) = clear air "
+               "with shafts, 0.1 = a dense mist, 1 = you see a few metres. 0..10. Only used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricHeightBase", &SceneSettings::volumetricHeightBase,
+               "Volumetric fog: the world y (metres) below which the density is the full volumetricDensity; above "
+               "it the density fades with volumetricHeightFalloff. Only used with volumetricFog.")
+        .range(-10000, 10000)
+        .field("volumetricHeightFalloff", &SceneSettings::volumetricHeightFalloff,
+               "Volumetric fog: how fast the density drops above volumetricHeightBase, per metre (0.1 = it halves "
+               "every 7 m). 0 (default) = the same density at every height. 0..10. Only used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricAnisotropy", &SceneSettings::volumetricAnisotropy,
+               "Volumetric fog: which way the fog scatters light, the g of the Henyey-Greenstein phase function, "
+               "-0.99..0.99. 0 = evenly in every direction, above 0 = mostly forward (shafts glow when you look "
+               "towards the light; 0.4 is the default and suits mist), below 0 = mostly back. Only used with "
+               "volumetricFog.")
+        .range(-0.99f, 0.99f)
+        .field("volumetricAmbient", &SceneSettings::volumetricAmbient,
+               "Volumetric fog: how much of ambientLight the fog scatters (it glows even where no light reaches), "
+               "0..10. 1 (default) = ambientLight times fogColor; 0 = the fog is dark where no light reaches. Only "
+               "used with volumetricFog.")
+        .range(0, 10)
+        .field("volumetricDistance", &SceneSettings::volumetricDistance,
+               "Volumetric fog: how far from the camera, in metres, the medium extends, 1..10000. Surfaces beyond "
+               "it are fogged as at this distance, and sky pixels see the fog up to it. The samples are spread over "
+               "the shorter of this and the surface's distance, so a shorter value is sharper. Only used with "
+               "volumetricFog.")
+        .range(1, 10000)
+        .enum_field("volumetricQuality", &SceneSettings::volumetricQuality, {"low", "medium", "high"},
+                    "Volumetric fog quality, the size of the fog image and the samples per pixel: low = a quarter of "
+                    "the picture's size (a 16th of its pixels), 16 steps, at most 4 shaft lights, for mobile and the "
+                    "web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high "
+                    "= half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, "
+                    "never with the number of lights in the scene. Only used with volumetricFog.")
+        .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
+                     "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
+                     "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "
+                     "renderer loads it with the scene and reloads it when a file changes; an entity listed in it "
+                     "(and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient "
+                     "light, and lights with mode baked stop lighting it. \"\" (default) = no lightmap. A missing "
+                     "or invalid manifest is reported (render.assets) and the scene is drawn without it. "
+                     "docs/rendering/RENDERING_LIGHTMAPS.md.");
 }
 
 void ensure_builtin_components() {

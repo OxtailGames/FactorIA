@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: custom lighting where light() adds nothing and ambient() returns the ambient light toward the normal as it is (the probe of the sky SH tests).",
+  "shader": "shaders/ambprobe.surface.glsl",
+  "lighting": "custom"
+}

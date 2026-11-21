@@ -49,14 +49,14 @@ the helper in `#ifdef GL_FRAGMENT_SHADER ... #endif` (the hooks need no wrapper)
 
 | Function | What it gives |
 |---|---|
-| `fa_light_count()` | How many lights the engine selected for this frame, `0` to `32`. |
+| `fa_light_count()` | How many lights reach this fragment: the directional lights (at most 32) and the local lights whose range reaches the fragment's cluster (clustered lighting, M73.1a). `0` to `160` (32 directional and at most 128 local lights per cluster), in practice a few. |
 | `fa_light(n, i)` | The `LightSample` of light `n` (`0` to `fa_light_count() - 1`) at this fragment, as `light()` receives it: `direction`, `color` (colour times intensity times attenuation times shadow), `attenuation`, `shadow`, `distance`, `type` (0 directional, 1 point, 2 spot). A number out of range gives a sample that lights nothing (`color` and `attenuation` `0`, `shadow` `1`). |
 | `fa_light_unshadowed(n, i)` | The same without the shadow map read: `shadow` is `1` and `color` has no shadow in it. Use it to rank or choose lights without paying for the shadow, or to apply the shadow your own way. |
-| `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. Only light `0`, when it is the directional light that casts shadows and the mesh receives them, has a shadow map; every other light answers `1`. |
-| `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera. Add it to what you return, scaled or tinted as you like. |
+| `fa_light_shadow(n, i)` | The shadow of light `n` at this fragment: `1` lit, `0` in shadow, a value between at the edge. The directional light `0` that casts shadows has its cascades; a point or spot light with `castShadows` has the maps the budget gave it this frame (M73.2b: [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Shadows of point and spot lights"). Every other light, a light that lost its map and a mesh without `receiveShadows` answer `1`. A light with a contact shadow (`Light.contactShadowLength`, `SceneSettings.contactShadows`, M73.2c: [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Contact shadows") multiplies it into this value, in `fa_light(n, i)`'s `shadow` and `color` too, whether it has a map or not. |
+| `fa_sky_light(i, s)` | The sky reflection (image-based lighting) the engine adds to a `"pbr"` material, for this surface: from `s.albedo`, `s.metallic`, `s.roughness`, `s.normal` and `s.occlusion` and the direction to the camera, and from the layers of `s` (`clearcoat`, `sheen_color`, `anisotropy`, `specular`, `ior`) when they are set. Add it to what you return, scaled or tinted as you like. |
 | `fa_sky_reflection(n, v, f0, roughness)` | The same term from the parts: normal `n`, direction to the camera `v`, reflectance at normal incidence `f0` (`vec3`: `0.04` for a dielectric, the albedo for a metal) and `roughness`. |
 | `fa_environment(direction, roughness)` | The color of the sky in a world direction, blurrier and flatter when `roughness` grows. With a sky material (below) it reads the sky that is seen. |
-| `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, with a sky material, the light of that sky from every direction (the cosine-weighted average). A `vec3`. |
+| `fa_ambient_light(n)` | The ambient light a diffuse surface facing the world direction `n` receives: `ambientLight`, or, under a sky (a sky material, the physical sky or an environment map), the light of that sky from every direction, as a smooth function of `n` (nine spherical-harmonics coefficients, below). Never negative. A `vec3`. |
 | `fa_env_brdf(roughness, ndv)` | The scale and bias (a `vec2`) of `f0` of the split-sum environment BRDF, `ndv` being `dot(n, v)`. `fa_sky_reflection` is `fa_environment(reflect(-v, n), roughness) * (f0 * ab.x + ab.y)`. |
 
 `fa_ambient` (a `vec4`, `.rgb` is `SceneSettings.ambientLight`) and `fa_camera_pos` are in scope too. Without a sky
@@ -65,11 +65,34 @@ it), which the engine's own meshes reflect too, so a custom material that adds `
 a `"pbr"` one; with one it is the sky of the material (next section). In a `"custom"` material that has no `lighting()` the sky reflection is off, as before; call `fa_sky_light()` from
 `ambient()` (return it, or add it to the ambient colour) or from `light()` to turn it on, or from `lighting()`.
 
+## Material layers
+
+The last fields of `Surface` are the layers of the engine's own lighting (clear coat, sheen, anisotropy, specular and IOR; what each one
+looks like: [rendering/RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md#the-material-layers-m736a)):
+
+| Field | Meaning |
+|---|---|
+| `float clearcoat`, `float clearcoat_roughness` | 0..1 strength of a glossy coat over the surface, and its roughness (the engine keeps it at 0.05 or more). 0 = none. |
+| `vec3 sheen_color`, `float sheen_roughness` | The cloth sheen's colour (black = none) and its roughness 0..1 (kept at 0.1 or more). |
+| `float anisotropy`, `float anisotropy_rotation` | -1..1 stretch of the highlight along the tangent (negative: across it), and a turn of that direction in radians. |
+| `float specular`, `float ior`, `vec3 specular_color` | A non-metal's reflection: strength 0..1, index of refraction 1..3 (1.5 = the usual 4% at normal incidence) and a tint (white = none). A metal ignores them. |
+| `float transmission`, `float thickness`, `vec3 attenuation_color`, `float attenuation_distance` | Glass and liquids: 0..1 share of the light that goes through (and shows what is behind, refracted), the metres of volume behind the surface, and the colour the light has after `attenuation_distance` metres inside (0 = no tint). Only the standard shading draws them: a `full` shader and a `lighting()` of your own get none ([RENDERING_TRANSMISSION.md](../rendering/RENDERING_TRANSMISSION.md)). |
+
+`surface()` receives them already filled with the `MeshRenderer` fields and the glTF material's values, so a snippet that does not touch
+them draws what the MeshRenderer asks for, and a snippet written before they existed compiles and draws as before. Write one of them
+to decide it per pixel (a mask texture for the coat of a paint, the sheen of a cloth). They act in the engine's own `light()`,
+`ambient()` and `fa_sky_light`; your own `lighting()` reads them from `s` and does what it likes with them.
+
 ## Which lights, how many, in what order
 
 The lights are chosen once per frame for every mesh (they are not per mesh), by `Light` entities that are active in the
-scene. At most **32** reach the shader: `fa_light_count()` never returns more, and what does not fit is left out
-(`stats.lightsDropped` counts it). The order is the engine's, and it is also the order of `light()`'s calls:
+scene. At most **1024** reach the shader of a view, 32 of them directional, and what does not fit is left out
+(`stats.lightsDropped` counts it; local lights outside the camera's view are left out too, `stats.lightsCulled`). Since M73.1a the
+view is cut into clusters and a fragment sees only the lights that reach its cluster: `fa_light_count()` is the number of those
+(the directional lights, then the local lights in the order below), `fa_light(n, i)` the n-th of them, so a loop over
+`fa_light_count()` is cheap with hundreds of lights in the scene. A cluster keeps at most 128 local lights
+(`stats.lightClusterClipped` counts the rest; see [RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Many lights"). The
+order is the engine's, and it is also the order of `light()`'s calls:
 
 1. the directional light that casts the shadow (the first directional `Light` with `castShadows` of the scene), alone, in
    slot `0`;
@@ -80,9 +103,21 @@ scene. At most **32** reach the shader: `fa_light_count()` never returns more, a
 Equal scores keep the order of the scene. With `Camera.lighting = studio` the camera's own three-light rig replaces the
 scene's lights. A scene with no `Light` has `fa_light_count() == 0` and logs a warning once.
 
-Light `0` is the only one with a shadow, and only when a directional light casts shadows (it is then light `0`) and the
-`MeshRenderer` has `receiveShadows`: otherwise `fa_light_shadow(0, i)` is `1` too. A loop that wants "the sun" asks
-`fa_light(0, i)` and checks `.type == 0`.
+A light has a shadow only when it casts (`Light.castShadows`) and the `MeshRenderer` has `receiveShadows`: the directional light that casts is
+light `0`; a point or spot light that casts has one only while the budget of the frame (the most important lights for the camera,
+within the atlas) gives it a map, and its shadow fades out toward its `shadowDistance`. Any other `fa_light_shadow(n, i)` is `1`. A loop
+that wants "the sun" asks `fa_light(0, i)` and checks `.type == 0`.
+
+**Area lights in your own loop.** A light of type `area` (M73.1b) is not a point at its centre for a `lighting()` or `light()` hook or a full
+shader any more: `fa_light`, `fa_light_unshadowed` and `light()` give it as a point light at the **representative point** of its emitter, so
+the highlight follows its shape. For a rectangle or a disc that is where the reflection of the view off the surface (from the geometric
+normal) meets the emitter, clamped to its edge (the closest point of the emitter to the surface when the reflection misses it); for a tube
+it is the point of its axis closest to the reflection ray. `direction`, `distance` and `attenuation` are those of that point (the range is
+counted from the surface of the emitter), `color` is the colour of a point light of the same `intensity`, `type` is `1`, and a rectangle or
+disc seen from behind gives `attenuation` `0`. The hook sees ONE direction, so the diffuse term of a hook is the light of that point, not the
+integral over the emitter that the engine's own loop computes: the standard material shows a panel lighting a wall softly, a `lighting()`
+hook shows the same panel as a bright spot, and it is a little brighter than the engine's near an area light and the same far from it.
+The shadow of an area light that casts (`fa_light_shadow`) is the one of the six faces from its centre. The 2D lights treat an area light as a point.
 
 ## Example: the brightest light only, as a toon, plus the sky
 
@@ -132,12 +167,44 @@ vec3 ambient(in SurfaceInput i, in Surface s, vec3 ambientColor) {
 }
 ```
 
+What `ambient()` is given: `ambientColor` is the diffuse ambient light toward `s.normal`, the same value as `fa_ambient_light(s.normal)`
+(`ambientLight`, or the sky's) except on a lightmapped entity, where it is the baked texel. It is a light, not a colour of the surface:
+the engine does not multiply it by `s.albedo` or `s.occlusion` (the engine's own ambient term is `ambientColor * albedo * occlusion`), and
+what `ambient()` returns is the whole ambient term, added to what `light()` gives, the emission and the fog.
+
 ## Full shaders
 
 A [full shader](SHADERS_FULL.md) has `fa_light_count()` and `fa_light(i, world_pos, geometric_normal, shadow_coord)` (its own
 signature: a full shader has no `SurfaceInput`), and now also `fa_environment(direction, roughness)`, `fa_env_brdf(roughness,
 ndv)` and `fa_sky_reflection(n, v, f0, roughness)`, the same three as above, with `fa_env_sky` and `fa_env_horizon` as the
-sky they read. The order and the cap of the lights are the ones of the section above.
+sky they read. The order and the cap of the lights are the ones of the section above, with one difference: a full shader has
+no surface to ask the cluster of, so its `fa_light_count()` is `min(lights, 32)`, the first lights of the table (the directional
+lights first), and `fa_light(i, ...)` takes an index of the table. For the lights of a position's cluster it has
+`fa_cluster_light_count(world_pos)` and `fa_cluster_light_index(n, world_pos)`: loop `n` over the count and give the index to
+`fa_light`. `fa_light` shadows a point or spot light that casts (M73.2b) with the same maps as the mesh program, so a full shader that
+loops over the lights gets their shadows with no change.
+
+## Decals
+
+A `Decal` component ([RENDERING_LIGHTING.md](../rendering/RENDERING_LIGHTING.md), "Decals") paints a texture on the meshes inside
+its box. In a **snippet material** the engine does it for you: after `surface()` returns and before the light loop, `light()`,
+`ambient()` or your `lighting()` runs, it calls
+
+```glsl
+void fa_apply_decals(vec3 world_pos, vec3 geo_normal, inout vec3 albedo, inout vec3 normal);
+```
+
+on `s.albedo` and `s.normal` (the position and the geometric normal of the fragment; the decals of the fragment's cluster, in
+`sortOrder`). So your `lighting()` sees the painted albedo and the bent normal and needs nothing: the decal is part of the surface. A
+material cannot call it itself (it would paint twice), and `MeshRenderer.receiveDecals` false (or a `decalLayer` the decal does not list)
+leaves the surface as `surface()` made it.
+
+A **full shader** has no surface hook, so the engine does not call it: include nothing, call `fa_apply_decals(world_pos, geometric_normal,
+albedo, normal)` yourself once, on the colour and the normal you are about to light, before the lights and in the top level of `main()`
+(it takes `dFdx` and `dFdy` of the position to pick the mip level of the decal texture, which GLSL, HLSL and MSL allow only where every
+fragment of a quad runs the same code: not inside an `if` that depends on the fragment, and before any `discard`). The mesh's
+`receiveDecals` and `decalLayer` are honoured by the function. `metallic`, `roughness` and the emission are not changed by a decal. A
+full shader that never calls it ignores decals.
 
 ## The sky material lights the meshes
 
@@ -148,8 +215,9 @@ it: the engine bakes the sky the material draws into two small cube images, and 
   every custom mesh that calls them) read a cube prefiltered per roughness (128 x 128 per face, 5 mips from mirror to rough).
   A metallic mirror ball under a sky of two colours shows each colour on the side that faces it.
 - **Ambient.** `fa_ambient_light(n)`, which the engine adds as the ambient term of every `"pbr"` mesh and which a custom
-  material reads in `ambient()` or `lighting()`, is the irradiance of that sky (an 8 x 8 cube, cosine-weighted and divided by
-  pi, so a sky of one colour gives that colour). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
+  material reads in `ambient()` or `lighting()`, is the light of that sky toward `n`: the sky's radiance kept as nine spherical-harmonics
+  coefficients (three bands), convolved with the cosine and divided by pi, so a sky of one colour gives that colour and a bright sun or horizon
+  is spread smoothly over the sphere (a sun you want to see in the shading is a directional light). It **replaces** `SceneSettings.ambientLight` for the meshes the sky lights:
   the scene's own ambient is not added to it. `fa_ambient.rgb` keeps being `ambientLight`; write `fa_ambient_light(s.normal)`
   to use the sky's.
 - **What is not changed.** Without a sky material the pixels and the draw calls are the same: no pass bakes anything and no
@@ -195,6 +263,16 @@ with `EXT_color_buffer_float` or `_half_float`), else RGBA8: the sky is then cla
 sun, loses its brightness in the reflection) and very dark gradients show bands. The sky you see is drawn directly, not from the
 cubes, so it is the same on both.
 
+## Baked lightmaps
+
+On an entity that has a baked lightmap (`SceneSettings.lightmaps`, RENDERING_LIGHTING.md, "Lightmaps") the engine's light
+loop and the light API skip every light of mode `baked`: `fa_light(n, i)` and `fa_light_unshadowed(n, i)` give those lights
+no colour and `light()` is not called for them, so their direct light is not counted twice. The `ambientColor` that
+`ambient()` receives is the baked texel of that fragment (the irradiance divided by pi, like the scene's ambient light) in
+place of the ambient light or the sky's ambient; the sky's reflection (`fa_sky_light`) stays the sky's. A material with
+`lighting()` writes its own ambient term and gets no lightmap helper. A material that lists `"uv1"` in `vertexAttributes`
+reads the lightmap UV as `uv1` on a lightmapped entity (`receiveGI: false` keeps the model's second set).
+
 ## Errors
 
 Every one is found before sokol-shdc starts, except a misspelled function name, which comes out of sokol-shdc (the message
@@ -208,3 +286,11 @@ names the material file and the JSON pointer, or the line of the snippet) and te
 | A misspelled name (`fa_sky_ligth`) | `did you mean fa_sky_light?` and the list of the functions. |
 | A helper that calls one of the functions, compiled into the vertex stage | The function is declared in the fragment stage only: its signature, and `#ifdef GL_FRAGMENT_SHADER`. |
 | Neither `light()` nor `lighting()` in a custom material | The signatures of both, and how to go back to `"pbr"`. |
+
+## The physical sky lights the meshes too
+
+With `SceneSettings.skyModel` `"physical"` (and no sky material) the same two cubes are baked from the physical sky, so everything this
+section says about reflection and ambient holds: `fa_environment`, `fa_sky_reflection`, `fa_sky_light` and `fa_ambient_light` read the
+physical sky (the sun disc is not in the cubes: the light is the sun). A sun that moves slowly rebuilds the cubes in three slices over
+three frames, a big change in one frame, so what a mesh sees can be up to two frames behind a fast change (the user page,
+[the physical sky](../rendering/RENDERING_LIGHTING.md#the-physical-sky), says when).

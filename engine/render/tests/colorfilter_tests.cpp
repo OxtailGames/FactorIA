@@ -1,4 +1,4 @@
-// Camera.colorFilter: the last post-process pass, applied to the finished frame so screenshots show it.
+// The PostProcess colour filter: the last post-process pass, applied to the finished frame so screenshots show it.
 #include "test_util.h"
 
 #include <cmath>
@@ -33,7 +33,7 @@ struct FilterScene {
             sh.color = s.color;
         }
     }
-    void filter(ColorFilter f) { world.get<Camera>(cam)->colorFilter = f; }
+    void filter(ColorFilter f) { set_color_filter(world, cam, f); }
 };
 
 Color swatch_pixel(const Image& img, int i) { return img.pixel(60 + 40 * i, 90); }
@@ -139,11 +139,9 @@ TEST_CASE("colorFilter: bloom runs before the filter and the filter is the last 
     Gfx& g = gfx();
     REQUIRE(g.ok);
     FilterScene s;
-    Camera& c = *s.world.get<Camera>(s.cam);
-    c.bloom = true;
-    c.bloomThreshold = 0.5f;
+    set_bloom(s.world, s.cam, true, 0.5f);
     Image bloomed = g.render(s.world);
-    c.colorFilter = ColorFilter::Greyscale;
+    s.filter(ColorFilter::Greyscale);
     Image both = g.render(s.world);
     Image expected = bloomed;
     simulate_color_vision(expected, ColorSimulation::Greyscale);

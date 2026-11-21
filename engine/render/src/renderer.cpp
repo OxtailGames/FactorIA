@@ -1,8 +1,10 @@
+#include "material_cost.h"
 #include "renderer_impl.h"
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
 #include "scene2d.h"
 #include "render_features.h"
+#include "render_scene.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -28,6 +30,20 @@ Json RenderStats::to_json() const {
                 {"shadowCasters", shadowCasters},
                 {"lights", lights},
                 {"lightsDropped", lightsDropped},
+                {"lightsCulled", lightsCulled},
+                {"lightClusters", lightClusters},
+                {"lightClusterEntries", lightClusterEntries},
+                {"lightClusterClipped", lightClusterClipped},
+                {"lightMaxPerCluster", lightMaxPerCluster},
+                {"volumetricCameras", volumetricCameras},
+                {"volumetricLights", volumetricLights},
+                {"volumetricLightsDropped", volumetricLightsDropped},
+                {"contactShadowLights", contactShadowLights},
+                {"subsurfaceCameras", subsurfaceCameras},
+                {"subsurfaceDraws", subsurfaceDraws},
+                {"decals", decals},
+                {"decalsDropped", decalsDropped},
+                {"decalClusterClipped", decalClusterClipped},
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
@@ -99,23 +115,9 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     }
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear || viewSize != nullptr;
-    // The deprecated Camera.bloom* and Camera.colorFilter fields are the PostProcess of a camera that has none: a hard bloom (knee 0)
-    // and the colour filter, exactly as before.
-    PostProcess legacy;
-    const bool useLegacy = legacy_post_of_camera(cam, legacy);
-    // A PostProcess of the camera's own wins over the deprecated fields: said once, or "bloom: true" would do nothing without a word.
-    if (useLegacy && best) {
-        const PostProcess* own = world.get<PostProcess>(best);
-        if (own && own->enabled && world.active_in_hierarchy(best) && warnedLegacyIgnored.insert(best.bits()).second)
-            FA_WARN("render",
-                    "Camera '{}' has Camera.bloom or Camera.colorFilter set and a PostProcess of its own: the "
-                    "deprecated fields are ignored. "
-                    "Hint: set bloomEnabled / colorFilterEnabled on the PostProcess (or remove the PostProcess).",
-                    world.id_of(best));
-    }
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
-    if (!postBypass && (useLegacy || world.any<PostProcess>())) {
-        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci, useLegacy ? &legacy : nullptr));
+    if (!postBypass && world.any<PostProcess>()) {
+        auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci));
         for (const Error& err : stack->customErrors)
             if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
@@ -290,6 +292,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
         if (meshes) {
             const bool shadows = gpu->shadows_supported();
+            // The skinned programs (the mesh fragment shader again, ~100 KB of GLSL) only where a mesh can be drawn
+            // skinned: an entity with an Animator. One added later makes them on its first draw.
+            bool animated = false;
+            world.each<Animator>([&](Entity, Animator&) { animated = true; });
             im.warmGroups.push_back([gpu] {
                 gpu->mesh_pipeline(false, false);
                 gpu->mesh_pipeline(false, true);
@@ -297,16 +303,17 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
             im.warmGroups.push_back([gpu] {
                 gpu->mesh_pipeline(true, false);
                 gpu->mesh_pipeline(true, true);
+                gpu->mesh_pipeline(true, false, false, {}, {}, true);
                 gpu->quad_pipeline(true, false, BlendMode::Alpha);
             });
-            im.warmGroups.push_back([gpu] {
+            im.warmGroups.push_back([gpu, animated] {
                 gpu->sky_pipeline();
-                gpu->mesh_pipeline(false, false, true);
+                if (animated) gpu->mesh_pipeline(false, false, true);
             });
             if (shadows) {
-                im.warmGroups.push_back([gpu] {
+                im.warmGroups.push_back([gpu, animated] {
                     gpu->shadow_pipeline(false);
-                    gpu->shadow_pipeline(true);
+                    if (animated) gpu->shadow_pipeline(true);
                 });
             }
         }
@@ -352,10 +359,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0     ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0 ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0      ? DebugView::Ao
-                                                         : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0      ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0  ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0       ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0 ? DebugView::Cascades
+                                                          : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -410,15 +418,24 @@ void Renderer::shutdown() {
         }
         im.fonts.reset();
         im.ssr.release();
+        im.xmit.release();
         im.skyEnv.release();
+        im.probes_release();
+        im.physSky.release();
+        im.hdriSky.release();
         im.sceneFx.release();
         im.fogFx.release();
+        im.volFx.release();
+        im.sssFx.release();
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
+        im.lightAtlas.destroy();  // its images are destroyed with the context still open
+        im.destroy_decal_atlas();
         destroy_target(im.shadowTarget);
+        im.free_retired_shadow_targets();
         im.gpu.shutdown();
         if (!im.adopted)
             sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
@@ -513,6 +530,7 @@ bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); 
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
+    if (impl_) impl_->lightAtlas.invalidate(fs::normalize(path));  // a cookie or an IES profile of the light atlas
     invalidate_sprite_outlines(path);  // a SpriteSkin outline traced from the old picture is stale
 }
 void Renderer::set_shader_compiler(ShaderCompiler compiler) {
@@ -525,11 +543,12 @@ std::string Renderer::shader_dialect() const {
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     impl_->fonts->clear();
-    impl_->instanceParams.clear();  // it points at materials the cache below frees
+    impl_->instanceParams.clear();       // it points at materials the cache below frees
+    impl_->lightAtlas.invalidate_all();  // the project changed: cookies and profiles are read again
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {
-    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() : 0;
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->decalAtlas.bytes : 0;
 }
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {
@@ -563,6 +582,106 @@ Json Renderer::supports_report() const {
     render::FeatureEnv env = render::feature_env_from_sokol();
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_report(env, backend_name());
+}
+
+const ProbeSet* Renderer::light_probes(World& world) {
+    if (!initialized() || !impl_->assets || world.settings().lightmaps.empty()) return nullptr;
+    const LightmapSetAsset* set = impl_->assets->lightmaps(world.settings().lightmaps);
+    return set && set->probes.size() > 0 ? &set->probes : nullptr;
+}
+
+namespace {
+const double kRoundTo = 1000.0;
+double rounded(double v) { return std::round(v * kRoundTo) / kRoundTo; }
+Json vec3_json(Vec3 v) { return Json::array({rounded(v.x), rounded(v.y), rounded(v.z)}); }
+}  // namespace
+
+Json Renderer::light_probes_report(World& world, Entity entity) {
+    Json j = Json::object();
+    j["lightmaps"] = world.settings().lightmaps;
+    const ProbeSet* set = light_probes(world);
+    j["baked"] = set != nullptr && set->baked();
+    j["probes"] = set ? int(set->size()) : 0;
+    j["invalid"] = set ? int(set->invalid_count()) : 0;
+    Json groups = Json::array();
+    // What the scene's LightProbeGroups ask for now, to tell a baked group that was edited since (stale) from one still as baked.
+    ProbeSet scene;
+    const bool sceneKnown = set && static_cast<bool>(collect_probe_groups(world, scene));
+    if (set)
+        for (const ProbeGroup& g : set->groups) {
+            int bad = 0;
+            for (int i = 0; i < g.count; ++i)
+                if (set->baked() && !set->valid[std::size_t(g.first + i)]) ++bad;
+            Json item = Json::object({{"id", g.id},
+                                      {"kind", g.kind == ProbeGroupKind::Grid ? "grid" : "points"},
+                                      {"count", g.count},
+                                      {"invalid", bad}});
+            if (sceneKnown) item["stale"] = find_same_probe_group(scene, *set, g) == nullptr;
+            groups.push_back(std::move(item));
+        }
+    j["groups"] = std::move(groups);
+    if (sceneKnown) {
+        // Groups of the scene the file does not hold (added or edited since the bake): they are not lit by probes until the next bake.
+        Json unbaked = Json::array();
+        for (const ProbeGroup& g : scene.groups)
+            if (!find_same_probe_group(*set, scene, g)) unbaked.push_back(g.id);
+        j["unbaked"] = std::move(unbaked);
+    }
+    if (entity == kNullEntity) return j;
+    Json e =
+        Json::object({{"id", world.id_of(entity)},
+                      {"name", world.get<EntityInfo>(entity) ? world.get<EntityInfo>(entity)->name : std::string()}});
+    const MeshRenderer* mr = world.get<MeshRenderer>(entity);
+    if (!mr) {
+        e["source"] = "none";
+        e["note"] = "The entity has no MeshRenderer: only meshes receive light probes.";
+        j["entity"] = std::move(e);
+        return j;
+    }
+    Assets& assets = *impl_->assets;
+    MeshAsset* mesh = assets.mesh(mr->mesh);
+    const Animator* anim = nullptr;
+    Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
+    mesh_cull_bounds(*mesh, world.get<Animator>(entity), bmin, bmax, anim);
+    const Mat4 model = world.drawn_matrix(entity);
+    const Vec3 at = probe_point(world, *mr, model, bmin, bmax);
+    e["position"] = vec3_json(at);
+    MaterialAsset* material = mr->material.empty() ? nullptr : assets.material(mr->material);
+    if (material && material->ok && material->kind != MaterialKind::Mesh) material = nullptr;
+    const LightmapSetAsset* lightmaps =
+        world.settings().lightmaps.empty() ? nullptr : assets.lightmaps(world.settings().lightmaps);
+    const bool materialReads =
+        !material || (material->ok && !material->full && material->buffers.empty() && material->uv1);
+    LightmapUse lm;
+    if (lightmaps && mr->receiveGI && mr->lightmapScale > 0.0f && materialReads && !anim) {
+        static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
+        assets.lightmap_use(*lightmaps, world.id_of(entity), *mesh, mr->mesh.empty() ? kCube : mr->mesh, lm);
+    }
+    const bool eligible = set && set->baked() && mr->receiveGI && !mr->unlit && !lm.mesh &&
+                          (!material || (material->ok && !material->full && material->buffers.empty()));
+    ProbeLight light;
+    if (eligible) light = probe_light_at(*set, at);
+    e["source"] = lm.mesh ? "lightmap" : (eligible && light.coverage > 0.0f ? "probes" : "sky");
+    e["coverage"] = rounded(light.coverage);
+    e["probesUsed"] = light.probesUsed;
+    if (eligible && light.coverage > 0.0f) {
+        Json sh = Json::array();
+        for (const Vec3& c : light.sh.c) sh.push_back(vec3_json(c));
+        e["sh"] = std::move(sh);
+        // The diffuse light (irradiance / pi) it gets from the six axis directions: what the probes add to a surface facing that way.
+        Json amb = Json::object();
+        const std::pair<const char*, Vec3> dirs[] = {{"up", {0, 1, 0}},    {"down", {0, -1, 0}},  {"east", {1, 0, 0}},
+                                                     {"west", {-1, 0, 0}}, {"north", {0, 0, -1}}, {"south", {0, 0, 1}}};
+        for (const auto& [name, d] : dirs) amb[name] = vec3_json(sh_irradiance(light.sh, d));
+        e["ambient"] = std::move(amb);
+    } else if (!lm.mesh) {
+        e["note"] = !mr->receiveGI
+                        ? "MeshRenderer.receiveGI is false."
+                        : (!set ? "The scene has no baked light probes (lightmap.bake with a LightProbeGroup)."
+                                : "No probe reaches the mesh: it keeps the sky's ambient.");
+    }
+    j["entity"] = std::move(e);
+    return j;
 }
 
 void Renderer::update_output(const SceneSettings& settings, const std::string& blocked) {
@@ -696,6 +815,14 @@ Json Renderer::asset_report() const {
     return j;
 }
 
+Json Renderer::material_cost(const MeshRenderer& mr) {
+    if (!impl_ || !impl_->assets) return Json::object();
+    const render::MeshAsset* mesh = mr.mesh.empty() ? nullptr : impl_->assets->mesh(mr.mesh);
+    const render::MaterialAsset* material = mr.material.empty() ? nullptr : impl_->assets->material(mr.material);
+    if (material && !material->ok) material = nullptr;
+    return render::material_cost_report(mr, mesh, material, impl_->physW, impl_->physH);
+}
+
 // ---- camera helpers ----
 Vec2 Renderer::world_to_screen(Vec3 p, Entity camera) const {
     if (!impl_) return {};
@@ -789,6 +916,10 @@ void RendererTestAccess::force_output(Renderer& r, const HdrOutputInfo* info) {
     r.impl_->forcedOutput = info ? *info : HdrOutputInfo{};
 }
 
+void RendererTestAccess::last_cluster_info(Renderer& r, float out[4]) {
+    for (int c = 0; c < 4; ++c) out[c] = r.impl_ ? r.impl_->lastClusterInfo[c] : 0.0f;
+}
+
 bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";
@@ -817,6 +948,12 @@ void Renderer::reset_post_history(std::uint64_t camera) {
     if (impl_) impl_->customPost.reset_history(camera);
 }
 
+std::uint64_t RendererTestAccess::decal_atlas_bytes(Renderer& r) { return r.impl_ ? r.impl_->decalAtlas.bytes : 0; }
+
+render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
@@ -925,7 +1062,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // One frame: the cameras drawn in depth order (each into its viewport rectangle: its own culling, 2D lights, 3D lights, clear)
 // and then, when the cameras do not fill the screen together with a single full-screen camera, the screen-space items
 // (Sprite/Shape2D/Text/ParticleEmitter with space "screen", UI, debug text) once over the whole screen. A game with one
-// camera and no viewport is one job that draws all of it in one pass, as before. Bloom and Camera.colorFilter act once over
+// camera and no viewport is one job that draws all of it in one pass, as before. Bloom and PostProcess.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
@@ -969,7 +1106,6 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;
-        warnedLegacyIgnored.clear();
         warnedCustomPass.clear();
     }
 
@@ -1098,7 +1234,10 @@ void Renderer::Impl::render(World& world, float dt) {
     // into the world stay good), before any job. The MeshRenderers that show a render target (texture, normalMap or a texture
     // parameter of the material) are listed from it: who shows what is known from the meshes in view of each camera, below.
     // The scene lists the targets of a mesh only when some camera renders into one.
-    renderScene.build(world, *assets, kNullEntity, !targetCams.empty());
+    probes_build_volumes(
+        world);  // the boxes the meshes pick their reflection probes from (the probes captured in earlier frames)
+    renderScene.build(world, *assets, kNullEntity, !targetCams.empty(), &probeVolumes);
+    probes_note_picks();
     struct MeshRef {
         Entity e;
         const MeshAsset* mesh = nullptr;
@@ -1297,7 +1436,10 @@ void Renderer::Impl::render(World& world, float dt) {
         for (const ViewRequest& rq : frames[i].views) plan.shows.push_back(rq.key);
         plan_job(world, frames[i], plan);
     }
+    probes_plan(
+        world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
     run_frame_graph();
+    probes_finish();  // before release_unused_views(): the faces' images are read here
     update_editor_copy();
     graphFromCapture = false;
     passTimesPending = true;  // stats() and the frame graph report build them from the graph when asked for
