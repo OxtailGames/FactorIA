@@ -1,7 +1,10 @@
 // The 2D global illumination field (M74-P3a; docs/design/ARCHITECTURE_RENDERING_GI2D.md, "2D GI field: what P3b reads"): per 2D camera
 // job, a screen-aligned grid of "field texels" that covers the view plus a margin of GlobalIllumination2D.range, and three RGBA16F images
-// of it: the emission, the occluders (albedo and occupancy) and the distance to the nearest occluder (jump flooding). The cascades of
-// P3b read them; nothing here lights anything.
+// of it: the emission, the occluders (albedo and occupancy) and the distance to the nearest occluder (jump flooding). M74-P3b adds the
+// radiance cascades that read them (a second jump-flooding chain over the emission, one pass per cascade, merged top-down) and the
+// irradiance image they make, which the lit 2D visuals sample (quad_common.glsl, "gi").
+//
+//   gi2d_cascade_plan  the quality's deterministic counts for a field (cascades, probe spacing, rays, steps) and the platform budget
 //
 //   gi2d_settings   the scene's GlobalIllumination2D (the first enabled one, numbers clamped)
 //   gi2d_geometry   the size, texel size and world rectangle of a camera's field (pure: no GPU, no World)
@@ -33,14 +36,23 @@ struct Frame;
 
 // The largest side of a field in texels. A seed's coordinates travel in RGBA16F, whose integers are exact up to 2048.
 inline constexpr int kGi2dMaxSize = 2048;
-inline constexpr int kGi2dMinSize = 8;
+// A field's sides are multiples of this (the largest probe spacing of any quality), so one cascade image holds a whole number of probes and
+// the size does not change with every texel a zoom adds: a field only grows by one step at a time.
+inline constexpr int kGi2dSizeStep = 32;
+inline constexpr int kGi2dMinSize = kGi2dSizeStep;
 // Fields per frame (one per 2D camera job): the cameras after these get none.
 inline constexpr int kGi2dMaxFields = 4;
 // The most quads a field's emission pass or its occluder pass draws: what is over the limit is left out and counted.
 inline constexpr int kGi2dMaxQuads = 60000;
-// The memory of one field (three images of the field's size and the two a jump-flooding step reads and writes): never reached, as the
-// size is capped (5 x 2048 x 2048 x 8 bytes), the check is there so that a change of the caps cannot allocate without a look.
-inline constexpr std::uint64_t kGi2dMaxBytes = std::uint64_t(256) << 20;
+// The images of one field that are alive together at the most, counted in field-sized RGBA16F images: emission, occluders and distance (they
+// stay), the jump-flooding images of a chain in flight (3), the emitter distance and two cascades.
+inline constexpr int kGi2dFieldImages = 8;
+// What a field may take on a desktop GPU (a 2048 x 2048 field with its irradiance images is just under it) and on a phone or a browser.
+inline constexpr std::uint64_t kGi2dMaxBytes = std::uint64_t(320) << 20;
+inline constexpr std::uint64_t kGi2dMaxBytesMobile = std::uint64_t(96) << 20;
+// The most cascades a field has (one pass each, spacing S0 * 2^i up to kGi2dSizeStep), and the most a phone or a browser pays for.
+inline constexpr int kGi2dMaxCascades = 5;
+inline constexpr int kGi2dMaxCascadesMobile = 4;
 // What the distance image holds in `b` where the field has no occluder at all (and `a` is 0).
 inline constexpr float kGi2dNoDistance = 65504.0f;
 
@@ -66,16 +78,45 @@ struct Gi2dGeometry {
     double originY = 0.0;       // world y of the lower edge of texel row 0 (a multiple of `texel`)
     bool capped =
         false;  // the area asked for was over kGi2dMaxSize texels a side: the texels are larger than resolutionScale says
-    std::uint64_t bytes = 0;  // the field's memory (saturating)
+    std::uint64_t bytes =
+        0;  // the field's memory: kGi2dFieldImages images of its size (saturating); the irradiance images come on top
     double world_w() const { return double(width) * texel; }
     double world_h() const { return double(height) * texel; }
 };
 // The field of a camera that sees `visible` (world units) with `pixelsPerUnit` physical pixels per world unit: the texel is
 // 1 / (pixelsPerUnit * resolutionScale) world units (larger when the margin makes the area exceed kGi2dMaxSize texels), the size is
-// ceil((visible + 2 * range) / texel) + 2 texels a side and the origin is the lower-left corner snapped DOWN to a multiple of the texel, so a
+// ceil((visible + 2 * range) / texel) + 2 texels a side, rounded UP to a multiple of kGi2dSizeStep, and the origin is the lower-left corner snapped DOWN to a multiple of the texel, so a
 // camera that moves by less than a texel moves the field by 0 or by whole texels and nothing in it swims. The size depends on the view's
 // size and the settings only, never on where the camera is. valid == false for a view without a size.
 Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dSettings& s);
+
+// What a GI quality means, as counts (M74-P3b; docs/rendering/RENDERING_2D_GI.md): the same on every machine, never a time.
+//   spacing0   the probe spacing of cascade 0 in field texels; cascade i has spacing0 * 2^i and spacing^2 rays a probe, so each cascade has
+//              four times the rays of the one below and a field-sized image whatever its spacing
+//   cascades   how many (the plan uses fewer when the field is small: the last interval already covers its diagonal)
+//   steps      the most sphere-tracing steps a ray takes
+// Cascade i covers the distance (in texels from its probe) from end(i - 1) to end(i), end(i) = 2 * spacing0 * (4^(i + 1) - 1) / 3.
+struct Gi2dQualityCounts {
+    int spacing0, cascades, steps;
+};
+Gi2dQualityCounts gi2d_quality_counts(GI2DQuality q);
+struct Gi2dCascadePlan {
+    bool ok = false;   // false: the field is not valid or the plan is over the platform's budget (`why` says what)
+    int spacing0 = 0;  // cascade 0's probe spacing in texels
+    int cascades = 0;  // passes: one per cascade
+    int steps = 0;     // sphere-tracing steps per ray at the most
+    int rays0 = 0;     // rays per probe of cascade 0 (spacing0 squared)
+    int gridW = 0, gridH = 0;           // cascade 0's probes (the irradiance image's size)
+    double reach = 0.0;                 // texels: the end of the last interval
+    std::uint64_t persistentBytes = 0;  // the three field images and the two irradiance images
+    std::uint64_t totalBytes =
+        0;            // persistent plus the images alive during the frame (kGi2dFieldImages field-sized ones)
+    std::string why;  // a teaching sentence when !ok
+    double interval_start(int i) const;
+    double interval_end(int i) const;
+};
+// The cascade plan of a field for a quality. `mobile` picks the smaller budget (a phone or a browser). Pure: no GPU.
+Gi2dCascadePlan gi2d_cascade_plan(GI2DQuality q, const Gi2dGeometry& g, bool mobile);
 
 // One vertex of the gather: a position in field texel coordinates (0..width, 0..height), a texture coordinate (a disc: the offset from
 // its centre in radii) and a colour (what the mode of the batch does with it: gi2d.glsl).
@@ -122,18 +163,31 @@ struct Gi2dJobPlan {
     sg_view white{};  // a texture view the draws of a batch without a texture bind
     ResourceId emission, occluder,
         distance;  // imported: the images outlive the frame graph (P3b and the command read them)
+    // The result of the cascades (cascadePasses > 0): the irradiance image the lit visuals of the job sample, and where the world is in it.
+    ResourceId irradiance;
+    sg_view irradianceView{};    // the image written this frame (null without cascades)
+    float xf[4] = {0, 0, 0, 0};  // image uv = world * xf.xy + xf.zw
+    float intensity = 0.0f;      // GlobalIllumination2D.intensity
+    int cascadePasses = 0;       // the passes of the cascades, the priming chain and the irradiance pass
 };
 
 // The images and numbers of one field slot. `valid` is true once the passes of a frame filled it.
 struct Gi2dField {
     Target emission, occluder, distance;
+    Target irradiance
+        [2];  // the probes of cascade 0 as one image, written alternately (the one not written is last frame's)
+    Gi2dCascadePlan cascade;
+    int irrCur = 0;         // the index of the irradiance image written by the last frame that ran
+    bool irrValid = false;  // irradiance[irrCur] holds a finished frame whose geometry is histTexel / histOrigin*
+    double histTexel = 0.0, histOriginX = 0.0, histOriginY = 0.0;
     Gi2dGeometry geom;
     Gi2dSettings settings;
-    std::string job;     // the job of the camera it was last drawn for ("camera:0")
-    bool used = false;   // asked for in this frame (begin_frame clears it)
-    bool valid = false;  // the passes ran: the images hold a finished field
-    int passes = 0;      // the passes of the last frame (emission, occluders, seed, jump steps)
-    Gi2dCounts stats;    // what the last gather found
+    std::string job;      // the job of the camera it was last drawn for ("camera:0")
+    bool used = false;    // asked for in this frame (begin_frame clears it)
+    bool valid = false;   // the passes ran: the images hold a finished field
+    int passes = 0;       // the passes of the last frame (emission, occluders, seed, jump steps, cascades, irradiance)
+    bool primed = false;  // the last frame ran the priming chain (no history to bounce from)
+    Gi2dCounts stats;     // what the last gather found
 };
 
 class Gi2dSystem {
@@ -149,7 +203,8 @@ public:
     void begin_frame(bool keep);
     // The slot `n` (0 .. kGi2dMaxFields - 1) for `g`: its three images, made (again) when the size changed. Null when the GPU cannot make
     // them (logged once). Marks the slot as used by this frame.
-    Gi2dField* acquire(int n, const Gi2dGeometry& g);
+    // Also makes the irradiance images of `cp` (the history of the bounce is dropped when any size changes).
+    Gi2dField* acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
     // Before the frame graph runs: frees the slots no job asked for (a frame without GI keeps no image) and counts the ones that were.
     void free_unused();
     // Destroys every image, shader and pipeline (the graphics context is still open).
@@ -158,7 +213,8 @@ public:
     void free_images();
 
     // One field's passes, declared in `graph` in the order they run: emission, occluders, seed, then the jump-flooding steps, the last of
-    // which writes the distance image. `name` is the job's name; the callbacks use `plan` (the field and the gather) and `gpu`; each pass adds
+    // which writes the distance image; then the same chain over the emission, the cascades from the top down (a priming chain first when
+    // the bounce has no history) and the irradiance image. `name` is the job's name; the callbacks use `plan` (the field and the gather) and `gpu`; each pass adds
     // one to *drawCalls per draw. Fills plan.emission / occluder / distance. Returns the number of passes declared (0: shaders or targets
     // the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, Gi2dJobPlan& plan, const std::string& name,
@@ -175,13 +231,13 @@ public:
     int slot_count() const { return kGi2dMaxFields; }
 
     // The programs and their pipelines for a target format (made on first use; null when it cannot be made). Used by the passes.
-    enum class Prog { DrawAdd, DrawReplace, Seed, Jfa, Count };
+    enum class Prog { DrawAdd, DrawReplace, Seed, Jfa, SeedEmit, Cascade, Irradiance, Count };
     bool ready();
     sg_pipeline pipeline(Prog prog, const TargetFormat& format);
 
     // Teaching message of a GPU without float targets, logged once; returns the sentence (also for the command).
     static std::string unsupported_message(const std::string& backend);
-    bool warned_unsupported = false, warned_dropped = false;
+    bool warned_unsupported = false, warned_dropped = false, warned_budget = false;
 
 private:
     struct PipelineEntry {
@@ -190,7 +246,7 @@ private:
         sg_pipeline pipeline;
     };
     std::array<std::unique_ptr<Gi2dField>, kGi2dMaxFields> slots_;
-    sg_shader shaders_[3]{};  // draw, seed, jfa
+    sg_shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;

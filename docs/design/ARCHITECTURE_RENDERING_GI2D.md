@@ -2,9 +2,11 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page; the rendering page is
 [ARCHITECTURE_RENDERING.md](ARCHITECTURE_RENDERING.md)). The user-facing description of the component is `GlobalIllumination2D` in
-[COMPONENTS.md](../COMPONENTS.md). This page is what M74.3 shares between its two packages: P3a builds the field (this page's code:
+[COMPONENTS.md](../COMPONENTS.md). This page is M74.3's design: P3a builds the field (this page's code:
 `engine/render/src/gi2d.h`, `gi2d.cpp`, `gi2d_gather.cpp`, `renderer_gi2d.cpp`, `engine/render/shaders/gi2d.glsl`), P3b builds the radiance
-cascades on top of it and lights the 2D scene. P3a lights nothing: with it the picture of a scene does not change.
+cascades on top of it (same files, "The cascades" below) and lights the 2D scene. The user page is
+[RENDERING_2D_GI.md](../rendering/RENDERING_2D_GI.md). Without a `GlobalIllumination2D` nothing of it exists and the picture of a scene does
+not change.
 
 ## What the field is
 
@@ -25,14 +27,20 @@ The graph's passes of a field are named `<job>/gi-emission`, `<job>/gi-occluders
 `<job>/gi-distance`. They exist only while the frame has a field: **without a `GlobalIllumination2D`, with `enabled` false, on a GPU
 without RGBA16F render targets, or for a 3D camera, no pass is declared, no image is made and no memory is kept** (the slots are freed
 before the graph runs, `Gi2dSystem::free_unused`). On a GPU without RGBA16F the log says so once, naming the backend and
-`render.supports "2dGlobalIllumination"`, and `render.gi2d_field` reports `supported: false` with the same sentence. The supports row stays
-`planned` until P3b draws the light (P3b flips it).
+`render.supports "2dGlobalIllumination"`, and `render.gi2d_field` reports `supported: false` with the same sentence. The supports row is a
+real one (P3b flipped it from `planned`).
+
+**Which jobs.** `gi2d_plan` returns without a field for a job whose `plan.view` is set (a view job: `target:<name>`, a `CameraView`'s
+image, the editor's `view:<n>` and the `capture` of a camera: `plan_view_job`), for a 3D camera and for a job with no pixels. Those jobs
+draw their lit visuals with the white image bound at the GI view, so they get no GI term (decision of P3b: a view job is a picture of its
+own, usually smaller than the game's, drawn in the middle of the frame; a field for each would multiply the memory and the history slots;
+the user page says so).
 
 ## 2D GI field: what P3b reads
 
 **Where it is in the frame.** The three images are complete after the pass `<job>/gi-distance` of the camera job's graph, and before the
-job's main pass (the scene draw): a pass of P3b that declares `reads: {plan.emission, plan.occluder, plan.distance}` (the `ResourceId`s that
-`Gi2dSystem::add_passes` stores in `Gi2dJobPlan`) runs after the field is filled and before the sprites sample the result. The CPU side is
+job's main pass (the scene draw): the cascade passes declare `reads: {plan.emission, plan.occluder, plan.distance, ...}` (the `ResourceId`s that
+`Gi2dSystem::add_passes` stores in `Gi2dJobPlan`) and run after the field is filled; the main pass reads `plan.irradiance`, so it runs after them. The CPU side is
 settled earlier: `Renderer::Impl::gi2d_plan` runs in the job's plan step, so `ctx.gi2d.field` is known when the cascades are planned.
 `Gi2dField::valid` is true once the passes of the last frame ran. A frame drawn without the job leaves the images as they were (a capture
 keeps the slots, `begin_frame(keep)`), and the first frame after a size change makes them new and fills them in that same frame.
@@ -67,7 +75,9 @@ power of two below `max(width, height)`, one pass each; `<job>/gi-jfa-<step>`). 
   texel indices. It is stored as a half float, so a value of 100 texels is quantised to about 0.06 texels (a relative step of 2^-11). Where a
   distance must be exact, recompute it from `r` and `g`, which are exact.
 - `a`: 1 where a nearest occluder was found, 0 where not. A field with **no occluder at all** has `a = 0` and `b = 65504`
-  (`kGi2dNoDistance`, the largest half float) everywhere.
+  (`kGi2dNoDistance`, the largest half float) everywhere. **A texel with `a = 0` also holds `r = g = -1`** (not a texel coordinate: the
+  jump-flooding pass writes -1, -1 for "no seed", and a reader must test `a` first). The emitter distance image of P3b has the same
+  encoding over the emission image.
 
 Jump flooding is approximate by design: a texel can get a seed that is not the nearest one when two occluders are almost as far, and the
 error stays within about one texel (the test compares every third texel of a scene against a brute-force search). A cascade that marches a
@@ -80,8 +90,8 @@ camera is:
 
 ```
 texel  = 1 / (pixelsPerUnit * resolutionScale)        (the float's value; larger only when `capped`)
-width  = ceil((visible.w + 2 * range) / texel) + 2
-height = ceil((visible.h + 2 * range) / texel) + 2
+width  = ceil((visible.w + 2 * range) / texel) + 2, then up to a multiple of kGi2dSizeStep (32), at most kGi2dMaxSize
+height = ceil((visible.h + 2 * range) / texel) + 2, the same
 originX = floor((visible.x - range) / texel) * texel   (in doubles, then stored as double)
 originY = floor((visible.y - range) / texel) * texel
 ```
@@ -90,15 +100,19 @@ originY = floor((visible.y - range) / texel) * texel
 outside the screen still reaches it). The origin therefore moves only by **whole texels**: a camera that moves less than a texel moves the
 field by 0 or by one texel (when the camera crosses the boundary of the floor), so what is drawn into the field does not swim and a cascade
 that is kept from frame to frame can be shifted by an integer number of texels (`(originX_new - originX_old) / texel` is an integer, to 1e-6)
-instead of being re-sampled. `width` and `height` stay constant while the view and the settings do. A change of the view's size (a window
-resize, a camera zoom: `visible` changes) or of `range` / `resolutionScale` makes new images and restarts any history P3b keeps.
+instead of being re-sampled. `width` and `height` stay constant while the view and the settings do, and since P3b they are rounded UP to a multiple
+of 32 (the largest probe spacing of any quality, so a cascade image holds whole probes): a zoom that adds a few texels keeps the images and
+only crossing the next multiple makes new ones (this is the hysteresis of an animated zoom; before it every frame of a zoom reallocated).
+A change of the size (a window resize, a zoom past a multiple of 32, `range` / `resolutionScale`) makes new images and **no history is
+kept across it**: the irradiance history restarts (`Gi2dField::irrValid` false), the next frame runs the priming chain.
 
 **Caps.** A side is at most `kGi2dMaxSize` = 2048 texels (the texel grows when `(visible + 2 * range) / texel` is over that: `capped` is
-true, and `texelSize` is larger than `1 / (pixelsPerUnit * resolutionScale)`), at least `kGi2dMinSize` = 8. At most `kGi2dMaxFields` = 4 fields a
+true, and `texelSize` is larger than `1 / (pixelsPerUnit * resolutionScale)`), at least `kGi2dMinSize` = 32. At most `kGi2dMaxFields` = 4 fields a
 frame. A field draws at most `kGi2dMaxQuads` = 60000 emitting or occluding quads; the quads over that are left out, counted in
-`render.gi2d_field` as `dropped`, and logged once. The memory of a field (the three images and the two a jump-flooding step reads and
-writes, 8 bytes a texel) is checked in 64 bits with saturation before it is allocated and is at most `kGi2dMaxBytes` = 256 MiB (the size cap
-keeps it under 160 MiB). All of these are counts, never times: the field is the same on a slow machine.
+`render.gi2d_field` as `dropped`, and logged once. The memory of a field (`kGi2dFieldImages` = 8 field-sized RGBA16F images alive together: emission, occluders, distance, the two
+jump-flooding images of a chain, the emitter distance and the cascade images in flight; 64 bytes a texel) plus the two irradiance images is
+checked in 64 bits with saturation before anything is allocated, against `kGi2dMaxBytes` = 320 MiB (desktop; a 2048 x 2048 field with
+`high` is 272 MiB) or `kGi2dMaxBytesMobile` = 96 MiB (GLES 3 and iOS): over it `gi2d_cascade_plan` says so and the job has no field. All of these are counts, never times: the field is the same on a slow machine.
 
 ## The CPU side: what is gathered
 
@@ -112,14 +126,57 @@ drawn pose, as the sprites are drawn), as triangles in field texel coordinates:
   ear clipping, `gi2d_triangulate`), and sprites with a `ShadowCaster2D` of shape `spriteAlpha` (alpha-tested). A caster that cannot be drawn
   (a `spriteAlpha` caster without a `Sprite`, a polygon with fewer than 3 points) is counted as `skipped`.
 
-`render.gi2d_field` reports the counts per field (`emitters`, `occluders`, `dropped`), the sizes and the world rectangle, and with `save` writes
-`<save>-emission.png`, `<save>-occluders.png` and `<save>-distance.png` (the distance as grey: black at an occluder, white at the farthest
-distance of the field and where there is none). It is the command to look at when a light that should reach somewhere does not.
+`render.gi2d_field` reports the counts per field (`emitters`, `occluders`, `dropped`), the sizes, the world rectangle and the `cascades` object, and with
+`save` writes `<save>-emission.png`, `<save>-occluders.png`, `<save>-distance.png` (the distance as grey: black at an occluder, white at the farthest
+distance of the field and where there is none) and `<save>-irradiance.png` (one pixel a probe; the alpha is the probe's validity). It is the command to look at when a light that should reach somewhere does not.
+
+## The cascades (P3b)
+
+Code: `Gi2dSystem::add_passes` (gi2d.cpp), `gi2d_cascade_plan` (gi2d_gather.cpp), the programs `seed_emit`, `cascade` and `irradiance` of
+gi2d.glsl, and the apply term of quad_common.glsl. They exist only for a job that has a field and a cascade plan that is `ok`.
+
+**Plan** (pure, `gi2d_quality_counts`, `gi2d_cascade_plan`): a quality is `{spacing0, cascades, steps}` = low {4, 3, 20}, medium {2, 4, 28}, high {2, 5, 40}.
+Cascade `i` has probes every `spacing0 * 2^i` texels with that spacing squared rays each (four times the rays of the cascade below, a quarter of
+the probes: the same number of rays in total), covers the interval `end(i-1) .. end(i)` texels with `end(i) = 2 * spacing0 * (4^(i+1) - 1) / 3`,
+and the plan stops adding cascades when the last interval reaches the field's diagonal. The plan is over budget (`ok` false, a teaching `why`) when
+the quality has more cascades than the platform allows (`kGi2dMaxCascades` = 5, `kGi2dMaxCascadesMobile` = 4) or the bytes (field images plus irradiance)
+are over `kGi2dMaxBytes` / `kGi2dMaxBytesMobile`; `gi2d_plan` then warns once (`warned_budget`) and the job draws without GI.
+
+**Passes** (names `<job>/<pass>`): after the field's passes, the emitter chain (`gi-emit-seed`, `gi-emit-jfa-<step>`, last `gi-emit-distance`, a
+transient: the same jump flooding over the emission image, so a ray cannot step over a thin emitter), then for `i = cascades - 1 .. 0` `gi-cascade-<i>`
+and `gi-irradiance`; when the bounce has no history the same chain runs once more first, named `gi-prime-cascade-<i>` and `gi-prime-irradiance`, into the history
+image. Passes per frame: field `3 + J`, emitters `1 + J`, cascades `C`, irradiance 1 (`J` = the jump-flooding passes: the step of 1 and one for each
+power of two below the larger side).
+
+**A cascade image** is field-sized and cut into `S x S` tiles (`S` = the cascade's spacing): tile `j` holds ray `j` of every probe, so one sampler
+read between probes of the same ray interpolates the probes (the merge and the final read are bilinear). Ray `j` has the angle `2 pi (j + 0.5) / S^2`; its
+children are rays `4j .. 4j + 3` of the cascade above (spacing `2S`). The ray sphere-traces on `min(occluder distance, emitter distance)` from `end(i-1)` to `end(i)`
+for at most `steps` steps and ends at the first texel within 1 of a blocker or an emitter. An emitter hit returns its emission; a blocker hit returns
+`emission + bounce x albedo x history irradiance` (the occluder's albedo, last frame's irradiance at the hit); a ray that leaves the field ends with 0;
+a ray that hits nothing in its interval returns the average of its four children read at the probe's position (the top cascade has none: 0).
+**`gi-irradiance`** averages the `S0^2` rays of each cascade-0 probe into an image of `width / S0 x height / S0` texels: rgb times the validity, a = 1 where the probe
+is free and 0 inside a blocker or an emitter (`quad_common.glsl` divides by it: `gi_irradiance()`).
+
+**History.** `Gi2dField::irradiance[2]` ping-pong: this frame writes `irradiance[irrCur ^ 1]` and reads `irradiance[irrCur]`, shifted by the whole-texel difference of
+the field's origin, as last frame's light. It is valid (`histOk`) when `bounce > 0`, `irrValid`, the same texel size, and the shift is under the size.
+Otherwise `primed`: the priming chain makes the history first, without history itself. The state (`irrCur`, `irrValid`, `histTexel`, `histOrigin`) is committed
+by the callback of the last irradiance pass, not at plan time, so a graph that does not run (a `countPost` frame) leaves it as it was. `bounce` 0 neither
+reads nor primes.
+
+**Apply.** `quad_fs_params` has `gi_xf` (uv = world x `xy` + `zw`: the field's world rectangle) and `gi_p` (x = `intensity`, 0 = none); texture view 14
+(`kQuadGiView`, `fx_gi_tex`, sampled with `light_smp`) is the irradiance image, or the white image when the batch gets none. `draw_group` fills them when the job's
+GI is `active`, its `cascadePasses > 0`, the batch is the main pass (not the sprite-coverage pass) and `intensity > 0`. `lit_color` adds `gi_irradiance()` to
+the light `total` before the albedo multiplies it. Unlit quads never call `lit_color`, so they are the same pixels; the default scene binds the white view and
+`gi_p.x = 0`, so it has the same draw calls (no extra pass, no extra batch split). `lightLayers` is not read by the GI (decision: see the user page).
+A custom sprite material's engine views include 14 since P3b (docs/shaders/SHADERS_SPRITES.md).
 
 ## Tests
 
+`engine/render/tests/gi2d_cascade_tests.cpp` (P3b): quality counts and the cascade plan (intervals, budgets, the mobile limits), the irradiance image read
+back (an emitter lights the probes around it, less far away, an occluder shadows what is behind it), the bounce of a coloured wall (the first frame
+already, none with `bounce` 0), the history across a camera move and a size change, unlit pixels equal with and without GI, and the golden `2d_gi`.
 `engine/render/tests/gi2d_field_tests.cpp`: the geometry (sizes independent of the camera position, the 2048 cap, a view without a size), the
 triangulation, the content of the three images read back (an emissive sprite, a `Light2D`, a shadow caster box and solid tiles), the distance
 image against a brute-force search (within half-float precision), a scene with no occluder, the snapping of the origin, no pass or image
 without GI or with `enabled` false (and the slots freed when it turns off), the report and the PNG files. `engine/runtime/tests/shot_tests.cpp`:
-the command. The tests that need RGBA16F targets return early on a GPU that has none.
+the command. The GPU tests REQUIRE the RGBA16F targets on GLCORE, D3D11 and Metal (`Own::gi_ready`); only a GLES 3 GPU without them returns early, with a message.
