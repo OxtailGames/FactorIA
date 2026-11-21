@@ -26,7 +26,8 @@ of the picture's size in each direction, so it costs about `width x height x lig
 lights are on every layer, and one more (at most 4 in all, `kMaxLightBuffers2D`) for each distinct set of lights that the visuals in view reach
 through `lightLayers`: at 4K (3840 x 2160) with `lightScale` 1 that is 63 MiB a buffer and 253 MiB for four, with `lightScale` 0.5 it is 16 MiB a
 buffer and 63 MiB for four. A frame whose lights have a `cookie` adds one 1024 x 1024 RGBA8 atlas (4 MiB, 16 cells of 256 x 256); it is
-copied again only when the cookies of the frame, or one of their files, change.
+copied again only when the cookies of the frame, or one of their files, change. A cookie that is a live texture (`target:<name>` of a
+camera, or a compute image) changes every frame, so a frame with one copies the atlas every frame.
 
 What the budget is:
 

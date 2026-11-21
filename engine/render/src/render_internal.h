@@ -218,6 +218,9 @@ struct TextureAsset {
     sg_view view{};
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
+    // A picture something draws into every frame (a camera's render target or view, a compute image): its contents change
+    // under the same view id, so a copy of it made once is stale (the 2D light cookie atlas copies it every frame).
+    bool live = false;
     sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
     std::size_t bytes = 0;                          // GPU memory of all mip levels
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.

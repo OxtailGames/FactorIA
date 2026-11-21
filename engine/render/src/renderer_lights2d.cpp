@@ -60,17 +60,27 @@ std::vector<TextureAsset*> Renderer::Impl::plan_cookies(Frame& fr) {
 // negative v step in cookie_shader_data), so a frame whose cells hold the same textures as the last copy does nothing.
 void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
     std::vector<std::uint64_t> stamp;
-    stamp.reserve(2 + cells.size() * 4);
+    stamp.reserve(2 + cells.size() * 6);
     stamp.push_back(cookieTarget.color.id);
     stamp.push_back(assets ? assets->reload_generation() : 0);
+    bool live = false;
     for (const TextureAsset* t : cells) {
+        if (t && t->live) live = true;
         stamp.push_back(t ? t->gpu_view().id : 0);
+        stamp.push_back(t ? std::uint64_t(std::max(t->width, 0)) : 0);
+        stamp.push_back(t ? std::uint64_t(std::max(t->height, 0)) : 0);
         stamp.push_back(t && t->atlas ? std::uint64_t(t->atlasX) : 0);
         stamp.push_back(t && t->atlas ? std::uint64_t(t->atlasY) : 0);
         stamp.push_back(t ? std::uint64_t(t->tex_fix(false, false)) : 0);
     }
-    if (stamp == cookieStamp) return;
-    cookieStamp = std::move(stamp);
+    // A live cookie (a camera's render target, a compute image) changes under the same view id: copy it every frame, and keep no stamp
+    // so the frame after the cookie is swapped for a file copies too.
+    if (live) {
+        cookieStamp.clear();
+    } else {
+        if (stamp == cookieStamp) return;
+        cookieStamp = std::move(stamp);
+    }
     PassDesc p = pass_into(cookieTarget, "light-cookies");
     p.colorLoad = SG_LOADACTION_CLEAR;
     p.clearColor = {0, 0, 0, 0};  // an empty cell lets no light through
