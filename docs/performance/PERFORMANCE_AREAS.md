@@ -7,6 +7,14 @@ Part of [Performance budgets](../PERFORMANCE.md) (the entry page lists every pag
 `Light2D` point lights are added up in a light buffer that lit sprites, tiles and shapes read, so the number of lights costs
 the pixels the lights cover, not a loop per pixel over every light.
 
+`GlobalIllumination2D` (radiance cascades, [RENDERING_2D_GI.md](../rendering/RENDERING_2D_GI.md)) adds passes and GPU memory only while an enabled
+component exists, so a scene without it is unchanged (`perf.check` sees the same `drawCalls`). With it, a frame draws `2 x J + C + 5`
+fullscreen passes of the field (`J` the jump-flooding passes, 12 for a 1504-texel field, `C` the cascades: 3, 4 and 5 for `low`,
+`medium` and `high`), and `C + 1` more on a frame without bounce history (the first, after a size change or a big camera move). The
+field holds 64 bytes a texel: about 103 MiB for a 1920 x 1080 view with the default `range` 512 and `resolutionScale` 0.5, 49 MiB with a
+`range` of 128. A phone or a browser budgets 96 MiB and 4 cascade passes, a desktop 320 MiB and 5; over them the scene is drawn without GI and
+the log says what to lower. Lower `range` first, then `resolutionScale`, then `quality`.
+
 A frame with several cameras (`Camera.viewport`, split screen) draws the world once per camera: culling, sorting, 2D lights and
 their light buffer are per camera, so `drawCalls`, `triangles` and `lights` of `game.renderStats()` and `perf.measure` are the sum over
 the cameras of the frame, and a four-camera frame costs about four times a one-camera frame. The screen-space items (UI, HUD) are

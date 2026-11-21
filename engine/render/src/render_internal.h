@@ -509,9 +509,10 @@ constexpr int kMaxMaterialParams = 16,
 //          vertex()).
 constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
 constexpr int kMaterialSpriteFirstView = 4, kMaterialSpriteFirstSampler = 3;
-// The quad program's own emissive map and cookie atlas (M74) sit after the material's textures, vertex copies included (views 12 and
-// 13): the sprite materials' views 4..11 stay where they were. Both use the samplers the engine's views use (smp, light_smp).
-constexpr int kQuadEmissiveView = 12, kQuadCookieView = 13;
+// The quad program's own emissive map, cookie atlas (M74) and GI irradiance image (M74-P3b) sit after the material's textures, vertex copies
+// included (views 12, 13 and 14): the sprite materials' views 4..11 stay where they were. They use the samplers the engine's views use
+// (smp, light_smp).
+constexpr int kQuadEmissiveView = 12, kQuadCookieView = 13, kQuadGiView = 14;
 // The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes
 // from 7.
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;

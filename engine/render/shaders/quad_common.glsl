@@ -252,6 +252,10 @@ layout(binding=1) uniform quad_fs_params {
     vec4 fx_rim_uv;            // xy = the rim's width in uv units along u and v
     vec4 light_cookie[16];     // per light: its cookie cell in the atlas (light_cookie.glsl), w = 0 no cookie
     vec4 light_cookie_xf[16];  // per light: the cookie's projection (light_cookie.glsl)
+    // M74-P3b (docs/rendering/RENDERING_2D_GI.md): the irradiance of the 2D GI cascades. gi_p.x = GlobalIllumination2D.intensity, 0 = none
+    // (every unlit batch, and every frame without GI); gi_xf: the image's uv = world * xy + zw.
+    vec4 gi_xf;
+    vec4 gi_p;
 };
 @end
 
@@ -322,6 +326,7 @@ layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer pat
 layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
 layout(binding=12) uniform texture2D fx_emissive_tex;   // M74: the emissive map of an item that has one (a 1x1 white image otherwise)
 layout(binding=13) uniform texture2D fx_cookie_tex;     // M74: the cookie atlas (a 1x1 white image when no light has a cookie)
+layout(binding=14) uniform texture2D fx_gi_tex;         // M74-P3b: the irradiance of the GI cascades (a 1x1 white image without them)
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
 layout(binding=2) uniform sampler shadow_smp;     // nearest
@@ -353,6 +358,15 @@ float cookie_att(int i, vec2 d) {
     return cookie_value(textureLod(sampler2D(fx_cookie_tex, light_smp), cc.xy, 0.0)) * cc.z;
 }
 
+// The irradiance image's value at this fragment's world position, premultiplied by its validity (the probes inside an occluder hold none),
+// so the weighted bilinear filter never darkens a neighbour; nothing outside the field.
+vec3 gi_irradiance() {
+    vec2 g = world_xy * gi_xf.xy + gi_xf.zw;
+    vec4 e = textureLod(sampler2D(fx_gi_tex, light_smp), g, 0.0);
+    bool inside = g.x >= 0.0 && g.y >= 0.0 && g.x <= 1.0 && g.y <= 1.0;
+    return inside && e.a > 0.02 ? e.rgb / e.a * gi_p.x : vec3(0.0);
+}
+
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
     bool use_normal = lit.y > 0.5;
@@ -366,6 +380,7 @@ vec3 lit_color(vec4 base, float mode) {
     // One return at the end: fxc warns (X4000, logged at run time on D3D11) about an early return before the loop.
     bool flat_lit = !use_normal && lit.z > 0.5;
     vec3 total = flat_lit ? flat_ambient.rgb : ambient.rgb;
+    if (gi_p.x > 0.0) { total += gi_irradiance(); }  // M74-P3b: the light the 2D GI cascades bring to this point (times the albedo below)
     if (flat_lit && lit.z < 1.5) {
         // A flat surface faces every light head on, so each light adds color * falloff and they add up: the light buffer
         // already holds that sum (gl_FragCoord is the pixel of the same target, in the same orientation).

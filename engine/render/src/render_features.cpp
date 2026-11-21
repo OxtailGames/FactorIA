@@ -293,8 +293,11 @@ std::vector<FeatureDef> build_table() {
         {"2dGlobalIllumination", "half",
          "2D global illumination by radiance cascades (GlobalIllumination2D): light bounces off coloured surfaces and "
          "emissive visuals light the scene (M74). It needs RGBA16F render targets that blend and filter: GL, GLES3 "
-         "and WebGL2 without them draw the scene without it and log a message that says how to turn it off.",
-         "M74"},
+         "and WebGL2 without them draw the scene without it and log a message that says how to turn it off. The "
+         "quality "
+         "high needs more memory than a phone or a browser budgets: there the scene is drawn without it, with a "
+         "message.",
+         nullptr},
         {"2dWater", "",
          "Water2D and DistortionZone2D: a reflective, refractive water area with waves and a rectangle that distorts "
          "what is behind it, drawn from the scene's colour (M74). Every backend.",

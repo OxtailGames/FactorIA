@@ -39,6 +39,10 @@ struct Gi2dFieldInfo {
     bool exists = false, ready = false;
     int width = 0, height = 0, passes = 0, emitters = 0, occluders = 0;
     double texel = 0.0, originX = 0.0, originY = 0.0;
+    // The cascades (M74-P3b): their count, cascade 0's probe spacing, the irradiance image's size, whether it holds a finished frame (the
+    // next frame's history) and whether the last frame ran the priming chain (the bounce had no history).
+    int cascades = 0, probeSpacing = 0, irradianceWidth = 0, irradianceHeight = 0;
+    bool irradianceReady = false, history = false, primed = false;
 };
 
 }  // namespace render
@@ -65,7 +69,7 @@ struct RendererTestAccess {
     static void probe_force_rgba8(bool force);
     static bool probe_tile_valid(Renderer& r, std::uint64_t id);
     static int probe_volume_count(Renderer& r);
-    // The 2D GI field (gi2d.h): image `which` (0 emission, 1 occluders, 2 distance) of slot `slot` as floats, RGBA, row 0 = the smallest world y;
+    // The 2D GI field (gi2d.h): image `which` (0 emission, 1 occluders, 2 distance, 3 irradiance) of slot `slot` as floats, RGBA, row 0 = the smallest world y;
     // what the slot holds; how many slots keep images.
     static bool gi2d_read(Renderer& r, int slot, int which, std::vector<float>& out, std::string* error);
     static render::Gi2dFieldInfo gi2d_info(Renderer& r, int slot);
