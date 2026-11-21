@@ -1185,7 +1185,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "mesh scatters or the GPU cannot, see render.supports); "
          "lights2d "
          "and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept "
-         "first), lights2dShadowed those with a shadow (castShadows, at most 32); "
+         "first), lights2dShadowed those with a shadow (castShadows, at most 256); "
          "sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that "
          "call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "

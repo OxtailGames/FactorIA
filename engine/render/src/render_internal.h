@@ -140,8 +140,8 @@ static_assert(sizeof(SkinVertex) == 20, "SkinVertex must be 20 bytes");
 // count is bounded by what the vertex stream and the fill rate can take, not by uniforms.
 constexpr int kMaxLights2D = 256;
 // Lit visuals with a normal map still shade per pixel in the fragment shader (the direction of every light matters there),
-// with the first kDirectLights2D lights: the size of the light arrays in quad.glsl (51 vec4s, far below the WebGL2 / GLES3
-// minimum of 224). The same loop shades every lit visual when the light buffer cannot be used (a perspective camera, or a
+// with the first kDirectLights2D lights: the size of the light arrays in quad.glsl (quad_fs_params is about 100 vec4s with the
+// cookies and the scene copy, under the WebGL2 / GLES3 minimum of 224 vec4s of a fragment uniform block). The same loop shades every lit visual when the light buffer cannot be used (a perspective camera, or a
 // GPU that can render to neither a half-float nor an 8-bit target).
 constexpr int kDirectLights2D = 16;
 // Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture): every light a
