@@ -4,7 +4,7 @@ Part of [SHADERS.md](../SHADERS.md): materials on sprites, shapes, tiles, text a
 
 `"kind": "sprite"` makes a material for the 2D quad pipeline: everything the engine draws as textured or shaded quads
 (`Sprite`, `Shape2D`, `Tilemap`, `Text` glyphs, particles and trails, UI images). The file, the params, the textures, the
-compiler, the cache, `factoria validate` and `factoria export` are the ones described above; the snippet and what it
+compiler, the cache, `factoria validate` and `factoria export` are the ones described on [SHADERS.md](../SHADERS.md); the snippet and what it
 starts from differ.
 
 **Which components take a material.** `Sprite`, `Shape2D`, `Tilemap`, `Text`, `ParticleEmitter` and every UI widget
@@ -103,7 +103,7 @@ write them. The slots are listed in `engine/render/src/render_internal.h` (`kMat
   you want a cut-out. `lighting` `"pbr"` and `"unlit"` and `doubleSided` mean nothing here and are ignored; `"custom"` is an
   error (there is no `light()` hook in the 2D pipeline).
 - `vertexAttributes` does not apply (a quad has no second UV or colour set): refused.
-- A sprite material admits a `graph` (kind `sprite`, "Node graphs").
+- A sprite material admits a `graph` (kind `sprite`, "Node graphs" on [SHADERS.md](../SHADERS.md#node-graphs)).
 - `vertex()` samples the material's textures as a mesh material's does ("Textures in `vertex()`": mip 0, the same names).
 - An `instanced` param is a per-quad value (at most 3 vec4, same rules as a mesh); the snippet reads it by name in
   `fragment()` and `vertex()`. A particle's instanced values are its emitter's `materialParams`, and `i.life` is the

@@ -135,6 +135,10 @@ and instanced like any opaque mesh of the same material (see "Skinning and insta
   meshes work.
 - `"none"`: the material casts no shadow.
 
+The template also holds the engine's own helpers of the light loop and the shadow lookups (and the macros `FA_SHADOW_TEX` and `FA_SHADOW_SMP`),
+because it includes the shared files, but only the names this page lists are for you: the others are internal, and their signatures and the
+data behind them change between versions.
+
 A mesh with a full material **receives** shadows only as far as your fragment stage reads `fa_shadow()` or `fa_light()`.
 
 ## SSAO and the prepass

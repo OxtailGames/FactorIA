@@ -37,12 +37,12 @@ business (`fa_light_base(li)`), and the region is indexed by the light, not by i
 **Plan.** `plan_job` (`renderer_draw.cpp`) sets `wantContact` when a light of the frame has a length, asks for the prepass, and sets
 `ctx.contactOn` only when the prepass is really drawn (a GPU that cannot sample the depth does not). When it is not, every length is
 zeroed again, so the shader branch, the stat and the data agree. `stats.contactShadowLights` counts the lights with a length of a frame
-with `contactOn`. `render.supports` `contactShadows` needs `depth`, like the effects that read the prepass.
+with `contactOn`, summed over the frame's camera jobs (a light seen by two cameras counts twice). `render.supports` `contactShadows` needs `depth`, like the effects that read the prepass.
 
 **Shader.** The block `fa_contact` of `light_loop.glsl` has one function, `fa_contact_shadow(li, world, gn, l, dist)`, called from
 `fa_light_shadowed` (the engine's loop and `fa_light()` of a custom lighting) and from `fa_light_shadow` of the lighting API, each only
 when `fa_ct_a.x` is above 0.5, a uniform: a draw without contact shadows (a blended mesh, `receiveShadows` off, a full-shader material,
-a frame without the prepass) pays one branch per light. Inside, a light without a length returns at its texel fetch. The result
+a frame without the prepass, or a pass that runs before the main pass has set `ctx.screenView`: the shadow and prepass passes) pays one branch per light. The flag needs `ctx.screenView.id`, and the texel read is clamped to the size of the prepass. Inside, a light without a length returns at its texel fetch. The result
 multiplies into the light's shadow term (`ls.shadow` and `ls.color`, so a snippet's `light()` sees it), so a light with no shadow map
 has one too. A directional light's distance is passed as 1e9; a point or spot light's is its distance, and the ray never goes beyond 0.9 of
 it; an area light is marched toward `ls.direction`, the point of its emitter its light comes from, over `ls.distance`.

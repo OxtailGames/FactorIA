@@ -54,7 +54,7 @@ generated top file with the built-in source modulo the user block; the render te
 vertex stage, the fragment stage (uniform blocks `sky_vs_params` 0 and `sky_fs_params` 1, the colour-space helpers, `fa_scene_rgb`)
 and a `main()` that builds `SkyInput` (`dir`, `sun_dir`, `time`), starts `SkySurface.color` at the gradient of
 `SceneSettings.skyColor` and `horizonColor`, calls the snippet's `sky(in SkyInput, inout SkySurface)` and writes the colour
-opaque. `sky.glsl` is the template with an empty `sky()` (so the engine's pixels are what they were) and declares
+opaque. `sky.glsl` is the template with an empty `sky()` (so an empty snippet draws the engine's own sky: the gradient) and declares
 `@program sky vs fs`; a material's generated top file is the same with its own `fa_user` block. The template hash of the kind
 covers `color_space.glsl` and `sky_common.glsl`; the sky defines no preprocessor macros and has no `vertex()`.
 

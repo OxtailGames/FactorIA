@@ -30,7 +30,7 @@ How it looks:
   under it (a decal on a shiny floor stays shiny; `metallic` and `roughness` are the mesh's). It does not add light by itself.
 - The box ends sharply at its sides (the decal ends at the edge of its picture) and fades over the last tenth of its depth, so a
   decal does not show a flat cut where the projection ends.
-- Albedo and normal are read with mip levels chosen from how large the decal is on the screen, so a far decal does not sparkle.
+- Albedo and normal are read with mip levels chosen from how large the decal is on the screen, so a far decal does not sparkle (up to mip level 3: the atlas gutter around each tile holds a bilinear tap of that level, so a read never reaches a neighbouring tile).
 - Decals draw on the opaque and the transparent meshes alike. The depth prepass and the shadow maps do not see them: a decal never
   casts a shadow and never changes the silhouette.
 - A scene without decals draws the same picture as before (every golden of the engine stayed the same), and costs nothing more.
