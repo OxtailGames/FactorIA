@@ -339,8 +339,9 @@ What does not fit is never dropped silently: the import warns with the file, the
 `clearcoatNormalTexture` (the coat follows the geometric normal), `sheenColorTexture` and `specularColorTexture` (their factors are used),
 the direction of `anisotropyTexture` (the tangent turned by `anisotropyRotation`), a texture file that cannot be read (its factor alone
 is used) and a set whose packed size would pass 4096 x 4096. An editable mesh (`mesh.*` commands) keeps only the factors. The textures of the
-extensions are read together with the model file: a change to one of those image files shows after the model reloads, and they are not in the
-load trace (`render.assets`).
+extensions are read together with the model file: a change to one of those image files shows after the model reloads. They are read through
+the file layer, so the load trace counts them and `factoria export` packs them, but `render.assets` does not list them as textures of their own
+(they are packed into the maps of the model's parts).
 
 ## Reflection probes (M73-P3b)
 

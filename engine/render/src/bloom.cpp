@@ -76,6 +76,9 @@ void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, c
 
 }  // namespace
 
+// The bloom settings with every number finite and clamped: threshold 0..0.99, intensity 0..10, radius 1..128.
+// bloom_from_stack (postprocess.cpp) is what the renderer calls: it takes the threshold again from the PostProcess
+// and clamps it to 0..20 (above 1 is HDR light of a linear scene), so the 0.99 cap only holds for a caller of this one.
 BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius, bool screenSpace) {
     BloomSettings b;
     b.enabled = enabled;

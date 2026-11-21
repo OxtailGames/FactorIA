@@ -87,9 +87,18 @@ std::string removed_field_hint(std::string_view component, std::string_view fiel
          "add a PostProcess component to the camera's entity, set colorFilterEnabled to true and colorFilterMode to "
          "the filter (none, greyscale, highContrast, protanopia, deuteranopia, tritanopia)."},
     };
+    // The field name is compared without regard to case: a scene that says "Bloom" meant the removed field too.
+    auto same_field = [](std::string_view a, std::string_view b) {
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                return false;
+        return true;
+    };
     for (const Removed& r : kRemoved)
-        if (r.component == component && r.field == field)
-            return std::string(component) + "." + std::string(field) + " was removed in 0.33.0: " + std::string(r.text);
+        if (r.component == component && same_field(r.field, field))
+            return std::string(component) + "." + std::string(r.field) +
+                   " was removed in 0.33.0: " + std::string(r.text);
     return {};
 }
 

@@ -122,10 +122,10 @@ public:
         needLtc_ = true;
     }
     void request(LightAtlasKind kind, const std::string& path);
-    // Ends one collection of the lights of a view: a key nobody asked for in the last kKeyIdleTicks collections (one collect_lights call per view: several
-    // per frame with several cameras or probe captures, so not a frame count) is forgotten (its tile
-    // is not baked again and the next sync lays the atlas out without it), so a project that went through many cookies does not keep
-    // them all. A count of calls, never a time.
+    // Ends one collection of the lights of a view: a key nobody asked for in the last kKeyIdleTicks collections (one
+    // collect_lights call per view: several per frame with several cameras or probe captures, so not a frame count) is
+    // forgotten (its tile is not baked again and the next sync lays the atlas out without it), so a project that went
+    // through many cookies does not keep them all. A count of calls, never a time.
     void end_requests();
     static constexpr std::uint64_t kKeyIdleTicks = 600;
     std::size_t key_count() const { return keys_.size(); }
