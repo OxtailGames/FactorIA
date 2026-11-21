@@ -288,6 +288,30 @@ TEST_CASE(
     CHECK(src.find("highp sampler2D fa_light_atlas_fa_env_smp") != std::string::npos);
 }
 
+TEST_CASE("2D light cookies: cookie_coord of the light buffer and quad programs stays highp on GLES3 and WebGL2") {
+    // The 16 cells of the cookie atlas are 256 texels wide, 1024 in all: an fp16 coordinate has about 11 bits of mantissa, so a lookup at
+    // the far side of the atlas would land half a texel off and blend the neighbouring cell. sokol-shdc qualifies every declaration of the
+    // GLSL ES 3.00 source highp (the same reason as the area-light test above); this reads the generated sources and checks the function.
+    for (const char* file : {"light", "quad"}) {
+        CAPTURE(file);
+        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/" + file + ".glsl.h",
+                         std::ios::binary);
+        REQUIRE(in.good());
+        const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const std::string src = generated_source(header, std::string(file) + "_fs_source_glsl300es[");
+        const std::size_t at = src.find("cookie_coord(highp vec4 cell, highp vec4 xf, highp vec2 off)");
+        REQUIRE(at != std::string::npos);
+        const std::size_t end = src.find("\n    }\n", at);
+        REQUIRE(end != std::string::npos);
+        const std::size_t lineStart = src.rfind('\n', at) + 1;
+        const std::string body = src.substr(lineStart, end - lineStart);
+        const std::vector<std::string> bad = unqualified_floats(body);
+        for (const std::string& l : bad) MESSAGE("not highp: " << l);
+        CHECK(bad.empty());
+        CHECK(body.find("mediump") == std::string::npos);
+    }
+}
+
 TEST_CASE("light atlas: a point light's cookie cube has six face tiles that continue into each other") {
     // The cube takes 3 x 2 tiles of kCookieTile, one key, and the layout keeps it clear of the LTC block.
     std::vector<LightAtlasKey> keys{{LightAtlasKind::CookieCube, "assets/c.png"},

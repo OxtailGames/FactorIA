@@ -1026,6 +1026,30 @@ TEST_CASE("material lookup: params with no entry are one set whether they are nu
 }
 
 TEST_CASE(
+    "material lookup: a param that changes every frame (Water2D.material) keeps a handful of uses, not one per frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    // Every frame the water's tint is a new value, so every frame interns a new use of the material: the uses no item asked for in the
+    // last frames are dropped by begin_material_frame, so 300 frames never leave more than a few.
+    std::size_t most = 0;
+    for (int frame = 0; frame < 300; ++frame) {
+        assets.begin_material_frame();
+        const double v = double(frame % 97) / 97.0 + double(frame) * 1e-4;
+        const Json p = Json::object({{"tint", Json::array({v, 0.5, 0.25, 1.0})}});
+        const render::MaterialRef ref = assets.sprite_material_once(kTint, p);
+        REQUIRE(ref.use != nullptr);
+        CHECK_FALSE(ref.use->error);
+        const render::MaterialAsset* m = assets.material(kTint);
+        REQUIRE(m != nullptr);
+        most = std::max(most, m->uses.size());
+    }
+    CHECK(most <= 4);
+    assets.clear();
+}
+
+TEST_CASE(
     "material lookup: two spellings of the same values in another key order are two lookups of one material use") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

@@ -1989,6 +1989,16 @@ TEST_CASE("sprite material: fa_sample_main in a vertex stage says it is fragment
                                     "'fa_sample_main' : no matching overloaded function found");
     CHECK(e.hint.find("fragment stage only") != std::string::npos);
     CHECK(e.hint.find("vec4 fa_sample_main(vec2 p)") != std::string::npos);
+    // the picture drawn so far is fragment-only too: the hint says so instead of suggesting the name itself
+    e = compile_snippet("void vertex(inout QuadVertex v) { v.position.xy += fa_scene_color(v.uv).xy; }\n" +
+                            std::string(kSpriteSnippet),
+                        "'fa_scene_color' : no matching overloaded function found");
+    CHECK(e.hint.find("fragment stage only") != std::string::npos);
+    CHECK(e.hint.find("did you mean fa_scene_color") == std::string::npos);
+    e = compile_snippet("void vertex(inout QuadVertex v) { v.position.xy = fa_world_to_uv(v.position.xy); }\n" +
+                            std::string(kSpriteSnippet),
+                        "'fa_world_to_uv' : no matching overloaded function found");
+    CHECK(e.hint.find("fragment stage only") != std::string::npos);
     // a misspelled name: the suggestion is one the docs list, never an internal name of quad_common.glsl
     e = compile_snippet("float x = fa_inst_flgs;\n" + std::string(kSpriteSnippet),
                         "'fa_inst_flgs' : undeclared identifier");

@@ -774,6 +774,7 @@ void Assets::clear() {
     for (auto& [k, g] : generatedNormals_)
         if (g.tex) destroy_texture(*g.tex);
     generatedNormals_.clear();
+    generatedNormalMemo_.clear();
     for (auto& [k, v] : videoTextures_) destroy_texture(*v.tex);
     videoTextures_.clear();
     for (auto& [k, t] : textures_) destroy_texture(*t);
@@ -1296,17 +1297,27 @@ void Assets::make_generated_normal(const std::string& key, GeneratedNormal& g) {
 TextureAsset* Assets::generated_normal(const std::string& path, bool fromHeight, float strength) {
     if (path.empty() || is_target_id(path) || is_runtime_id(path)) return nullptr;
     const float k = std::isfinite(strength) ? std::clamp(strength, 0.0f, 16.0f) : 1.0f;
+    const long milli = std::lround(double(k) * 1000.0);
+    // Every lit sprite asks every frame: the path as the sprite wrote it, with the kind and the strength, finds the map without
+    // normalising the path or building the key.
+    std::vector<GeneratedNormalMemo>& memo = generatedNormalMemo_[path];
+    for (const GeneratedNormalMemo& m : memo)
+        if (m.fromHeight == fromHeight && m.milli == milli) return m.entry->tex.get();
     std::string src = fs::normalize(path);
     if (src.empty()) src = path;
-    const std::string key =
-        std::string(fromHeight ? "height:" : "sprite:") + src + "@" + std::to_string(std::lround(double(k) * 1000.0));
-    if (auto it = generatedNormals_.find(key); it != generatedNormals_.end()) return it->second.tex.get();
-    GeneratedNormal g;
-    g.source = src;
-    g.fromHeight = fromHeight;
-    g.strength = k;
-    make_generated_normal(key, g);
-    return generatedNormals_.emplace(key, std::move(g)).first->second.tex.get();
+    const std::string key = std::string(fromHeight ? "height:" : "sprite:") + src + "@" + std::to_string(milli);
+    auto it = generatedNormals_.find(key);
+    if (it == generatedNormals_.end()) {
+        GeneratedNormal g;
+        g.source = src;
+        g.fromHeight = fromHeight;
+        g.strength = k;
+        make_generated_normal(key, g);
+        it = generatedNormals_.emplace(key, std::move(g)).first;
+    }
+    memo.push_back({fromHeight, milli,
+                    &it->second});  // (the map's nodes do not move; the memo is cleared where entries are erased)
+    return it->second.tex.get();
 }
 
 std::string Assets::make_runtime_texture(const Image& img) {
@@ -2174,6 +2185,7 @@ void Assets::reload(const std::string& pathIn) {
                                        [&](const Failure& f) { return f.kind == "normal-from" && f.path == g->first; }),
                         failures_.end());
         if (!g->second.tex) {
+            generatedNormalMemo_.clear();
             g = generatedNormals_.erase(g);
             continue;
         }

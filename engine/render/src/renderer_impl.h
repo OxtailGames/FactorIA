@@ -177,8 +177,9 @@ struct Renderer::Impl {
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
-    bool sceneCopyWarned = false;  // one warning when the image of a scene copy could not be made
-    bool sceneCapWarned = false;  // one warning when a camera has more runs of scene-reading draws than kMaxSceneCopies
+    bool sceneCopyWarned = false;  // one warning per scene when the image of a scene copy could not be made
+    bool sceneCapWarned =
+        false;  // one warning per scene when a camera has more runs of scene-reading draws than kMaxSceneCopies
     bool prepassWarned = false;   // one warning when the prepass cannot be made
     bool coverageWarned = false;  // one warning when a sprite outline has no coverage image to read
     // The HDR display output (hdr_encode.h; docs/RENDERING.md, "HDR output"). outputInfo: the last answer of update_output()
@@ -310,6 +311,9 @@ struct Renderer::Impl {
     // The cookie atlas (M74, Light2D.cookie): the cookies of the frame copied into cells of one image (light_cookie.glsl).
     Target cookieTarget;
     bool cookieTargetFailed = false;
+    // What the atlas holds now: the target, the textures' reload generation and, per cell, the GPU view and the region the cell was copied from
+    // (cookie_pass copies only when this differs from the frame's cells; empty = the atlas holds nothing).
+    std::vector<std::uint64_t> cookieStamp;
     int lightW = 0, lightH = 0;
     sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
     bool lightTargetFailed = false;

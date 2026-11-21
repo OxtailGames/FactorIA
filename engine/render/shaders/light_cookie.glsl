@@ -8,6 +8,10 @@
 @block light_cookie
 // The atlas coordinate of the point `off` (world units from the light) in the light's cookie, and in z whether the point lies on the cookie
 // at all (1) or beyond its edge (0, the light is cut off there). The cookie's up is the world's up.
+// Precision: the atlas is 1024 texels wide, more than fp16 holds (mediump on a GLES3 or WebGL2 phone): the lookup would land half a texel
+// off at the far side and blend the next cell. sokol-shdc writes `precision mediump float;` as the default of its GLSL ES 3.00 fragment
+// source but qualifies every declaration of this function highp (parameters, locals, result); a test of light_atlas_tests.cpp scans the
+// generated headers and fails if one loses it. Do not write mediump or lowp here.
 vec3 cookie_coord(vec4 cell, vec4 xf, vec2 off) {
     vec2 q = vec2(xf.x * off.x + xf.y * off.y, xf.x * off.y - xf.y * off.x) * xf.z;
     vec2 c = vec2(q.x + 0.5, 0.5 - q.y);

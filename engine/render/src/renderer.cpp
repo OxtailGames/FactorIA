@@ -289,6 +289,15 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         im.warmGroups.push_back([gpu] {
             if (gpu->scene_format() != SG_PIXELFORMAT_RGBA8) gpu->blit_keep_pipeline();
         });
+        // The shaders and pipelines of Water2D and DistortionZone2D (a sprite material that calls fa_scene_color() makes them on its first
+        // draw): only where the scene has one of them, so a scene without pays no compile.
+        if (world.any<Water2D>() || world.any<DistortionZone2D>()) {
+            Impl* impl = &im;
+            im.warmGroups.push_back([impl] {
+                if (impl->game_targets_valid())
+                    impl->waterFx.warm(impl->gpu, pass_into(impl->gameTarget, "warm").format);
+            });
+        }
         bool meshes = false;
         world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
         if (meshes) {
@@ -1108,6 +1117,8 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedLights2d = false;
         warnedCookies2d = false;
         warnedLightBuffers2d = false;
+        sceneCapWarned = false;  // the picture-copy warnings (water2d.h) may show again in the new scene
+        sceneCopyWarned = false;
         reset_warnings(shadowCache.contours);  // the 2D shadow warnings may show again in the new scene
         warnedSpriteMesh = false;
         warnedGradientStops = false;

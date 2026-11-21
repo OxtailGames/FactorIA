@@ -577,6 +577,7 @@ void Renderer::Impl::trim_shadow_rows() {
 
 void Renderer::Impl::destroy_light_resources() {
     destroy_target(cookieTarget);
+    cookieStamp.clear();
     for (ShadowRowsSlot& s : shadowRowsRing) {
         if (s.view.id) sg_destroy_view(s.view);
         if (s.img.id) sg_destroy_image(s.img);
