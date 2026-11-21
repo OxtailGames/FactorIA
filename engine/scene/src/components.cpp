@@ -2407,9 +2407,10 @@ void register_builtin_components(TypeRegistry& r) {
                "it does not capture again. Default 1.")
         .range(0, 16)
         .field("bounce", &RealtimeGI::bounce,
-               "0..1: how much of the grid's own light the captures see, that is how many bounces the light makes "
-               "(0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen always see the grid at full "
-               "strength. Default 1.")
+               "0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces "
+               "the "
+               "light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures "
+               "of a ReflectionProbe always see the grid at full strength. Default 1.")
         .range(0, 1)
         .field("hysteresis", &RealtimeGI::hysteresis,
                "0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of "

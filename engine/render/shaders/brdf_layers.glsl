@@ -155,18 +155,20 @@ FaLayers fa_layers_setup(in SurfaceInput i, in Surface s, vec3 n, vec3 v, float 
     return L;
 }
 
-// What the layers add to the image-based lighting (the sky), without the occlusion: the base layer's reflection with the
-// dielectric f0 / f90 (and, with anisotropy, the normal bent toward the view along the stretch direction, the bent normal of McAuley 2015, "Rendering the World of Far Cry 4"),
-// scaled by base_scale; the sheen as the environment seen along the normal at the sheen roughness, times the sheen colour and the
-// sheen's albedo (an approximation: there is no sheen-filtered environment); the coat as a mirror-like reflection of the
-// environment along the geometric normal with the coat's roughness and the environment BRDF of f0 0.04.
-vec3 fa_layers_ibl(in FaLayers L, vec3 n, vec3 v, vec3 f0, float roughness) {
+// What the layers add to the image-based lighting (the sky): the base layer's reflection with the dielectric f0 / f90 (and, with
+// anisotropy, the normal bent toward the view along the stretch direction, the bent normal of McAuley 2015, "Rendering the World of Far
+// Cry 4", by how rough the surface is: a mirror has no stretched highlight to bend toward), scaled by base_scale; the sheen as the
+// environment seen along the normal at the sheen roughness, times the sheen colour and the sheen's albedo (an approximation: there is no
+// sheen-filtered environment); the coat as a mirror-like reflection of the environment along the geometric normal with the coat's
+// roughness and the environment BRDF of f0 0.04. `occlusion` (the material's occlusion map) darkens the base layer and the sheen, which
+// lie in the surface's crevices; the coat is a smooth film over the whole surface and keeps its reflection.
+vec3 fa_layers_ibl(in FaLayers L, vec3 n, vec3 v, vec3 f0, float roughness, float occlusion) {
     float ndv = max(dot(n, v), 1e-4);
     vec3 rn = n;
     if (L.aniso != 0.0) {
         vec3 dir = L.aniso >= 0.0 ? L.b : L.t;
         vec3 an = cross(cross(dir, v), dir);
-        rn = normalize(mix(n, an, abs(L.aniso)));
+        rn = normalize(mix(n, an, abs(L.aniso) * smoothstep(0.0, 0.25, roughness)));
     }
     vec3 r = reflect(-v, rn);
     vec2 ab = fa_env_brdf(roughness, ndv);
@@ -174,6 +176,7 @@ vec3 fa_layers_ibl(in FaLayers L, vec3 n, vec3 v, vec3 f0, float roughness) {
     if (L.sheen_on) {
         result += L.sheen * (L.sheen_e * L.keep) * fa_environment(n, L.sheen_rough);
     }
+    result *= occlusion;
     if (L.coat > 0.0) {
         vec2 abc = fa_env_brdf(L.coat_rough, L.coat_ndv);
         result += fa_environment(reflect(-v, L.nc), L.coat_rough) * (L.coat * (0.04 * abc.x + abc.y));
@@ -276,7 +279,7 @@ vec3 fa_layers_light(in FaLayers L, vec3 diffuse_color, vec3 f0, vec3 n, vec3 v,
 // (sorted far to near) does not show up in it. The diffuse light of the surface is scaled by 1 - transmission by the caller.
 @block fa_transmission
 vec2 fa_xm_size(int k) {
-    return max(floor(fa_ct_a.zw / exp2(float(k))), vec2(1.0));
+    return max(floor(fa_ct_a.zw / float(1 << k)), vec2(1.0));  // an exact power of two (exp2 is not exact on every GPU)
 }
 
 // Where level k starts in the atlas, in pixels.

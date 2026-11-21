@@ -374,8 +374,8 @@ bool ProbeGpu::upload(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, const Image
         for (int c = 0; c < 4; ++c) {
             const float v = c < 3 ? sh[i][c] * gain : 1.0f;
             if (bytes)
-                shByte.push_back(
-                    std::uint8_t((c < 3 ? std::clamp(v * 0.25f, -1.0f, 1.0f) * 0.5f + 0.5f : 1.0f) * 255.0f + 0.5f));
+                shByte.push_back(std::uint8_t(c < 3 ? std::clamp(v * 0.25f, -1.0f, 1.0f) * 127.0f + 128.5f
+                                                    : 255.0f));  // 0 is exactly byte 128
             else
                 shHalf.push_back(signed_half_bits(v));
         }

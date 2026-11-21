@@ -41,6 +41,7 @@ layout(binding=0) uniform textureCube env_src;
 layout(binding=0) uniform sampler env_smp;
 layout(binding=1) uniform env_params {
     vec4 p;     // x = roughness (0 .. 1: the prefilter), y = sample count, z = the most a tap of the source may be (0 = no limit), w = brightness
+                // (fs_sh reads them differently: x = 1 on the face that holds the coefficients, y = 1 when the cube is RGBA8)
 };
 in vec3 dir;
 out vec4 frag_color;
@@ -103,7 +104,7 @@ void main() {
 // (p.z), so the ambient does not change with the brightest texel of a picture; there is no further windowing: the clamped cosine
 // the shader convolves the coefficients with (1, 2/3, 1/4 per band) is itself the smoothest window an irradiance can have, and the shader
 // clamps the result at 0 (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The sky's spherical harmonics").
-// When the cubes are RGBA8 (p.y = 1, a GPU that cannot render to half floats) a coefficient is stored as clamp(c / 4, -1, 1) * 0.5 + 0.5.
+// When the cubes are RGBA8 (p.y = 1, a GPU that cannot render to half floats) a coefficient is stored as clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255, so 0 is the exact byte 128 and a sky with no light reads back 0.
 @fs fs_sh
 @include_block env_common
 @include_block env_math
@@ -125,7 +126,7 @@ void main() {
         result *= 65000.0 / m;
     }
     if (p.y > 0.5) {
-        result = clamp(result * 0.25, vec3(-1.0), vec3(1.0)) * 0.5 + 0.5;
+        result = clamp(result * 0.25, vec3(-1.0), vec3(1.0)) * (127.0 / 255.0) + 128.0 / 255.0;
     }
     frag_color = vec4(result, 1.0);
 }

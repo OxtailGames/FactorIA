@@ -20,6 +20,7 @@
 #include "fa/render/gi.h"
 #include "fa/render/lightmap_geometry.h"
 #include "fa/scene/light_probes.h"
+#include "fa/scene/lightmap_bake.h"
 #include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/lightmap_uv.h"
 #include "render_internal.h"
@@ -391,6 +392,54 @@ TEST_CASE(
     // The meshes the camera draws are not captures: bounce does not dim them.
     CHECK(faceOn > 0.05f);
     CHECK(faceOff > 0.05f);
+}
+
+TEST_CASE("realtime GI shading: the capture of a ReflectionProbe sees the grid at full strength, whatever the grid's "
+          "bounce") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!half_float_gi(g)) {
+        MESSAGE("this GPU has no half-float render targets: not run");
+        return;
+    }
+    // The floor is lit by the grid only. A ReflectionProbe just over it captures that floor (the colour of the light below it): `bounce`
+    // is for the grid's own probes (Frame::giCapture), so a bounce of 0 must not darken the floor in this capture (the grid's probes hold
+    // one bounce less of light, nothing more).
+    auto floor_light = [&](float bounce) {
+        Own o(g);
+        REQUIRE(o.ok);
+        World w;
+        add_camera(w, {0, 0, 5}, {0, 0, 0});
+        const Divider d = build_divider(w, 1, 1.0f, false, bounce);
+        if (!settle(o, w, d.gi, 6)) return -1.0f;
+        Entity probe = make(w, "reflection", at(1, -0.5f, 2, 0.6f));
+        auto& rp = w.add<ReflectionProbe>(probe);
+        rp.mode = ProbeMode::Baked;
+        rp.resolution = 32;
+        rp.boxSize = {4, 4, 4};
+        // The glow panel is left out of the capture: what is seen below the probe is the floor, lit by the grid alone.
+        w.get<EntityInfo>(w.find("panel"))->tags.push_back("panel");
+        rp.hideTags = Json::array({"panel"});
+        Renderer::ProbePage page;
+        std::string error;
+        REQUIRE(o.r.probe_capture(w, probe, page, &error));
+        INFO("capture error: " << error);
+        ShL2 sh;
+        for (int k = 0; k < 9; ++k) sh.c[k] = Vec3{page.sh[k][0], page.sh[k][1], page.sh[k][2]};
+        const Vec3 down = sh_irradiance(sh, {0, 0, -1});
+        return (down.x + down.y + down.z) / 3.0f;
+    };
+    const float full = floor_light(1.0f);
+    if (full < 0.0f) {
+        MESSAGE("this GPU cannot blend into RGBA16F: not run");
+        return;
+    }
+    const float zero = floor_light(0.0f);
+    INFO("light of the floor in the capture with bounce 1: " << full << ", with bounce 0: " << zero);
+    CHECK(full > 0.02f);
+    // The grid itself is brighter with a bounce (its probes hold one more bounce of light), so the two are not equal; a capture that
+    // multiplied the grid's light by bounce 0 would see an unlit floor.
+    CHECK(zero > 0.5f * full);
 }
 
 // ---------------------------------------------------------------------------------------------------- the order of the diffuse light
