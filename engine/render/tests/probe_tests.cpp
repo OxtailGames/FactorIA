@@ -448,6 +448,7 @@ TEST_CASE("probe manifest: JSON round trip, and an error that names the pointer 
         for (int k = 0; k < 3; ++k) m.sh[i][k] = 0.25f * float(i) - 0.5f * float(k);
     const Json j = probe_manifest_to_json(m);
     auto back = probe_manifest_from_json(j, "room.probe.json");
+    if (!back.ok()) MESSAGE(back.error().message);
     REQUIRE(back.ok());
     CHECK(back->resolution == 64);
     CHECK(back->levels == 4);
@@ -479,6 +480,31 @@ TEST_CASE("probe manifest: JSON round trip, and an error that names the pointer 
     bad.erase("page");
     CHECK_FALSE(probe_manifest_from_json(bad, "x").ok());
     CHECK_FALSE(probe_manifest_from_json(Json::array(), "x").ok());
+    // A hash is 16 lowercase hex digits; a page stays inside the project; a huge `levels` is reported without overflowing.
+    for (const char* hash : {"0123", "0123456789ABCDEF", "0123456789abcdeg"}) {
+        bad = j;
+        bad["hash"] = hash;
+        auto r = probe_manifest_from_json(bad, "room.probe.json");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("room.probe.json/hash") != std::string::npos);
+    }
+    bad = j;
+    bad["hash"] = 5;
+    CHECK_FALSE(probe_manifest_from_json(bad, "x").ok());
+    for (const char* page :
+         {"/etc/room.hdr", "C:/room.hdr", "../room.hdr", "probes/../../room.hdr", "probes\\room.hdr"}) {
+        bad = j;
+        bad["page"] = page;
+        auto r = probe_manifest_from_json(bad, "room.probe.json");
+        INFO(page);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("room.probe.json/page") != std::string::npos);
+    }
+    bad = j;
+    bad["levels"] = 5000000000LL;
+    auto big = probe_manifest_from_json(bad, "room.probe.json");
+    REQUIRE_FALSE(big.ok());
+    CHECK(big.error().message.find("5000000000") != std::string::npos);
 }
 
 TEST_CASE("probe page: the SH of a constant page is its colour, and a .hdr round trip keeps the bytes") {

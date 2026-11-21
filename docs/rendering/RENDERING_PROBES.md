@@ -23,12 +23,13 @@ that draws. `render.probes` shows what the renderer holds. How it is built: docs
   at most two cube faces a frame by default (a probe at 128 is complete every three frames, `faceBudget` in `render.probes`), so a
   refresh shows after a few frames, never at once. Two probes are under way at once, so the cost of many probes is a number you
   choose, not the probes' count; `everyFrame` probes start their next capture before the others. While a capture is under way the
-  probe keeps its last complete picture. A capture whose faces cannot be drawn (the GPU is out of memory) leaves the probe `failed`
+  probe keeps its last complete picture (an entity that moves meanwhile gives each face the position it has when that face is drawn,
+  so a moving probe can show a seam until its next complete capture: keep a probe still, or let a moving one be `everyFrame`). A capture whose faces cannot be drawn (the GPU is out of memory) leaves the probe `failed`
   with the reason, and it is tried again after 30 frames. When the scene is reloaded or another one is loaded, every realtime probe
   captures the new scene from the start (an `onDemand` one included), keeping the atlas. A frame with no probe in the scene costs
   nothing.
 - **Baked.** `probe.bake {"entity": "lobby"}` captures once, at full speed, and writes a Radiance page `<scene>.<entity>.probe.<hash>.hdr`
-  and a manifest `<scene>.<entity>.probe.json` next to the scene (`path` picks another manifest, which must end in `.probe.json`;
+  and a manifest `<scene>.<entity>.probe.json` next to the scene (an id with a character a file name cannot hold, such as `a.b`, is written `a_b-<8 hex digits of its hash>` so two ids never share a file; `path` picks another manifest, which must end in `.probe.json`;
   `apply: false` leaves `bakedMap` alone). Without `apply: false` the probe's `bakedMap` is set at once and the renderer reads the pair
   (keep it with `scene.save`). The same scene gives the same bytes; a changed one gives a new page and the old one is deleted. Rebaking
   while the game runs, or editing the manifest, reloads the probe. A baked probe whose files are missing says so in `render.probes`

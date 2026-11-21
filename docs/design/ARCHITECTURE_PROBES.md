@@ -86,7 +86,7 @@ taken (P3c put the atlas where view 14 was, the sky's cube: the units stay 16 of
   the sky's re-bake keys change, and by `probes_plan` when the atlas was just made over a baked cube, so no frame draws the tile before
   it holds the sky. A scene with no sky material has `skyState` "noSky": the meshes keep the gradient, as before (`fa_env_sky.w` = 0).
 - **Allocation** (`ProbeAtlasAllocator`). A tile goes into a SHELF of its own height (a row of equal slots, one resolution per
-  shelf), shelves are stacked from the top, and a shelf whose slots are all free is given back. Deterministic: the same requests
+  shelf), shelves are stacked from the top, and the LAST shelf is given back when all its slots are free (an empty shelf above others stays, and only its own resolution reuses its slots). Deterministic: the same requests
   in the same order give the same places on every machine. With every probe at 128 the 1024 atlas holds 5 x 7 = 35 tiles; with
   256 about 2 x 3 = 6, and a mix is bounded by the shelves.
 - **Eviction.** When no slot is free a request takes the place of a probe of STRICTLY lower importance (the lowest importance, then

@@ -324,6 +324,7 @@ void Gpu::shutdown() {
     if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
     pacerSrc_ = pacerDst_ = {};
     pacedFrame_ = 0;
+    pacerFailed_ = false;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
                          &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
@@ -1138,7 +1139,12 @@ void Gpu::begin_transient_writes() {
     const sg_backend backend = sg_query_backend();
     if (backend != SG_BACKEND_METAL_MACOS && backend != SG_BACKEND_METAL_IOS && backend != SG_BACKEND_METAL_SIMULATOR)
         return;
-    if (inPass_ || pacedFrame_ == frame_ + 1) return;  // in a pass the command buffer exists; once per sokol frame
+    if (pacedFrame_ == frame_ + 1) return;  // once per sokol frame
+    if (inPass_) {  // in a pass the frame's command buffer exists already: sokol waited for the frame at its first pass
+        pacedFrame_ = frame_ + 1;
+        return;
+    }
+    if (pacerFailed_) return;
     if (!pacerSrc_.id) {
         const std::uint32_t zero = 0;
         sg_buffer_desc s{};
@@ -1154,14 +1160,23 @@ void Gpu::begin_transient_writes() {
         pacerDst_ = sg_make_buffer(&d);
     }
     if (sg_query_buffer_state(pacerSrc_) != SG_RESOURCESTATE_VALID ||
-        sg_query_buffer_state(pacerDst_) != SG_RESOURCESTATE_VALID)
+        sg_query_buffer_state(pacerDst_) != SG_RESOURCESTATE_VALID) {
+        // Tried once: a driver that refuses two 4-byte buffers is not asked again at every write, and nothing is left behind.
+        if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
+        if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
+        pacerSrc_ = pacerDst_ = {};
+        pacerFailed_ = true;
+        FA_WARN("render",
+                "The Metal frame pacer could not be created: a write-transient buffer may be overwritten while the GPU "
+                "still reads it (wrong instances in a probe capture on a busy GPU). Hint: restart the program.");
         return;
+    }
     sg_copy_buffer_to_buffer_desc c{};
     c.src.buffer = pacerSrc_;
     c.dst.buffer = pacerDst_;
     c.size = sizeof(std::uint32_t);
     sg_copy_buffer_to_buffer(&c);
-    pacedFrame_ = frame_ + 1;
+    pacedFrame_ = pacerCopyFrame_ = frame_ + 1;  // the copy opened the frame's command buffer (committed() says so)
 }
 
 sg_buffer Gpu::acquire_transient(std::size_t bytes) {

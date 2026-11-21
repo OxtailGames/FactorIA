@@ -556,7 +556,8 @@ public:
     // sky add up to 1. A mesh no probe reaches (or one that was not drawn) reflects the sky: {probes: [], sky: 1}. Empty object before init().
     Json probe_mesh_report(Entity mesh) const;
     // Makes the renderer keep the probe picks of `mesh` (and only of it) from the next frame on, which probe_mesh_report reads. True when it
-    // already did, so the last frame's picks are there; false when the caller should draw one more frame first.
+    // already did, so the last frame's picks are there; false when the caller should draw one more frame first. kNullEntity stops
+    // the watch (and frees the picks).
     bool probe_watch_mesh(Entity mesh);
     // The realtime GI's grids (RealtimeGI; include/fa/render/gi.h, docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"): the report of
     // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,

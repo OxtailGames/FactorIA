@@ -1624,8 +1624,10 @@ public:
     // command buffer is made, at its first pass or copy, so a write before it overwrote data the GPU was still reading whenever
     // the GPU was a frame or two behind (a probe's second face drew with the instances of another face; only a loaded
     // GPU showed it). This makes the frame's command buffer, and so waits for the same frame sokol waits for anyway at the first
-    // pass, with an empty copy: no extra synchronisation, only earlier. Nothing on the other backends (OpenGL and
-    // Direct3D 11 order the write in the driver, Vulkan makes the frame's command buffers in the write).
+    // pass, with an empty copy: no extra synchronisation, only earlier (the CPU may wait a little before the writes of a frame
+    // where it would have waited at its first pass). Its copy is GPU work outside a frame: committed() is false until the next
+    // sg_commit, so a read-back commits first. Nothing on the other backends (OpenGL and Direct3D 11 order the write in the
+    // driver, Vulkan makes the frame's command buffers in the write).
     // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
     void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
@@ -1653,7 +1655,8 @@ public:
     // GPU work was recorded outside a frame (a compute dispatch or buffer write): a read back must commit it first.
     void note_work() { committed_ = false; }
     // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
-    bool committed() const { return committed_; }
+    // The pacer's copy (begin_transient_writes) counts too, until a commit moves frame_ on.
+    bool committed() const { return committed_ && pacerCopyFrame_ != frame_ + 1; }
     // The sokol frame being recorded: the sg_commit() calls made so far by anyone, the editor's included (a commit
     // listener counts them). A write-transient image is written once in it, before it is bound (Assets::video_texture).
     std::uint64_t frame() const { return frame_; }
@@ -1741,6 +1744,9 @@ private:
     bool committed_ = true;
     sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
     std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
+    std::uint64_t pacerCopyFrame_ =
+        0;                      // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet)
+    bool pacerFailed_ = false;  // the pacer buffers could not be made: said once, not tried again
     std::uint64_t frame_ = 0;
     bool listening_ = false;  // count_commit is registered as a commit listener
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }

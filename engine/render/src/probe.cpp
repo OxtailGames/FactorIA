@@ -476,14 +476,41 @@ Result<ProbeManifest> probe_manifest_from_json(const Json& j, const std::string&
     m.levels = probe_levels(m.resolution);
     if (j.contains("levels") && j["levels"].is_number_integer() && j["levels"].get<long long>() != m.levels)
         return bad("/levels",
-                   "is " + std::to_string(j["levels"].get<int>()) + " but a map of " + std::to_string(m.resolution) +
-                       " has " + std::to_string(m.levels) + ".",
+                   "is " + std::to_string(j["levels"].get<long long>()) + " but a map of " +
+                       std::to_string(m.resolution) + " has " + std::to_string(m.levels) + ".",
                    "Bake the probe again with probe.bake.");
     if (!j.contains("page") || !j["page"].is_string() || j["page"].get<std::string>().empty())
         return bad("/page", "is missing or not a path.", "Bake the probe again with probe.bake.");
     m.page = j["page"].get<std::string>();
-    m.entity = j.value("entity", std::string());
-    m.hash = j.value("hash", std::string());
+    {
+        // The page is a project-relative path: one that leaves the project (absolute, a drive, a `..`) is not read.
+        const std::string& pg = m.page;
+        bool inside =
+            pg[0] != '/' && pg[0] != '\\' && !(pg.size() > 1 && pg[1] == ':') && pg.find('\\') == std::string::npos;
+        for (std::size_t from = 0; inside && from <= pg.size();) {
+            const std::size_t slash = pg.find('/', from);
+            const std::size_t end = slash == std::string::npos ? pg.size() : slash;
+            if (pg.compare(from, end - from, "..") == 0) inside = false;
+            from = end + 1;
+        }
+        if (!inside)
+            return bad(
+                "/page", "is '" + pg + "', which is not a path inside the project.",
+                "A baked page is next to its manifest (scenes/room.lobby.probe.<hash>.hdr): bake the probe again "
+                "with probe.bake.");
+    }
+    if (j.contains("entity") && j["entity"].is_string()) m.entity = j["entity"].get<std::string>();
+    if (j.contains("hash") && !j["hash"].is_null()) {
+        const std::string hv = j["hash"].is_string() ? j["hash"].get<std::string>() : std::string();
+        const bool hex16 = hv.size() == 16 && std::all_of(hv.begin(), hv.end(), [](char c) {
+                               return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                           });
+        if (!hex16)
+            return bad(
+                "/hash", "is not 16 lowercase hex digits.",
+                "The hash names the page and tells a hot reload what changed: bake the probe again with probe.bake.");
+        m.hash = j["hash"].get<std::string>();
+    }
     if (!j.contains("sh") || !j["sh"].is_array() || j["sh"].size() != std::size_t(kProbeShCoefficients))
         return bad("/sh", "is missing or does not have nine coefficients.", "Bake the probe again with probe.bake.");
     for (int i = 0; i < kProbeShCoefficients; ++i) {
