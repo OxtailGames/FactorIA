@@ -27,7 +27,7 @@ struct Rig {
     Fonts fonts;
     GradientRamps ramps;
     ShadowCache shadowCache;
-    bool warnedLights = false, warnedShadows = false, warnedMesh = false, warnedStops = false;
+    bool warnedLights = false, warnedMesh = false, warnedStops = false;
     explicit Rig(Gfx& g) : assets(*renderer_gpu(g.renderer)), fonts(*renderer_gpu(g.renderer), assets) {}
 };
 
@@ -100,7 +100,6 @@ void gather_all(World& w, Rig& rig, const std::vector<Cam>& cams, bool shared, R
         f.assets = &rig.assets;
         f.fonts = &rig.fonts;
         f.warnedLights2d = &rig.warnedLights;
-        f.warnedShadows2d = &rig.warnedShadows;
         f.warnedSpriteMesh = &rig.warnedMesh;
         f.warnedGradientStops = &rig.warnedStops;
         f.shadowCache = &rig.shadowCache;
