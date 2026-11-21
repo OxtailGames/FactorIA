@@ -53,6 +53,8 @@ and the weights of the taps that count are renormalised in the shader anyway.
    it), so only the change needs adding, and a strength of 0.5 is half the way to the blurred light.
 4. **`sss-add`**: V onto the camera's rectangle of the picture, as two draws of one pass: `max(V, 0)` with an additive blend, `max(-V, 0)` with a
    reverse-subtract blend. A signed source cannot go into an 8-bit or R11G11B10 target, hence two draws; each result is clamped to what the picture holds.
+   V itself is RGBA16F, but when the picture is an 8-bit target (HDR output off) each of the two blends rounds to 1/255 of the picture's range, so a
+   change smaller than half a step is lost and a faint scatter on a smooth gradient can show steps; a half-float picture has no such step.
 
 The last three are declared with the post stack, before the volumetric fog apply and the reflections (`SssFx::add_passes`), so blended meshes, fog and bloom see
 the scattered light.

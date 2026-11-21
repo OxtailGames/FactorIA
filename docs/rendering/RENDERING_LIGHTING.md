@@ -155,7 +155,7 @@ mirror under a blue sky with a few clouds shows both, and a sun that sets turns 
   frame the first time, when the air, the sun's colour, the exposure or the clouds' shape change, and when the sun moved more than a
   degree since the last bake; a sun that moves slowly (a day cycle) and drifting clouds rebuild it in three slices over three frames,
   a third of the work each, so no frame pays for all of it. The environment sees the sun rounded to a quarter of a degree and the
-  clock to 2 s steps (only while the clouds drift), so it is the same at 30 and at 144 fps; the meshes follow the sun with that step.
+  clock to 2 s steps (only while the clouds drift), so the states it is baked from are the same at 30 and at 144 fps (a sliced rebuild takes three frames, so the picture the meshes show lags by 3 frames, 100 ms at 30 fps and 21 ms at 144); the meshes follow the sun with that step.
 - **What it costs.** On Metal (Apple M-series, 320 x 180, the test "what the tables and a bake cost" prints the numbers for your
   machine): a frame in which nothing changed only draws the sky as one full-screen triangle (0.4 ms for the whole frame here); the first frame and a change of `skyTurbidity` or
   `skyGroundAlbedo` draw two small tables of the air (about 5 ms for both on that GPU, and never again until one of those changes); a
@@ -291,11 +291,11 @@ fine detail to the shadow maps and does not replace them.
   The shadow fades toward the end of the ray, toward the edges of the screen and with the distance from the camera (full up to 20 m,
   gone at 40 m).
 - **Cost.** Turning it on makes the frame draw the depth prepass (as the effects that need depth do), once, whatever the number of
-  lights; `stats.contactShadowLights` counts the lights that ask for a ray and is 0 when the prepass cannot be made. Only a fragment
+  lights; `stats.contactShadowLights` counts the lights that ask for a ray, once per camera that draws them, and is 0 when the prepass cannot be made. Only a fragment
   that is lit by such a light marches, with 12 reads of the prepass each; with every `contactShadowLength` at 0 or the switch off the
   frame is bit for bit the one without the feature, and nothing is bound or drawn for it.
 - **Limits.** It sees only what the camera sees: a caster that is off screen, behind the view or hidden by another surface throws no
-  contact shadow, and a thin object (thinner than half the ray) lets the light through; the ray stops at the edge of the screen. The
+  contact shadow, and a thin object (thinner than half the ray) lets the light through; the ray stops at the edge of the screen, and the depth is read only inside it. The
   prepass holds the opaque meshes only, so blended meshes cast none; a blended mesh, a mesh whose material is a full shader (`mode:
   "full"`), and one with `receiveShadows` off get no contact shadow either, and the glass of M73.6b get none. Sprites and the 2D renderer are not affected.
 - **GPUs.** `render.supports` with `{"feature": "contactShadows"}` follows the GPU's depth prepass, like the effects that need depth.
@@ -317,7 +317,7 @@ defaults draws exactly the picture it drew before, and costs at most one uniform
 Image-based light (the sky or the `environmentMap`) gets the layers too, by approximation: the coat reflects the environment along the
 geometric normal with F0 0.04 (the mip of `clearcoatRoughness`); the sheen adds it at `sheenRoughness`, tinted by `sheenColor` and a table
 of the sheen's directional albedo (7 x 9, worst error 0.06; `tools/shaders/sheen_albedo.py` makes it); the anisotropic reflection bends
-the reflected direction toward the stretch (McAuley 2015). A layer reflects its sky and never adds energy.
+the reflected direction toward the stretch (McAuley 2015), by how rough the surface is: a mirror-smooth one has no stretched highlight to bend toward. A layer reflects its sky and never adds energy. The occlusion map darkens the base layer's sky light and the sheen's, which lie in the crevices; the clear coat is a smooth film over the whole surface and keeps its reflection.
 
 ### Layers from a glTF model
 

@@ -15,7 +15,7 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on seven pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on nine pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.

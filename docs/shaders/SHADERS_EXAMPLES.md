@@ -3,7 +3,7 @@ Part of [SHADERS.md](../SHADERS.md): nine worked examples of mesh materials (a p
 # Worked examples
 
 Each example is a material file plus a snippet; the test suite compiles them all, so they are known to work. Put the
-snippet's path in the material's `shader` and the material's path on an entity as shown above.
+snippet's path in the material's `shader` and the material's path on an entity as shown on [SHADERS.md](../SHADERS.md).
 
 ## 1. Pulsing emission (`fa_time`)
 
