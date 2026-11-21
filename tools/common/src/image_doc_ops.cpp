@@ -130,7 +130,7 @@ const std::vector<OpDef>& adjustment_defs() {
          "Mirrors a component of a normal map so it stays a valid one: `channel` y (default; the green channel, which "
          "turns an OpenGL map "
          "into a DirectX one and back), x (red) or both. Transparent pixels are left alone; flipping twice gives the "
-         "same bytes: "
+         "same bytes (it maps each byte p to 255 - p, so a flat 128 becomes 127): "
          "{\"type\": \"normalFlip\", \"channel\": \"y\"}.",
          {"channel"}},
         {"normalSmooth",
