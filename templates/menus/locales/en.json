@@ -62,6 +62,13 @@
         "low": "low",
         "off": "off"
       },
+      "light": "2D lighting: {quality}",
+      "lq": {
+        "off": "off",
+        "low": "low",
+        "medium": "medium",
+        "high": "high"
+      },
       "bloom": "Bloom",
       "grain": "Film grain",
       "vignette": "Vignette",

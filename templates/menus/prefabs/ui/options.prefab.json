@@ -113,7 +113,7 @@
         "id": "video_section",
         "components": {
           "Panel": {
-            "size": [712, 424],
+            "size": [712, 476],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -244,6 +244,18 @@
               "Button": {
                 "autoSize": true,
                 "text": "Effects quality",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "gfx_light",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "2D lighting",
                 "size": [560, 44],
                 "layer": 302,
                 "fontSize": 22

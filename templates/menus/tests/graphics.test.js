@@ -27,6 +27,7 @@ test("graphics tab: switching an effect changes the PostProcess and is saved", (
   const pad = openGraphics();
   expect(fx().bloomEnabled).toBe(true);
   pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting
   pad.tap("DpadDown"); // Bloom
   pad.tap("A");
   expect(fx().bloomEnabled).toBe(false);
@@ -72,4 +73,44 @@ test("graphics settings apply to the next scene and old saved settings still loa
   expect(fx().vignetteEnabled).toBe(false); // the player's own switch
   storage.set("settings", { volume: { music: 0.3 } });
   expect(settings.load().graphics.quality).toBe("high"); // a save of an older kit
+});
+
+const gi = () => world.find("gi_light").get("GlobalIllumination2D");
+
+test("graphics tab: 2D lighting shows the scene's own value, then writes enabled and quality and is saved", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "medium" } } });
+  settings.applyScene(); // nothing chosen yet: the scene keeps its own values
+  expect(gi().quality).toBe("medium");
+  expect(gi().enabled).toBe(true);
+  expect(settings.lightingShown()).toBe("medium");
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting: medium -> high
+  pad.tap("A");
+  expect(gi().quality).toBe("high");
+  expect(storage.get("settings").graphics.lighting2d).toBe("high");
+  pad.tap("A"); // high -> off
+  expect(gi().enabled).toBe(false);
+  expect(storage.get("settings").graphics.lighting2d).toBe("off");
+  pad.tap("A"); // off -> low: on again
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+});
+
+test("graphics settings: the 2D lighting choice reaches the next scene, and a player who never chose changes nothing", () => {
+  storage.set("settings", { graphics: { lighting2d: "low" } });
+  scene.load("scenes/menu.scene.json");
+  game.step(1);
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: false, quality: "high" } } });
+  settings.applyScene();
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+  storage.set("settings", { volume: { music: 0.3 } });
+  expect(settings.load().graphics.lighting2d).toBe(null);
+  gi().enabled = false;
+  gi().quality = "high";
+  settings.applyScene();
+  expect(gi().enabled).toBe(false); // the scene's own value stands
+  expect(gi().quality).toBe("high");
+  expect(settings.lightingShown()).toBe("off");
 });
