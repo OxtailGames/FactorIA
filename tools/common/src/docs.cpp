@@ -326,6 +326,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"rendering-probes",
          "Rendering, part: reflection probes: realtime and baked captures, probe.bake, render.probes, the atlas.",
          aud({kGameAi})},
+        {"rendering-2d-water",
+         "Rendering, part: Water2D, DistortionZone2D and fa_scene_color (the picture drawn so far) in sprite "
+         "materials.",
+         aud({kGameAi})},
         {"rendering-transmission",
          "Rendering, part: glass and liquids (transmission, thickness, attenuation) and the material cost view.",
          aud({kGameAi})},
