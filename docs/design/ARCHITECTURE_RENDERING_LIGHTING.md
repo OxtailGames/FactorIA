@@ -474,7 +474,7 @@ cube held): `test_lightmap_bake.cpp` "sky SH" (gradient within 0.0001, cosine lo
 case, 12 % mean error: use a directional light for a sun) and `env_sh_tests.cpp` on the GPU (colour 0..1, 14 normals: the worst normal of
 the gradient, the physical sky and an HDRI picture is within 0.003, 0.005, 0.005).
 
-**Formats.** RGBA16F: the coefficients as they are (a component limited to 65000). RGBA8 (`fa_env_sky.w` = 2; `force_rgba8_for_tests`):
+**Formats.** RGBA16F: the coefficients as they are (a component limited to 65000). RGBA8 (`fa_atlas.y` = 1; `force_rgba8_for_tests`):
 `clamp(c / 4, -1, 1) * 0.5 + 0.5`; a sky of radiance 1 has `c0 = 3.5`, so an LDR sky fits (0.015 from the half-float result in the test).
 **GLES3:** every float of `fs_sh` and of `fa_sh_eval`, `fa_sky_sh_coef`, `fa_ambient_light` is `highp` (a test scans the GLSL ES 3.00
 source); the face table is a function because sokol-shdc leaves a global constant array at mediump. `fa_ambient_light(n)` works wherever

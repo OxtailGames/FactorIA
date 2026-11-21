@@ -174,6 +174,9 @@ struct ProbeEntry {
     std::string state;    // "ready", "pending", "capturing", "noRoom", "noBake", "failed"
     std::string message;  // why a probe is "failed" or "noBake"
     std::uint64_t captures = 0;
+    // The tile holds this probe's picture: false from the moment the tile is given (moved, evicted, the atlas made again) until a capture
+    // finishes or a baked page is uploaded into it. The meshes only sample a probe whose tile is valid.
+    bool tileValid = false;
     std::uint64_t lastFrame = 0;   // the renderer's probe frame of the last capture or upload (0 = never)
     std::uint64_t retryFrame = 0;  // a realtime probe that failed is tried again from this probe frame
     // Baked: the manifest the tile was last filled from.
@@ -202,7 +205,12 @@ struct GiGrid {
     std::string message;
     bool seen = false;
     int lastFrameCaptures = 0;  // probes captured in the last gi frame
-    bool dirty = true;          // the record changed (the layout key or the readiness): P5d-2 writes it again
+    Vec3
+        anchor{};  // the origin the grid was last laid out at: a move of half a spacing from it lays the grid out again
+    bool failed =
+        false;  // a capture failed and no capture has succeeded since: state "failed" and `message` stay visible
+    std::uint64_t failFrame = 0,
+                  lastCaptureFrame = 0;  // the gi frames of the last failure and of the last finished capture
 };
 
 // The realtime GI of a renderer: every grid's state, the blocks of the band, this frame's capture jobs.

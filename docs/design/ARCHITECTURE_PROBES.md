@@ -263,8 +263,9 @@ it yet (P5d-2). The user's side is in [RENDERING_LIGHT_PROBES.md](../rendering/R
 
 **The band.** The probe atlas of P3b is 1024 x 1024; while any `RealtimeGI` is active it is 1024 x 1156: a BAND of 132 rows under the square
 holds the probes' blocks, so no texture unit is added (the atlas is the one image P3c binds at fragment view 14). An atlas made without the band
-is made again once (the reflection probes capture again, the sky's entry is written again). RGBA8 atlases (a GPU that cannot render to half
-floats) mean the GI is "unsupported": the band would not hold distances above 1.
+is made again once (the reflection probes capture again, the sky's entry is written again; a probe is not sampled until its tile is captured again: `ProbeEntry::tileValid`,
+cleared when a tile moves, is evicted or the atlas is made again). RGBA8 atlases (a GPU that cannot render to half
+floats) mean the GI is "unsupported": the band would not hold distances above 1, so such an atlas is not made taller.
 
 **The capture.** One probe is six face jobs of the frame graph, as in "The capture", with the component's `resolution` (16 or 32), `nearExclusion` as the
 near plane and `maxDistance` as the far plane, `Sky` as the clear (the sky lights the room) and the component's tags. Each face also draws the BACK faces
@@ -303,7 +304,7 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
   `maxDistance` 255, and a half float's precision at 900 is 0.5). To decode: `mean = r * maxDistance` (metres), `variance = max(g - r * r, 0) *
   maxDistance^2` (metres squared; `maxDistance` is in the grid's record). The visibility test is Chebyshev's with those: a point at distance `d` from the
   probe is lit by it with weight `variance / (variance + (d - mean)^2)` when `d > mean`, else 1. Or normalise the point's distance too (`d / maxDistance`) and
-  use r and g as they are, with the variance `max(g - r * r, 0)`. The hysteresis blends the normalised values.
+  use r and g as they are, with the variance `max(g - r * r, 0)`. The hysteresis blends the normalised values (with 0.99 and half floats a block converges to about 2 % of a steady value: the 1 % step is below the rounding of the stored value).
 - Row 10, columns 0..8: the nine coefficients of the SH of the light that reaches the probe: RADIANCE SH in the order of `ShL2` (lightmap_bake.h), RGB in r,
   g, b, no `intensity` applied. The cosine convolution is the one of `sh_irradiance` (bands scaled 1, 2/3, 1/4; `fa_sh_eval` in mesh_common.glsl
   does the same for the sky), and the result is the diffuse light in the units of a sky's (irradiance / pi).
@@ -314,7 +315,9 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
 
 1. **Upload the grids.** `GiGrid::layout` is the CPU truth; `gi_pack_record(layout, baseBlock, ready, out[16])` packs the record of a grid as four
    vec4: `[0]` origin.xyz, spacing; `[1]` nx, ny, nz, count; `[2]` baseBlock, blocksPerRow (102), maxDistance, intensity; `[3]` bounce,
-   backfaceTolerance, ready (1 once every probe has been captured), 0. `GiGrid::dirty` says the record changed (the layout key or the readiness).
+   backfaceTolerance, ready (1 once every probe has been captured), 0. The layout key (`GiLayout::key`) holds what the probes are (spacing, counts, resolution, distances, `showTags`, `hideTags`) and NOT the origin: an
+   entity that moves less than half a spacing from where the grid was laid out (`GiGrid::anchor`, `gi_layout_moved`) keeps its captured probes (they are
+   captured at the new place in turn), a larger move lays it out again. The record's `ready` is 0 again whenever the grid is captured again (new layout, new atlas, other blocks).
    Put the records (up to `kGiMaxGrids` = 8, 16 floats each, plus the grid count) in a row of the light data texture (fragment view 24, RGBA32F) or in
    a uniform block; the mesh fragment stage has no free texture unit (16 of 16) and none is needed: the blocks are in the atlas, which P3c binds at view
    14 (`ProbeSystem::atlas.tex` with `ProbeGpu::sampler()`, clamp and linear; a bilinear tap of a block's interior never leaves it: the depth map has its border and the SH texels are read by `texelFetch`

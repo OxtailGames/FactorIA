@@ -32,7 +32,9 @@ TEST_CASE("RealtimeGI layout: the grid is centred on the box and counts floor(si
     CHECK(last.y == doctest::Approx(2.0f));
     // The same component and position give the same key; another position another key.
     CHECK(gi_layout(c, {10.0f, 0.0f, 0.0f}, "room").value().key == g.key);
-    CHECK(gi_layout(c, {11.0f, 0.0f, 0.0f}, "room").value().key != g.key);
+    // The origin is not in the key (a moving entity must not restart the grid): gi_layout_moved says when it moved enough.
+    CHECK(gi_layout(c, {11.0f, 0.0f, 0.0f}, "room").value().key == g.key);
+    CHECK(gi_layout(c, {10.0f, 0.0f, -0.0f}, "room").value().key == g.key);
     // The settings that do not move a probe do not change the key (no new capture for them).
     c.intensity = 3.0f;
     c.hysteresis = 0.5f;
@@ -214,6 +216,32 @@ TEST_CASE("RealtimeGI order: the never captured first, then the longest ago, the
             ++count[std::size_t(i)];
         }
     CHECK(count == std::vector<int>{4, 4, 4, 4, 4});
+}
+
+TEST_CASE("RealtimeGI layout: a move of less than half a spacing keeps the grid, a larger one or other tags lay it out "
+          "again") {
+    RealtimeGI c;
+    c.size = {6.0f, 0.0f, 6.0f};
+    c.spacing = 2.0f;
+    const GiLayout a = gi_layout(c, {0.0f, 0.0f, 0.0f}, "room").value();
+    const Vec3 anchor = a.origin;
+    // 0.9 m: under the half spacing (1 m) on every axis.
+    const GiLayout near = gi_layout(c, {0.9f, 0.0f, -0.9f}, "room").value();
+    CHECK(near.key == a.key);
+    CHECK_FALSE(gi_layout_moved(near, anchor));
+    // 1 m or more on one axis.
+    const GiLayout far = gi_layout(c, {0.0f, 1.0f, 0.0f}, "room").value();
+    CHECK(far.key == a.key);
+    CHECK(gi_layout_moved(far, anchor));
+    CHECK(gi_layout_moved(gi_layout(c, {-1.5f, 0.0f, 0.0f}, "room").value(), anchor));
+    // The tags decide what a capture draws.
+    RealtimeGI t = c;
+    t.hideTags = Json::array({Json("player")});
+    CHECK(gi_layout(t, {0.0f, 0.0f, 0.0f}, "room").value().key != a.key);
+    RealtimeGI s = c;
+    s.showTags = Json::array({Json("player")});
+    CHECK(gi_layout(s, {0.0f, 0.0f, 0.0f}, "room").value().key != a.key);
+    CHECK(gi_layout(s, {0.0f, 0.0f, 0.0f}, "room").value().key != gi_layout(t, {0.0f, 0.0f, 0.0f}, "room").value().key);
 }
 
 TEST_CASE("RealtimeGI record: the four vec4 the shading reads") {

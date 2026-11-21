@@ -1140,6 +1140,9 @@ public:
     void refresh_probe_cache(Renderer& r);
     void draw_probe_gizmos(ImDrawList* dl, Renderer& r, Vec3 eye, Vec3 forward,
                            const std::function<ImVec2(Vec3)>& project_world);
+    // The selected RealtimeGI's grid box and probe points (gi_gizmo.cpp), perspective views only; `project_world` maps a world point to the screen.
+    void draw_gi_gizmo(ImDrawList* dl, Renderer& r, Entity grid, Vec3 eye, Vec3 forward,
+                       const std::function<ImVec2(Vec3)>& project_world);
     std::vector<NavLinkDraw> navLinks_;  // last links drawn (same rule as navCells_)
     std::vector<NavCell>
         navCells_;  // last cells drawn; kept while the mouse is down so a drag does not rebake each frame
