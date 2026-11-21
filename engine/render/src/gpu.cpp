@@ -1138,6 +1138,8 @@ sg_pipeline Gpu::light_pipeline(const TargetFormat& format) {
     d.layout.attrs[ATTR_light_light_pos] = {.buffer_index = 0, .offset = 8, .format = SG_VERTEXFORMAT_FLOAT4};
     d.layout.attrs[ATTR_light_light_color] = {.buffer_index = 0, .offset = 24, .format = SG_VERTEXFORMAT_FLOAT4};
     d.layout.attrs[ATTR_light_light_shadow] = {.buffer_index = 0, .offset = 40, .format = SG_VERTEXFORMAT_FLOAT4};
+    d.layout.attrs[ATTR_light_light_cookie] = {.buffer_index = 0, .offset = 56, .format = SG_VERTEXFORMAT_FLOAT4};
+    d.layout.attrs[ATTR_light_light_cookie_xf_in] = {.buffer_index = 0, .offset = 72, .format = SG_VERTEXFORMAT_FLOAT4};
     d.layout.buffers[0].stride = int(sizeof(LightVertex));
     d.index_type = SG_INDEXTYPE_UINT16;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
