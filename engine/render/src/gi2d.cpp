@@ -16,20 +16,30 @@ namespace fa::render {
 
 namespace {
 
-static_assert(UB_gi2d_gi2d_vs_params == 0 && UB_gi2d_gi2d_fs_params == 1, "the gi2d draw program uniform slots");
-static_assert(UB_gi2d_gi2d_full_vs_params == 0 && UB_gi2d_gi2d_seed_params == 1 && UB_gi2d_gi2d_jfa_params == 1,
-              "the gi2d full-screen programs' uniform slots");
-static_assert(VIEW_gi2d_tex == 0 && SMP_gi2d_smp == 0, "the gi2d programs' view and sampler slots");
-static_assert(UB_gi2d_gi2d_seed_emit_params == 1 && UB_gi2d_gi2d_cascade_params == 1 &&
-                  UB_gi2d_gi2d_irradiance_params == 1,
-              "the cascade programs' uniform slots");
-static_assert(VIEW_gi2d_c_occ_dist == 0 && VIEW_gi2d_c_emit_dist == 1 && VIEW_gi2d_c_emission == 2 &&
-                  VIEW_gi2d_c_albedo == 3 && VIEW_gi2d_c_upper == 4 && VIEW_gi2d_c_hist == 5 && SMP_gi2d_c_near == 0 &&
-                  SMP_gi2d_c_lin == 1,
-              "the cascade program's view and sampler slots");
-static_assert(VIEW_gi2d_r_cascade == 0 && VIEW_gi2d_r_occ_dist == 1 && VIEW_gi2d_r_emit_dist == 2 &&
-                  SMP_gi2d_r_near == 0,
-              "the irradiance program's view and sampler slots");
+// One static_assert per slot: a chain of `a == 1 && b == 1` reads as a redundant expression to clang-tidy once the
+// macros expand.
+static_assert(UB_gi2d_gi2d_vs_params == 0, "the gi2d draw program uniform slots");
+static_assert(UB_gi2d_gi2d_fs_params == 1, "the gi2d draw program uniform slots");
+static_assert(UB_gi2d_gi2d_full_vs_params == 0, "the gi2d full-screen programs' uniform slots");
+static_assert(UB_gi2d_gi2d_seed_params == 1, "the gi2d full-screen programs' uniform slots");
+static_assert(UB_gi2d_gi2d_jfa_params == 1, "the gi2d full-screen programs' uniform slots");
+static_assert(VIEW_gi2d_tex == 0, "the gi2d programs' view and sampler slots");
+static_assert(SMP_gi2d_smp == 0, "the gi2d programs' view and sampler slots");
+static_assert(UB_gi2d_gi2d_seed_emit_params == 1, "the cascade programs' uniform slots");
+static_assert(UB_gi2d_gi2d_cascade_params == 1, "the cascade programs' uniform slots");
+static_assert(UB_gi2d_gi2d_irradiance_params == 1, "the cascade programs' uniform slots");
+static_assert(VIEW_gi2d_c_occ_dist == 0, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_c_emit_dist == 1, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_c_emission == 2, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_c_albedo == 3, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_c_upper == 4, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_c_hist == 5, "the cascade program's view and sampler slots");
+static_assert(SMP_gi2d_c_near == 0, "the cascade program's view and sampler slots");
+static_assert(SMP_gi2d_c_lin == 1, "the cascade program's view and sampler slots");
+static_assert(VIEW_gi2d_r_cascade == 0, "the irradiance program's view and sampler slots");
+static_assert(VIEW_gi2d_r_occ_dist == 1, "the irradiance program's view and sampler slots");
+static_assert(VIEW_gi2d_r_emit_dist == 2, "the irradiance program's view and sampler slots");
+static_assert(SMP_gi2d_r_near == 0, "the irradiance program's view and sampler slots");
 
 constexpr sg_pixel_format kFormat = SG_PIXELFORMAT_RGBA16F;
 

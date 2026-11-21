@@ -27,17 +27,19 @@ Json image_normal_generate(const std::string& projectDir, const Json& a) {
         const std::vector<std::string> kinds = {"sprite", "height"};
         if (!a["from"].is_string() ||
             std::find(kinds.begin(), kinds.end(), a["from"].get<std::string>()) == kinds.end())
-            arg_error(kCmd, "/from",
-                      "`from` must be \"sprite\" or \"height\", got " + describe_json_value(a["from"]) + ". " +
-                          (a["from"].is_string() ? did_you_mean(a["from"].get<std::string>(), kinds) : std::string()),
-                      "\"sprite\" makes a bevel from the picture's own outline and brightness (Sprite.normalFrom = sprite); "
-                      "\"height\" reads a grey picture as a height map, white = high (Sprite.normalFrom = height).");
+            arg_error(
+                kCmd, "/from",
+                "`from` must be \"sprite\" or \"height\", got " + describe_json_value(a["from"]) + ". " +
+                    (a["from"].is_string() ? did_you_mean(a["from"].get<std::string>(), kinds) : std::string()),
+                "\"sprite\" makes a bevel from the picture's own outline and brightness (Sprite.normalFrom = sprite); "
+                "\"height\" reads a grey picture as a height map, white = high (Sprite.normalFrom = height).");
         from = a["from"].get<std::string>();
     }
     double strength = 1;
     if (a.contains("strength") && !a["strength"].is_null()) {
         if (!a["strength"].is_number() || !(a["strength"].get<double>() >= 0.0) || a["strength"].get<double>() > 32.0)
-            arg_error(kCmd, "/strength", "`strength` must be a number from 0 to 32, got " + describe_json_value(a["strength"]) + ".",
+            arg_error(kCmd, "/strength",
+                      "`strength` must be a number from 0 to 32, got " + describe_json_value(a["strength"]) + ".",
                       "0 is flat, 1 the default relief (the Sprite.normalStrength default), 4 a deep one.");
         strength = a["strength"].get<double>();
     }
@@ -45,7 +47,8 @@ Json image_normal_generate(const std::string& projectDir, const Json& a) {
     std::string name = "normal";
     if (a.contains("name") && !a["name"].is_null()) {
         if (!a["name"].is_string() || a["name"].get<std::string>().empty() || a["name"].get<std::string>().size() > 80)
-            arg_error(kCmd, "/name", "`name` must be a text of 1 to 80 characters, got " + describe_json_value(a["name"]) + ".",
+            arg_error(kCmd, "/name",
+                      "`name` must be a text of 1 to 80 characters, got " + describe_json_value(a["name"]) + ".",
                       "It names the new layer; the default is \"normal\".");
         name = a["name"].get<std::string>();
     }
@@ -72,26 +75,36 @@ Json image_normal_generate(const std::string& projectDir, const Json& a) {
         source = *before;
     }
     if (source.empty() || source.width != W || source.height != H)
-        fail("invalid_argument", "the picture of the document could not be drawn, so there is nothing to make a normal map from.",
+        fail("invalid_argument",
+             "the picture of the document could not be drawn, so there is nothing to make a normal map from.",
              "Run image.bake on it to see the error, then fix the document.");
     bool any = false;
     for (std::size_t i = 3; i < source.rgba.size() && !any; i += 4) any = source.rgba[i] != 0;
     if (!any && from == "sprite")
-        warnings.push_back("The source is fully transparent, so the normal map is flat: draw the sprite first, or pass \"from\":\"height\".");
+        warnings.push_back("The source is fully transparent, so the normal map is flat: draw the sprite first, or pass "
+                           "\"from\":\"height\".");
 
     Image map = make_normal_map(source, from, strength, tile);
     if (map.empty()) fail("internal", "the normal map could not be made.", "Report this with the document.");
 
     const std::string layerName = unique_layer_name(d.json, name);
-    const std::string idx = add_pixels_layer(projectDir, d.rel, d.json, haveLayer ? &ref : nullptr, layerName, map, 0, 0, kCmd);
+    const std::string idx =
+        add_pixels_layer(projectDir, d.rel, d.json, haveLayer ? &ref : nullptr, layerName, map, 0, 0, kCmd);
     LayerRef made = find_layer(d.json, Json(idx), kCmd);
     // A normal map is data, not colour: shown in the picture it would cover the sprite, so the layer starts hidden.
     (*made.layer)["visible"] = false;
     const std::string png = made.layer->value("source", std::string());
 
-    Json info = Json::object({{"layer", layerName}, {"index", idx}, {"png", png}, {"from", from}, {"strength", std::round(strength * 1000.0) / 1000.0}, {"tile", tile}});
-    info["use"] = "image.export {path, layer: \"" + layerName + "\", out: \"assets/art/<name>-n.png\"}, then set Sprite.normalMap to that PNG; "
-                  "or keep editing it with image.paint {layer, strokes:[{normal:{azimuth,tilt}}]} and the normalSmooth / normalFlip / normalStrength / normalize operations.";
+    Json info = Json::object({{"layer", layerName},
+                              {"index", idx},
+                              {"png", png},
+                              {"from", from},
+                              {"strength", std::round(strength * 1000.0) / 1000.0},
+                              {"tile", tile}});
+    info["use"] = "image.export {path, layer: \"" + layerName +
+                  "\", out: \"assets/art/<name>-n.png\"}, then set Sprite.normalMap to that PNG; "
+                  "or keep editing it with image.paint {layer, strokes:[{normal:{azimuth,tilt}}]} and the normalSmooth "
+                  "/ normalFlip / normalStrength / normalize operations.";
     Json extra = Json::object({{"normalMap", info}});
     return commit_document(projectDir, d.rel, d.json, before, arg_bool(a, "bake", true), extra, warnings, kCmd);
 }
@@ -103,19 +116,27 @@ void register_normal_command(CommandRegistry& registry, const std::string& proje
     info.name = kCmd;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, "
+    info.summary = "Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, "
+                   "ready to paint, smooth, "
                    "flip and export.";
-    info.description =
-        "Adds a pixels layer (hidden: a normal map is data, shown it would cover the sprite) the size of the canvas that holds a normal "
-        "map of `layer` (by name or index path; without it, of the picture as it is now). `from` \"sprite\" (default) bevels the "
-        "outline and the brightness of the picture, as Sprite.normalFrom = sprite does at run time; \"height\" reads the picture as a grey "
-        "height map, white = high, as normalFrom = height. `strength` 0..32 (default 1) is the relief, Sprite.normalStrength; `tile` wraps "
-        "the border for a seamless texture (the renderer clamps it, so leave it off for a sprite). With the same picture and strength the "
-        "bytes are the ones the renderer makes. The layer is an ordinary PNG layer: image.paint with a `normal` {azimuth, tilt} stroke "
-        "paints slopes, the normalSmooth, normalFlip, normalStrength and normalize operations (added to the layer, or to an adjustment "
-        "layer above it) keep it a valid map, image.export with `layer` writes the PNG a Sprite.normalMap uses. Red = +X right, green = +Y UP the "
-        "picture, blue = +Z towards the viewer; flat = (128,128,255). One undo step. Example: "
-        "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"hero\",\"strength\":2}";
+    info.description = "Adds a pixels layer (hidden: a normal map is data, shown it would cover the sprite) the size "
+                       "of the canvas that holds a normal "
+                       "map of `layer` (by name or index path; without it, of the picture as it is now). `from` "
+                       "\"sprite\" (default) bevels the "
+                       "outline and the brightness of the picture, as Sprite.normalFrom = sprite does at run time; "
+                       "\"height\" reads the picture as a grey "
+                       "height map, white = high, as normalFrom = height. `strength` 0..32 (default 1) is the relief, "
+                       "Sprite.normalStrength; `tile` wraps "
+                       "the border for a seamless texture (the renderer clamps it, so leave it off for a sprite). With "
+                       "the same picture and strength the "
+                       "bytes are the ones the renderer makes. The layer is an ordinary PNG layer: image.paint with a "
+                       "`normal` {azimuth, tilt} stroke "
+                       "paints slopes, the normalSmooth, normalFlip, normalStrength and normalize operations (added to "
+                       "the layer, or to an adjustment "
+                       "layer above it) keep it a valid map, image.export with `layer` writes the PNG a "
+                       "Sprite.normalMap uses. Red = +X right, green = +Y UP the "
+                       "picture, blue = +Z towards the viewer; flat = (128,128,255). One undo step. Example: "
+                       "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"hero\",\"strength\":2}";
     info.inputSchema = Json::parse(R"({"type":"object","required":["path"],"properties":{
       "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
       "layer":{"description":"The layer to make the normal map from, by name or index path (\"1/0\"). Its masks, adjustments and effects count. Default: the whole picture as it is now (hidden layers do not count)."},
@@ -124,7 +145,8 @@ void register_normal_command(CommandRegistry& registry, const std::string& proje
       "tile":{"type":"boolean","default":false,"description":"Wrap the border so a tiling texture has no seam. Off matches the renderer, which clamps the border."},
       "name":{"type":"string","default":"normal","description":"Name of the new layer; a number is added when the name is taken."},
       "bake":{"type":"boolean","default":true,"description":"Also draw the PNG (default true). The picture does not change: the new layer is hidden."}}})");
-    add_image_command(registry, info, [projectDir](const Json& args) { return image_normal_generate(projectDir, args); });
+    add_image_command(registry, info,
+                      [projectDir](const Json& args) { return image_normal_generate(projectDir, args); });
 }
 
 }  // namespace fa::imgedit

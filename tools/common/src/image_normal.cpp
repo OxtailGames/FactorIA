@@ -15,7 +15,9 @@ namespace {
 
 constexpr double kDegToRadD = 3.14159265358979323846 / 180.0;
 
-std::uint8_t encode_byte(double n) { return std::uint8_t(std::clamp(std::floor((n * 0.5 + 0.5) * 255.0 + 0.5), 0.0, 255.0)); }
+std::uint8_t encode_byte(double n) {
+    return std::uint8_t(std::clamp(std::floor((n * 0.5 + 0.5) * 255.0 + 0.5), 0.0, 255.0));
+}
 double decode_byte(std::uint8_t b) { return double(b) / 127.5 - 1.0; }
 
 struct Vec {
@@ -107,14 +109,16 @@ void normal_map_smooth(Image& map, double sigma, bool tile) {
             for (int x = 0; x < w; ++x) {
                 double acc = 0;
                 for (int k = -radius; k <= radius; ++k)
-                    acc += kernel[std::size_t(k + radius)] * plane[c][std::size_t(y) * std::size_t(w) + std::size_t(wrap(x + k, w))];
+                    acc += kernel[std::size_t(k + radius)] *
+                           plane[c][std::size_t(y) * std::size_t(w) + std::size_t(wrap(x + k, w))];
                 tmp[c][std::size_t(y) * std::size_t(w) + std::size_t(x)] = acc;
             }
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) {
                 double acc = 0;
                 for (int k = -radius; k <= radius; ++k)
-                    acc += kernel[std::size_t(k + radius)] * tmp[c][std::size_t(wrap(y + k, h)) * std::size_t(w) + std::size_t(x)];
+                    acc += kernel[std::size_t(k + radius)] *
+                           tmp[c][std::size_t(wrap(y + k, h)) * std::size_t(w) + std::size_t(x)];
                 plane[c][std::size_t(y) * std::size_t(w) + std::size_t(x)] = acc;
             }
     }
@@ -183,7 +187,8 @@ Image light_with_normal_map(const Image& base, const Image& normal, const Normal
             if (b[3] == 0) continue;
             Vec n{0, 0, 1};
             if (haveNormal && sx < normal.width && sy < normal.height) {
-                const std::uint8_t* t = &normal.rgba[(std::size_t(sy) * std::size_t(normal.width) + std::size_t(sx)) * 4];
+                const std::uint8_t* t =
+                    &normal.rgba[(std::size_t(sy) * std::size_t(normal.width) + std::size_t(sx)) * 4];
                 if (t[3] > 0) {
                     n = decode(t);
                     if (light.flipGreen) n.y = -n.y;
@@ -202,8 +207,7 @@ Image light_with_normal_map(const Image& base, const Image& normal, const Normal
             }
             const double lit = (n.x * lx + n.y * ly + n.z * lz) / len;
             const double f = std::max(0.0, 1.0 + 2.0 * intensity * (lit - lz));
-            for (int c = 0; c < 3; ++c)
-                o[c] = std::uint8_t(std::clamp(std::floor(double(b[c]) * f + 0.5), 0.0, 255.0));
+            for (int c = 0; c < 3; ++c) o[c] = std::uint8_t(std::clamp(std::floor(double(b[c]) * f + 0.5), 0.0, 255.0));
         }
     }
     return out;
