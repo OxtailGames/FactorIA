@@ -116,10 +116,19 @@ GLES3, WebGL2, D3D11 and Metal. No compute shader, no storage buffer: the build 
   local lights are M73.2b. An area light's sphere is its range plus the radius of its emitter (`LightData::extent`), so the clusters
   and the culling see the real extent.
 
-## The shadow atlas, point and spot shadows and decals
+## The shadow atlas
 
-The shadow atlas, the shadows of point and spot lights (M73.2b) and the decals (M73.5b) are on the page
-[ARCHITECTURE_SHADOWS_DECALS.md](ARCHITECTURE_SHADOWS_DECALS.md).
+The shadow atlas is on the page [ARCHITECTURE_SHADOWS_DECALS.md](ARCHITECTURE_SHADOWS_DECALS.md#the-shadow-atlas).
+
+## Decals (M73.5b)
+
+The decals, their records and their cluster lists are on the page
+[ARCHITECTURE_SHADOWS_DECALS.md](ARCHITECTURE_SHADOWS_DECALS.md#decals-m735b).
+
+## Shadows of point and spot lights (M73.2b)
+
+The cube and spot shadow maps, their records in the light texture and the cost rules are on the page
+[ARCHITECTURE_SHADOWS_DECALS.md](ARCHITECTURE_SHADOWS_DECALS.md#shadows-of-point-and-spot-lights-m732b).
 
 ## The light atlas
 
@@ -130,7 +139,7 @@ image, the texels of a light, shading, shadows, approximations, tests) is in
 
 ## The feature rows
 
-`render_features.cpp` has one row per feature (docs/design/ARCHITECTURE_RENDERING.md, "What the GPU can do"). M73-P0 added `float32Targets`
+`render_features.cpp` has one row per feature (docs/design/ARCHITECTURE_POSTPROCESS.md, "What the GPU can do"). M73-P0 added `float32Targets`
 (the `needs` word `float32`: `R32F` and `RGBA32F` render and sample, read with `sg_query_pixelformat`) and 21 engine rows planned
 `"M73"`: `clusteredLights`, `areaLights`, `lightCookies`, `iesProfiles`, `cascadedShadows`, `pointShadows`, `spotShadows`,
 `contactShadows`, `environmentMap`, `reflectionProbes`, `physicalSky`, `lightmaps`, `lightProbes`, `volumetricFog`, `decals`,

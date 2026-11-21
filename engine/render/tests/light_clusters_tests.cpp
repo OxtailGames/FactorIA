@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "fa/core/jobs.h"
+#include "fa/render/gi.h"
 
 #include "light_clusters.h"
 #include "mesh_batch.h"
@@ -433,7 +434,8 @@ TEST_CASE("clusters: a contact shadow length is in the y of the light's texel of
     CHECK(plain.shadowBase < 0);
 }
 
-TEST_CASE("clusters: the realtime GI records come last in the data texture, after lights, clusters, shadows and decals") {
+TEST_CASE(
+    "clusters: the realtime GI records come last in the data texture, after lights, clusters, shadows and decals") {
     const View v = make_view(640, 360, false);
     LightData sun;
     sun.pos = {0.0f, 1.0f, 0.0f, 0.0f};
@@ -472,7 +474,8 @@ TEST_CASE("clusters: the realtime GI records come last in the data texture, afte
         decals.lists.count.assign(lists.first.size(), 0);
         decals.lists.indices = {0};
         for (const DecalPack* dp : {static_cast<const DecalPack*>(nullptr), static_cast<const DecalPack*>(&decals)}) {
-            INFO(dp ? "with a decal" : "no decals");
+            const std::string label = dp ? "with a decal" : "no decals";
+            INFO(label);
             LightTexture none, withGi;
             pack_light_texture(table, 1, v.cam, &lists, none, nullptr, dp);
             pack_light_texture(table, 1, v.cam, &lists, withGi, nullptr, dp, gi.data(), 2);
@@ -483,7 +486,9 @@ TEST_CASE("clusters: the realtime GI records come last in the data texture, afte
             CHECK(std::size_t(withGi.giBase) > lightTexels + lists.first.size());
             CHECK(withGi.shadowBase == none.shadowBase);
             CHECK(withGi.uniforms.decalBase == none.uniforms.decalBase);
-            if (dp) CHECK(withGi.uniforms.decalBase > 0.0f);
+            if (dp) {
+                CHECK(withGi.uniforms.decalBase > 0.0f);
+            }
             for (std::size_t i = 0; i < none.usedTexels * 4; ++i) CHECK(withGi.texels[i] == none.texels[i]);
             for (std::size_t i = 0; i < gi.size(); ++i)
                 CHECK(withGi.texels[std::size_t(withGi.giBase) * 4 + i] == gi[i]);

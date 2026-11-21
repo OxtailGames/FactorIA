@@ -351,6 +351,14 @@ Baked light for static meshes (the sun and the `baked` lights stored in an image
 for moving objects and mixed lights are on the page [Lightmaps and baked light](RENDERING_LIGHTMAPS.md)
 (`docs.read rendering-lightmaps`).
 
+### Baking
+
+The bake commands (`lightmap.bake` and its start, status and cancel) and their limits are in [Lightmaps and baked light](RENDERING_LIGHTMAPS.md#baking).
+
+### Light probes and mixed lights (M73.4d)
+
+[Lightmaps and baked light](RENDERING_LIGHTMAPS.md#light-probes-and-mixed-lights-m734d).
+
 ## Decals (M73.5b)
 
 A `Decal` projects a texture onto the meshes inside its box; its fields, the draw and the limits are on the page
