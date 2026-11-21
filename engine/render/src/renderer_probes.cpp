@@ -144,8 +144,8 @@ void Renderer::Impl::probes_build_volumes(World& world) {
         v.id = id;
         v.position = m.translation();
         v.center = m.transform_point(finite_or(rp->boxOffset, Vec3{0, 0, 0}));
-        const Vec3 size = finite_or(rp->boxSize, Vec3{10, 10, 10});
-        const float sizes[3] = {std::fabs(size.x), std::fabs(size.y), std::fabs(size.z)};
+        const float sizes[3] = {probe_box_side(rp->boxSize.x), probe_box_side(rp->boxSize.y),
+                                probe_box_side(rp->boxSize.z)};
         bool ok = std::isfinite(v.position.x) && std::isfinite(v.position.y) && std::isfinite(v.position.z) &&
                   std::isfinite(v.center.x) && std::isfinite(v.center.y) && std::isfinite(v.center.z);
         for (int c = 0; c < 3; ++c) {
@@ -159,7 +159,7 @@ void Renderer::Impl::probes_build_volumes(World& world) {
             v.half[c] = std::clamp(sizes[c] * 0.5f * len, 1.0e-4f, 1.0e6f);
         }
         if (!ok) continue;
-        v.blend = std::isfinite(rp->blendDistance) ? std::clamp(rp->blendDistance, 0.0f, 1.0e6f) : 0.0f;
+        v.blend = probe_blend_band(rp->blendDistance);
         v.importance = rp->importance;
         v.projection = rp->boxProjection;
         probe_volume_finish(v);
@@ -398,7 +398,8 @@ void Renderer::Impl::probes_plan(World& world) {
             specs.push_back(ProbeSpec{en.id, en.update, en.importance, en.resolution});
             if (moved && en.captures > 0) movedAgain.push_back(en.id);
         } else {
-            // `moved`: a tile that was given back and comes back (even at the same place) holds nothing until the page is uploaded again.
+            // `moved`: a tile that was given back and comes back (even at the same place) holds nothing until the page is
+            // uploaded again.
             const bool stale = moved || en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) ||
                                en.uploadedGain != en.gain;
             if (stale) {
@@ -735,6 +736,11 @@ Json Renderer::probe_report() const {
 
 bool Renderer::probe_watch_mesh(Entity mesh) {
     if (!initialized()) return false;
+    if (mesh == kNullEntity) {  // nobody asks about a mesh any more: stop keeping its picks
+        impl_->meshPickWatch = 0;
+        impl_->meshPicks.clear();
+        return false;
+    }
     const bool already = impl_->meshPickWatch == mesh.bits();
     impl_->meshPickWatch = mesh.bits();
     return already;

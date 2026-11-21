@@ -3,6 +3,7 @@
 #include <doctest.h>
 
 #include <cmath>
+#include <limits>
 #include <set>
 
 #include "light_clusters.h"
@@ -142,6 +143,11 @@ TEST_CASE("local shadows: importance falls with the distance to the camera and e
     CHECK(local_shadow_importance(2, 10, 10) > local_shadow_importance(1, 10, 10));
     CHECK(local_shadow_importance(1, 20, 20) == doctest::Approx(0.5f));
     CHECK(local_shadow_importance(1, 10, 100) < local_shadow_importance(1, 10, 50));
+    // A NaN brightness, range or distance ranks last (0), never as an unordered value.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(local_shadow_importance(nan, 10, 5) == 0.0f);
+    CHECK(local_shadow_importance(1, nan, 5) == 0.0f);
+    CHECK(local_shadow_importance(1, 10, nan) == 0.0f);
     // The same scores: the lower table index first, whatever the order of the inputs.
     std::vector<LocalShadowInput> in{input(7, {5, 0, 0}, 10), input(3, {-5, 0, 0}, 10), input(5, {0, 5, 0}, 10)};
     const LocalShadowPlan plan = plan_local_shadows(4096, {}, in, {0, 0, 0});

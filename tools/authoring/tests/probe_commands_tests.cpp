@@ -136,6 +136,35 @@ TEST_CASE("probe.bake: while the editor plays it is refused and writes nothing")
     e.shutdown();
 }
 
+TEST_CASE("probe.bake: ids that differ only in characters a file name cannot hold get two manifests") {
+    std::string scene = scene_text();
+    const std::string plain = R"({ "id": "plain")";
+    const std::size_t at = scene.find(plain);
+    REQUIRE(at != std::string::npos);
+    const std::string probe =
+        R"( "components": { "Transform": {}, "ReflectionProbe": { "mode": "baked", "resolution": 32 } } },
+    )";
+    scene.insert(at, R"({ "id": "a.b",)" + probe + R"({ "id": "a_b",)" + probe);
+    TempProject p("names", scene);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto first = c.call("probe.bake", Json{{"entity", "a.b"}});
+    if (no_graphics(first) || (!first.ok && first.error.dump().find("RGBA16F") != std::string::npos)) {
+        MESSAGE("no GPU with RGBA16F targets on this machine: the bake was not run");
+        return;
+    }
+    REQUIRE_MESSAGE(first.ok, first.error.dump());
+    auto second = c.call("probe.bake", Json{{"entity", "a_b"}});
+    REQUIRE_MESSAGE(second.ok, second.error.dump());
+    CHECK(first.result["manifest"] != second.result["manifest"]);
+    CHECK(second.result["manifest"] ==
+          "scenes/main.a_b.probe.json");  // an id that is a file name already keeps its name
+    CHECK(first.result["manifest"].get<std::string>().rfind("scenes/main.a_b-", 0) == 0);
+    e.shutdown();
+}
+
 TEST_CASE("probe.bake: writes the page and the manifest, is deterministic, and a changed scene replaces the page") {
     TempProject p("bake");
     Engine e;
@@ -143,8 +172,14 @@ TEST_CASE("probe.bake: writes the page and the manifest, is deterministic, and a
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     auto r = c.call("probe.bake", Json{{"entity", "lobby"}});
-    if (no_graphics(r)) return;  // no GPU on this machine
-    if (!r.ok && r.error.dump().find("RGBA16F") != std::string::npos) return;
+    if (no_graphics(r)) {
+        MESSAGE("no GPU on this machine: the bake was not run");
+        return;
+    }
+    if (!r.ok && r.error.dump().find("RGBA16F") != std::string::npos) {
+        MESSAGE("this GPU has no RGBA16F targets: the bake was not run");
+        return;
+    }
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json first = r.result;
     CHECK(first["manifest"] == "scenes/main.lobby.probe.json");

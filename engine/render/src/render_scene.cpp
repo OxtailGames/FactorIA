@@ -42,7 +42,8 @@ void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmi
 }
 
 bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
-    if (material && material->full) return false;
+    // An unlit mesh transmits nothing (fill_fs zeroes it): no copy of the picture, no glass culling.
+    if (mr.unlit || (material && (material->full || material->lighting == "unlit"))) return false;
     if (std::isfinite(mr.transmission) && mr.transmission > 0.0f) return true;
     for (const SubMesh& p : mesh.parts)
         if (p.layers.transmission > 0.0f) return true;
