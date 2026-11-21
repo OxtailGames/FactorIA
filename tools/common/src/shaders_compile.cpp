@@ -545,7 +545,7 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
             if (callFailed && in_fragment_entry(ctx, line))
                 return std::string("`") + token + "` exists, but this call does not match its signature: " +
                        (color ? "vec4 fa_scene_color(vec2 uv) (the uv is a vec2, 0..1 over the camera's rectangle)."
-                              : "vec2 fa_world_to_uv(vec2 p) (p is a world position).");
+                              : "vec2 fa_world_to_uv(vec3 world) (world is a world position).");
             return "`" + token +
                    "` is available in the fragment stage only (it reads the picture drawn so far, which the vertex "
                    "stage "
