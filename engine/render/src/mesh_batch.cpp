@@ -166,7 +166,7 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
             r.view = std::uint32_t(v);
             r.first = std::uint32_t(shadowMats.size());
             for (std::size_t i = b.rep; i < end; ++i)
-                if (items[i].casts && (items[i].castMask >> v & 1u)) shadowMats.push_back(items[i].model);
+                if (items[i].casts && ((items[i].castMask >> v) & 1u)) shadowMats.push_back(items[i].model);
             r.count = std::uint32_t(shadowMats.size()) - r.first;
             runs.push_back(r);
         }
@@ -249,7 +249,7 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
             ShadowRun& r = (*runs)[b.runFirst + k];
             r.extra = std::uint32_t(shadowData.size());
             for (std::size_t i = b.rep; i < b.shadowEnd; ++i)
-                if (items[i].casts && (items[i].castMask >> r.view & 1u)) append(shadowData, items[i]);
+                if (items[i].casts && ((items[i].castMask >> r.view) & 1u)) append(shadowData, items[i]);
         }
     }
 }

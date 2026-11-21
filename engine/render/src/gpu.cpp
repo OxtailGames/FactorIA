@@ -191,7 +191,9 @@ bool Gpu::init(int sampleCount, std::string* error) {
     isGl_ = (backend == SG_BACKEND_GLCORE || backend == SG_BACKEND_GLES3);
     zeroToOne_ = !isGl_;
     sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
-    shadowsSupported_ = r32.render && r32.sample;
+    // The same test as render.supports "float32Targets" (render_features.cpp), so the report and the shadows agree.
+    const sg_pixelformat_info rgba32 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F);
+    shadowsSupported_ = r32.render && r32.sample && rgba32.render && rgba32.sample;
     {
         const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
         const sg_pixelformat_info eight = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
@@ -1196,6 +1198,14 @@ sg_buffer Gpu::acquire_transient(std::size_t bytes) {
         t.capacity = cap;
     }
     return t.buf;
+}
+
+void Gpu::trim_light_images(std::size_t keep) {
+    for (std::size_t i = keep; i < lightImages_.size(); ++i) {
+        if (lightImages_[i].view.id) sg_destroy_view(lightImages_[i].view);
+        if (lightImages_[i].image.id) sg_destroy_image(lightImages_[i].image);
+    }
+    if (keep < lightImages_.size()) lightImages_.resize(keep);
 }
 
 Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {

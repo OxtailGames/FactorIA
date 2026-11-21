@@ -122,6 +122,12 @@ public:
         needLtc_ = true;
     }
     void request(LightAtlasKind kind, const std::string& path);
+    // Ends one collection of the lights of a view: a key nobody asked for in the last kKeyIdleTicks collections is forgotten (its tile
+    // is not baked again and the next sync lays the atlas out without it), so a project that went through many cookies does not keep
+    // them all. A count of calls, never a time.
+    void end_requests();
+    static constexpr std::uint64_t kKeyIdleTicks = 600;
+    std::size_t key_count() const { return keys_.size(); }
     // A project file changed on disk (hot reload): its tile is baked again at the next sync. Returns true when the atlas holds it.
     bool invalidate(const std::string& path);
     void invalidate_all();
@@ -150,6 +156,8 @@ private:
         sg_view view;
     };
     std::set<LightAtlasKey> keys_;
+    std::map<LightAtlasKey, std::uint64_t> lastUse_;  // the tick_ of the last request of each key
+    std::uint64_t tick_ = 0;
     std::map<LightAtlasKey, std::vector<std::uint16_t>> tiles_;
     LightAtlasLayout layout_;
     std::vector<Retired> retired_;
