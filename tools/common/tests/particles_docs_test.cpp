@@ -88,6 +88,12 @@ TEST_CASE("docs/PARTICLES.md: the worked effect documents parse without a proble
     const auto all = examples("Effect");
     REQUIRE(all.size() >= 1);
     ensure_builtin_components();
+    // The effect documents are cached by path in a process-wide cache: forget what this test loads, also when a REQUIRE
+    // ends it early (and what an earlier test case left, which would hide a file this one writes).
+    struct VfxCacheScope {
+        VfxCacheScope() { clear_vfx_cache(); }
+        ~VfxCacheScope() { clear_vfx_cache(); }
+    } vfxCacheScope;
     for (const Example& ex : all) {
         INFO("effect " << ex.name);
         auto json = parse_json(ex.text, ex.name);
@@ -119,6 +125,5 @@ TEST_CASE("docs/PARTICLES.md: the worked effect documents parse without a proble
         CHECK_FALSE(vfx_playing_count(world) > 0);
         std::error_code ec;
         stdfs::remove_all(dir, ec);
-        clear_vfx_cache();
     }
 }

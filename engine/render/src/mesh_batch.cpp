@@ -46,12 +46,17 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 }
 
 namespace {
-auto material_key(const MeshItem& a) {
+auto material_key(const MeshItem& a, bool withProbe = true) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
-                           r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.unlit,
-                           r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material, a.paramsHash,
-                           a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a);
+                           r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.clearcoat,
+                           r.clearcoatRoughness, r.sheenColor.r, r.sheenColor.g, r.sheenColor.b, r.sheenRoughness,
+                           r.anisotropy, r.anisotropyRotation, r.specular, r.ior, r.transmission, r.thickness,
+                           r.attenuationColor.r, r.attenuationColor.g, r.attenuationColor.b, r.attenuationDistance,
+                           r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material,
+                           a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a,
+                           a.lm.mesh ? a.entity.bits() : std::uint64_t(0), decal_recv(r), subsurface_of(r),
+                           withProbe ? a.probeKey : std::uint64_t(0));
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -71,9 +76,16 @@ auto order_key(const MeshItem& a) {
         name_of(a.mesh), name_of(a.tex), name_of(a.normalTex), order_float(r.color.r), order_float(r.color.g),
         order_float(r.color.b), order_float(r.color.a), order_float(r.metallic), order_float(r.roughness),
         order_float(r.emissive.r), order_float(r.emissive.g), order_float(r.emissive.b),
-        order_float(r.emissiveStrength), r.unlit, r.receiveShadows, order_float(r.uvScale.x), order_float(r.uvScale.y),
-        order_float(r.normalScale), a.anim ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash,
-        a.colorsHash, order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a));
+        order_float(r.emissiveStrength), order_float(r.clearcoat), order_float(r.clearcoatRoughness),
+        order_float(r.sheenColor.r), order_float(r.sheenColor.g), order_float(r.sheenColor.b),
+        order_float(r.sheenRoughness), order_float(r.anisotropy), order_float(r.anisotropyRotation),
+        order_float(r.specular), order_float(r.ior), order_float(r.transmission), order_float(r.thickness),
+        order_float(r.attenuationColor.r), order_float(r.attenuationColor.g), order_float(r.attenuationColor.b),
+        order_float(r.attenuationDistance), r.unlit, r.receiveShadows, order_float(r.uvScale.x),
+        order_float(r.uvScale.y), order_float(r.normalScale),
+        (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash, a.colorsHash,
+        order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a), decal_recv(r),
+        subsurface_of(r), a.probeKey);
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -81,6 +93,11 @@ auto order_key(const MeshItem& a) {
 bool same_material(const MeshItem& a, const MeshItem& b) {
     if (a.keyed && b.keyed && a.sortKey != b.sortKey) return false;
     return material_key(a) == material_key(b);
+}
+// The same, ignoring the light probe SH: the shadow pass never reads it, so batches that differ only there draw their
+// casters as one run (build_batches).
+bool same_shadow_material(const MeshItem& a, const MeshItem& b) {
+    return material_key(a, false) == material_key(b, false);
 }
 bool material_less(const MeshItem& a, const MeshItem& b) { return order_key(a) < order_key(b); }
 
@@ -91,7 +108,10 @@ constexpr std::size_t kSortGrain = 256;
 }  // namespace
 
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats) {
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runsOut) {
+    std::vector<ShadowRun> discarded;
+    std::vector<ShadowRun>& runs = runsOut ? *runsOut : discarded;
+    const std::size_t firstNewBatch = batches.size();
     if (sortByMaterial) {
         const bool allKeyed = std::all_of(items.begin(), items.end(), [](const MeshItem& m) { return m.keyed; });
         if (allKeyed) {
@@ -118,7 +138,6 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
             MeshBatch b;
             b.rep = i;
             b.mainFirst = std::uint32_t(mainMats.size());
-            b.shadowFirst = std::uint32_t(shadowMats.size());
             batches.push_back(b);
         }
         MeshBatch& b = batches.back();
@@ -126,10 +145,37 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
             mainMats.push_back(items[i].model);
             ++b.mainCount;
         }
-        if (items[i].casts) {
-            shadowMats.push_back(items[i].model);
-            ++b.shadowCount;
+    }
+    // The casters, group by group (neighbouring batches that differ only in their probe SH) and inside a group view by
+    // view: each view's pass draws one contiguous run of instances. The first batch of a group holds the runs, the
+    // others have none.
+    for (std::size_t bi = firstNewBatch; bi < batches.size();) {
+        std::size_t last = bi;
+        while (last + 1 < batches.size() && same_shadow_material(items[batches[bi].rep], items[batches[last + 1].rep]))
+            ++last;
+        const std::size_t end = last + 1 < batches.size() ? batches[last + 1].rep : items.size();
+        MeshBatch& b = batches[bi];
+        b.shadowEnd = std::uint32_t(end);
+        std::uint64_t views = 0;
+        for (std::size_t i = b.rep; i < end; ++i)
+            if (items[i].casts) views |= items[i].castMask;
+        b.runFirst = std::uint32_t(runs.size());
+        for (int v = 0; v < kMaxShadowViews; ++v) {
+            if (!(views >> v & 1u)) continue;
+            ShadowRun r;
+            r.view = std::uint32_t(v);
+            r.first = std::uint32_t(shadowMats.size());
+            for (std::size_t i = b.rep; i < end; ++i)
+                if (items[i].casts && ((items[i].castMask >> v) & 1u)) shadowMats.push_back(items[i].model);
+            r.count = std::uint32_t(shadowMats.size()) - r.first;
+            runs.push_back(r);
         }
+        b.runCount = std::uint32_t(runs.size()) - b.runFirst;
+        for (std::size_t k = bi + 1; k <= last; ++k) {
+            batches[k].runFirst = std::uint32_t(runs.size());
+            batches[k].shadowEnd = std::uint32_t(end);
+        }
+        bi = last + 1;
     }
 }
 
@@ -176,7 +222,8 @@ const float* InstanceParamCache::get(Entity entity, const MeshRenderer& mr, Mate
 }
 
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
-                          std::vector<float>& mainData, std::vector<float>& shadowData, InstanceParamCache* cache) {
+                          std::vector<float>& mainData, std::vector<float>& shadowData, InstanceParamCache* cache,
+                          std::vector<ShadowRun>* runs) {
     for (std::size_t bi = 0; bi < batches.size(); ++bi) {
         MeshBatch& b = batches[bi];
         MaterialAsset* mat = items[b.rep].material;
@@ -185,31 +232,24 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
         const std::size_t floats = std::size_t(mat->instanceVec4) * 4;
         b.instanceVec4 = std::uint32_t(mat->instanceVec4);
         b.mainExtra = std::uint32_t(mainData.size());
-        b.shadowExtra = std::uint32_t(shadowData.size());
-        for (std::size_t i = b.rep; i < end; ++i) {
-            const MeshItem& mi = items[i];
-            if (!mi.visible && !mi.casts) continue;
-            // The values of this entity: from the cache, or packed into the first buffer that needs them.
+        // The values of an entity: from the cache, or packed straight into the buffer that needs them.
+        auto append = [&](std::vector<float>& data, const MeshItem& mi) {
             const float* packed = cache ? cache->get(mi.entity, *mi.mr, *mat) : nullptr;
-            const std::size_t mainAt = mainData.size(), shadowAt = shadowData.size();
-            float* out = nullptr;
-            if (mi.visible) {
-                mainData.resize(mainAt + floats);
-                out = mainData.data() + mainAt;
-                if (packed)
-                    std::memcpy(out, packed, floats * sizeof(float));
-                else
-                    pack_instance_params(*mat, mi.mr->materialParams, out);
-            }
-            if (mi.casts) {
-                shadowData.resize(shadowAt + floats);
-                if (out)
-                    std::memcpy(shadowData.data() + shadowAt, out, floats * sizeof(float));
-                else if (packed)
-                    std::memcpy(shadowData.data() + shadowAt, packed, floats * sizeof(float));
-                else
-                    pack_instance_params(*mat, mi.mr->materialParams, shadowData.data() + shadowAt);
-            }
+            const std::size_t at = data.size();
+            data.resize(at + floats);
+            if (packed)
+                std::memcpy(data.data() + at, packed, floats * sizeof(float));
+            else
+                pack_instance_params(*mat, mi.mr->materialParams, data.data() + at);
+        };
+        for (std::size_t i = b.rep; i < end; ++i)
+            if (items[i].visible) append(mainData, items[i]);
+        if (!runs) continue;
+        for (std::uint32_t k = 0; k < b.runCount; ++k) {
+            ShadowRun& r = (*runs)[b.runFirst + k];
+            r.extra = std::uint32_t(shadowData.size());
+            for (std::size_t i = b.rep; i < b.shadowEnd; ++i)
+                if (items[i].casts && ((items[i].castMask >> r.view) & 1u)) append(shadowData, items[i]);
         }
     }
 }
@@ -248,14 +288,40 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
     const MeshRenderer& r = *f.mr;
     using rjobs::order_float;
     Rest x;
-    x.shading = {order_float(r.color.r),         order_float(r.color.g),    order_float(r.color.b),
-                 order_float(r.color.a),         order_float(r.metallic),   order_float(r.roughness),
-                 order_float(r.emissive.r),      order_float(r.emissive.g), order_float(r.emissive.b),
-                 order_float(r.emissiveStrength)};
+    x.shading = {order_float(r.color.r),
+                 order_float(r.color.g),
+                 order_float(r.color.b),
+                 order_float(r.color.a),
+                 order_float(r.metallic),
+                 order_float(r.roughness),
+                 order_float(r.emissive.r),
+                 order_float(r.emissive.g),
+                 order_float(r.emissive.b),
+                 order_float(r.emissiveStrength),
+                 order_float(r.clearcoat),
+                 order_float(r.clearcoatRoughness),
+                 order_float(r.sheenColor.r),
+                 order_float(r.sheenColor.g),
+                 order_float(r.sheenColor.b),
+                 order_float(r.sheenRoughness),
+                 order_float(r.anisotropy),
+                 order_float(r.anisotropyRotation),
+                 order_float(r.specular),
+                 order_float(r.ior),
+                 order_float(r.transmission),
+                 order_float(r.thickness),
+                 order_float(r.attenuationColor.r),
+                 order_float(r.attenuationColor.g),
+                 order_float(r.attenuationColor.b),
+                 order_float(r.attenuationDistance)};
+    const std::array<float, 5> sss = subsurface_of(r);
+    for (std::size_t i = 0; i < 5; ++i) x.shading[26 + i] = sss[i];
     x.unlit = r.unlit;
     x.receiveShadows = r.receiveShadows;
+    x.decalRecv = decal_recv(r);
     x.uvNormal = {order_float(r.uvScale.x), order_float(r.uvScale.y), order_float(r.normalScale)};
-    x.skinEntity = f.anim ? f.entity.bits() : std::uint64_t(0);
+    x.skinEntity = (f.anim || f.lightmapped) ? f.entity.bits() : std::uint64_t(0);
+    x.probeKey = f.probeKey;
     x.material = name_of(f.material);
     x.paramsHash = f.paramsHash;
     x.colorsHash = f.colorsHash;
@@ -264,8 +330,9 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
     for (float v : x.shading) h = mix(h, bits_of(v));
     for (float v : x.uvNormal) h = mix(h, bits_of(v));
     for (float v : x.flash) h = mix(h, bits_of(v));
-    h = mix(h, std::uint64_t(x.unlit) | std::uint64_t(x.receiveShadows) << 1);
+    h = mix(h, std::uint64_t(x.unlit) | std::uint64_t(x.receiveShadows) << 1 | std::uint64_t(x.decalRecv) << 2);
     h = mix(h, x.skinEntity);
+    h = mix(h, x.probeKey);
     h = mix(h, std::hash<std::string_view>{}(x.material));
     h = mix(h, x.paramsHash);
     h = mix(h, x.colorsHash);
@@ -276,8 +343,9 @@ SortKeyTable::Rest SortKeyTable::rest_of(const SortFields& f) {
 // The field order of the old comparator (order_key).
 bool SortKeyTable::rest_less(const Rest& a, const Rest& b) {
     return std::tie(a.shading, a.unlit, a.receiveShadows, a.uvNormal, a.skinEntity, a.material, a.paramsHash,
-                    a.colorsHash, a.flash) < std::tie(b.shading, b.unlit, b.receiveShadows, b.uvNormal, b.skinEntity,
-                                                      b.material, b.paramsHash, b.colorsHash, b.flash);
+                    a.colorsHash, a.flash, a.decalRecv,
+                    a.probeKey) < std::tie(b.shading, b.unlit, b.receiveShadows, b.uvNormal, b.skinEntity, b.material,
+                                           b.paramsHash, b.colorsHash, b.flash, b.decalRecv, b.probeKey);
 }
 
 void SortKeyTable::clear() {
@@ -450,15 +518,24 @@ bool SortKeyTable::key_of(const SortFields& f, std::uint64_t& key) const {
     return pack_sort_key(m, t, nm, std::uint64_t(it - rests_.begin()), key);
 }
 
-int select_lights(std::vector<LightData>& lights, std::size_t maxCount) {
+int select_lights(std::vector<LightData>& lights, std::size_t maxCount, std::size_t maxDirectional) {
     std::stable_sort(lights.begin(), lights.end(), [](const LightData& a, const LightData& b) {
         if (a.rank != b.rank) return a.rank < b.rank;
         // A NaN score (a NaN light position) counts as the lowest, so the order stays a strict weak one.
         return rjobs::order_float(-a.score) < rjobs::order_float(-b.score);
     });
-    if (lights.size() <= maxCount) return 0;
-    const int dropped = int(lights.size() - maxCount);
-    lights.resize(maxCount);
+    int dropped = 0;
+    // The directional lights (rank 0 and 1) come first: the least bright ones past maxDirectional are left out.
+    std::size_t directional = 0;
+    while (directional < lights.size() && lights[directional].rank < 2) ++directional;
+    if (directional > maxDirectional) {
+        lights.erase(lights.begin() + std::ptrdiff_t(maxDirectional), lights.begin() + std::ptrdiff_t(directional));
+        dropped += int(directional - maxDirectional);
+    }
+    if (lights.size() > maxCount) {
+        dropped += int(lights.size() - maxCount);
+        lights.resize(maxCount);
+    }
     return dropped;
 }
 

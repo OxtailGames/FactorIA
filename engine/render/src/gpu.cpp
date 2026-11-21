@@ -7,6 +7,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 
+#include "light_clusters.h"
 #include "shader_cache.h"
 
 #include "shaders/bloom.glsl.h"
@@ -190,7 +191,9 @@ bool Gpu::init(int sampleCount, std::string* error) {
     isGl_ = (backend == SG_BACKEND_GLCORE || backend == SG_BACKEND_GLES3);
     zeroToOne_ = !isGl_;
     sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
-    shadowsSupported_ = r32.render && r32.sample;
+    // The same test as render.supports "float32Targets" (render_features.cpp), so the report and the shadows agree.
+    const sg_pixelformat_info rgba32 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F);
+    shadowsSupported_ = r32.render && r32.sample && rgba32.render && rgba32.sample;
     {
         const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
         const sg_pixelformat_info eight = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
@@ -239,15 +242,10 @@ bool Gpu::init(int sampleCount, std::string* error) {
 
     quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
     quadPlainShader_ = make_shader(quad_quad_plain_shader_desc(backend), "quad_quad_plain");
-    mesh_shader_ = make_shader(mesh_mesh_shader_desc(backend), "mesh_mesh");
-    sky_shader_ = make_shader(sky_sky_shader_desc(backend), "sky_sky");
-    shadow_shader_ = make_shader(mesh_shadow_shader_desc(backend), "mesh_shadow");
+    // The mesh, shadow and sky programs are made on first use (builtin_shader): a 2D game never compiles them.
     blit_shader_ = make_shader(blit_blit_shader_desc(backend), "blit_blit");
     blitKeepShader_ = make_shader(blit_blit_keep_shader_desc(backend), "blit_blit_keep");
-    meshSkinShader_ = make_shader(mesh_mesh_skin_shader_desc(backend), "mesh_mesh_skin");
-    shadowSkinShader_ = make_shader(mesh_shadow_skin_shader_desc(backend), "mesh_shadow_skin");
-    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_,
-                        blitKeepShader_, meshSkinShader_, shadowSkinShader_}) {
+    for (sg_shader s : {quad_shader_, quadPlainShader_, blit_shader_, blitKeepShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
                 *error = "Failed to create a built-in shader for the " +
@@ -307,12 +305,23 @@ void Gpu::shutdown() {
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
     transient_.clear();
     transientUsed_ = 0;
+    for (auto& l : lightImages_) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+    }
+    lightImages_.clear();
+    lightImagesUsed_ = 0;
     for (auto& s : samplers_) {
         sg_destroy_sampler(s);
         s = {};
     }
     sg_destroy_buffer(quadIndices_);
     sg_destroy_buffer(fsTriangle_);
+    if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
+    if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
+    pacerSrc_ = pacerDst_ = {};
+    pacedFrame_ = pacerCopyFrame_ = 0;
+    pacerFailed_ = false;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
                          &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
         sg_destroy_shader(*s);
@@ -344,6 +353,11 @@ void Gpu::shutdown() {
         *s = {};
     }
     prepassState_ = prepassViewState_ = 0;
+    for (sg_shader* s : {&sssShader_, &sssSkinShader_}) {
+        if (s->id) sg_destroy_shader(*s);
+        *s = {};
+    }
+    sssState_ = 0;
     if (light_shader_.id) sg_destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -455,6 +469,10 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const
     }
     sg_pipeline_desc desc = request;  // a copy only on a miss (the description is more than 1 KB)
     desc.colors[0].pixel_format = format.color;
+    if (format.color1 != SG_PIXELFORMAT_NONE) {
+        desc.color_count = 2;
+        desc.colors[1].pixel_format = format.color1;
+    }
     desc.depth.pixel_format = format.depth;
     desc.sample_count = format.samples;
     // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
@@ -542,10 +560,13 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader, MeshExtras extras) {
-    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+                               sg_shader shader, MeshExtras extras, bool glass) {
+    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
+    d.shader = shader.id ? shader
+                         : (skinned ? builtin_shader(meshSkinShader_, mesh_mesh_skin_shader_desc, "mesh_mesh_skin")
+                                    : builtin_shader(mesh_shader_, mesh_mesh_shader_desc, "mesh_mesh"));
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
@@ -554,7 +575,14 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         SG_VERTEXFORMAT_UBYTE4N;  // vertex color, white without (MeshVertex::color)
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
-    if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    if (shader.id) {
+        set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    } else if (!skinned) {
+        // The engine's own program reads the lightmap UV (uv1, vertex buffer 4) of every mesh: the draw binds the lightmap UV or zeros.
+        MeshExtras lm;
+        lm.uv1 = true;
+        set_extra_layout(d, kExtraAttrBase, lm);
+    }
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;
@@ -565,7 +593,9 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
         d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
         d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
     }
-    d.cull_mode = (doubleSided || blended) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    // A blended mesh draws both faces (no depth write: the order inside it is the index order); a glass mesh (transmission) only the faces that
+    // look at the camera unless it is double sided, because its back faces would refract the picture again over the front ones.
+    d.cull_mode = (doubleSided || (blended && !glass)) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "mesh";
     return find_or_make(key, format, d);
@@ -621,7 +651,7 @@ sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassSta
 sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
     PipelineKey key{0x300u, shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : sky_shader_;
+    d.shader = shader.id ? shader : builtin_shader(sky_shader_, sky_sky_shader_desc, "sky_sky");
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
@@ -634,7 +664,10 @@ sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_sh
                                  MeshExtras extras) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
+    d.shader = shader.id
+                   ? shader
+                   : (skinned ? builtin_shader(shadowSkinShader_, mesh_shadow_skin_shader_desc, "mesh_shadow_skin")
+                              : builtin_shader(shadow_shader_, mesh_shadow_shader_desc, "mesh_shadow"));
     d.layout.attrs[ATTR_mesh_shadow_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
     if (fullVertex) {  // offsets are the packed ones of MeshVertex: attributes of buffer 0 in location order
@@ -684,9 +717,9 @@ bool Gpu::bloom_ready() {
         }
         bloomState_ = -1;
         FA_ERROR("render",
-                 "Camera.bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
+                 "PostProcess bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
                  "(see the sokol log lines above). The game renders without bloom. Hint: update the graphics driver "
-                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.bloom to false.");
+                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or switch PostProcess.bloomEnabled off.");
         return false;
     }
     bloomState_ = 1;
@@ -739,9 +772,9 @@ bool Gpu::colorfilter_ready() {
         colorfilter_shader_ = {};
         colorfilterState_ = -1;
         FA_ERROR("render",
-                 "Camera.colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
+                 "PostProcess colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
                  "backend (see the sokol log lines above). The game renders without the filter. Hint: update the "
-                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.colorFilter to \"none\".");
+                 "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or switch PostProcess.colorFilterEnabled off.");
         return false;
     }
     colorfilterState_ = 1;
@@ -848,9 +881,9 @@ bool Gpu::prepass_ready() {
 }
 
 sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader,
-                                  MeshExtras extras) {
+                                  MeshExtras extras, bool cullFront) {
     if (!shader.id && !prepass_ready()) return {};
-    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? prepassSkinShader_ : prepassShader_);
     d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -864,10 +897,87 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
-    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.cull_mode = cullFront ? SG_CULLMODE_FRONT : (doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK);
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass";
     return find_or_make(key, format, d);
+}
+
+// Since M73 the mesh fragment shader is about 100 KB of GLSL; a driver that compiles it at start (Mesa keeps the NIR of
+// every linked program) costs a game that draws no mesh around 100 MB of peak memory. So the 3D programs are made the
+// first time a pipeline asks for one: the renderer's warm-up asks only when the scene has a MeshRenderer. A program
+// the driver rejects is reported once and kept (find_or_make then makes no pipeline from it) rather than retried.
+sg_shader Gpu::builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label) {
+    if (slot.id || layoutProbe_) return slot;
+    slot = make_shader(desc(sg_query_backend()), label);
+    if (sg_query_shader_state(slot) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render",
+                 "Failed to create the built-in shader '{}' for this backend (see the sokol log lines above): what it "
+                 "draws is skipped. With Mesa an older GL than 4.3 may be the cause: try LIBGL_ALWAYS_SOFTWARE=1.",
+                 label);
+    }
+    return slot;
+}
+
+bool Gpu::sss_ready() {
+    if (sssState_ != 0) return sssState_ > 0;
+    const sg_backend backend = sg_query_backend();
+    sssShader_ = make_shader(mesh_mesh_sss_shader_desc(backend), "mesh_mesh_sss");
+    sssSkinShader_ = make_shader(mesh_mesh_skin_sss_shader_desc(backend), "mesh_mesh_skin_sss");
+    const sg_pixelformat_info fmt = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    if (!fmt.render || !fmt.sample || sg_query_shader_state(sssShader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_shader_state(sssSkinShader_) != SG_RESOURCESTATE_VALID) {
+        for (sg_shader* s : {&sssShader_, &sssSkinShader_}) {
+            if (s->id) sg_destroy_shader(*s);
+            *s = {};
+        }
+        sssState_ = -1;
+        FA_ERROR(
+            "render",
+            "Subsurface scattering is unavailable: the GPU cannot render to a half-float image or the shader of the "
+            "scattering meshes failed to compile for this graphics backend (see the sokol log lines above). "
+            "Meshes with MeshRenderer.subsurface draw without it. Hint: update the graphics driver (Mesa: try "
+            "LIBGL_ALWAYS_SOFTWARE=1).");
+        return false;
+    }
+    sssProgram_[0] = program_slots(sssShader_, mesh_mesh_sss_shader_desc(backend));
+    sssProgram_[1] = program_slots(sssSkinShader_, mesh_mesh_skin_sss_shader_desc(backend));
+    sssState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::sss_pipeline(bool doubleSided, bool skinned) {
+    if (!sss_ready()) return {};
+    PipelineKey key{0xD80u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u)};
+    sg_pipeline_desc d{};
+    d.shader = skinned ? sssSkinShader_ : sssShader_;
+    if (skinned) {
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[ATTR_mesh_mesh_skin_sss_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+        set_instance_layout(d, ATTR_mesh_mesh_skin_sss_fa_inst_m0, false);
+        set_skin_layout(d, ATTR_mesh_mesh_skin_sss_fa_joints, ATTR_mesh_mesh_skin_sss_fa_weights);
+    } else {
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[ATTR_mesh_mesh_sss_fa_color].format = SG_VERTEXFORMAT_UBYTE4N;
+        set_instance_layout(d, ATTR_mesh_mesh_sss_fa_inst_m0, false);
+        // Like the engine's own main program: the lightmap UV (vertex buffer 4), which the draw binds as zeros when the mesh has none.
+        MeshExtras lm;
+        lm.uv1 = true;
+        set_extra_layout(d, kExtraAttrBase, lm);
+    }
+    d.index_type = SG_INDEXTYPE_UINT32;
+    d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
+    d.depth.write_enabled = true;
+    d.cull_mode = doubleSided ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "mesh-sss";
+    return find_or_make(key, sss_target_format(), d);
 }
 
 bool Gpu::prepass_view_ready() {
@@ -1043,7 +1153,52 @@ sg_pipeline Gpu::light_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+void Gpu::begin_transient_writes() {
+    const sg_backend backend = sg_query_backend();
+    if (backend != SG_BACKEND_METAL_MACOS && backend != SG_BACKEND_METAL_IOS && backend != SG_BACKEND_METAL_SIMULATOR)
+        return;
+    if (pacedFrame_ == frame_ + 1) return;  // once per sokol frame
+    if (inPass_) {  // in a pass the frame's command buffer exists already: sokol waited for the frame at its first pass
+        pacedFrame_ = frame_ + 1;
+        return;
+    }
+    if (pacerFailed_) return;
+    if (!pacerSrc_.id) {
+        const std::uint32_t zero = 0;
+        sg_buffer_desc s{};
+        s.size = sizeof(zero);
+        s.usage.copy_src = true;
+        s.data = {&zero, sizeof(zero)};
+        s.label = "transient-pacer-src";
+        pacerSrc_ = sg_make_buffer(&s);
+        sg_buffer_desc d{};
+        d.size = sizeof(zero);
+        d.usage.copy_dst = true;
+        d.label = "transient-pacer-dst";
+        pacerDst_ = sg_make_buffer(&d);
+    }
+    if (sg_query_buffer_state(pacerSrc_) != SG_RESOURCESTATE_VALID ||
+        sg_query_buffer_state(pacerDst_) != SG_RESOURCESTATE_VALID) {
+        // Tried once: a driver that refuses two 4-byte buffers is not asked again at every write, and nothing is left behind.
+        if (pacerSrc_.id) sg_destroy_buffer(pacerSrc_);
+        if (pacerDst_.id) sg_destroy_buffer(pacerDst_);
+        pacerSrc_ = pacerDst_ = {};
+        pacerFailed_ = true;
+        FA_WARN("render",
+                "The Metal frame pacer could not be created: a write-transient buffer may be overwritten while the GPU "
+                "still reads it (wrong instances in a probe capture on a busy GPU). Hint: restart the program.");
+        return;
+    }
+    sg_copy_buffer_to_buffer_desc c{};
+    c.src.buffer = pacerSrc_;
+    c.dst.buffer = pacerDst_;
+    c.size = sizeof(std::uint32_t);
+    sg_copy_buffer_to_buffer(&c);
+    pacedFrame_ = pacerCopyFrame_ = frame_ + 1;  // the copy opened the frame's command buffer (committed() says so)
+}
+
 sg_buffer Gpu::acquire_transient(std::size_t bytes) {
+    begin_transient_writes();
     if (transientUsed_ >= transient_.size()) transient_.emplace_back();
     Transient& t = transient_[transientUsed_++];
     if (t.capacity < bytes || !t.buf.id) {
@@ -1059,6 +1214,41 @@ sg_buffer Gpu::acquire_transient(std::size_t bytes) {
         t.capacity = cap;
     }
     return t.buf;
+}
+
+void Gpu::trim_light_images(std::size_t keep) {
+    for (std::size_t i = keep; i < lightImages_.size(); ++i) {
+        if (lightImages_[i].view.id) sg_destroy_view(lightImages_[i].view);
+        if (lightImages_[i].image.id) sg_destroy_image(lightImages_[i].image);
+    }
+    if (keep < lightImages_.size()) lightImages_.resize(keep);
+}
+
+Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
+    begin_transient_writes();
+    if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
+    LightImg& l = lightImages_[lightImagesUsed_++];
+    if (!l.image.id || l.rows != rows) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+        sg_image_desc d{};
+        d.usage.write_transient = true;
+        d.width = kLightTextureWidth;
+        d.height = rows;
+        d.pixel_format = SG_PIXELFORMAT_RGBA32F;
+        d.label = "light-data";
+        l.image = make_image(d);
+        sg_view_desc vd{};
+        vd.texture.image = l.image;
+        vd.label = "light-data";
+        l.view = sg_make_view(&vd);
+        l.rows = rows;
+    }
+    sg_write_image_desc w{};
+    w.src.data = {texels, std::size_t(kLightTextureWidth) * std::size_t(rows) * 16};
+    w.dst.image = l.image;
+    sg_write_image_transient(&w);
+    return {l.image, l.view};
 }
 
 }  // namespace fa::render

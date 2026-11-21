@@ -54,7 +54,7 @@ generated top file with the built-in source modulo the user block; the render te
 vertex stage, the fragment stage (uniform blocks `sky_vs_params` 0 and `sky_fs_params` 1, the colour-space helpers, `fa_scene_rgb`)
 and a `main()` that builds `SkyInput` (`dir`, `sun_dir`, `time`), starts `SkySurface.color` at the gradient of
 `SceneSettings.skyColor` and `horizonColor`, calls the snippet's `sky(in SkyInput, inout SkySurface)` and writes the colour
-opaque. `sky.glsl` is the template with an empty `sky()` (so the engine's pixels are what they were) and declares
+opaque. `sky.glsl` is the template with an empty `sky()` (so an empty snippet draws the engine's own sky: the gradient) and declares
 `@program sky vs fs`; a material's generated top file is the same with its own `fa_user` block. The template hash of the kind
 covers `color_space.glsl` and `sky_common.glsl`; the sky defines no preprocessor macros and has no `vertex()`.
 
@@ -179,7 +179,7 @@ entity as one `sg_draw` of N instances; sokol_gfx has no indirect draw, so the C
 instance cost nothing (the recipe is in docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer").
 
 - **Slots.** The sokol view slots of a mesh program are: engine 0-5, material textures 6-9 (fragment), their vertex copies 10-13,
-  environment cubes 14 and 15, and from `kMeshBufferFirstView` = 16 the buffers: buffer `i` of `count` is at view `16 + i` in the
+  the probe atlas 14 (15 is free), and from `kMeshBufferFirstView` = 16 the buffers: buffer `i` of `count` is at view `16 + i` in the
   vertex stage and `16 + count + i` in the fragment stage (the generator declares each buffer once per stage; sokol-shdc numbers
   them as written). `custom_shader.cpp` builds `MaterialProgram.viewMask` from the reflection. sokol-shdc keeps the slot as the
   GLSL binding of a storage buffer, but sokol_gfx refuses a shader whose `glsl_binding_n` is not below
@@ -246,12 +246,11 @@ metal_macos (`tools/common/tests`, the fixtures `spritebuf*`). Read only: the GL
 ## The sky material lights the meshes (M72 P15)
 
 `engine/render/src/renderer_env.{h,cpp}` (`Environment`) bakes the sky program of the scene's sky material into a prefiltered cube
-(128 x 128, 5 mips, GGX per mip) and an irradiance cube (8 x 8); the design, the pass count (60) and the format fallback are in
-the header comment. `mesh_common.glsl` and `mesh_full_common.glsl` declare them (views 14 and 15, sampler 10; `fa_env_sky.w` is 1
-when they are bound, `fa_env_horizon.w` the top mip) and `fa_environment()` and the new `fa_ambient_light(n)` read them, else the
-analytic gradient and `fa_ambient.rgb` as before. Without a sky material the pixels and the draw calls are the same as before: no
-pass, no environment image; only `blank_view()` makes a 1x1 black cube and a sampler at the first mesh draw (the built-in mesh
-program always binds the slots), plus three bindings per draw and one uniform branch per fragment.
+(128 x 128, 5 mips, GGX per mip; a sixth, 4 x 4 mip holds the sky's nine spherical-harmonics coefficients, the diffuse ambient); the design, the pass count (60) and the format fallback are in
+the header comment. "sky-env" copies it into entry 0 of the probe atlas (view 14, sampler 10, P3c: ARCHITECTURE_PROBES.md); the meshes read
+that, not the cube: `fa_env_sky.w` is 1 when the entry is written and `fa_environment()` and `fa_ambient_light(n)` read it, else
+the analytic gradient and `fa_ambient.rgb` as before. Without a sky material the pixels and the draw calls are the same as before: no
+pass, no environment image, no atlas (view 14 is a white image), plus one uniform branch per fragment.
 
 - **Plan.** `plan_env` (`renderer_draw.cpp`) declares a "sky-env" pass of the frame graph when a camera draws the world with a
   valid sky material. Its key hashes the material, its generation, params, textures, the scene's sky colours, the colour space,
@@ -260,7 +259,7 @@ program always binds the slots), plus three bindings per draw and one uniform br
   sky is baked at `step * kEnvTimeStep`: no wall clock, a replay gives the same frames. One environment per frame: the first job
   that wants it fixes the key, a job with another key uses the analytic path.
 - **Order.** The shadow and prepass programs (and the `surface()` of an `alphaMode` `"clip"` material that runs in them) come
-  before "sky-env": they read the cubes of the previous frame, black in the first one.
+  before "sky-env": they read the atlas of the previous frame (the analytic sky in the first one).
 - **Faces.** The orientation is a table from the cube map specification (`env_face`); OpenGL renders bottom-up, so `up` is negated
   there. S0..S3 are separate 1-mip images, because GLES 3 and WebGL 2 cannot restrict a texture view to a mip.
 - **Hook detection and the hints.** `lighting()` is the hook only with `SurfaceInput` and `Surface` as its first two parameters,
@@ -272,7 +271,7 @@ program always binds the slots), plus three bindings per draw and one uniform br
 
 Verified: Metal only (a mirror ball shows each side of a two-colour sky; a diffuse ball takes the ambient of the sky above and below;
 no sky material: the same frame and draw calls; the bake runs again exactly when the key changes, for the sun only when the sky reads
-it; the animated step; `ready()` after `blank_view()` keeps one sampler). Read only: the GL face orientation, D3D11, the RGBA8 fallback
+it; the animated step). Read only: the GL face orientation, D3D11, the RGBA8 fallback
 and WebGL 2. Cost on Metal: about 2 to 3.5 ms on a frame that bakes (60 passes), 0.3 to 0.6 ms of it CPU (the test "what one bake of
 the environment costs" reports it).
 

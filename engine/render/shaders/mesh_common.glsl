@@ -29,7 +29,7 @@
 //
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
-// vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
+// vertex-stage block); fragment 1 fa_mesh_fs_params (5 for the material). Views 0-5 and samplers 0-1 are
 // the engine's, and so are views 14-15 and sampler 10 (the baked sky, fa_fs_head). A material texture is bound twice, so both stages can sample it (a sokol view slot belongs to one stage and
 // sokol-shdc refuses one name in both): the fragment stage reads it at view 6.. and sampler 2.., the vertex stage at view 10..
 // and sampler 6.. under the name fa_vs_<name> (the generator's #define makes the snippet write the plain name in both).
@@ -42,6 +42,16 @@
 // ambient term are the snippet's too: it picks the lights with fa_light_count() and fa_light(n, i) and may add the sky.
 // Emission and fog stay. The functions of the contract are declared before the snippet (the block fa_fs_light of the main
 // fragment shader; the shadow and prepass fragment shaders get stubs, fa_fs_nolight).
+//
+// The lighting is split over three files this one @includes (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md): light_data.glsl (the
+// light uniform block and the read of one light; the full-shader template includes the same block), shadow_common.glsl (the shadow
+// lookup, shared with the full-shader template) and light_loop.glsl (the standard loop and the custom-light hooks). All three are in
+// the template hash of the mesh kind.
+@include light_data.glsl
+@include ltc.glsl
+@include shadow_common.glsl
+@include light_loop.glsl
+@include brdf_layers.glsl
 
 // The snippet contract (docs/SHADERS.md).
 @block fa_types
@@ -62,6 +72,22 @@ struct Surface {                // what the lighting reads
     float roughness;
     float occlusion;
     vec3 emission;
+    // The material layers of M73.6 (docs/shaders/SHADERS_LIGHTING.md, "Material layers"): what the standard lighting reads, filled from
+    // the MeshRenderer and the glTF material before surface(). The defaults draw as before.
+    float clearcoat;            // 0..1 strength of the clear coat; 0 = none
+    float clearcoat_roughness;  // 0..1 (the engine clamps it to 0.05..1)
+    vec3 sheen_color;           // the cloth sheen's colour; black = none
+    float sheen_roughness;      // 0..1 (clamped to 0.1..1)
+    float anisotropy;           // -1..1: stretch of the highlight along the tangent (negative: across it); 0 = round
+    float anisotropy_rotation;  // radians, turns the stretch direction around the normal
+    float specular;             // 0..1 strength of the dielectric specular (1 = the usual 4% reflectance at ior 1.5)
+    float ior;                  // 1..3 index of refraction: sets the dielectric reflectance at normal incidence
+    vec3 specular_color;        // tint of the dielectric reflectance (KHR_materials_specular), white = none
+    // Transmission and volume (M73.6b; glass, liquids): what the engine's own lighting reads; a "custom" lighting does not draw them.
+    float transmission;         // 0..1: the share of the diffuse light that passes through the surface (and shows what is behind it); 0 = opaque
+    float thickness;            // metres of the volume behind the surface: how far the light travels inside, bending it and tinting it
+    vec3 attenuation_color;     // the colour the light has after travelling attenuation_distance inside the volume
+    float attenuation_distance; // metres; 0 = the volume does not tint the light
 };
 struct LightSample {            // light(): one light as the engine's light loop selected it (lighting "custom")
     vec3 direction;             // surface -> light, normalized (a directional light: the direction its light comes from)
@@ -146,7 +172,11 @@ layout(location=FA_X_BASE+1) in vec4 fa_inst_d1;
 #if FA_NINST > 2
 layout(location=FA_X_BASE+2) in vec4 fa_inst_d2;
 #endif
-#ifdef FA_CH_UV1
+// The engine's own mesh program (mesh.glsl's fa_user defines FA_LM_BUILTIN, and only the `vs` program defines FA_LM_PASS) always reads
+// the uv1 buffer: the lightmap UV of a lightmapped entity, zeros otherwise. A custom material that declares "uv1" reads the same buffer
+// (its uv1 is the lightmap UV on a lightmapped entity).
+#if defined(FA_CH_UV1) || (defined(FA_LM_BUILTIN) && defined(FA_LM_PASS))
+#define FA_LM_ATTR
 layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
 #define FA_NUV1 1
 #else
@@ -185,9 +215,10 @@ void fa_inst_begin() {
 @block fa_vs_common
 layout(binding=0) uniform fa_mesh_vs_params {
     mat4 fa_view_proj;
-    mat4 fa_light_vp;           // directional shadow matrix (world -> light clip)
+    mat4 fa_light_vp;           // the matrix of the shadow pass being drawn (a cascade of the sun; the view matrix in the prepass)
     vec4 fa_uv_scale;           // xy
     vec4 fa_time;               // x = seconds of game time since the scene started
+    vec4 fa_lm_so;              // the lightmap rectangle of the entity drawn: page uv = lightmap uv * xy + zw; x = 0 = not lightmapped
 };
 
 // Drawing from a storage buffer (M72.4): a material with "buffers" defines FA_BUFFER_INST. Its entity is drawn as
@@ -254,7 +285,7 @@ out vec3 fa_world_normal;
 out vec4 fa_world_tangent;
 out vec2 fa_uv;
 out vec4 fa_vertex_color;
-out vec4 fa_shadow_pos;
+out vec3 fa_lm;                 // xy = the page uv of the lightmap, z = 1 when the entity is lightmapped (fa_lm_so.x > 0); last, as fa_lm of the fragment stage
 
 // Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
 void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
@@ -268,7 +299,6 @@ void fa_shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 
     fa_world_tangent = v.world_tangent;
     fa_uv = v.uv;
     fa_vertex_color = v.color;
-    fa_shadow_pos = fa_light_vp * wp;
     gl_Position = fa_view_proj * wp;
 }
 @end
@@ -286,11 +316,17 @@ layout(location=6) in vec4 fa_inst_m1;
 layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 #define FA_X_BASE 9
+#define FA_LM_PASS
 @include_block fa_extra_attrs
 
 void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+#ifdef FA_LM_ATTR
+    fa_lm = vec3(fa_attr_uv1 * fa_lm_so.xy + fa_lm_so.zw, fa_lm_so.x > 0.0 ? 1.0 : 0.0);
+#else
+    fa_lm = vec3(0.0);
+#endif
 }
 @end
 
@@ -318,6 +354,7 @@ void main() {
     fa_inst_begin();
     fa_shade_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights),
                     fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_lm = vec3(0.0);  // a skinned mesh is never lightmapped
 }
 @end
 
@@ -337,16 +374,46 @@ layout(binding=0) uniform sampler fa_smp;
 layout(binding=1) uniform sampler fa_shadow_smp;
 @image_sample_type fa_shadow_tex unfilterable_float
 @sampler_type fa_shadow_smp nonfiltering
-// The sky of a sky material (SceneSettings.skyMaterial), baked by the renderer (renderer_env.h): the sky prefiltered by roughness (the
-// mips) and its irradiance. Both are views 14 and 15, the sampler 10 (after the material's textures and their vertex-stage copies);
-// bound and used only while fa_env_sky.w is 1.
-layout(binding=14) uniform textureCube fa_env_tex;
-layout(binding=15) uniform textureCube fa_irr_tex;
+// What fa_shadow_sun (shadow_common.glsl) samples; the full-shader template names its own shadow map differently.
+#define FA_SHADOW_TEX fa_shadow_tex
+#define FA_SHADOW_SMP fa_shadow_smp
+// The light data texture (light_data.glsl; view 24), read with texelFetch through the shadow map's nearest sampler.
+layout(binding=24) uniform texture2D fa_light_tex;
+@image_sample_type fa_light_tex unfilterable_float
+#define FA_LIGHT_TEX fa_light_tex
+#define FA_LIGHT_SMP fa_shadow_smp
+// The light atlas (light_data.glsl, src/light_atlas.h; view 25): the LTC tables of the area lights, the light cookies and the IES
+// profiles in one RGBA16F image, read bilinearly through the sky's linear clamp sampler (10, declared below). While no light needs it
+// the renderer binds the 1 x 1 white texture and the shader never reads it.
+layout(binding=25) uniform texture2D fa_light_atlas;
+#define FA_ATLAS_TEX fa_light_atlas
+#define FA_ATLAS_SMP fa_env_smp
+// The decal atlas (light_data.glsl, block fa_decals; view 27): the albedo and normal textures of the Decal components, RGBA8 with mips,
+// read with textureLod through the linear clamped sampler 10. Bound with the main pass's other views (a white image while the view has no
+// decals, which no fragment then reads).
+layout(binding=27) uniform texture2D fa_decal_tex;
+#define FA_DECAL_TEX fa_decal_tex
+#define FA_DECAL_SMP fa_env_smp
+// The probe atlas (M73-P3c; renderer_probes.h, docs/design/ARCHITECTURE_PROBES.md): one 2D image, view 14, sampler 10 (after the material's
+// textures and their vertex-stage copies), that holds the sky (the tile at fa_atlas.zw, the sky material's prefiltered radiance and its nine
+// spherical-harmonics coefficients, written by the renderer from the baked sky) and the tile of every ReflectionProbe, each an octahedral map
+// with its levels of roughness and its SH row (probe.h). Bound whenever the sky or a probe exists (a white image otherwise, never read).
+layout(binding=14) uniform texture2D fa_probe_atlas;
+// This template knows the fragment's world position, so a probe's box corrects the reflection (the full-shader template does not).
+#define FA_ENV_PARALLAX 1
 layout(binding=10) uniform sampler fa_env_smp;
+// The screen slot (view 28, read with texelFetch through the nearest sampler 1; M73.2c): in the opaque phase the prepass image (r = linear
+// view depth, a = 1 on an opaque mesh), the source of the contact shadows. Bound by every draw (a white image when none takes contact
+// shadows, which no fragment then reads). In the blended phase of a frame that has a transmissive draw it holds the refraction atlas instead
+// (M73.6b, block fa_transmission of brdf_layers.glsl): the opaque picture of the camera's rectangle and its reduced copies, read by the
+// transmissive draws, which have no contact shadows.
+layout(binding=28) uniform texture2D fa_screen_tex;
+@image_sample_type fa_screen_tex unfilterable_float
 
 layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_camera_pos;         // xyz
-    vec4 fa_ambient;            // rgb
+    vec4 fa_ambient;            // rgb; w = texels per light of the light table (4, or 8 while a light of the view has an area, a cookie
+                                // or an IES profile; 0 = 4: M73.1b, light_data.glsl)
     vec4 fa_base_color;
     vec4 fa_emissive;           // rgb MeshRenderer.emissive, w = 1 when unlit
     vec4 fa_model_emissive;     // rgb glTF emissiveFactor (multiplies fa_emissive_tex)
@@ -358,10 +425,57 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_fog_b;              // the stack's fog (PostProcess.fog*) on a blended mesh: x = fogStart, y = height density,
                                 // z = height base (world y), w = height falloff; all 0 for the scene's own fog
     vec4 fa_fog_c;              // xyz = the camera's forward axis in the world, w = 1 for an orthographic camera (0 otherwise)
-    vec4 fa_counts;             // x = light count, y = shadow texel size, z = 1 on OpenGL backends
-    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the baked environment of a sky material is bound
-    vec4 fa_env_horizon;        // rgb horizon color; w = the highest mip of fa_env_tex (what roughness 1 reads)
+    vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
+                                // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
+    vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
+    vec4 fa_env_horizon;        // rgb horizon color; w unused
     vec4 fa_time;               // x = seconds of game time since the scene started
+    // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
+    // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
+    vec4 fa_cl_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_cl_vpy;             // row 1: clip y
+    vec4 fa_cl_vpw;             // row 3: clip w
+    vec4 fa_cl_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    vec4 fa_cl_grid;            // x = tiles across, y = tiles down, z = depth slices per octave (slices / log2(far / near)), w = near
+    vec4 fa_cl_info;            // x = first texel of the cluster table (-1 = no clusters), y = depth slices, z = directional lights,
+                                // w = clusters (tiles x * tiles y * slices)
+    vec4 fa_layers_a;           // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
+    vec4 fa_layers_b;           // rgb sheen colour, w sheen roughness
+    vec4 fa_layers_c;           // x specular, y ior, z = the layer data packed in the maps: 1 = the occlusion map holds the clear coat
+                                // in g, its roughness in b and the sheen roughness in a; 2 = the metallic-roughness map holds the
+                                // anisotropy strength in r and the specular in a (the importer packs them, see brdf_layers.glsl)
+    vec4 fa_layers_d;           // rgb specular colour (KHR_materials_specular)
+    // Contact shadows (M73.2c; light_loop.glsl, block fa_contact). A draw that takes none has fa_ct_a.x = 0 and the rest is not read.
+    vec4 fa_ct_a;               // x = 1 when this draw takes contact shadows (an opaque mesh that receives shadows, view 28 holds the prepass),
+                                // y = 1 when images are bottom-up (OpenGL), zw = the prepass's size in pixels
+    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half)
+    vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
+    vec4 fa_ct_vpy;             // row 1: clip y
+    vec4 fa_ct_vpw;             // row 3: clip w
+    vec4 fa_ct_fwd;             // xyz = the camera's forward axis, w = -dot(forward, position): depth = dot(xyz, world) + w
+    // Transmission and volume (M73.6b; brdf_layers.glsl, block fa_transmission). fa_ct_vp*, fa_ct_a.yzw hold the camera's view of the frame
+    // for a transmissive draw too (the atlas has the prepass's size, the camera's rectangle).
+    vec4 fa_tr_a;               // x transmission, y thickness (metres), z attenuation distance (metres, 0 = no tint), w = how the draw is
+                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas)
+    vec4 fa_tr_b;               // rgb attenuation colour, w = the levels of the atlas (1 = the picture only)
+    vec4 fa_probe_sh[9];        // baked light probes (M73.4d) of a mesh without a lightmap: coefficient k of the SH in [k].xyz (the order of
+                                // ShL2), [0].w = the coverage (0 = no probe reaches the mesh: the sky's ambient, nothing else changes)
+    // The reflection probes (M73-P3c; fa_env_funcs): the atlas and the up to two probes this draw reflects, chosen on the CPU from the
+    // mesh's position (render_scene.cpp). The shares add up to at most 1, the rest is the sky; all zero = the sky alone.
+    vec4 fa_atlas;              // x = the atlas' width in texels (the shader reads the size from the image), y = 1 when it is RGBA8 (its SH row is coded), zw = the sky's tile origin (texels)
+    vec4 fa_rpa_tile;           // probe A: xy = its tile's origin in the atlas (texels), z = its resolution, w = its share of the light
+    vec4 fa_rpa_pos;            // xyz = where it captured (world), w = 1 when its box corrects the reflection (box projection)
+    vec4 fa_rpa_bx;             // its box: row i = how the unit box coordinate i grows with the world position (xyz) plus its offset (w);
+    vec4 fa_rpa_by;             // the box is where all three are in [-1, 1]
+    vec4 fa_rpa_bz;
+    vec4 fa_rpb_tile;           // probe B, likewise
+    vec4 fa_rpb_pos;
+    vec4 fa_rpb_bx;
+    vec4 fa_rpb_by;
+    vec4 fa_rpb_bz;
+    // The realtime GI grids (RealtimeGI; fa_gi_light below): their records are in the light data texture.
+    vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
+                                // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce)
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -430,39 +544,180 @@ Surface fa_standard_surface(in SurfaceInput i) {
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (fa_tex_fix(texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).rrr, fa_fix_of(fa_maps.w, 256.0)).r - 1.0);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
+    s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
     s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
+    s.clearcoat = fa_layers_a.x;
+    s.clearcoat_roughness = fa_layers_a.y;
+    s.anisotropy = fa_layers_a.z;
+    s.anisotropy_rotation = fa_layers_a.w;
+    s.sheen_color = fa_layers_b.rgb;
+    s.sheen_roughness = fa_layers_b.w;
+    s.specular = fa_layers_c.x;
+    s.ior = fa_layers_c.y;
+    s.specular_color = fa_layers_d.rgb;
+    s.transmission = fa_tr_a.x;
+    s.thickness = fa_tr_a.y;
+    s.attenuation_distance = fa_tr_a.z;
+    s.attenuation_color = fa_tr_b.rgb;
+    float packed_maps = fa_layers_c.z;
+    if (packed_maps > 0.5) {
+        if (mod(packed_maps, 2.0) > 0.5) {
+            s.clearcoat *= occ_f.g;
+            s.clearcoat_roughness *= occ_f.b;
+            s.sheen_roughness *= occ_t.a;
+        }
+        if (packed_maps > 1.5) {
+            s.anisotropy *= mrt.r;
+            s.specular *= mrt.a;
+        }
+    }
     return s;
 }
 @end
 
 // The sky the surface reflects, shared with the full-shader template (mesh_full_common.glsl includes this block after it has
-// declared fa_env_sky and fa_env_horizon).
+// declared fa_env_sky, fa_env_horizon, fa_atlas and the probe parameters).
 @block fa_env_funcs
-// The environment the surface reflects. With a sky material (fa_env_sky.w = 1) it is the sky the material draws, baked into a cube whose
-// mips are prefiltered by roughness: roughness 0 reads mip 0, roughness 1 the last. Without one it is the gradient of skyColor and
-// horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it (a cheap
-// stand-in for a prefiltered cubemap).
-vec3 fa_environment(vec3 d, float rough) {
-    if (fa_env_sky.w > 0.5) {
-        return textureLod(samplerCube(fa_env_tex, fa_env_smp), d, clamp(rough, 0.0, 1.0) * fa_env_horizon.w).rgb;
+@include_block fa_sh
+// ---- the probe atlas (M73-P3c) ----
+// Each map is octahedral (probe.cpp oct_encode, whose operations these are): the half of the sphere around +Y is the inner diamond, the
+// other half the four corners, y down the image. A tile is laid out as probe_layout (probe.h) says: level 0 (resolution texels and a
+// one-texel border all round) at the origin, level k >= 1 in a column to its right, the SH row last. Level k holds the scene convolved with
+// the GGX lobe of roughness k / (levels - 1). The border holds the texel across the edge, so a bilinear tap at the edge of a level never
+// reads a neighbour's texels.
+vec2 fa_oct_encode(vec3 d) {
+    float s = abs(d.x) + abs(d.y) + abs(d.z);
+    vec3 p = d / max(s, 1.0e-12);
+    vec2 e = vec2(p.x, p.z);
+    if (p.y < 0.0) {
+        e = vec2((1.0 - abs(p.z)) * (p.x < 0.0 ? -1.0 : 1.0), (1.0 - abs(p.x)) * (p.z < 0.0 ? -1.0 : 1.0));
     }
-    float blur = rough * rough;
-    float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
-    vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
-    vec3 down = fa_env_horizon.rgb * 0.55;
-    float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
-    vec3 e = mix(down, up, k);
-    return mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+    return e;
 }
 
-// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material the sky's irradiance toward n (what a
-// diffuse surface sees of the sky, divided by pi: a sky of one color gives that color), which replaces ambientLight.
-vec3 fa_ambient_light(vec3 n) {
-    if (fa_env_sky.w > 0.5) {
-        return textureLod(samplerCube(fa_irr_tex, fa_env_smp), n, 0.0).rgb;
+// The atlas' size in texels, read from the image: it is square, or taller than wide while a RealtimeGI's band of blocks is in it (every lookup divides
+// by this, never by a single number).
+vec2 fa_atlas_size() {
+    return vec2(textureSize(sampler2D(fa_probe_atlas, fa_env_smp), 0));
+}
+
+// Level `lv` (0, 1, ...) of the tile at `origin` with `res` texels per side, read in direction coordinate e.
+vec3 fa_probe_level(vec2 origin, float res, int lv, vec2 e) {
+    float size = res / float(1 << lv);
+    float lx = lv == 0 ? 0.0 : res + 2.0;
+    float ly = lv == 0 ? 0.0 : res - res / float(1 << max(lv - 1, 0)) + 2.0 * float(lv - 1);  // (max: no negative shift in the branch not taken)
+    vec2 px = origin + vec2(lx, ly) + vec2(1.0) + (e * 0.5 + vec2(0.5)) * size;
+    return textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
+}
+
+// The light the tile sends toward direction d to a surface of the given roughness: the two nearest levels, blended.
+vec3 fa_probe_radiance(vec2 origin, float res, vec3 d, float rough) {
+    float levels = res > 64.5 ? 5.0 : (res > 32.5 ? 4.0 : 3.0);
+    float f = clamp(rough, 0.0, 1.0) * (levels - 1.0);
+    int k = int(min(floor(f), levels - 2.0));
+    float t = f - float(k);
+    vec2 e = fa_oct_encode(d);
+    vec3 a = fa_probe_level(origin, res, k, e);
+    if (t < 0.002) { return a; }
+    return mix(a, fa_probe_level(origin, res, k + 1, e), t);
+}
+
+// Coefficient k (0..8, the order of ShL2) of the tile's spherical harmonics: the texel k of its last row, read at its centre (no filtering).
+vec3 fa_probe_sh_coef(vec2 origin, float res, int k) {
+    vec2 px = origin + vec2(float(k) + 0.5, res + 2.5);
+    vec3 v = textureLod(sampler2D(fa_probe_atlas, fa_env_smp), px / fa_atlas_size(), 0.0).rgb;
+    if (fa_atlas.y > 0.5) { v = (v * 255.0 - 128.0) * (4.0 / 127.0); }  // RGBA8: clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255 (0 is the byte 128)
+    return v;
+}
+
+#ifdef FA_ENV_PARALLAX
+// Box projection (parallax): the reflection ray from the surface point, followed to the probe's box and read from the probe's own position.
+vec3 fa_probe_box_dir(vec3 d, vec4 posw, vec4 bx, vec4 by, vec4 bz) {
+    if (posw.w < 0.5) { return d; }
+    vec3 pu = vec3(dot(bx.xyz, fa_world_pos) + bx.w, dot(by.xyz, fa_world_pos) + by.w, dot(bz.xyz, fa_world_pos) + bz.w);
+    vec3 du = vec3(dot(bx.xyz, d), dot(by.xyz, d), dot(bz.xyz, d));
+    float tx = du.x > 1.0e-6 ? (1.0 - pu.x) / du.x : (du.x < -1.0e-6 ? (-1.0 - pu.x) / du.x : 1.0e30);
+    float ty = du.y > 1.0e-6 ? (1.0 - pu.y) / du.y : (du.y < -1.0e-6 ? (-1.0 - pu.y) / du.y : 1.0e30);
+    float tz = du.z > 1.0e-6 ? (1.0 - pu.z) / du.z : (du.z < -1.0e-6 ? (-1.0 - pu.z) / du.z : 1.0e30);
+    tx = tx > 0.0 ? tx : 1.0e30;
+    ty = ty > 0.0 ? ty : 1.0e30;
+    tz = tz > 0.0 ? tz : 1.0e30;
+    float t = min(tx, min(ty, tz));
+    if (t > 1.0e29) { return d; }
+    vec3 r = fa_world_pos + d * t - posw.xyz;
+    return dot(r, r) > 1.0e-10 ? normalize(r) : d;
+}
+#endif
+
+// The light of the probe with tile `tile` toward d.
+vec3 fa_probe_environment(vec4 tile, vec4 posw, vec4 bx, vec4 by, vec4 bz, vec3 d, float rough) {
+#ifdef FA_ENV_PARALLAX
+    d = fa_probe_box_dir(d, posw, bx, by, bz);
+#endif
+    return fa_probe_radiance(tile.xy, tile.z, d, rough);
+}
+
+// The environment the surface reflects. The base is the sky: with a sky material (fa_env_sky.w = 1) its tile of the probe atlas, written
+// from the sky the material draws and prefiltered by roughness (roughness 0 reads the first level, 1 the last); without one the gradient
+// of skyColor and horizonColor (the horizon color, darker, below the horizon), rougher surfaces seeing a blurrier, flatter version of it
+// (a cheap stand-in for a prefiltered cubemap). The reflection probes that reach the draw (at most two, with their shares, fa_rpa_tile.w
+// and fa_rpb_tile.w; the sky keeps the rest) replace their share of it.
+vec3 fa_environment(vec3 d, float rough) {
+    float sa = fa_rpa_tile.w, sb = fa_rpb_tile.w;
+    float sky = 1.0 - sa - sb;
+    vec3 outc = vec3(0.0);
+    if (sky > 0.0005) {
+        vec3 base;
+        if (fa_env_sky.w > 0.5) {
+            base = fa_probe_radiance(fa_atlas.zw, 128.0, d, rough);
+        } else {
+            float blur = rough * rough;
+            float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
+            vec3 up = mix(fa_env_horizon.rgb, fa_env_sky.rgb, pow(h, 0.55));
+            vec3 down = fa_env_horizon.rgb * 0.55;
+            float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
+            vec3 e = mix(down, up, k);
+            base = mix(e, 0.5 * (fa_env_sky.rgb + fa_env_horizon.rgb) * 0.8, blur * 0.6);
+        }
+        outc = base * sky;
     }
-    return fa_ambient.rgb;
+    if (sa > 0.0) { outc += fa_probe_environment(fa_rpa_tile, fa_rpa_pos, fa_rpa_bx, fa_rpa_by, fa_rpa_bz, d, rough) * sa; }
+    if (sb > 0.0) { outc += fa_probe_environment(fa_rpb_tile, fa_rpb_pos, fa_rpb_bx, fa_rpb_by, fa_rpb_bz, d, rough) * sb; }
+    return outc;
+}
+
+// The ambient light a surface facing n receives: SceneSettings.ambientLight, or with a sky material (and with a physical sky or an HDRI
+// environment) the light of that sky toward n: its radiance as nine spherical-harmonics coefficients (L2, the SH row of the sky's tile),
+// convolved with the clamped cosine and divided by pi (fa_sh_eval), which replaces ambientLight. A sky of one color gives that color
+// from every side; a sky with a bright sun or a bright horizon is smooth (three bands) and never negative. A reflection probe that
+// reaches the draw gives the SH row of its own tile for its share (the coefficients are blended, the light is one evaluation). The
+// same value the `ambient()` hook of a custom material receives as `ambientColor` (fa_indirect_diffuse: a baked lightmap texel or the
+// light probes of a covered fragment take its place).
+vec3 fa_ambient_light(vec3 n) {
+    float sa = fa_rpa_tile.w, sb = fa_rpb_tile.w;
+    float sky = 1.0 - sa - sb;
+    vec3 amb = vec3(0.0);
+    bool tile = fa_env_sky.w > 0.5;
+    vec3 c[9];
+    for (int k = 0; k < 9; ++k) { c[k] = vec3(0.0); }
+    if (sky > 0.0005) {
+        if (tile) {
+            for (int k = 0; k < 9; ++k) { c[k] = fa_probe_sh_coef(fa_atlas.zw, 128.0, k) * sky; }
+        } else {
+            amb = fa_ambient.rgb * sky;
+        }
+    }
+    if (sa > 0.0) {
+        for (int k = 0; k < 9; ++k) { c[k] += fa_probe_sh_coef(fa_rpa_tile.xy, fa_rpa_tile.z, k) * sa; }
+    }
+    if (sb > 0.0) {
+        for (int k = 0; k < 9; ++k) { c[k] += fa_probe_sh_coef(fa_rpb_tile.xy, fa_rpb_tile.z, k) * sb; }
+    }
+    if (tile || sa > 0.0 || sb > 0.0) { amb += fa_sh_eval(c, n); }
+    return amb;
 }
 
 // Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile"): scale and bias of F0.
@@ -501,126 +756,57 @@ LightSample fa_no_light() {
     return none;
 }
 // What the engine's own lighting adds for the sky: its reflection weighted by the environment BRDF of this surface (s.metallic,
-// s.roughness, s.albedo, s.normal) times s.occlusion.
+// s.roughness, s.albedo, s.normal) times s.occlusion, with the material layers (clear coat, sheen, anisotropy, specular and ior of
+// the Surface) when they are set.
 vec3 fa_sky_light(in SurfaceInput i, in Surface s) {
     float metallic = clamp(s.metallic, 0.0, 1.0);
     float roughness = clamp(s.roughness, 0.05, 1.0);
     vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-    return fa_sky_reflection(normalize(s.normal), i.view_dir, f0, roughness) * s.occlusion;
+    vec3 n = normalize(s.normal);
+    FaLayers lay = fa_layers_setup(i, s, n, i.view_dir, metallic, roughness, f0);
+    if (lay.on) { return fa_layers_ibl(lay, n, i.view_dir, f0, roughness, s.occlusion); }
+    return fa_sky_reflection(n, i.view_dir, f0, roughness) * s.occlusion;
 }
 #endif
 @end
 
 // What only the main fragment shader has (the snippet's light(), ambient() and lighting() call these, so the block comes before
-// the snippet): the light array, the shadow coordinate and map, the sky, and the light samples.
+// the snippet): the light array (light_data.glsl), the shadow coordinate and lookup (shadow_common.glsl), the sky, and the light
+// samples and the custom-light hooks (light_loop.glsl).
 @block fa_fs_light
-layout(binding=2) uniform fa_lights {
-    vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
-    vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
-    vec4 fa_light_dir[32];      // xyz spot axis (direction light points); w cos(spot half angle)
-};
-
-in vec4 fa_shadow_pos;
+// The lightmap varying of the vertex stage (M73.4a, declared last there too: the varyings of the two stages match by order). Declared
+// here, before the light functions, because a baked light is skipped on a lightmapped fragment (fa_light_baked, light_data.glsl).
+in vec3 fa_lm;
+@include_block fa_cube_face
+@include_block fa_light_data
+@include_block fa_decals
 
 const float FA_PI = 3.14159265;
 
+@include_block fa_shadow_common
+
+// The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
 float fa_shadow_factor(vec3 n, vec3 l) {
-    if (fa_pbr.z < 0.5) { return 1.0; }
-    vec3 p = fa_shadow_pos.xyz / fa_shadow_pos.w;
-    vec2 suv = p.xy * 0.5 + 0.5;
-    bool is_gl = fa_counts.z > 0.5;
-    if (is_gl) { p.z = p.z * 0.5 + 0.5; } else { suv.y = 1.0 - suv.y; }
-    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 || p.z > 1.0) { return 1.0; }
-    float bias = fa_pbr.w * (1.0 + 2.0 * (1.0 - clamp(dot(n, l), 0.0, 1.0)));
-    float lit = 0.0;
-    float texel = fa_counts.y;
-    for (int ix = -1; ix <= 1; ix++) {
-        for (int iy = -1; iy <= 1; iy++) {
-            float depth = textureLod(sampler2D(fa_shadow_tex, fa_shadow_smp), suv + vec2(float(ix), float(iy)) * texel, 0.0).r;  // explicit LOD: no gradients inside loops (HLSL X3570)
-            lit += (p.z - bias <= depth) ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    return fa_shadow_sun(fa_world_pos, n, l);
 }
 
 @include_block fa_env_funcs
+@include_block fa_layers_env
+@include_block fa_layers_light
 @include_block fa_light_shared
-
-// Light li of the array as seen from a world position, without its shadow: the direction to it, its color times intensity times
-// attenuation, the attenuation, the distance and the type. shadow is 1.
-LightSample fa_light_sample(int li, vec3 world_pos) {
-    float type = fa_light_color[li].w;
-    vec3 l;
-    float atten = 1.0;
-    float dist = 0.0;
-    if (type < 0.5) {
-        l = normalize(fa_light_pos[li].xyz);
-    } else {
-        vec3 to_light = fa_light_pos[li].xyz - world_pos;
-        dist = length(to_light);
-        l = to_light / max(dist, 1e-4);
-        float range = max(fa_light_pos[li].w, 1e-3);
-        float x = clamp(1.0 - (dist / range) * (dist / range), 0.0, 1.0);
-        atten = x * x;
-        if (type > 1.5) {
-            float cos_angle = dot(-l, normalize(fa_light_dir[li].xyz));
-            float cos_outer = fa_light_dir[li].w;
-            atten *= smoothstep(cos_outer, mix(cos_outer, 1.0, 0.25), cos_angle);
-        }
-    }
-    LightSample ls;
-    ls.direction = l;
-    ls.color = fa_light_color[li].rgb * atten;
-    ls.attenuation = atten;
-    ls.shadow = 1.0;
-    ls.distance = dist;
-    ls.type = type < 0.5 ? 0 : (type > 1.5 ? 2 : 1);
-    return ls;
-}
-
-// The same with the shadow of the directional shadow map applied (only the first light, and only when it is directional, is
-// shadowed): what the engine's light loop hands to light(). gn is the geometric normal.
-LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
-    LightSample ls = fa_light_sample(li, world_pos);
-    if (ls.type == 0 && li == 0) {
-        ls.shadow = fa_shadow_factor(gn, ls.direction);
-        ls.color = fa_light_color[li].rgb * (ls.attenuation * ls.shadow);
-    }
-    return ls;
-}
-
-#ifdef FA_CUSTOM_LIGHT
-// The lighting API of a "custom" material (docs/shaders/SHADERS_LIGHTING.md): usable from light(), ambient() and lighting().
-// How many lights the engine hands over (at most 32): the ones that matter most for this frame, directional first.
-int fa_light_count() { return min(int(fa_counts.x), 32); }
-// Light n (0 .. fa_light_count() - 1) with the shadow applied, as light() receives it. A number outside the range gives a sample
-// that lights nothing (color and attenuation 0, shadow 1).
-LightSample fa_light(int n, in SurfaceInput i) {
-    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_shadowed(n, i.world_pos, i.world_normal);
-}
-// Light n without the shadow map read: color has no shadow in it and shadow is 1; the way to treat the shadow apart.
-LightSample fa_light_unshadowed(int n, in SurfaceInput i) {
-    if (n < 0 || n >= fa_light_count()) { return fa_no_light(); }
-    return fa_light_sample(n, i.world_pos);
-}
-// The shadow of light n at this fragment: 1 lit, 0 in shadow (a value between at the edge of the shadow). Only the first light
-// (n = 0) when it is directional has a shadow; every other light gives 1.
-float fa_light_shadow(int n, in SurfaceInput i) {
-    if (n != 0 || fa_light_count() < 1 || fa_light_color[0].w > 0.5) { return 1.0; }
-    return fa_shadow_factor(i.world_normal, normalize(fa_light_pos[0].xyz));
-}
-#endif
+@include_block fa_contact
+@include_block fa_transmission
+@include_block fa_light_hooks
+@include_block fa_ltc
+@include_block fa_area_light
 @end
 
 @block fa_fs_nolight
 #ifdef FA_CUSTOM_LIGHT
 @include_block fa_env_funcs
+@include_block fa_layers_env
 @include_block fa_light_shared
-int fa_light_count() { return 0; }
-LightSample fa_light(int n, in SurfaceInput i) { return fa_no_light(); }
-LightSample fa_light_unshadowed(int n, in SurfaceInput i) { return fa_no_light(); }
-float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
+@include_block fa_light_hooks_none
 #endif
 @end
 
@@ -631,13 +817,177 @@ float fa_light_shadow(int n, in SurfaceInput i) { return 1.0; }
 @include_block fa_fs_rest
 @end
 
-@fs fs
+// The body of the main fragment shader, shared by `fs` and by `fs_sss` (the subsurface variant, which defines FA_SSS first, M73.5).
+@block fa_fs_main
 @include_block fa_fs_head
 @include_block fa_fs_light
 @include_block fa_user
 @include_block fa_fs_rest
 
+// The baked lightmap (M73.4a): the page of the entity drawn, an irradiance/pi texel like ambientLight is, read at the lightmap UV the
+// vertex stage passed (fa_lm, declared in fa_fs_light). Bound (a white texel) on every draw of the engine's program, so a mesh without
+// a lightmap costs one branch on a varying.
+layout(binding=26) uniform texture2D fa_lightmap;
+
+// ---- the realtime GI grids (RealtimeGI; docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the shading") ----
+// The records of the ready grids are in the light data texture from texel fa_gi.x, four texels each (gi.h, gi_pack_record): [0] origin.xyz and
+// spacing, [1] the probe counts per axis and their product, [2] the first block, blocks per band row, maxDistance and intensity, [3] bounce,
+// backface tolerance and ready. A probe's block is in the band of the probe atlas under its 1024 square (10 x 11 texels): the depth map (the
+// mean and the mean square of d / maxDistance, an octahedral map with a border), the nine coefficients of the SH of the light that reaches
+// it, and the meta texel (the share of back faces hit, 1 once captured).
+vec4 fa_gi_fetch(vec2 texel) {
+    return textureLod(sampler2D(fa_probe_atlas, fa_env_smp), texel / fa_atlas_size(), 0.0);
+}
+
+// The light of the grid whose record starts at texel `rec`, for a surface facing n at the fragment (v: toward the camera), as the light a sky
+// gives (irradiance / pi). `cover` is how much of the fragment the grid answers for: 1 inside its probes, fading to 0 over the half spacing
+// around them (the grid's box), and 0 where the eight probes around the point cannot see it.
+vec3 fa_gi_grid(int rec, vec3 n, vec3 v, out float cover) {
+    cover = 0.0;
+    vec4 r0 = fa_light_texel(rec);
+    vec4 r1 = fa_light_texel(rec + 1);
+    vec4 r2 = fa_light_texel(rec + 2);
+    vec4 r3 = fa_light_texel(rec + 3);
+    if (r3.z < 0.5 || fa_atlas_size().y < 1155.0) { return vec3(0.0); }  // not ready, or an atlas without the band
+    float spacing = max(r0.w, 1.0e-4);
+    vec3 cnt = r1.xyz;
+    vec3 rel = (fa_world_pos - r0.xyz) / spacing;                         // in probe units
+    vec3 inner = min(rel + vec3(0.5), cnt - vec3(0.5) - rel);             // the distance to the box's faces, in spacings
+    float edge = min(inner.x, min(inner.y, inner.z));
+    if (!(edge > 0.0)) { return vec3(0.0); }
+    float box = smoothstep(0.0, 1.0, clamp(edge * 2.0, 0.0, 1.0));
+    // The eight probes around the point and their trilinear weights (gi_neighbours).
+    vec3 g = clamp(rel, vec3(0.0), cnt - vec3(1.0));
+    vec3 i0 = min(floor(g), max(cnt - vec3(2.0), vec3(0.0)));
+    vec3 f = g - i0;
+    // The point seen from the probes: pushed along the normal (and a little toward the camera) so a surface does not see itself through
+    // the probe's own depth map.
+    vec3 pb = fa_world_pos + (n * 0.8 + v * 0.2) * (0.2 * spacing);
+    int bpr = int(r2.y + 0.5);
+    // The cosine-convolved SH basis toward n (fa_sh_eval's constants): the irradiance of a probe is the sum of its nine coefficients times
+    // these, so the probes are blended after the product and no array of coefficients is kept.
+    float b0 = 0.282094792;
+    float b1 = 0.325735008 * n.y;
+    float b2 = 0.325735008 * n.z;
+    float b3 = 0.325735008 * n.x;
+    float b4 = 0.273137108 * n.x * n.y;
+    float b5 = 0.273137108 * n.y * n.z;
+    float b6 = 0.078847891 * (3.0 * n.z * n.z - 1.0);
+    float b7 = 0.273137108 * n.x * n.z;
+    float b8 = 0.136568554 * (n.x * n.x - n.y * n.y);
+    vec3 acc = vec3(0.0);
+    float wsum = 0.0;
+    // The bound comes from the record (its last texel is 0), not from a constant: a driver that unrolled the eight probes made a shader
+    // with a discard (a clip material) too big for the Metal compiler.
+    int nProbes = 8 + int(r3.w);
+    for (int k = 0; k < nProbes; ++k) {
+        vec3 d = vec3(float(k & 1), float((k >> 1) & 1), float((k >> 2) & 1));
+        float tri = (d.x > 0.5 ? f.x : 1.0 - f.x) * (d.y > 0.5 ? f.y : 1.0 - f.y) * (d.z > 0.5 ? f.z : 1.0 - f.z);
+        if (!(tri > 0.0)) { continue; }
+        vec3 pr = min(i0 + d, cnt - vec3(1.0));
+        int blk = int(r2.x + pr.x + cnt.x * (pr.y + cnt.y * pr.z) + 0.5);
+        vec2 org = vec2(float(blk % bpr) * 10.0, 1024.0 + float(blk / bpr) * 11.0);
+        vec4 meta = fa_gi_fetch(org + vec2(9.5, 10.5));
+        if (meta.g < 0.5 || meta.r > r3.y) { continue; }  // not captured yet, or inside geometry
+        vec3 toPoint = pb - (r0.xyz + pr * spacing);
+        float dist = length(toPoint);
+        vec3 dir = toPoint / max(dist, 1.0e-4);
+        float w = tri;
+        // A probe behind the surface (it is on the other side of the normal) counts less.
+        float back = max(0.0001, (dot(-dir, n) + 1.0) * 0.5);
+        w *= back * back;
+        // Chebyshev's visibility test on the depth map: the moments are of d / maxDistance, so is the point's distance.
+        vec2 e = fa_oct_encode(dir);
+        vec2 mom = fa_gi_fetch(org + vec2(1.0) + (e * 0.5 + vec2(0.5)) * 8.0).rg;
+        float dn = dist / max(r2.z, 1.0e-4);
+        if (dn > mom.x) {
+            float variance = max(mom.y - mom.x * mom.x, 0.0);
+            float dd = dn - mom.x;
+            float cheb = variance / max(variance + dd * dd, 1.0e-12);
+            w *= cheb * cheb * cheb;
+        }
+        if (!(w > 0.0)) { continue; }
+        vec2 shRow = org + vec2(0.5, 10.5);
+        vec3 irr = fa_gi_fetch(shRow).rgb * b0 + fa_gi_fetch(shRow + vec2(1.0, 0.0)).rgb * b1 + fa_gi_fetch(shRow + vec2(2.0, 0.0)).rgb * b2 +
+                   fa_gi_fetch(shRow + vec2(3.0, 0.0)).rgb * b3 + fa_gi_fetch(shRow + vec2(4.0, 0.0)).rgb * b4 +
+                   fa_gi_fetch(shRow + vec2(5.0, 0.0)).rgb * b5 + fa_gi_fetch(shRow + vec2(6.0, 0.0)).rgb * b6 +
+                   fa_gi_fetch(shRow + vec2(7.0, 0.0)).rgb * b7 + fa_gi_fetch(shRow + vec2(8.0, 0.0)).rgb * b8;
+        acc += irr * w;
+        wsum += w;
+    }
+    if (!(wsum > 1.0e-5)) { return vec3(0.0); }
+    // Every probe that sees the point little leaves the sky to the rest: the grid's say fades with the weight it found.
+    cover = box * smoothstep(0.0, 0.02, wsum);
+    float gain = r2.w * (fa_gi.z > 0.5 ? r3.x : 1.0);  // intensity, times bounce in a capture of the grid's probes
+    return max(acc / wsum, vec3(0.0)) * gain;
+}
+
+// The light of the ready grids at the fragment: `left` is the part the grids do not answer for (1 = none reaches it). The first grid that
+// reaches the fragment takes its cover, the next ones what is left.
+vec3 fa_gi_light(vec3 n, out float left) {
+    left = 1.0;
+    vec3 acc = vec3(0.0);
+    vec3 v = normalize(fa_camera_pos.xyz - fa_world_pos);
+    int first = int(fa_gi.x + 0.5);
+    int count = int(fa_gi.y + 0.5);
+    for (int k = 0; k < count && k < 8; ++k) {
+        float c;
+        vec3 l = fa_gi_grid(first + 4 * k, n, v, c);
+        float share = c * left;
+        acc += l * share;
+        left -= share;
+        if (left < 0.001) { left = 0.0; break; }
+    }
+    return acc;
+}
+
+// The diffuse light of a fragment no baked data reaches: the realtime GI where a ready grid covers it, the ambient light (the reflection
+// probes' SH and the sky's) for the rest.
+vec3 fa_realtime_or_ambient(vec3 n) {
+    vec3 gi = vec3(0.0);
+    float left = 1.0;
+    if (fa_gi.y > 0.5) { gi = fa_gi_light(n, left); }
+    if (left <= 0.0) { return gi; }
+    return gi + fa_ambient_light(n) * left;
+}
+
+// The diffuse indirect light toward n, by order: the baked texel of a lightmapped surface; else the baked light probes where they cover
+// the point (blended with the ambient light by their coverage: the part they do not cover gets the ambient light, not the realtime GI
+// grid, a known deviation, docs/design/ARCHITECTURE_PROBES.md); else the realtime GI grid where a ready one covers it (blended with the
+// ambient over the half spacing outside its probes); else the ambient light or the sky's irradiance (with the SH of a reflection probe
+// that reaches the draw). It replaces fa_ambient_light in every diffuse ambient term, with or without material layers (the layers'
+// base_scale darkens it as it does the ambient light). The specular IBL (fa_sky_reflection, fa_layers_ibl) is not part of it and stays
+// the reflection probes' and the sky's: a lightmap holds no direction, so the ambient is never counted twice (the texel replaces the
+// diffuse ambient only) and never missing.
+// The grid's code is inlined at ONE call site: Apple's Metal compiler crashes on a clip material (graph with a discard) that has it at
+// two, or that blends its result with the baked SH after the fact (also when the blend is made inside the one function: tried).
+vec3 fa_indirect_diffuse(vec3 n) {
+    if (fa_lm.z > 0.5) {
+        return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    if (fa_probe_sh[0].w > 0.0) {
+        // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the ambient
+        // light where the probes only partly reach it.
+        vec3 c[9];
+        for (int k = 0; k < 9; k++) { c[k] = fa_probe_sh[k].xyz; }
+        return mix(fa_ambient_light(n), fa_sh_eval(c, n), clamp(fa_probe_sh[0].w, 0.0, 1.0));
+    }
+    return fa_realtime_or_ambient(n);
+}
+
+#ifdef FA_SSS
+// The subsurface variant (M73.5, docs/design/ARCHITECTURE_SUBSURFACE.md): two outputs instead of the lit colour. Target 0: rgb = the DIFFUSE
+// light the surface sends toward the camera (no specular, no sky reflection, no emission), a = the linear view depth of the fragment (what the
+// prepass holds; 0 where the fragment does not scatter). Target 1: rgb = the scatter radius of each colour channel in metres, a = the strength,
+// 0 where the fragment does not scatter (an unlit mesh, or a surface the camera does not see: the prepass is at view 28).
+layout(binding=2) uniform fa_sss_params {
+    vec4 fa_sss;                // rgb = radius in metres per colour channel (subsurfaceRadius * subsurfaceColor), a = subsurface (0..1)
+};
+layout(location=0) out vec4 fa_frag_color;
+layout(location=1) out vec4 fa_sss_b;
+#else
 out vec4 fa_frag_color;
+#endif
 
 void main() {
     fa_inst_load();
@@ -650,15 +1000,40 @@ void main() {
     i.uv = fa_uv;
     i.vertex_color = fa_vertex_color;
     i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
+    fa_cluster_begin(fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);
+    // The projected decals of the cluster paint the surface before the lights see it (before the discard: it takes derivatives).
+    fa_apply_decals(i.world_pos, i.world_normal, s.albedo, s.normal);
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif
 
     vec3 result;
+    float fa_tr_blend = 0.0;  // fallback draw of a transmissive surface (no atlas): how much of the picture behind the plain blend lets through
+#ifdef FA_SSS
+    float fa_sss_on = fa_sss.w;
+    float fa_sss_depth = 0.0;
+    {
+        // Only the surface the camera sees scatters: the fragment's linear depth must be the prepass's at its pixel (view 28 holds it in this
+        // pass), so a mesh behind another one, or behind a wall of the scene, leaves nothing in the image the blur reads.
+        vec4 pv = vec4(i.world_pos, 1.0);
+        float w = max(dot(fa_ct_vpw, pv), 1e-4);
+        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+        vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+        vec4 scene = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
+        fa_sss_depth = dot(fa_ct_fwd.xyz, i.world_pos) + fa_ct_fwd.w;
+        if (scene.a < 0.5 || abs(fa_sss_depth - scene.r) > 0.02 + 0.01 * fa_sss_depth) { fa_sss_on = 0.0; }
+    }
+#endif
     if (fa_emissive.w > 0.5) {
+#ifdef FA_SSS
+        result = vec3(0.0);  // an unlit surface has no diffuse light to scatter
+        fa_sss_on = 0.0;
+#else
         result = s.albedo;
+#endif
     } else {
         vec3 gn = i.world_normal;
         vec3 n = normalize(s.normal);
@@ -671,9 +1046,9 @@ void main() {
 #ifdef FA_CUSTOM_LIGHT
         s.normal = n;
 #ifdef FA_HAS_AMBIENT
-        vec3 lit = ambient(i, s, fa_ambient_light(n));
+        vec3 lit = ambient(i, s, fa_indirect_diffuse(n));
 #else
-        vec3 lit = fa_ambient_light(n) * s.albedo * s.occlusion;
+        vec3 lit = fa_indirect_diffuse(n) * s.albedo * s.occlusion;
 #endif
 #else
         float metallic = clamp(s.metallic, 0.0, 1.0);
@@ -681,43 +1056,33 @@ void main() {
         float alpha = roughness * roughness;
         float a2 = alpha * alpha;
         float ndv = max(dot(n, v), 1e-4);
-        vec3 diffuse_color = s.albedo * (1.0 - metallic);
+        // A transmissive surface lets this share of its diffuse light through (a metal lets none): what shows behind it is added below.
+        float tr = clamp(s.transmission, 0.0, 1.0) * (1.0 - metallic);
+        vec3 diffuse_color = s.albedo * (1.0 - metallic) * (1.0 - tr);
         vec3 f0 = mix(vec3(0.04), s.albedo, metallic);
-        vec3 lit = fa_ambient_light(n) * diffuse_color * s.occlusion;
+        FaLayers lay = fa_layers_setup(i, s, n, v, metallic, roughness, f0);
+        vec3 lit = fa_indirect_diffuse(n) * diffuse_color * s.occlusion;
+        if (lay.on) { lit *= lay.base_scale; }
 #endif
-        int count = int(fa_counts.x);
-        for (int li = 0; li < 32; li++) {
-            if (li >= count) { break; }
-            LightSample ls = fa_light_shadowed(li, i.world_pos, gn);
-#ifdef FA_CUSTOM_LIGHT
-            // lighting "custom": the snippet's light() takes the place of the Cook-Torrance term below.
-            lit += light(i, s, ls);
-#else
-            vec3 l = ls.direction;
-            float ndl = max(dot(n, l), 0.0);
-            float atten = ls.attenuation * ls.shadow;
-            vec3 h = normalize(l + v);
-            float ndh = max(dot(n, h), 0.0);
-            float vdh = max(dot(v, h), 0.0);
-            // Cook-Torrance: GGX distribution, height-correlated Smith visibility (Karis' approximation), Schlick Fresnel.
-            float dd = ndh * ndh * (a2 - 1.0) + 1.0;
-            float d_ggx = a2 / (FA_PI * dd * dd);
-            float vis = 0.5 / max(mix(2.0 * ndl * ndv, ndl + ndv, alpha), 1e-4);
-            vec3 fres = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-            // Light colors are not divided by pi (a white light of intensity 1 lights a white diffuse surface to 1),
-            // so the specular term carries the matching factor pi.
-            vec3 spec = fres * (d_ggx * vis * FA_PI) * step(0.0001, ndl);
-            lit += (diffuse_color + spec) * fa_light_color[li].rgb * (ndl * atten);
-#endif
+@include_block fa_light_loop
+#if !defined(FA_CUSTOM_LIGHT) && !defined(FA_SSS)
+        // Image-based lighting: the sky reflected, weighted by the environment BRDF (with the layers, fa_layers_ibl).
+        if (lay.on) {
+            lit += fa_layers_ibl(lay, n, v, f0, roughness, s.occlusion);
+        } else {
+            lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
         }
-#ifndef FA_CUSTOM_LIGHT
-        // Image-based lighting: the sky reflected, weighted by the environment BRDF.
-        lit += fa_sky_reflection(n, v, f0, roughness) * s.occlusion;
+        if (tr > 0.0) {
+            lit += fa_transmitted(s, n, v, roughness, f0, lay.on ? lay.f90 : 1.0, lay.on ? lay.base_scale : 1.0, tr, fa_tr_blend);
+        }
 #endif
 #endif
         result = lit;
     }
+#ifndef FA_SSS
     result += s.emission;
+    result = fa_shadow_debug(result, i.world_pos);
+#endif
     if (fa_fog.w > 0.0 || fa_fog_b.y > 0.0) {
         // The same formula as the fog of the post stack (fog.glsl): from fogStart along the view ray, the distance fog
         // (density * length)^2 plus the integral of the height density; the scene's own fog is the case start = 0, no height.
@@ -742,11 +1107,36 @@ void main() {
                 tau += len * max(avg, 0.0);
             }
             float f = 1.0 - exp(-clamp(tau, 0.0, 80.0));
+#ifdef FA_SSS
+            result *= 1.0 - clamp(f, 0.0, 1.0);  // the fog colour is not diffuse light of the surface: only what the fog lets through
+#else
             result = mix(result, fa_fog.rgb, clamp(f, 0.0, 1.0));
+#endif
         }
     }
+    if (fa_tr_blend > 0.0) {
+        // A plain blend where the picture behind is not available: the surface covers it by 1 - the share that passes through.
+        result /= 1.0 - fa_tr_blend;
+        s.alpha *= 1.0 - fa_tr_blend;
+    }
+#ifdef FA_SSS
+    if (fa_sss_on <= 0.0) { result = vec3(0.0); fa_sss_depth = 0.0; }
+    fa_frag_color = vec4(result, fa_sss_depth);
+    fa_sss_b = vec4(fa_sss.rgb, fa_sss_on);
+#else
     fa_frag_color = vec4(result, s.alpha);
+#endif
 }
+@end
+
+@fs fs
+@include_block fa_fs_main
+@end
+
+// The subsurface variant of `fs` (only the engine's own mesh program has it: mesh.glsl, programs mesh_sss and mesh_skin_sss).
+@fs fs_sss
+#define FA_SSS
+@include_block fa_fs_main
 @end
 
 // Depth-only pass for the directional shadow map. With FA_HAS_VERTEX the material's vertex() runs here too (a wave

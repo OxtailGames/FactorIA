@@ -569,3 +569,42 @@ TEST_CASE("feedback file: two programs writing at once never lose an entry (an a
           titles.size() + 1);  // every entry the adder wrote is there, and the first one kept its notes
     CHECK((*doc)["entries"][0]["notes"].size() > 0);
 }
+
+TEST_CASE("feedback: collect skips files that are not feedback files unless they are the only path") {
+    testing::TempDir tmp;
+    Json doc = create_empty_feedback("proj");
+    REQUIRE(add_feedback_entry(doc, make("No one-way platforms")).ok());
+    REQUIRE(save_feedback(tmp.sub("proj/ENGINE_FEEDBACK.json"), doc).ok());
+    // What `collect examples/*` hands over: a project directory next to an index and a readme.
+    const std::string index = tmp.sub("examples.json"), readme = tmp.sub("README.md");
+    REQUIRE(fs::write_text(index, "{\"examples\": []}").ok());
+    REQUIRE(fs::write_text(readme, "# not json").ok());
+
+    auto all = collect_feedback({tmp.sub("proj"), index, readme});
+    REQUIRE(all.ok());
+    CHECK(all->json["errors"].empty());
+    CHECK(all->json["totalEntries"] == 1);
+
+    // Named alone, the file is an error that says what to pass.
+    auto alone = collect_feedback({index});
+    REQUIRE(alone.ok());
+    REQUIRE(alone->json["errors"].size() == 1);
+    CHECK(alone->json["errors"][0].get<std::string>().find("ENGINE_FEEDBACK.json") != std::string::npos);
+
+    // A skipped file is named in the notes, not in the errors: the readme (not JSON) and the index (JSON without entries).
+    const std::string notes = all->json["notes"].dump();
+    CHECK(all->json["notes"].size() == 2);
+    CHECK(notes.find("README.md") != std::string::npos);
+    CHECK(notes.find("examples.json") != std::string::npos);
+    CHECK(notes.find("no \\\"entries\\\" array") != std::string::npos);
+
+    // A real ENGINE_FEEDBACK.json without entries gets the plain error, without the "not an ENGINE_FEEDBACK.json" hint.
+    const std::string noEntries = tmp.sub("empty/ENGINE_FEEDBACK.json");
+    REQUIRE(fs::write_text(noEntries, "{\"project\": \"x\"}").ok());
+    auto plain = collect_feedback({noEntries});
+    REQUIRE(plain.ok());
+    REQUIRE(plain->json["errors"].size() == 1);
+    const std::string plainError = plain->json["errors"][0].get<std::string>();
+    CHECK(plainError.find("no \"entries\" array") != std::string::npos);
+    CHECK(plainError.find("This is not an") == std::string::npos);
+}

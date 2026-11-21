@@ -5,7 +5,7 @@
 // scene module cannot include the renderer.
 //
 // Reflection has no nested structs, so the component is flat: each effect has a `<effect>Enabled` switch and its parameters,
-// named `<effect><Parameter>` (the pattern of Camera.bloom*). `resolve_post_stack` finds the fields of an effect by that prefix
+// named `<effect><Parameter>` (bloomIntensity, vignetteSmoothness). `resolve_post_stack` finds the fields of an effect by that prefix
 // (a test fails on a field that has none), so a new parameter only needs the right name.
 #pragma once
 
@@ -45,7 +45,7 @@ enum class SsaoQuality : std::int32_t { Low, Medium, High, Ultra };
 // scene before the lens effects (distortion, chromatic aberration) and the bloom, which glows from what the lens shows; the
 // tonemap and the colour grading make the picture; vignette, sharpen, outline, pixelate and posterize are then looks drawn on
 // the finished picture; grain goes over everything but the colour filter, which stays the LAST pass (the accessibility filter
-// of Camera.colorFilter is the last pass of the frame, HUD included).
+// is the last pass of the frame, HUD included).
 enum class PostEffect : std::int32_t {
     Ssao,
     Ssr,
@@ -115,7 +115,7 @@ struct PostProcess {
     float exposureAdaptationSpeed =
         2.0f;  // auto: how fast the exposure follows the scene, per second (higher = faster)
 
-    // --- bloom: glow around bright pixels (the fields mirror Camera.bloom*) -------------------------------------------------
+    // --- bloom: glow around bright pixels -------------------------------------------------
     bool bloomEnabled = false;
     float bloomIntensity = 1.2f;
     float bloomThreshold = 0.7f;   // brightness where the glow starts
@@ -144,7 +144,7 @@ struct PostProcess {
     std::string colorGradingLut;               // a .cube 3D lookup table ("" = none)
     float colorGradingLutContribution = 1.0f;  // 0..1: how much of the LUT is mixed in
 
-    // --- colorFilter: the accessibility filter (the same filters as Camera.colorFilter) --------------------------------------
+    // --- colorFilter: the accessibility filter --------------------------------------
     bool colorFilterEnabled = false;
     ColorFilter colorFilterMode = ColorFilter::None;
 

@@ -1,10 +1,14 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
+#include "light_clusters.h"
+#include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
+#include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <functional>
 #include <iterator>
@@ -32,6 +36,8 @@ struct Renderer::Impl::PartDraw {
     MaterialAsset* mat = nullptr;
     bool error = false;
     TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
+    sg_view
+        lightmap{};  // the lightmap page of the entity (view 26 of the engine's program); id 0 = none, a white texel is bound
 };
 
 // The packed params and textures of a custom material for one batch (its overrides are the same for every item).
@@ -50,6 +56,15 @@ struct SkyDraw {
     float skyColor[3]{}, horizonColor[3]{}, sun[3]{0.0f, 1.0f, 0.0f};
     float time = 0.0f;
     bool linear = false;
+    // The physical sky (SceneSettings.skyModel): the engine's own program for it, with its state; `slot` is the table it reads
+    // (0 the picture's, 1 the environment's).
+    bool physical = false, sunDisc = false;
+    int slot = 0;
+    PhysicalSkyState phys;
+    // An HDRI (SceneSettings.environmentMap, renderer_hdri.h) instead of any of the above: its own program draws it.
+    const HdriAsset* hdri = nullptr;
+    float hdriRotation = 0.0f,
+          hdriGain = 1.0f;  // degrees; the brightness (1 while the bake draws it: the bake's gain applies later)
 };
 
 // Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
@@ -68,7 +83,7 @@ struct Renderer::Impl::DrawContext {
     const CameraInfo& post;
     JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
     // plan_job: the viewports and clears of this job
-    // hudAfterBloom: the screen-space items are drawn over the glowing game target (Camera.bloomScreenSpace false, no final pass).
+    // hudAfterBloom: the screen-space items are drawn over the glowing game target (PostProcess.bloomScreenSpace false, no final pass).
     // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
     bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
     PostPlan
@@ -80,14 +95,56 @@ struct Renderer::Impl::DrawContext {
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
     std::vector<LightData> lights;
+    // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
+    std::vector<DecalItem> decals;
+    std::vector<std::string> decalPaths;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     bool haveShadowCaster = false;
-    Mat4 lightVP;
     bool doShadows = false;
+    // The sun's shadow (collect_lights, shadow_bounds): the light's own settings, the cascades planned for this job (their maps, where each
+    // sits in the atlas and where each ends), the atlas this job draws into (a copy of the target: a later job may replace the renderer's
+    // when it needs more room) and the block the mesh fragment shaders read (fill_shadow_block).
+    struct SunShadow {
+        int resolution = 0;
+        float bias = 0.0f, normalBias = 0.0f, softness = 1.0f, distance = 0.0f;
+        ShadowFilter filter = ShadowFilter::Pcf;
+    } sun;
+    int cascades = 0;
+    std::array<render::CascadeFit, render::kMaxShadowCascades> fits;
+    std::array<float, render::kMaxShadowCascades + 1> splits{};
+    render::ShadowAtlasLayout atlas;
+    // The shadows of the point and spot lights (shadow_bounds): the lights that got maps, and per tile of the atlas layout (view) the
+    // matrix of its shadow pass. The views are the tiles of the layout in order: the cascades the sun asked for (sunViews of them, the
+    // first `cascades` placed), then the tiles of localPlan.lights. A view with no map has an identity matrix and is never drawn.
+    render::LocalShadowPlan localPlan;
+    std::vector<render::LocalShadowInput>
+        localInputs;                              // what each wanted (indices of the plan's `light` are table indexes)
+    std::vector<render::LocalTileFit> localFits;  // per local tile, in the order of the layout from sunViews on
+    std::vector<Mat4> viewProj;                   // per view
+    int sunViews = 0;
+    std::vector<render::ShadowRun> shadowRuns;  // the runs of every batch (MeshBatch::runFirst)
+    long long localShadowBase = -1;             // upload_lights: the shadow region in the light data texture
+    Target shadowTgt;
+    mesh_fa_shadows_t shadowU{};
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
+    // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
+    bool contactOn = false;
+    sg_view screenView{};
+    // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
+    // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
+    // without `on` (the copy failed at run time) draws the plain blend.
+    struct {
+        bool want = false, on = false;
+        int levels = 0;
+        sg_view atlasView{};
+    } xmit;
+    // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
+    // (sss_draw_pass), the stack the blur and add passes (SssFx), and the scene uniforms carry the camera's view for the shader's visibility test.
+    bool sssOn = false;
     // plan_outline: this job declares the sprite-coverage pass (PostPlan::coverage) for a sprite outline.
     bool doCoverage = false;
     std::vector<MeshBatch> opaqueBatches, blendedBatches;
@@ -111,7 +168,13 @@ struct Renderer::Impl::DrawContext {
     // scene_uniforms
     SceneSettings ss;
     TextureAsset* white = nullptr;
-    mesh_fa_lights_t lightUniforms{};
+    // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
+    // has no lights or draws no mesh.
+    sg_view lightView{};
+    // The light atlas image the lights of this job's view were laid out in (collect_lights); empty = none (view 25 binds the white image).
+    sg_view lightAtlasView{};
+    // The atlas of the decal textures (view 27 of the mesh programs): the renderer's, once this job has decals to draw; else the white image.
+    sg_view decalView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -120,8 +183,24 @@ struct Renderer::Impl::DrawContext {
     // plan_env: the meshes of this job take the baked sky (SceneSettings.skyMaterial): the "sky-env" pass is declared
     // when envBake, and envSky is what it draws (the time quantized, see plan_env).
     bool envActive = false, envBake = false;
+    // The physical sky: envSliced = this frame runs a slice of a bake (renderer_env.h, bake_slice), not a whole one; envStatic and
+    // envSun are what a bake started from this job is tagged with (plan_env); physMainOn = the main pass draws the physical sky
+    // with the state physMain (exact sun and clock, the picture's table), physSunDir / physSunColor = the sun as collect_lights
+    // found it, before the sky tinted its light.
+    bool envSliced = false, physMainOn = false;
+    std::uint64_t envStatic = 0;
+    float envSun[3]{0.0f, 1.0f, 0.0f};
+    PhysicalSkyState physMain;
+    float physSunDir[3]{0.0f, 1.0f, 0.0f}, physSunColor[3]{1.0f, 1.0f, 1.0f};
     std::uint64_t envKey = 0;
     SkyDraw envSky;
+    // What the next bake of this job does with the sky (Environment::set_look): SceneSettings.environmentIntensity, and the limit
+    // of one sample of the convolutions (an HDRI's, 0 for any other sky).
+    float envGain = 1.0f, envTap = 0.0f;
+    float envRotation = 0.0f;  // degrees, finite and inside (-360, 360): what the key and both draws of the HDRI use
+    // plan_env: the HDRI the main pass draws as the background (SceneSettings.environmentMap with environmentBackground, no sky material),
+    // null when it draws anything else.
+    const HdriAsset* hdriMain = nullptr;
     // The textures plan_env resolved for the sky of the job, while the job's own render target was the checker: the sky
     // of the main pass draws with them (resolving them again when the pass runs would bind the target the pass writes).
     // Valid for skyPlannedMat.
@@ -140,6 +219,60 @@ struct Renderer::Impl::DrawContext {
 namespace {
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
+
+// Does this opaque mesh scatter light (MeshRenderer.subsurface above 0)? Only a mesh drawn by the engine's own program does: a material brings
+// its own lighting, and the sss variant of the shader (mesh_common.glsl, fs_sss) is of the engine's template.
+bool sss_scatters(const MeshItem& mi) { return mesh_scatters(*mi.mr, mi.material, false); }
+
+// The block the mesh fragment shaders read the sun's cascaded shadow from (fa_shadows of shadow_common.glsl): where each cascade's map is in
+// the atlas image this job draws into (the matrix that takes a world position to the atlas's u, v and a 0..1 depth, the tile's rectangle
+// a texel smaller, the map's size), where the cascades end along the camera's forward axis, the filter and the biases. Empty (zero
+// cascades: the shader returns light) when the job draws no shadow. `debug`: the cascade debug view tints the picture.
+void fill_shadow_block(const Renderer::Impl::DrawContext& ctx, bool isGl, bool debug, mesh_fa_shadows_t& u) {
+    u = mesh_fa_shadows_t{};
+    const CameraInfo& cam = ctx.fr.cam;
+    u.fa_shadow_eye[0] = cam.position.x;
+    u.fa_shadow_eye[1] = cam.position.y;
+    u.fa_shadow_eye[2] = cam.position.z;
+    u.fa_shadow_eye[3] = debug ? 1.0f : 0.0f;
+    if (!ctx.doShadows || !ctx.shadowTgt.color.id) return;
+    const int count = ctx.cascades;
+    const int w = ctx.shadowTgt.w, h = ctx.shadowTgt.h;
+    // The texel size of the atlas: the filters of the sun and of the local lights both read it.
+    u.fa_shadow_bias[2] = 1.0f / float(w);
+    u.fa_shadow_bias[3] = 1.0f / float(h);
+    if (count <= 0)
+        return;  // no sun cascade (fa_shadow_cfg.x = 0: the sun is lit); the local lights' base is set with the light texture
+    for (int c = 0; c < render::kMaxShadowCascades; ++c) {
+        const std::size_t i = std::size_t(c);
+        u.fa_shadow_split[c] =
+            ctx.splits[std::size_t(std::min(c + 1, count))];  // an unused cascade ends where the last does
+        if (c >= count) continue;
+        const render::ShadowTile& tile = ctx.atlas.tiles[i];
+        copy_mat(u.fa_shadow_mat[c], render::shadow_sample_matrix(ctx.fits[i], tile, w, h, ctx.z01, isGl));
+        const Vec4 r = render::shadow_tile_rect(tile, w, h, isGl);
+        const float tu = 1.0f / float(w), tv = 1.0f / float(h);
+        u.fa_shadow_rect[c][0] = r.x + tu;
+        u.fa_shadow_rect[c][1] = r.y + tv;
+        u.fa_shadow_rect[c][2] = r.z - tu;
+        u.fa_shadow_rect[c][3] = r.w - tv;
+        u.fa_shadow_info[c][0] = ctx.fits[i].texel;
+        u.fa_shadow_info[c][1] = ctx.fits[i].depthRange;
+    }
+    const float soft = std::clamp(ctx.sun.softness, 0.0f, 10.0f);
+    u.fa_shadow_cfg[0] = float(count);
+    u.fa_shadow_cfg[1] = std::clamp(ctx.ss.shadowCascadeBlend, 0.0f, 0.5f);
+    u.fa_shadow_cfg[2] = ctx.sun.filter == ShadowFilter::Hard   ? 1.0f
+                         : ctx.sun.filter == ShadowFilter::Pcss ? 2.0f
+                                                                : 0.0f;
+    u.fa_shadow_cfg[3] = std::tan(0.05f * soft);
+    u.fa_shadow_bias[0] = std::clamp(ctx.sun.bias, 0.0f, 1.0f);
+    u.fa_shadow_bias[1] = std::clamp(ctx.sun.normalBias, 0.0f, 1.0f);
+    u.fa_shadow_fwd[0] = cam.forward.x;
+    u.fa_shadow_fwd[1] = cam.forward.y;
+    u.fa_shadow_fwd[2] = cam.forward.z;
+    u.fa_shadow_fwd[3] = ctx.splits[0];
+}
 
 // The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
 // identity (fa_skin of mesh_common.glsl, shared by the mesh and shadow programs).
@@ -257,6 +390,16 @@ void fill_sky(Renderer::Impl& im, const Renderer::Impl::DrawContext& ctx, Materi
 void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, const Vec3& camPos,
               const TargetFormat* format) {
     Gpu& gpu = im.gpu;
+    if (d.hdri) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.hdriSky.draw(gpu, *d.hdri, d.hdriRotation, d.hdriGain, !d.linear, invViewProj, cam, format);
+        return;
+    }
+    if (d.physical) {
+        const float cam[3] = {camPos.x, camPos.y, camPos.z};
+        im.physSky.draw(gpu, d.slot, d.phys, d.sunDisc, invViewProj, cam, format);
+        return;
+    }
     const sg_shader shader = d.prog ? d.prog->shader : sg_shader{};
     sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shader) : gpu.sky_pipeline(shader));
     sg_bindings b{};
@@ -393,7 +536,10 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     framePost = countPost;
     if (countPost) ++postSerial;
     trim_shadow_rows();
-    sharedGame = sharedLight = sharedShadow = sharedEnv = ResourceId{};
+    free_retired_shadow_targets();  // the frame before has run its graph
+    lightAtlas.free_retired();
+    free_retired_decal_atlases();
+    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -621,6 +767,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
 
     gather_meshes(ctx);
     collect_lights(ctx);
+    collect_decals(ctx);
     shadow_bounds(ctx);
     cull_and_batch(ctx);
     // Fog and sun shafts (renderer_fog.h), planned before the prepass: the sun is known once the lights are, and shafts alone with no sun in
@@ -649,8 +796,65 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // it.
     if ((draws || (plan.view && plan.customPost)) && ctx.postPlan.custom.reads_prepass())
         ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
+    // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
+    if (draws && !fr.cam.studio) {
+        const SceneSettings& vss = world.settings();
+        ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
+                                         ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
+        // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
+        if (ctx.postPlan.vol.on) {
+            if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
+                ctx.postPlan.needsDepth = true;
+            else
+                ctx.postPlan.vol = VolPlan{};
+        }
+    }
+    // Contact shadows (M73.2c) read the prepass depth: a camera with a light that has one asks for it (the volumetric fog's prepass is the
+    // same image). A job that cannot make the prepass draws none: the lengths are cleared before the lights are packed (upload_lights).
+    bool wantContact = false;
+    if (draws && !fr.cam.studio)
+        for (const LightData& l : ctx.lights) wantContact = wantContact || l.contactLength > 0.0f;
+    if (wantContact) ctx.postPlan.needsDepth = true;
+    // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
+    // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
+    bool wantSss = false;
+    if (draws && !fr.cam.studio)
+        for (const MeshBatch& b : ctx.opaqueBatches)
+            wantSss = wantSss || (b.mainCount > 0 && sss_scatters(ctx.opaque[b.rep]));
+    if (wantSss) {
+        ctx.postPlan.sss = make_sss_plan(fr.cam, ctx.camPx.w, ctx.camPx.h);
+        if (ctx.postPlan.sss.on && sssFx.can_draw(transient_targets(), gpu, ctx.postPlan.sss))
+            ctx.postPlan.needsDepth = true;
+        else
+            ctx.postPlan.sss = SssPlan{};
+    }
     plan_prepass(ctx);
+    ctx.contactOn = wantContact && ctx.doPrepass;
+    ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
+    if (ctx.sssOn)
+        ++stats.subsurfaceCameras;
+    else
+        ctx.postPlan.sss = SssPlan{};
+    if (ctx.contactOn) {
+        for (const LightData& l : ctx.lights) stats.contactShadowLights += l.contactLength > 0.0f ? 1 : 0;
+    } else {
+        for (LightData& l : ctx.lights) l.contactLength = 0.0f;
+    }
     plan_outline(ctx);
+    plan_transmission(ctx);
+    // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
+    // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
+    if (ctx.postPlan.vol.on) {
+        if (ctx.doPrepass) {
+            ctx.postPlan.fogFx.fog = false;
+            ++stats.volumetricCameras;
+            stats.volumetricLights += ctx.postPlan.vol.lightsUsed;
+            stats.volumetricLightsDropped += ctx.postPlan.vol.lightsDropped;
+        } else {
+            ctx.postPlan.vol = VolPlan{};
+        }
+    }
     // The passes need the prepass and their shaders: a camera that cannot draw them keeps the scene's own fog (ss.fogDensity, below).
     if (ctx.postPlan.fogFx.any()) {
         FogFxPlan& ff = ctx.postPlan.fogFx;
@@ -666,10 +870,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx =
-                sceneColorFx ||
-                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any()) && c->doPrepass) ||
-                c->postPlan.custom.any_hdr();
+            sceneColorFx = sceneColorFx ||
+                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                             c->postPlan.vol.on || c->postPlan.sss.on) &&
+                            c->doPrepass) ||
+                           c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -709,8 +914,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     auto& blended = ctx.blended;
     fr.anyFlash = world.feel().any_flash();
     if (!fr.wantWorld) return;
-    if (!renderScene.built() || renderScene.scope() != fr.scopeRoot)
-        renderScene.build(world, *assets, fr.scopeRoot, false);
+    if (!renderScene.built() || renderScene.scope() != fr.scopeRoot) {
+        probes_build_volumes(
+            world);  // the boxes the meshes pick their reflection probes from (fill_probe_fs reads the same list)
+        renderScene.build(world, *assets, fr.scopeRoot, false, &probeVolumes);
+    }
     const std::vector<SceneMesh>& shared = renderScene.meshes();
     // The items this camera draws, in the scene's (the world's) order; `special` are those whose mesh or textures depend on the
     // camera.
@@ -740,6 +948,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.colorsHash = sm.colorsHash;
         mi.sortKey = sm.sortKey;
         mi.keyed = sm.keyed;
+        mi.lm = sm.lm;
+        mi.probe = sm.probe;
+        mi.probeKey = sm.probeKey;
+        mi.refl = sm.refl;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -754,6 +966,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
         if (level == mr.mesh) continue;
         mi.mesh = assets->mesh(level);
+        mi.lm = {};  // another mesh: the entity was baked for the one the manifest names
         mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
         meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
     }
@@ -788,6 +1001,16 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     auto& lights = ctx.lights;
     auto& shadowLight = ctx.shadowLight;
     auto& lightDirForShadow = ctx.lightDirForShadow;
+    int culledLocal = 0;
+    // The lights that use the light atlas (M73.1b): an area light (the LTC tables), a cookie, an IES profile. Their data texels are
+    // filled once the atlas has been made (below), when the rects of the tiles are known.
+    struct PendingAtlas {
+        std::size_t index;
+        std::string cookie, ies;
+        bool area;
+        bool cube = false;  // the cookie is a point light's (six faces)
+    };
+    std::vector<PendingAtlas> pendingAtlas;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -807,18 +1030,158 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     lightDirForShadow = d;
                     shadowLight = 0;
                     ld.rank = 0;
+                    ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
+                               l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
+                }
+                if (!l.ies.empty() && !warnedDirectionalIes) {
+                    warnedDirectionalIes = true;
+                    FA_WARN("render",
+                            "Light.ies is set on a directional light ('{}'): an IES profile describes a lamp's "
+                            "distribution "
+                            "around a point, so it only shapes point and spot lights. Hint: clear Light.ies, or make "
+                            "the light a "
+                            "point or spot light.",
+                            l.ies);
+                }
+                // A cookie tiled over the world (an orthographic projection along the light): Light.size is the size of one tile.
+                if (!l.cookie.empty()) {
+                    const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                               ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                    ld.ext[0] = Vec4{ax, 1.0f / std::max(l.size.x, 0.001f)};
+                    ld.ext[1] = Vec4{ay, 1.0f / std::max(l.size.y, 0.001f)};
+                    pendingAtlas.push_back({lights.size(), fs::normalize(l.cookie), {}, false});
                 }
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
                 ld.pos = Vec4{m.translation(), l.range};
-                ld.color = Vec4{col, l.type == LightType::Point ? 1.0f : 2.0f};
+                ld.color = Vec4{col, l.type == LightType::Spot ? 2.0f : (l.type == LightType::Area ? 3.0f : 1.0f)};
                 ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+                const Vec3 ax = normalize(m.transform_dir(Vec3{1, 0, 0})),
+                           ay = normalize(m.transform_dir(Vec3{0, 1, 0}));
+                PendingAtlas pend{lights.size(), {}, {}, l.type == LightType::Area};
+                if (l.type == LightType::Area) {
+                    // The emitter's two half sizes (rectangle: half width and height; disc: the radius twice; tube: half length and
+                    // half thickness) and the radius of the sphere around it, which the range is measured from.
+                    const float hx = std::max(l.size.x, 0.001f) * 0.5f, hy = std::max(l.size.y, 0.001f) * 0.5f;
+                    const float h2 = l.shape == LightShape::Disc ? hx : hy;
+                    ld.ext[0] = Vec4{ax, hx};
+                    ld.ext[1] = Vec4{ay, h2};
+                    ld.ext[2].w = float(int(l.shape));
+                    ld.extent = l.shape == LightShape::Disc ? hx * 1.06f : std::sqrt(hx * hx + h2 * h2);
+                    ld.ext[3].w = ld.extent;
+                    if (!l.cookie.empty() && !warnedAreaCookie) {
+                        warnedAreaCookie = true;
+                        FA_WARN(
+                            "render",
+                            "Light.cookie is set on an area light ('{}'): a cookie shapes spot, directional and point "
+                            "lights, not area lights, so it is ignored. Hint: clear it or change Light.type.",
+                            l.cookie);
+                    }
+                    if (!l.ies.empty() && !warnedAreaIes) {
+                        warnedAreaIes = true;
+                        FA_WARN(
+                            "render",
+                            "Light.ies is set on an area light ('{}'): an IES profile shapes point and spot lights, "
+                            "not area lights, so it is ignored. Hint: clear it or change Light.type.",
+                            l.ies);
+                    }
+                } else {
+                    if (!l.cookie.empty()) {
+                        // A spot's cookie is one perspective tile; a point light's is a cube of six face tiles baked from an
+                        // equirectangular picture (light_atlas.h), picked by the same face selection as its shadow's cube.
+                        pend.cookie = fs::normalize(l.cookie);
+                        pend.cube = l.type == LightType::Point;
+                    }
+                    if (!l.ies.empty()) {
+                        pend.ies = fs::normalize(l.ies);
+                    }
+                    ld.ext[0] = Vec4{ax, 0.0f};
+                    ld.ext[1] = Vec4{ay, 0.0f};
+                }
+                if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
+                if (l.castShadows) {
+                    ld.shadow.casts = true;
+                    ld.shadow.resolution = l.shadowResolution;
+                    ld.shadow.bias = l.shadowBias;
+                    ld.shadow.normalBias = l.shadowNormalBias;
+                    ld.shadow.softness = l.shadowSoftness;
+                    ld.shadow.distance = l.shadowDistance > 0.0f ? l.shadowDistance : world.settings().shadowDistance;
+                    ld.shadow.filter =
+                        l.shadowFilter == ShadowFilter::Hard ? 1 : (l.shadowFilter == ShadowFilter::Pcss ? 2 : 0);
+                    ld.shadow.spotAngle = l.type == LightType::Spot ? l.spotAngle : 0.0f;
+                    // An area light's PCSS light size: the emitter's mean full size (a rectangle's width and height, a disc's
+                    // diameter, a tube's length and thickness); the penumbra then follows the emitter, scaled by shadowSoftness.
+                    if (l.type == LightType::Area)
+                        ld.shadow.emitter =
+                            std::max(l.size.x, 0.001f) * 0.5f +
+                            (l.shape == LightShape::Disc ? std::max(l.size.x, 0.001f) : std::max(l.size.y, 0.001f)) *
+                                0.5f;
+                }
+                // Light.innerAngle: the cone at full strength (0 = the default fade of the outer quarter, light_data.glsl). The inner
+                // cosine stays above the outer one, so the smoothstep has two different edges.
+                if (l.type == LightType::Spot && l.innerAngle > 0.0f)
+                    ld.cosInner = std::min(
+                        std::max(std::cos(radians(std::min(l.innerAngle, l.spotAngle))), ld.dir.w + 1e-3f), 1.0f);
                 // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
                 const float r2 = std::max(l.range * l.range, 1e-4f);
                 ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
+                // A local light whose sphere is outside the view lights nothing that is drawn: it takes no place in the table (and no
+                // part of the kMaxLights of the view).
+                const float rg = std::max(l.range, 0.0f) + ld.extent;
+                const Vec3 c = m.translation();
+                if (rg > 0.0f && !box_in_frustum(fr.cam.viewProj, ctx.z01, Vec3{c.x - rg, c.y - rg, c.z - rg},
+                                                 Vec3{c.x + rg, c.y + rg, c.z + rg}, Mat4::identity())) {
+                    ++culledLocal;
+                    if (!pendingAtlas.empty() && pendingAtlas.back().index == lights.size()) pendingAtlas.pop_back();
+                    return;
+                }
             }
+            ld.baked = l.mode == LightMode::Baked;
+            ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
+            // Light.contactShadowLength counts only with the scene's master switch; plan_job drops it again when the frame has no prepass.
+            if (world.settings().contactShadows && std::isfinite(l.contactShadowLength))
+                ld.contactLength = std::clamp(l.contactShadowLength, 0.0f, 10.0f);
             lights.push_back(ld);
         });
+    // The light atlas for the lights that use it: made (or made again) when a light asked for something it does not hold yet; each
+    // light then gets the rects of its tiles. Without the atlas (a GPU that cannot filter RGBA16F) an area light shines like a point
+    // light and a cookie or profile is not drawn.
+    // (The tiles are asked for only now, so a light the frustum cull dropped does not make its cookie or profile bake.)
+    for (const PendingAtlas& pa : pendingAtlas) {
+        if (pa.area) lightAtlas.request_ltc();
+        if (!pa.cookie.empty())
+            lightAtlas.request(pa.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie, pa.cookie);
+        if (!pa.ies.empty()) lightAtlas.request(LightAtlasKind::Ies, pa.ies);
+    }
+    lightAtlas.end_requests();
+    if (!pendingAtlas.empty()) {
+        const bool atlasOk =
+            lightAtlas.sync([](const LightAtlasKey& k) { return load_light_atlas_source(k); },
+                            [](const LightAtlasKey&, const std::string& message, const std::string& hint) {
+                                FA_WARN("render", "{}. Hint: {}", message, hint);
+                            });
+        for (const PendingAtlas& pa : pendingAtlas) {
+            LightData& ld = lights[pa.index];
+            const LightAtlasRect* cr =
+                atlasOk && !pa.cookie.empty()
+                    ? lightAtlas.rect(pa.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie, pa.cookie)
+                    : nullptr;
+            const LightAtlasRect* ir =
+                atlasOk && !pa.ies.empty() ? lightAtlas.rect(LightAtlasKind::Ies, pa.ies) : nullptr;
+            if (pa.area && !atlasOk) {  // the point-light fallback
+                ld.color.w = 1.0f;
+                ld.extent = 0.0f;
+                ld.shadow.emitter = 0.0f;  // a point light now: its shadow has no emitter size
+                ld.ext[2] = ld.ext[3] = Vec4{};
+                continue;
+            }
+            if (!pa.area && !cr && !ir) continue;
+            ld.hasExt = true;
+            if (cr) ld.ext[2] = Vec4{float(cr->x), float(cr->y), 1.0f, ld.ext[2].w};
+            if (ir) ld.ext[3] = Vec4{float(ir->x), float(ir->y), 1.0f, ld.ext[3].w};
+        }
+        if (atlasOk) ctx.lightAtlasView = lightAtlas.view();
+    }
     // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
     // (right, up, forward), so an item looks the same wherever its stage is: a warm key from the upper left in front, a cool fill
     // from the right, a rim from behind and above.
@@ -840,10 +1203,46 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
     // shader's arrays cannot hold is left out.
-    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
+    const int droppedNow = select_lights(lights, size_t(kMaxLights));
+    stats.lightsDropped += droppedNow;
+    if (droppedNow > 0 && !warnedLightsDropped) {
+        warnedLightsDropped = true;
+        FA_WARN("render",
+                "{} lights were left out: a view lights at most {} lights at once, {} of them directional (the most "
+                "relevant "
+                "ones are kept). Hint: use fewer lights, or turn some Lights off; stats.lightsDropped counts them.",
+                droppedNow, kMaxLights, kMaxDirectionalLights);
+    }
+    stats.lightsCulled += culledLocal;
     stats.lights += int(lights.size());
-    ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
-    if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
+    // The physical sky (SceneSettings.skyModel): the sun is the light of slot 0 when it is a directional one. The sky is drawn with
+    // the colour the author chose (physSunColor); when skyTintsSun is on, the light itself is what the air and the clouds let
+    // through of it, relative to a noon sun. Never for a studio rig, never when a sky material draws the sky, never when this GPU
+    // cannot make the sky's tables (the gradient is drawn then).
+    {
+        const SceneSettings& wss = world.settings();
+        if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
+            LightData& sun = lights[0];
+            ctx.physSunDir[0] = sun.pos.x;
+            ctx.physSunDir[1] = sun.pos.y;
+            ctx.physSunDir[2] = sun.pos.z;
+            ctx.physSunColor[0] = sun.color.x;
+            ctx.physSunColor[1] = sun.color.y;
+            ctx.physSunColor[2] = sun.color.z;
+            if (wss.skyModel == SkyModel::Physical && wss.skyTintsSun && wss.skyMaterial.empty() &&
+                physSky.ready(gpu)) {  // the gradient is not tinted
+                float f[3];
+                sky_sun_light_factor(physical_sky_settings(wss), sun.pos.y, f);
+                sun.color.x *= f[0];
+                sun.color.y *= f[1];
+                sun.color.z *= f[2];
+            }
+        }
+    }
+    // A sun that gives no light (below the horizon of the physical sky, or an intensity of 0) has no shadow to draw.
+    ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0 &&
+                           std::max({lights[0].color.x, lights[0].color.y, lights[0].color.z}) > 0.0f;
+    if (!opaque.empty() && lights.empty() && culledLocal == 0 && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
                           "(SceneSettings.ambientLight). Add an entity with a Light component (type Directional) or "
@@ -852,83 +1251,266 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
 }
 
 // ---- shadow bounds ----
-// Reads: ctx.haveShadowCaster, ctx.lightDirForShadow, ctx.opaque / ctx.blended (castShadows, mesh part boxes, matrices), gpu
-// (shadows_supported, depth range). Writes: ctx.lightVP, ctx.doShadows; creates the shadow targets.
+// Reads: ctx.haveShadowCaster, ctx.lightDirForShadow, ctx.sun, ctx.lights (the shadow settings of the point and spot lights), ctx.opaque /
+// ctx.blended (castShadows, mesh part boxes, matrices), the scene settings (cascades, split, blend, distance, atlas size), fr.cam, gpu
+// (shadows_supported, depth range). Writes: ctx.doShadows, ctx.cascades, ctx.fits, ctx.splits, ctx.atlas, ctx.localPlan, ctx.localFits,
+// ctx.viewProj, ctx.sunViews, ctx.shadowTgt; creates (or grows) the shadow atlas.
+// The sun's shadow is cut into cascades (shadow_cascades.h): the camera's view between its near plane and the shadow distance is split
+// into 1..4 slices, each fitted by a sphere and drawn into its own tile of the atlas. Everything depends on the camera only through its
+// position, its forward axis and its frustum, and the maps move in whole texels, so a still shadow does not shimmer. The point and spot
+// lights that cast shadows (Light.castShadows) share the same atlas through the budget of plan_local_shadows (local_shadows.h): one
+// perspective tile for a spot, six for a point light, ranked by importance for the camera.
 void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
-    const bool haveShadowCaster = ctx.haveShadowCaster;
+    const bool haveSun = ctx.haveShadowCaster;
     auto& opaque = ctx.opaque;
     auto& blended = ctx.blended;
-    auto& lightDirForShadow = ctx.lightDirForShadow;
-    auto& lightVP = ctx.lightVP;
     auto& doShadows = ctx.doShadows;
-    if (haveShadowCaster) {
-        // The world box of each caster's parts as jobs, joined here in the order of the items.
-        Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
-        bool any = false;
-        for (auto* list : {&opaque, &blended}) {
-            struct Box {
-                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-                bool any = false;
-            };
-            std::vector<Box> boxes(list->size());
-            rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
-                       [&](const jobs::Chunk& ch) {
-                           for (std::size_t i = ch.begin; i < ch.end; ++i) {
-                               const MeshItem& mi = (*list)[i];
-                               if (!mi.mr->castShadows) continue;
-                               Box& b = boxes[i];
-                               for (auto& p : mi.mesh->parts) {
-                                   for (int c = 0; c < 8; ++c) {
-                                       Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
-                                                   (c & 4) ? p.bmax.z : p.bmin.z};
-                                       Vec3 w = mi.model.transform_point(corner);
+    ctx.cascades = 0;
+    ctx.sunViews = 0;
+    ctx.localPlan = render::LocalShadowPlan{};
+    ctx.localInputs.clear();
+    ctx.localFits.clear();
+    ctx.viewProj.clear();
+    bool anyLocal = false;
+    for (const LightData& ld : ctx.lights) anyLocal = anyLocal || (ld.rank == 2 && ld.shadow.casts);
+    if (!haveSun && !anyLocal) return;
+    // The world box of each caster's parts as jobs, joined here in the order of the items.
+    Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
+    bool any = false;
+    // The box of the meshes that are not lit by a lightmap and receive shadows: the receivers a baked light still lights in real time.
+    Vec3 dmin{1e30f, 1e30f, 1e30f}, dmax{-1e30f, -1e30f, -1e30f};
+    for (auto* list : {&opaque, &blended}) {
+        struct Box {
+            Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+            Vec3 dlo{1e30f, 1e30f, 1e30f}, dhi{-1e30f, -1e30f, -1e30f};
+            bool any = false, dynamic = false;
+        };
+        std::vector<Box> boxes(list->size());
+        rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
+                   [&](const jobs::Chunk& ch) {
+                       for (std::size_t i = ch.begin; i < ch.end; ++i) {
+                           const MeshItem& mi = (*list)[i];
+                           const bool casts = mi.mr->castShadows;
+                           // A receiver the light probes fully cover holds the baked lights in its probes: they do not light it in real time.
+                           const bool dynamic =
+                               mi.mr->receiveShadows && !mi.lm.mesh && !(mi.probe && mi.probe->coverage >= 1.0f);
+                           if (!casts && !dynamic) continue;
+                           Box& b = boxes[i];
+                           for (auto& p : mi.mesh->parts) {
+                               for (int c = 0; c < 8; ++c) {
+                                   Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
+                                               (c & 4) ? p.bmax.z : p.bmin.z};
+                                   Vec3 w = mi.model.transform_point(corner);
+                                   if (casts) {
                                        b.lo = min(b.lo, w);
                                        b.hi = max(b.hi, w);
                                        b.any = true;
                                    }
+                                   if (dynamic) {
+                                       b.dlo = min(b.dlo, w);
+                                       b.dhi = max(b.dhi, w);
+                                       b.dynamic = true;
+                                   }
                                }
                            }
-                       });
-            for (const Box& b : boxes) {
-                if (!b.any) continue;
-                bmin = min(bmin, b.lo);
-                bmax = max(bmax, b.hi);
-                any = true;
+                       }
+                   });
+        for (const Box& b : boxes) {
+            if (b.dynamic) {
+                dmin = min(dmin, b.dlo);
+                dmax = max(dmax, b.dhi);
             }
-        }
-        if (any && create_shadow_targets()) {
-            Vec3 center = (bmin + bmax) * 0.5f;
-            float radius = std::max(0.5f, length(bmax - bmin) * 0.5f);
-            Vec3 up = std::fabs(lightDirForShadow.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-            Mat4 lv = Mat4::look_at(center - lightDirForShadow * (radius * 2.0f), center, up);
-            Mat4 lp = Mat4::ortho(-radius, radius, -radius, radius, 0.1f, radius * 4.0f, gpu.depth_zero_to_one());
-            lightVP = lp * lv;
-            doShadows = true;
+            if (!b.any) continue;
+            bmin = min(bmin, b.lo);
+            bmax = max(bmax, b.hi);
+            any = true;
         }
     }
+    if (!any) return;
+    const Frame& fr = ctx.fr;
+    const SceneSettings& settings = ctx.world.settings();
+    // The sun's tiles: texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several
+    // (the atlas stays 2048 x 2048 for four).
+    const int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
+    const int tile = ctx.sun.resolution > 0
+                         ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
+                         : (want == 1 ? 2048 : 1024);
+    std::vector<render::ShadowTileRequest> requests;
+    for (int c = 0; c < want; ++c) requests.push_back({tile, 128, c});
+    // The point and spot lights that want a shadow: only those a caster can reach (the casters' box meets the light's sphere) and that
+    // are not farther from the camera than their shadow distance.
+    for (std::size_t i = 0; i < ctx.lights.size(); ++i) {
+        const LightData& ld = ctx.lights[i];
+        if (ld.rank != 2 || !ld.shadow.casts) continue;
+        const Vec3 pos{ld.pos.x, ld.pos.y, ld.pos.z};
+        const float range = ld.pos.w + ld.extent;  // an area light's range is measured from its emitter's surface
+        const Vec3 nearest = min(max(pos, bmin), bmax);
+        if (!(range > 0.0f) || length_sq(nearest - pos) > range * range) continue;
+        // A baked light's shadows are in the lightmaps and a lightmapped surface skips the light, so it takes a map only for the
+        // receivers it still lights in real time (meshes with no lightmap): none within its range, no map.
+        if (ld.baked) {
+            const Vec3 near2 = min(max(pos, dmin), dmax);
+            if (dmin.x > dmax.x || length_sq(near2 - pos) > range * range) continue;
+        }
+        if (ld.shadow.distance > 0.0f && length(pos - fr.cam.position) - range > ld.shadow.distance) continue;
+        render::LocalShadowInput in;
+        in.light = int(i);
+        in.position = pos;
+        in.range = range;
+        in.spotAngle = ld.shadow.spotAngle;
+        in.brightness = std::max({ld.color.x, ld.color.y, ld.color.z});
+        in.resolution = ld.shadow.resolution;
+        // An area light's PCSS penumbra is as wide as its emitter, and the filter reads at most 16 texels around a pixel: with no
+        // Light.shadowResolution of its own the tile is as coarse as the emitter allows (512 texels per face for 0.5 m, 256 for 1 m,
+        // down to 64), so the widest penumbra the filter reaches grows with the emitter, and the six faces cost little.
+        if (ld.shadow.emitter > 0.0f && in.resolution <= 0 && ld.shadow.filter == 2) {
+            int px = 512;
+            while (px > 64 && float(px) * ld.shadow.emitter > 256.0f) px /= 2;
+            // ... and, like any other light, smaller the farther the camera is (the size the light would get with resolution 0).
+            in.resolution = std::min(px, render::local_shadow_wanted_tile(in, length(pos - fr.cam.position)));
+        }
+        in.shadowDistance = ld.shadow.distance;
+        ctx.localInputs.push_back(in);
+    }
+    if (want == 0 && ctx.localInputs.empty()) return;
+    const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
+                                  std::max(64, sg_query_limits().max_image_size_2d));
+    ctx.localPlan = render::plan_local_shadows(atlasMax, requests, ctx.localInputs, fr.cam.position);
+    ctx.atlas = ctx.localPlan.atlas;
+    if (!ctx.localPlan.lost.empty() && !warnedShadowBudget) {
+        warnedShadowBudget = true;
+        FA_WARN(
+            "render",
+            "{0} point or spot light(s) lost their shadow this frame: the shadow atlas ({1}x{1} texels, "
+            "SceneSettings.shadowAtlasSize) or the {2} shadow maps of a frame are full, and the least important lights "
+            "(by brightness, range and distance to the camera) give theirs up first. Hint: raise "
+            "SceneSettings.shadowAtlasSize, lower Light.shadowResolution, set Light.shadowDistance, or turn "
+            "castShadows "
+            "off on lights that matter less.",
+            ctx.localPlan.lost.size(), atlasMax, render::kMaxShadowViews);
+    }
+    const render::ShadowAtlasLayout& atlas = ctx.atlas;
+    std::vector<int> tileSizes;
+    while (int(tileSizes.size()) < want && atlas.tiles[tileSizes.size()].placed())
+        tileSizes.push_back(atlas.tiles[tileSizes.size()].size);
+    const int count = int(tileSizes.size());
+    if (count > 0) {
+        // The camera's slice of the world: from its near plane to the shadow distance (the light's, else the scene's, else what the
+        // casters need, see plan_cascades).
+        const render::CameraFrustum cf =
+            render::camera_frustum(fr.cam.invViewProj, ctx.z01, fr.cam.position, normalize(fr.cam.forward));
+        const float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
+        const render::CascadePlan plan =
+            render::plan_cascades(cf, bmin, bmax, normalize(ctx.lightDirForShadow), shadowDist,
+                                  settings.shadowCascadeSplit, settings.shadowCascadeBlend, tileSizes, ctx.z01);
+        if (plan.ok) {
+            ctx.splits = plan.splits;
+            ctx.fits = plan.fits;
+            ctx.cascades = count;
+        }
+    }
+    if (ctx.cascades == 0 && ctx.localPlan.lights.empty()) return;
+    // The atlas is the used part of the layout; a placed tile is inside it by construction.
+    if (!create_shadow_targets(atlas.width, atlas.height)) {
+        ctx.cascades = 0;
+        ctx.localPlan = render::LocalShadowPlan{};
+        return;
+    }
+    ctx.shadowTgt = shadowTarget;
+    // One matrix per view: the cascades, then the tile of every local light (spots look along their axis, a point light's faces
+    // along the six axes).
+    ctx.sunViews = want;
+    ctx.viewProj.assign(atlas.tiles.size(), Mat4::identity());
+    for (int c = 0; c < ctx.cascades; ++c) ctx.viewProj[std::size_t(c)] = ctx.fits[std::size_t(c)].viewProj;
+    ctx.localFits.assign(atlas.tiles.size() - std::size_t(want), render::LocalTileFit{});
+    for (const render::LocalShadowLight& l : ctx.localPlan.lights) {
+        const LightData& ld = ctx.lights[std::size_t(l.light)];
+        const Vec3 pos{ld.pos.x, ld.pos.y, ld.pos.z};
+        for (int f = 0; f < l.tiles; ++f) {
+            const std::size_t view = std::size_t(l.firstTile + f);
+            Vec3 fwd, up;
+            float tanHalf = 1.0f;
+            if (l.cube) {
+                const render::CubeFace face = render::cube_face_basis(f);
+                fwd = face.forward;
+                up = face.up;
+            } else {
+                render::spot_tile_basis(Vec3{ld.dir.x, ld.dir.y, ld.dir.z}, fwd, up);
+                tanHalf = std::tan(radians(ld.shadow.spotAngle));
+            }
+            render::LocalTileFit fit =
+                render::fit_local_tile(pos, fwd, up, tanHalf, atlas.tiles[view].size, ld.pos.w + ld.extent, ctx.z01);
+            ctx.localFits[view - std::size_t(want)] = fit;
+            ctx.viewProj[view] = fit.viewProj;
+        }
+    }
+    doShadows = true;
 }
 
 // ---- cull, then group into instanced batches ----
-// Reads: ctx.doShadows, ctx.lightVP, ctx.z01, items' visible flags. Writes: ctx.opaque / ctx.blended (culled), item `casts`,
-// ctx.opaqueBatches / ctx.blendedBatches, ctx.mainMats / ctx.shadowMats (instance matrices), stats.meshesCulled / shadowCasters.
+// Reads: ctx.doShadows, ctx.cascades, ctx.fits, ctx.z01, items' visible flags. Writes: ctx.opaque / ctx.blended (culled), item `casts` and
+// `castMask` (the cascades whose map holds the item), ctx.opaqueBatches / ctx.blendedBatches, ctx.mainMats / ctx.shadowMats (instance
+// matrices), stats.meshesCulled / shadowCasters.
 void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     const bool z01 = ctx.z01;
     auto& opaque = ctx.opaque;
     auto& blended = ctx.blended;
-    auto& lightVP = ctx.lightVP;
     auto& doShadows = ctx.doShadows;
     auto& opaqueBatches = ctx.opaqueBatches;
     auto& blendedBatches = ctx.blendedBatches;
     auto& mainMats = ctx.mainMats;
     auto& shadowMats = ctx.shadowMats;
+    // The views of the shadow pass: the sun's cascades (views 0..sunViews-1, those placed are 0..cascades-1) and the tiles of the local
+    // lights (views sunViews.. of the atlas). A caster is drawn into every view whose volume holds it.
+    const int views = doShadows ? int(ctx.viewProj.size()) : 0;
+    const int cascades = doShadows ? ctx.cascades : 0;
+    // The local views: the light that owns each tile (the sphere of its range), for the cheap test before the frustum's.
+    struct LocalView {
+        Vec3 centre;
+        float range = 0;
+    };
+    std::vector<LocalView> localViews(std::size_t(std::max(views, 0)));
+    std::vector<char> active(std::size_t(std::max(views, 0)), 0);
+    for (int c = 0; c < cascades; ++c) active[std::size_t(c)] = 1;
+    if (doShadows) {
+        for (const render::LocalShadowLight& l : ctx.localPlan.lights) {
+            const LightData& ld = ctx.lights[std::size_t(l.light)];
+            for (int f = 0; f < l.tiles; ++f) {
+                const std::size_t v = std::size_t(l.firstTile + f);
+                if (v >= active.size()) continue;
+                active[v] = 1;
+                localViews[v] = {Vec3{ld.pos.x, ld.pos.y, ld.pos.z}, ld.pos.w + ld.extent};
+            }
+        }
+    }
+    ctx.shadowRuns.clear();
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
             rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
                        [&](const jobs::Chunk& ch) {
                            for (std::size_t i = ch.begin; i < ch.end; ++i) {
                                MeshItem& mi = (*list)[i];
-                               mi.casts = mi.mr->castShadows &&
-                                          (mi.noCull || box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model));
+                               mi.castMask = 0;
+                               if (mi.mr->castShadows) {
+                                   // A conservative world sphere of the item for the local lights' ranges.
+                                   const Vec3 centre = mi.model.transform_point((mi.bmin + mi.bmax) * 0.5f);
+                                   const float scale = std::max(
+                                       {length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
+                                        length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
+                                        length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
+                                   const float radius = 0.5f * length(mi.bmax - mi.bmin) * scale;
+                                   for (int v = 0; v < views; ++v) {
+                                       if (!active[std::size_t(v)]) continue;
+                                       if (v >= ctx.sunViews) {
+                                           const LocalView& lv = localViews[std::size_t(v)];
+                                           if (!mi.noCull && length(centre - lv.centre) > lv.range + radius) continue;
+                                       }
+                                       if (mi.noCull || box_in_frustum(ctx.viewProj[std::size_t(v)], z01, mi.bmin,
+                                                                       mi.bmax, mi.model))
+                                           mi.castMask |= std::uint64_t(1) << v;
+                                   }
+                               }
+                               mi.casts = mi.castMask != 0;
                            }
                        });
         for (auto& mi : *list) {
@@ -940,13 +1522,15 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
             std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
             list->end());
     }
-    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats);
-    build_batches(blended, false, blendedBatches, mainMats, shadowMats);
+    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns);
+    build_batches(blended, false, blendedBatches, mainMats, shadowMats, &ctx.shadowRuns);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
     instanceParams.begin_frame(frameSerial);
-    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
-    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams);
+    pack_instance_extras(opaque, opaqueBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams,
+                         &ctx.shadowRuns);
+    pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams,
+                         &ctx.shadowRuns);
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -1022,16 +1606,228 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
 }
 
+// ---- the projected decals of the view (M73.5b) ----
+// The Decals of the world that can touch this view: active, their box inside the camera frustum, in drawing order (SortOrder, then the
+// world's order), at most kMaxDecals (the first in the world's order; the rest counts in stats.decalsDropped and is warned once). Also the
+// paths of every texture the active Decals name, for the atlas (a decal turning into view must not rebuild it). Nothing for a job that draws
+// no mesh, a studio camera or a view that does not draw the world.
+// Reads: world, ctx.fr, ctx.opaque / ctx.blended. Writes: ctx.decals, ctx.decalPaths, stats.decalsDropped, warnedDecalCap.
+void Renderer::Impl::collect_decals(DrawContext& ctx) {
+    ctx.decals.clear();
+    ctx.decalPaths.clear();
+    const Frame& fr = ctx.fr;
+    if (!fr.wantWorld || fr.cam.studio || (ctx.opaque.empty() && ctx.blended.empty())) return;
+    World& world = ctx.world;
+    std::set<std::string> paths;
+    int dropped = 0;
+    static const Vec3 kLo{-0.5f, -0.5f, -0.5f}, kHi{0.5f, 0.5f, 0.5f};
+    world.each<Decal>([&](Entity e, Decal& d) {
+        if (!entity_active(world, e)) return;
+        for (const std::string* p : {&d.albedo, &d.normal}) {
+            if (p->empty()) continue;
+            if (paths.size() < render::kMaxDecalTextures) {
+                paths.insert(decal_path_key(*p));
+            } else if (!warnedDecalPaths && !paths.count(decal_path_key(*p))) {
+                warnedDecalPaths = true;
+                FA_WARN("render",
+                        "The Decals of the world name more than {} different textures: the ones past that are not in "
+                        "the atlas and "
+                        "their decals are not drawn. Hint: share textures between decals or use fewer of them.",
+                        render::kMaxDecalTextures);
+            }
+        }
+        const Mat4 m = world.world_matrix(e);
+        if (!box_in_frustum(fr.cam.viewProj, ctx.z01, kLo, kHi, m)) return;
+        if (ctx.decals.size() >= std::size_t(render::kMaxDecals)) {
+            ++dropped;
+            return;
+        }
+        ctx.decals.push_back(DecalItem{m, &d});
+    });
+    std::stable_sort(ctx.decals.begin(), ctx.decals.end(),
+                     [](const DecalItem& a, const DecalItem& b) { return a.decal->sortOrder < b.decal->sortOrder; });
+    ctx.decalPaths.assign(paths.begin(), paths.end());
+    stats.decalsDropped += dropped;
+    if (dropped > 0 && !warnedDecalCap) {
+        warnedDecalCap = true;
+        FA_WARN("render",
+                "More than {} Decals are in view: the first {} (in the order of the world) are drawn and the rest are "
+                "left out. Hint: remove "
+                "decals that have faded, or give them a Lifetime; stats.decalsDropped counts them.",
+                render::kMaxDecals, render::kMaxDecals);
+    }
+}
+
+// ---- the lights of the view: the light table and the clusters, in the data texture ----
+// Clustered forward lighting (light_clusters.h): the table of ctx.lights (directional first, then the local lights by relevance) and,
+// when there are local lights, the clusters of the view with each one's list of lights, are packed into one RGBA32F image that the
+// mesh fragment shader reads (shaders/light_data.glsl). The build is a deterministic job (the same lists for any number of threads).
+// Reads: ctx.lights, ctx.fr.cam, ctx.camPx, ctx.opaque / ctx.blended (nothing is built for a job that draws no mesh), gpu. Writes:
+// ctx.lightView, the fa_cl_* fields of ctx.fuScene, stats.lightClusters / lightClusterEntries / lightClusterClipped / lightMaxPerCluster.
+void Renderer::Impl::upload_lights(DrawContext& ctx) {
+    const std::vector<LightData>& lights = ctx.lights;
+    const Frame& fr = ctx.fr;
+    // The "no clusters" value first, so every early return leaves a valid one (fuScene starts zeroed, which is not: the shader would
+    // look up a cluster of a grid with no tiles). A view with no local lights keeps it too.
+    ctx.fuScene.fa_cl_info[0] = -1.0f;
+    ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
+    ctx.fuScene.fa_counts[1] = 0.0f;
+    ctx.fuScene.fa_ambient[3] = 0.0f;  // the light table's stride: 0 = 4 texels per light
+    for (int c = 0; c < 4; ++c)
+        ctx.fuScene.fa_gi[c] = 0.0f;  // no realtime GI grid (its records come with the table, below)
+    // The records of the ready realtime GI grids (renderer_gi.cpp): packed after everything else, so a frame without one is unchanged.
+    const GiSystem& gis = probes.gi;
+    const int giCount = int(gis.records.size() / std::size_t(kGiRecordFloats));
+    if ((lights.empty() && ctx.decals.empty() && giCount == 0) || (ctx.opaque.empty() && ctx.blended.empty()) ||
+        ctx.camPx.w < 1 || ctx.camPx.h < 1)
+        return;
+    int directional = 0;
+    while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;
+    ClusterCamera cam;
+    cam.viewProj = fr.cam.viewProj;
+    cam.position = fr.cam.position;
+    cam.forward = fr.cam.forward;
+    cam.widthPx = ctx.camPx.w;
+    cam.heightPx = ctx.camPx.h;
+    // The depth range of the view along its forward axis: the camera's near and far planes, found by unprojecting the middle of the
+    // screen (an orthographic camera's range starts behind it; the clusters start a centimetre in front).
+    {
+        const Vec4 n = fr.cam.queryInvViewProj * Vec4{0, 0, -1, 1}, f = fr.cam.queryInvViewProj * Vec4{0, 0, 1, 1};
+        auto depth_of = [&](const Vec4& p) {
+            if (!(std::fabs(p.w) > 1e-12f)) return -1.0f;
+            const Vec3 w{p.x / p.w, p.y / p.w, p.z / p.w};
+            return dot(fr.cam.forward, w - fr.cam.position);
+        };
+        cam.nearDepth = std::max(depth_of(n), 0.01f);
+        cam.farDepth = depth_of(f);
+        if (!(cam.farDepth > cam.nearDepth)) cam.farDepth = cam.nearDepth * 10000.0f;
+    }
+    ClusterLists lists;
+    // The decals of the view: their textures in the atlas, their records and boxes (nothing when none can be drawn).
+    DecalPack decalPack;
+    if (!ctx.decals.empty()) {
+        // No atlas (every texture failed, or the GPU could not make it) is not "no decals": the atlas then holds no tile, a decal with an
+        // albedo is skipped (counted in decalsDropped) and a decal with only a tint is still drawn.
+        if (!ctx.decalPaths.empty()) ensure_decal_atlas(ctx.decalPaths, fr.linear);
+        std::vector<DecalBox> boxes;
+        int skipped = 0;
+        make_decal_records(ctx.decals, fr.linear, decalPack, boxes, skipped);
+        stats.decalsDropped += skipped;
+        if (!decalPack.records.empty())
+            build_decal_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), boxes,
+                                 decalPack.lists);
+    }
+    const bool haveDecals = !decalPack.records.empty();
+    const bool clustered = int(lights.size()) > directional || haveDecals;
+    if (clustered) {
+        std::vector<LightSphere> spheres(lights.size());
+        for (std::size_t i = std::size_t(directional); i < lights.size(); ++i)
+            spheres[i] =
+                LightSphere{lights[i].pos.x, lights[i].pos.y, lights[i].pos.z,
+                            lights[i].pos.w + lights[i].extent};  // an area light's range counts from its surface
+        build_light_clusters(cam, make_cluster_grid(cam.widthPx, cam.heightPx, cam.nearDepth, cam.farDepth), spheres,
+                             lists);
+        stats.lightClusters += lists.grid.clusters();
+        stats.lightClusterEntries += int(lists.indices.size());
+        stats.lightClusterClipped += int(lists.clippedEntries);
+        stats.lightMaxPerCluster = std::max(stats.lightMaxPerCluster, int(lists.maxPerCluster));
+        if (lists.clippedEntries > 0 && !warnedClusterClipped) {
+            warnedClusterClipped = true;
+            FA_WARN(
+                "render",
+                "{} light-list entries were left out: a cluster of the view holds at most {} lights and a view at most "
+                "{} entries in all, so some pixels miss lights. Hint: give the lights a smaller range or use fewer "
+                "lights "
+                "that overlap; stats.lightClusterClipped counts them.",
+                lists.clippedEntries, kMaxLightsPerCluster, kMaxClusterIndices);
+        }
+    }
+    if (haveDecals) {
+        stats.decals += int(decalPack.records.size());
+        stats.decalClusterClipped += int(decalPack.lists.clippedEntries);
+        if (decalPack.lists.clippedEntries > 0 && !warnedDecalClipped) {
+            warnedDecalClipped = true;
+            FA_WARN("render",
+                    "{} decal-list entries were left out: a cluster of the view holds at most {} decals and a view at "
+                    "most {} entries in all, "
+                    "so some pixels miss decals. Hint: use fewer decals that overlap, or make them smaller; "
+                    "stats.decalClusterClipped counts "
+                    "them.",
+                    decalPack.lists.clippedEntries, kMaxDecalsPerCluster, kMaxDecalIndices);
+        }
+        ctx.decalView = decal_view_or(ctx.white->view);
+    }
+    // The shadow records of the point and spot lights that got maps this frame (local_shadows.h): where each tile is in the atlas, its
+    // matrix and its depth convention.
+    std::vector<LocalShadowRecord> records;
+    if (ctx.doShadows && ctx.shadowTgt.color.id) {
+        const int aw = ctx.shadowTgt.w, ah = ctx.shadowTgt.h;
+        const float tu = 1.0f / float(aw), tv = 1.0f / float(ah);
+        for (const render::LocalShadowLight& l : ctx.localPlan.lights) {
+            const LightData& ld = lights[std::size_t(l.light)];
+            LocalShadowRecord rec;
+            rec.light = l.light;
+            rec.kind = l.cube ? 2 : 1;
+            rec.fade = std::max(ld.shadow.distance, 0.0f);
+            rec.filter = ld.shadow.filter;
+            // A negative softness is an area light's emitter size in metres (fa_shadow_filter: PCSS sizes the penumbra by the emitter
+            // over the distance to the blocker); otherwise the tangent of the light's angular size.
+            rec.softness = ld.shadow.emitter > 0.0f
+                               ? -ld.shadow.emitter * std::clamp(ld.shadow.softness, 0.0f, 10.0f) - 1e-4f
+                               : std::tan(0.05f * std::clamp(ld.shadow.softness, 0.0f, 10.0f));
+            rec.bias = std::clamp(ld.shadow.bias, 0.0f, 1.0f);
+            rec.normalBias = std::clamp(ld.shadow.normalBias, 0.0f, 1.0f);
+            for (int f = 0; f < l.tiles; ++f) {
+                const std::size_t view = std::size_t(l.firstTile + f);
+                const render::ShadowTile& tile = ctx.atlas.tiles[view];
+                const render::LocalTileFit& fit = ctx.localFits[view - std::size_t(ctx.sunViews)];
+                LocalShadowTileRecord t;
+                t.sample = render::local_sample_matrix(fit, tile, aw, ah, gpu.is_gl());
+                const Vec4 r = render::shadow_tile_rect(tile, aw, ah, gpu.is_gl());
+                t.rect = Vec4{r.x + tu, r.y + tv, r.z - tu, r.w - tv};
+                t.nearPlane = fit.nearPlane;
+                t.farPlane = fit.farPlane;
+                t.texelCoef = fit.texelCoef;
+                rec.tiles.push_back(t);
+            }
+            records.push_back(std::move(rec));
+        }
+    }
+    LightTexture tex;
+    pack_light_texture(lights, directional, cam, clustered ? &lists : nullptr, tex,
+                       records.empty() ? nullptr : &records, haveDecals ? &decalPack : nullptr,
+                       giCount > 0 ? gis.records.data() : nullptr, giCount);
+    ctx.localShadowBase = tex.shadowBase;
+    ctx.lightView = gpu.write_light_image(tex.height, tex.texels.data()).view;
+    ctx.fuScene.fa_counts[1] = tex.uniforms.decalBase;
+    mesh_fa_mesh_fs_params_t& fu = ctx.fuScene;
+    fu.fa_ambient[3] =
+        float(tex.stride);  // texels per light (light_data.glsl: fa_light_base); fa_counts.y is the decal region
+    if (tex.giBase >= 0) {
+        // The grids' records (mesh_common.glsl fa_gi): a face of a grid's own capture (Frame::giCapture) sees the grid's light times its bounce.
+        fu.fa_gi[0] = float(tex.giBase);
+        fu.fa_gi[1] = float(giCount);
+        fu.fa_gi[2] = fr.giCapture ? 1.0f : 0.0f;
+    }
+    const ClusterUniforms& u = tex.uniforms;
+    for (int c = 0; c < 4; ++c) {
+        fu.fa_cl_vpx[c] = u.vpx[c];
+        fu.fa_cl_vpy[c] = u.vpy[c];
+        fu.fa_cl_vpw[c] = u.vpw[c];
+        fu.fa_cl_fwd[c] = u.fwd[c];
+        fu.fa_cl_grid[c] = u.grid[c];
+        fu.fa_cl_info[c] = u.info[c];
+    }
+}
+
 // ---- the scene's uniforms: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-// Reads: world (settings, time), fr.cam, ctx.lights, ctx.lightVP, gpu. Writes: ctx.ss, ctx.white, ctx.lightUniforms, ctx.vuScene,
-// ctx.fuScene.
+// Reads: world (settings, time), fr.cam, ctx.lights, the shadow plan (ctx.cascades, fits, atlas, shadowTgt), gpu. Writes: ctx.ss, ctx.white,
+// ctx.lightView, ctx.shadowU, ctx.vuScene, ctx.fuScene.
 void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     World& world = ctx.world;
     Frame& fr = ctx.fr;
     const std::vector<LightData>& lights = ctx.lights;
-    const Mat4& lightVP = ctx.lightVP;
     SceneSettings& ss = ctx.ss;
-    mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
     ss = world.settings();
@@ -1043,8 +1839,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
         ss.fogDensity = 0.0f;
     }
     // The camera's own fog (PostProcess.fog*, drawn from the depth inside the main pass) replaces the scene's: the two never add up. It is
-    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog.
-    if (ctx.postPlan.fogFx.fog) ss.fogDensity = 0.0f;
+    // only planned (fogFx.fog) when its prepass and shader exist, so a frame that cannot draw it keeps the scene's fog. The volumetric fog
+    // (vol.on, planned the same way) replaces both.
+    if (ctx.postPlan.fogFx.fog || ctx.postPlan.vol.on) ss.fogDensity = 0.0f;
     // Colours the author picked are sRGB values; a linear scene computes with linear light (sky, fog and ambient, below, and the
     // main pass's sky and clear colour read these).
     ss.ambientLight = to_scene(ss.ambientLight, fr.linear);
@@ -1052,15 +1849,12 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.skyColor = to_scene(ss.skyColor, fr.linear);
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
-    for (std::size_t i = 0; i < lights.size(); ++i) {
-        for (int c = 0; c < 4; ++c) {
-            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
-            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
-            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
-        }
-    }
+    ctx.lightView = ctx.white->view;
+    // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
+    ctx.decalView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
-    copy_mat(vuScene.fa_light_vp, lightVP);
+    copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
+    fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
     vuScene.fa_time[0] = float(world.time());
     vuScene.fa_time[1] = fr.cam.position.x;  // yzw: the camera position, for the vertex stage of a full-shader material
     vuScene.fa_time[2] = fr.cam.position.y;
@@ -1075,9 +1869,34 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_fog[1] = ss.fogColor.g;
     fuScene.fa_fog[2] = ss.fogColor.b;
     fuScene.fa_fog[3] = ss.fogDensity;
-    fuScene.fa_counts[0] = float(lights.size());
-    fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
+    // The lights of the view: the light table and the clusters in the data texture (light_clusters.h); fa_counts.x is how many of the
+    // first lights the full-shader API fa_light_count() hands over.
+    fuScene.fa_counts[0] = float(std::min<std::size_t>(lights.size(), 32));
+    upload_lights(ctx);
+    for (int c = 0; c < 4; ++c) lastClusterInfo[c] = fuScene.fa_cl_info[c];
+    // The point and spot lights' shadow records are in the light texture (upload_lights): the shadows block says where (0 = none).
+    if (ctx.localShadowBase >= 0) ctx.shadowU.fa_shadow_lcfg[0] = float(ctx.localShadowBase + 1);
     fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
+    // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
+    // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
+    // subsurface draw reads the same view for its visibility test against the prepass.
+    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
+        const Mat4& vp = fr.cam.viewProj;
+        const Vec3& fwd = fr.cam.forward;
+        for (int c = 0; c < 4; ++c) {
+            fuScene.fa_ct_vpx[c] = vp.at(c, 0);
+            fuScene.fa_ct_vpy[c] = vp.at(c, 1);
+            fuScene.fa_ct_vpw[c] = vp.at(c, 3);
+        }
+        fuScene.fa_ct_fwd[0] = fwd.x;
+        fuScene.fa_ct_fwd[1] = fwd.y;
+        fuScene.fa_ct_fwd[2] = fwd.z;
+        fuScene.fa_ct_fwd[3] = -dot(fwd, fr.cam.position);
+        fuScene.fa_ct_a[1] = gpu.is_gl() ? 1.0f : 0.0f;
+        fuScene.fa_ct_a[2] = float(ctx.camPx.w);
+        fuScene.fa_ct_a[3] = float(ctx.camPx.h);
+        fuScene.fa_ct_b[0] = kContactShadowFadeEnd;  // (the atlas of a transmissive draw reads the same rows and size)
+    }
     fuScene.fa_env_sky[0] = ss.skyColor.r;
     fuScene.fa_env_sky[1] = ss.skyColor.g;
     fuScene.fa_env_sky[2] = ss.skyColor.b;
@@ -1109,37 +1928,41 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
 }
 
 static_assert(
-    kMaterialEnvView == VIEW_mesh_fa_env_tex && kMaterialEnvIrrView == VIEW_mesh_fa_irr_tex &&
-        kMaterialEnvSampler == SMP_mesh_fa_env_smp,
-    "the environment slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
+    kMaterialEnvView == VIEW_mesh_fa_probe_atlas && kMaterialEnvSampler == SMP_mesh_fa_env_smp,
+    "the probe atlas slots of mesh_common.glsl and render_internal.h (and tools/common/shaders.h) must agree");
 
 // The sky environment (renderer_env.h) of a job: with SceneSettings.skyMaterial, the meshes light and reflect the sky
 // that is seen, baked into two cubes. Reads: ctx.ss, ctx.lights, ctx.fuScene.fa_time (all set), the job's frame.
 // Writes: ctx.envActive (the meshes of this job sample the cubes), ctx.envBake (this job declares the "sky-env" pass,
-// which bakes them), ctx.envKey, ctx.envSky (what the pass draws), the environment flags of ctx.fuScene (fa_env_sky.w,
-// fa_env_horizon.w). The cubes are baked again when their key changes: everything the sky depends on (the material and
+// which bakes them), ctx.envKey, ctx.envSky (what the pass draws). The meshes read the sky from its entry of the probe atlas
+// (the bake pass writes it, probes_write_sky), not from the cubes. The cubes are baked again when their key changes: everything the sky depends on (the material and
 // its build, its params and textures, the colours, the sun when the snippet reads it, the colour space) and, for an
 // animated sky (its snippet reads the time), the game time in steps of kEnvTimeStep seconds (the sky is drawn at the
 // step's start, so a run draws the same images at any frame rate). The first job of a frame that wants an environment
 // decides it for the frame; a later job whose sky differs draws its meshes with the gradient (they share the cubes).
 void Renderer::Impl::plan_env(DrawContext& ctx) {
-    ctx.envActive = ctx.envBake = false;
+    ctx.envActive = ctx.envBake = ctx.envSliced = ctx.physMainOn = false;
     ctx.skyPlannedMat = nullptr;
+    ctx.hdriMain = nullptr;
+    ctx.envTap = 0.0f;
+    // environmentIntensity multiplies the background of an HDRI and the lighting of any sky (a value that is not a number is 1).
+    ctx.envGain =
+        std::isfinite(ctx.ss.environmentIntensity) ? std::clamp(ctx.ss.environmentIntensity, 0.0f, 100.0f) : 1.0f;
+    // The rotation is made safe once: a script can write any number (NaN, 1e30), and the key and the drawing must agree.
+    ctx.envRotation = std::isfinite(ctx.ss.environmentRotation) ? std::fmod(ctx.ss.environmentRotation, 360.0f) : 0.0f;
     const Frame& fr = ctx.fr;
     if (!ctx.doMainPass || !fr.wantWorld || fr.cam.studio) return;
-    MaterialAsset* mat = sky_material(ctx.ss);
-    if (!mat) return;
+    // The environment map (renderer_hdri.h says who decides what): an HDRI that loaded lights the meshes whatever the background is.
+    const HdriAsset* hdri = nullptr;
+    if (!ctx.ss.environmentMap.empty() && hdriSky.ready(gpu)) hdri = assets->hdri(ctx.ss.environmentMap);
+    // It is also the background unless a sky material is set (even one that failed: the gradient shows, as without an HDRI) or
+    // environmentBackground is off.
+    if (hdri && ctx.ss.environmentBackground && ctx.ss.skyMaterial.empty()) ctx.hdriMain = hdri;
+    // The physical sky (SceneSettings.skyModel) takes the place of the gradient, never of a sky material.
+    const bool phys = ctx.ss.skyModel == SkyModel::Physical && ctx.ss.skyMaterial.empty() && physSky.ready(gpu);
+    MaterialAsset* mat = (phys || hdri) ? nullptr : sky_material(ctx.ss);
+    if (!mat && !phys && !hdri) return;
     SkyDraw sky;
-    fill_sky(*this, ctx, mat, sky);
-    ctx.skyPlannedMat = mat;
-    std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
-    sky.time = 0.0f;  // only an animated sky sees the time, quantized below
-    std::int64_t step = 0;
-    if (mat->animated) {
-        const double t = ctx.world.time();
-        step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
-        sky.time = float(double(step) * kEnvTimeStep);
-    }
     std::uint64_t h = 0xcbf29ce484222325ull;
     auto mix = [&h](std::uint64_t v) {
         h = (h ^ v) * 0x100000001b3ull;
@@ -1150,18 +1973,102 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         std::memcpy(&u, &f, sizeof(u));
         mix(u);
     };
-    mix(std::hash<std::string>{}(mat->path));
-    mix(std::uint64_t(mat->generation));
-    mix(mat->programs[0].shader.id);
-    mix(std::uint64_t(step));
-    for (const auto& p : sky.in.params)
-        for (float c : p) mixf(c);
-    for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
-    for (float c : sky.skyColor) mixf(c);
-    for (float c : sky.horizonColor) mixf(c);
-    if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
-        for (float c : sky.sun) mixf(c);
-    mix(sky.linear ? 1 : 0);
+    std::uint64_t staticKey = 0;
+    if (hdri) {
+        // The cube starts as the picture itself (rotated, in the scene's colour space, brightness 1): the bake's gain applies it later.
+        sky.hdri = hdri;
+        sky.hdriRotation = ctx.envRotation;
+        sky.linear = fr.linear;
+        ctx.envTap = kHdriTapLimit;
+        mix(std::hash<std::string>{}(hdri->path));
+        mix(hdri->serial);
+        mix(hdri->image.id);
+        mixf(sky.hdriRotation);
+        mix(sky.linear ? 1 : 0);
+        if (phys) {  // the main pass may still draw the physical sky (environmentBackground off): its state is the frame's
+            PhysicalSkyState st;
+            st.s = physical_sky_settings(ctx.ss);
+            for (int i = 0; i < 3; ++i) {
+                st.sunDir[i] = ctx.physSunDir[i];
+                st.sunColor[i] = ctx.physSunColor[i];
+            }
+            st.linear = fr.linear;
+            const double t = ctx.world.time();
+            st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+            ctx.physMain = st;
+            ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !fr.cam.noSky && !ctx.hdriMain;
+        }
+    } else if (phys) {
+        // The picture draws the exact sun and clock; the environment the quantised ones (physical_sky.h), so a run bakes the same
+        // images at any frame rate.
+        PhysicalSkyState st;
+        st.s = physical_sky_settings(ctx.ss);
+        for (int i = 0; i < 3; ++i) {
+            st.sunDir[i] = ctx.physSunDir[i];
+            st.sunColor[i] = ctx.physSunColor[i];
+        }
+        st.linear = fr.linear;
+        const double t = ctx.world.time();
+        st.time = std::isfinite(t) && t > 0.0 ? std::min(t, 1.0e9) : 0.0;
+        ctx.physMain = st;
+        ctx.physMainOn = fr.cam.perspective && fr.cam.clear && !fr.cam.noSky;
+        const PhysicalSkyState q = sky_quantised(st);
+        sky.physical = true;
+        sky.sunDisc = false;  // the light is the sun in the environment
+        sky.slot = 1;
+        sky.phys = q;
+        staticKey = sky_env_static_key(q);
+        h = sky_env_key(q) ^ 0x9e3779b97f4a7c15ull;
+        for (int i = 0; i < 3; ++i) ctx.envSun[i] = q.sunDir[i];
+        ctx.envStatic = staticKey;
+    } else {
+        fill_sky(*this, ctx, mat, sky);
+        ctx.skyPlannedMat = mat;
+        std::copy(std::begin(sky.in.textures), std::end(sky.in.textures), ctx.skyPlanned);
+        sky.time = 0.0f;  // only an animated sky sees the time, quantized below
+        std::int64_t step = 0;
+        if (mat->animated) {
+            const double t = ctx.world.time();
+            step = std::isfinite(t) && t > 0.0 ? std::int64_t(std::min(t, 1.0e9) / kEnvTimeStep) : 0;
+            sky.time = float(double(step) * kEnvTimeStep);
+        }
+        mix(std::hash<std::string>{}(mat->path));
+        mix(std::uint64_t(mat->generation));
+        mix(mat->programs[0].shader.id);
+        mix(std::uint64_t(step));
+        for (const auto& p : sky.in.params)
+            for (float c : p) mixf(c);
+        for (const TextureAsset* t : sky.in.textures) mix(t ? t->gpu_view().id : 0);
+        for (float c : sky.skyColor) mixf(c);
+        for (float c : sky.horizonColor) mixf(c);
+        if (mat->usesSun)  // a sky that never reads the sun is not baked again when the sun turns
+            for (float c : sky.sun) mixf(c);
+        mix(sky.linear ? 1 : 0);
+    }
+    mixf(ctx.envGain);
+    // Whether (and how) this job bakes the cubes for the key h. A sky material is baked whole when its key changes. The physical
+    // sky is baked whole the first time, when anything but the sun's direction and the clouds' clock changed, and when the sun
+    // moved a degree or more since the last bake started; else it follows the sun in slices, one per frame (renderer_env.h): a
+    // sequence that is running goes on whatever the sky has become meanwhile, and a new one starts when the key differs.
+    auto decide = [&](DrawContext& c) {
+        c.envBake = c.envSliced = false;
+        if (!skyEnv.baked()) {
+            c.envBake = true;
+            return;
+        }
+        if (!phys || hdri) {
+            c.envBake = skyEnv.key() != h;
+            return;
+        }
+        const float* ts = skyEnv.tag_sun();
+        const float dx = c.envSun[0] - ts[0], dy = c.envSun[1] - ts[1], dz = c.envSun[2] - ts[2];
+        const bool whole = skyEnv.tag_key() != c.envStatic || dx * dx + dy * dy + dz * dz > kSkyBakeJump * kSkyBakeJump;
+        if (whole) {
+            c.envBake = true;
+        } else if (skyEnv.busy() || skyEnv.key() != h) {
+            c.envBake = c.envSliced = true;
+        }
+    };
     const bool pictureJob = !ctx.plan.view;
     if (envFrame != frameSerial) {
         envFrame = frameSerial;
@@ -1169,7 +2076,7 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         envFrameKey = h;
         envFrameView = !pictureJob;
         envJobs.clear();
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     } else if (envFrameKey != h) {
         // Jobs of the picture (a camera of the game's frame) are planned after the render targets and views, which
         // would otherwise fix the key with a sky of their own (a material texture "target:<own>" is the checker for the
@@ -1178,22 +2085,21 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
         // run), and this job bakes its own.
         if (!pictureJob || !envFrameView) return;
         for (DrawContext* other : envJobs) {
-            other->envActive = other->envBake = false;
+            other->envActive = other->envBake = other->envSliced = false;
             other->fuScene.fa_env_sky[3] = 0.0f;
             other->fuBlend.fa_env_sky[3] = 0.0f;
         }
         envJobs.clear();
         envFrameKey = h;
         envFrameView = false;
-        if (envFrameOk) ctx.envBake = !skyEnv.baked() || skyEnv.key() != h;
+        if (envFrameOk) decide(ctx);
     }
     if (!envFrameOk) return;
     envJobs.push_back(&ctx);
     ctx.envActive = true;
     ctx.envKey = h;
     ctx.envSky = sky;
-    ctx.fuScene.fa_env_sky[3] = 1.0f;
-    ctx.fuScene.fa_env_horizon[3] = float(kEnvLevels - 1);
+    // fa_env_sky.w (the sky's entry of the probe atlas is written) is set per draw by fill_probe_fs.
 }
 
 // Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats
@@ -1224,6 +2130,7 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
+    if (mi.lm.mesh && mi.lm.page) d.lightmap = mi.lm.page->view;
     return d;
 }
 
@@ -1231,10 +2138,16 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
     MaterialAsset& mat = *mi.material;
     const bool uv = std::string(what) == "uv1";
     // Already logged? One hash lookup, no string: this runs for every part of every batch of every pass of every frame.
-    const std::uint64_t key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u +
-                               std::uint64_t(&part - mi.mesh->parts.data())) *
-                                  2u +
-                              (uv ? 0u : 1u);
+    // The part's index: it is one of the mesh's parts, or of the parts of its lightmap geometry (the same order).
+    const SubMesh* first =
+        mi.lm.mesh && !mi.lm.mesh->parts.empty() &&
+                std::less_equal<const SubMesh*>()(mi.lm.mesh->parts.data(), &part) &&
+                std::less<const SubMesh*>()(&part, mi.lm.mesh->parts.data() + mi.lm.mesh->parts.size())
+            ? mi.lm.mesh->parts.data()
+            : mi.mesh->parts.data();
+    const std::uint64_t key =
+        (std::uint64_t(reinterpret_cast<std::uintptr_t>(mi.mesh)) * 1000003u + std::uint64_t(&part - first)) * 2u +
+        (uv ? 0u : 1u);
     if (!mat.missingNoted.insert(key).second) return;
     const std::string mesh = mi.mesh->key;
     const std::string channel = uv ? "TEXCOORD_1" : "COLOR_1";
@@ -1245,14 +2158,124 @@ void Renderer::Impl::note_missing_channel(const MeshItem& mi, const SubMesh& par
             (primitive ? "'" + mesh +
                              "' is a built-in primitive (cube, plane, ...), which has only position, normal and uv, "
                              "no TEXCOORD_1 or COLOR_1"
-                       : "part " + std::to_string(&part - mi.mesh->parts.data()) + " of mesh '" + mesh + "' has no " +
-                             channel + " attribute") +
+                       : "part " + std::to_string(&part - first) + " of mesh '" + mesh + "' has no " + channel +
+                             " attribute") +
             ". The meshes using both are drawn magenta.",
         primitive
             ? "Use a glTF model that has " + channel + " (the built-in primitives never do), or remove \"" + what +
                   "\" from the material's vertexAttributes."
             : "Export the model with a second " + std::string(uv ? "UV set" : "vertex colour set") + " (glTF " +
                   channel + "), remove \"" + what + "\" from the material's vertexAttributes, or use another mesh.");
+}
+
+// The material layers of one part (fa_layers_a..d): the glTF material's factors, replaced field by field by the MeshRenderer's
+// when that is not at its default (a MeshRenderer field at its default leaves the model's value). Colours: the glTF ones are
+// linear values, the MeshRenderer's go through to_scene like its other colours. A MeshRenderer value outside its range is
+// clamped by the shader's own limits (the doc strings give the ranges); NaN counts as the default.
+static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, const SubMesh& part, bool error,
+                        bool linear) {
+    auto num = [](float v, float fallback) { return std::isfinite(v) ? v : fallback; };
+    const MaterialLayers& g = part.layers;
+    static const MeshRenderer defaults;
+    float coat = 0, coatRough = 0, sheenRough = 0, aniso = 0, rotation = 0, spec = 1, ior = 1.5f;
+    float sheen[3] = {0, 0, 0}, specColor[3] = {1, 1, 1};
+    float transmission = 0, thickness = 0, attDistance = 0, attColor[3] = {1, 1, 1};
+    if (!error) {
+        auto pick = [&](float m, float def, float fromModel) { return (num(m, def) != def) ? num(m, def) : fromModel; };
+        coat = std::clamp(pick(mr.clearcoat, defaults.clearcoat, g.clearcoat), 0.0f, 1.0f);
+        coatRough = std::clamp(pick(mr.clearcoatRoughness, defaults.clearcoatRoughness,
+                                    g.clearcoat > 0.0f ? g.clearcoatRoughness : defaults.clearcoatRoughness),
+                               0.0f, 1.0f);
+        const Color sc = to_scene(mr.sheenColor, linear);
+        const bool mrSheen = mr.sheenColor.r > 0.0f || mr.sheenColor.g > 0.0f || mr.sheenColor.b > 0.0f;
+        const bool modelSheen = g.sheenColor != MaterialLayers{}.sheenColor;
+        sheen[0] = mrSheen ? sc.r : g.sheenColor[0];
+        sheen[1] = mrSheen ? sc.g : g.sheenColor[1];
+        sheen[2] = mrSheen ? sc.b : g.sheenColor[2];
+        sheenRough = std::clamp(
+            pick(mr.sheenRoughness, defaults.sheenRoughness, modelSheen ? g.sheenRoughness : defaults.sheenRoughness),
+            0.0f, 1.0f);
+        aniso = std::clamp(pick(mr.anisotropy, 0.0f, g.anisotropy), -1.0f, 1.0f);
+        rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
+                                                            : g.anisotropyRotation;
+        spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
+        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
+        for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
+        // Transmission and volume (M73.6b): a MeshRenderer field that is not at its default replaces the model's value, as above.
+        transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
+        thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
+        attDistance = std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance),
+                                 0.0f, 100000.0f);
+        const Color ac = to_scene(mr.attenuationColor, linear);
+        const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
+        attColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
+        attColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
+        attColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
+    }
+    fu.fa_layers_a[0] = coat;
+    fu.fa_layers_a[1] = coatRough;
+    fu.fa_layers_a[2] = aniso;
+    fu.fa_layers_a[3] = rotation;
+    fu.fa_layers_b[0] = sheen[0];
+    fu.fa_layers_b[1] = sheen[1];
+    fu.fa_layers_b[2] = sheen[2];
+    fu.fa_layers_b[3] = sheenRough;
+    fu.fa_layers_c[0] = spec;
+    fu.fa_layers_c[1] = ior;
+    fu.fa_layers_c[2] = error ? 0.0f : float(part.layersPacked);
+    fu.fa_layers_c[3] = 0.0f;
+    for (int i = 0; i < 3; ++i) fu.fa_layers_d[i] = specColor[i];
+    fu.fa_layers_d[3] = 0.0f;
+    fu.fa_tr_a[0] = transmission;
+    fu.fa_tr_a[1] = thickness;
+    fu.fa_tr_a[2] = attDistance;
+    for (int i = 0; i < 3; ++i) fu.fa_tr_b[i] = attColor[i];
+}
+
+// The reflection part of the fragment parameters (mesh_common.glsl fa_atlas, fa_rpa_*, fa_rpb_*; docs/design/ARCHITECTURE_PROBES.md,
+// "What the meshes read"): where the atlas and the sky's entry are, and the tile, capture position and box of each probe the mesh picked
+// (render_scene.cpp; at most two). A probe that is not in the atlas any more (evicted, its capture not done) is left out and the sky takes
+// its share. A capture face (Frame::noProbes) and an unlit mesh read the sky only.
+void Renderer::Impl::fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, bool lit, mesh_fa_mesh_fs_params_t& fu) {
+    const ProbeSystem& ps = probes;
+    const bool atlas = ps.atlas.valid();
+    fu.fa_atlas[0] = atlas ? float(ps.atlas.size) : 1.0f;
+    fu.fa_atlas[1] = ps.gpu.rgba8() ? 1.0f : 0.0f;
+    const bool sky = atlas && ctx.envActive && ps.skyPlaced && ps.skyWrittenFrame != 0;
+    fu.fa_atlas[2] = sky ? float(ps.skyTile.x) : 0.0f;
+    fu.fa_atlas[3] = sky ? float(ps.skyTile.y) : 0.0f;
+    fu.fa_env_sky[3] = sky ? 1.0f : 0.0f;
+    float* tile[2] = {fu.fa_rpa_tile, fu.fa_rpb_tile};
+    float* pos[2] = {fu.fa_rpa_pos, fu.fa_rpb_pos};
+    float* box[2][3] = {{fu.fa_rpa_bx, fu.fa_rpa_by, fu.fa_rpa_bz}, {fu.fa_rpb_bx, fu.fa_rpb_by, fu.fa_rpb_bz}};
+    for (int k = 0; k < 2; ++k) {
+        for (int c = 0; c < 4; ++c) {
+            tile[k][c] = 0.0f;
+            pos[k][c] = 0.0f;
+            for (int r = 0; r < 3; ++r) box[k][r][c] = 0.0f;
+        }
+    }
+    if (!atlas || !lit || ctx.fr.noProbes || !mi.refl.any()) return;
+    float shares[2];
+    mi.refl.shares(shares);
+    for (int k = 0; k < 2; ++k) {
+        const std::uint16_t idx = mi.refl.index[k];
+        if (!idx || idx > probeVolumes.size() || !(shares[k] > 0.0f)) continue;
+        const ProbeVolume& v = probeVolumes[std::size_t(idx) - 1];
+        const auto it = ps.entries.find(v.id);
+        if (it == ps.entries.end() || !it->second.placed || !it->second.tileValid) continue;
+        const ProbeTile& t = it->second.tile;
+        tile[k][0] = float(t.x);
+        tile[k][1] = float(t.y);
+        tile[k][2] = float(t.resolution);
+        tile[k][3] = shares[k];
+        pos[k][0] = v.position.x;
+        pos[k][1] = v.position.y;
+        pos[k][2] = v.position.z;
+        pos[k][3] = v.projection ? 1.0f : 0.0f;
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) box[k][r][c] = v.rows[r][c];
+    }
 }
 
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
@@ -1262,7 +2285,10 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
+    fu.fa_counts[3] = float(
+        decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
+    fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
     // value (a script wrote it) counts as 0, no glow.
     const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
@@ -1275,6 +2301,11 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     }
     fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
     fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
+    // Contact shadows: an opaque mesh that receives shadows with a program of the engine's template (a full shader has none; a blended or
+    // transmissive draw has no prepass at the screen slot). The shadow and prepass passes run before the main pass sets ctx.screenView, so
+    // they (and a main pass whose prepass image is missing) draw with it off: the slot there holds the white image, not a prepass.
+    fu.fa_ct_a[0] =
+        (ctx.contactOn && ctx.screenView.id && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}
@@ -1299,6 +2330,27 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_maps[3] = float(d.tex->tex_fix(linear, true) + 4 * d.emissive->tex_fix(linear, true) +
                           16 * (d.normal ? d.normal->tex_fix(linear, false) : 0) + 64 * d.mr->tex_fix(linear, false) +
                           256 * d.occlusion->tex_fix(linear, false));
+    fill_layers(fu, mr, part, d.error, linear);
+    // A transmissive draw (M73.6b) reads the refraction atlas at the screen slot, or, with no atlas this frame, is a plain blend (the
+    // shader tells them by fa_tr_a.w). An unlit surface or one that draws a full shader transmits nothing.
+    if (unlit || (d.mat && d.mat->full) || fu.fa_tr_a[0] <= 0.0f) {
+        fu.fa_tr_a[0] = 0.0f;
+        fu.fa_tr_a[3] = 0.0f;
+    } else {
+        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? 1.0f : 2.0f;
+        fu.fa_tr_b[3] = float(ctx.xmit.levels);
+    }
+    // Baked light probes (M73.4d): the SH the mesh receives (coverage 0 = none: the shader keeps the sky's ambient).
+    for (int k = 0; k < 9; ++k)
+        for (int c = 0; c < 4; ++c) fu.fa_probe_sh[k][c] = 0.0f;
+    if (mi.probe && !unlit && !mi.lm.mesh && !d.error) {
+        for (int k = 0; k < 9; ++k) {
+            fu.fa_probe_sh[k][0] = mi.probe->sh.c[k].x;
+            fu.fa_probe_sh[k][1] = mi.probe->sh.c[k].y;
+            fu.fa_probe_sh[k][2] = mi.probe->sh.c[k].z;
+        }
+        fu.fa_probe_sh[0][3] = std::clamp(mi.probe->coverage, 0.0f, 1.0f);
+    }
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
         // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
@@ -1363,23 +2415,38 @@ void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, Mat
 // Bindings of a custom program: the engine's textures and the material's, only the slots the program declares (sokol
 // rejects a binding the shader does not have). `shadowPass`: the shadow map is being drawn, so it is not sampled.
 void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
-                                   const MaterialInputs& in, bool shadowPass) {
+                                   const MaterialInputs& in, bool shadowPass, bool opaquePhase) {
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
-    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTarget.texView : white->view;
+    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? ctx.shadowTgt.texView : white->view;
     b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
     b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
+    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-    // The sky environment (renderer_env.h): the baked cubes, or a black one while the meshes use the gradient (every
+    // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
+    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
+    // The light atlas (LTC tables, cookies, IES profiles): the image the view's lights were laid out in, else the white image (nothing
+    // reads it while no light has the data texture's extension texels).
+    b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
+    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
+    // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows; in the blended phase of a frame with a
+    // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
+    sg_view screenSlot = white->view;
+    if (!shadowPass) {
+        if (opaquePhase && ctx.contactOn && ctx.screenView.id)
+            screenSlot = ctx.screenView;
+        else if (!opaquePhase && ctx.xmit.on && ctx.xmit.atlasView.id)
+            screenSlot = ctx.xmit.atlasView;
+    }
+    b.views[VIEW_mesh_fa_screen_tex] = screenSlot;
+    // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
-    const bool env = ctx.envActive && skyEnv.baked();
-    b.views[kMaterialEnvView] = env ? skyEnv.prefiltered_view() : skyEnv.blank_view(gpu);
-    b.views[kMaterialEnvIrrView] = env ? skyEnv.irradiance_view() : skyEnv.blank_view(gpu);
-    b.samplers[kMaterialEnvSampler] = skyEnv.sampler();
+    b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : white->view;
+    b.samplers[kMaterialEnvSampler] = gpu.sampler(SamplerKind::LinearClamp);
     if (!prog) return;
     if (d.mat)
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
@@ -1487,9 +2554,9 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // ---- shadow pass ----
 // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
 // shadow, alphaMode "clip" cuts holes into it).
-// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene, ctx.lightUniforms,
+// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene,
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
-// Writes: the shadow map (shadowTarget); stats.drawCalls.
+// Writes: the shadow atlas (ctx.shadowTgt); stats.drawCalls.
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
@@ -1497,8 +2564,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    PassDesc sp = pass_into(shadowTarget, "shadow");
+    PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
     sp.colorLoad = SG_LOADACTION_CLEAR;
     sp.clearColor = {1, 1, 1, 1};
     sp.colorStore = SG_STOREACTION_STORE;
@@ -1506,53 +2572,73 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     sp.clearDepth = 1.0f;
     gpu.begin_pass(sp);
     mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
-    for (int pass = 0; pass < 2; ++pass) {
-        const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
-        const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
-        for (const MeshBatch& batch : batches) {
-            if (batch.shadowCount == 0) continue;
-            const MeshItem& rep = items[batch.rep];
-            u.fa_uv_scale[0] = rep.mr->uvScale.x;
-            u.fa_uv_scale[1] = rep.mr->uvScale.y;
-            MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
-            MaterialInputs inputs{};
-            if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
-                material_inputs(rep, mat, inputs);
-            if (mat && mat->full && mat->shadow == FullShadow::None) continue;      // casts no shadow
-            const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, rep);  // mesh_buffer_draw.h
-            if (mbu.skip) continue;
-            for (auto& p : rep.mesh->parts) {
-                const bool skinned = rep.anim && p.skinVb.id;
-                const PartDraw pd = part_draw(ctx, rep, p);
-                const MaterialProgram* prog =
-                    pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
-                if (prog && !prog->shader.id) prog = nullptr;
-                if (mbu.active && !prog) continue;  // the engine's shadow program cannot place what the buffers place
-                sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
-                                       : gpu.shadow_pipeline(skinned));
-                sg_bindings b{};
-                b.vertex_buffers[0] = p.vb;
-                b.vertex_buffers[1] = shadowInst;
-                b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
-                if (skinned) b.vertex_buffers[2] = p.skinVb;
-                if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, batch.shadowExtra);
-                b.index_buffer = p.ib;
-                b.index_buffer_offset = p.ibOffset;
-                if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
-                if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
-                sg_apply_bindings(&b);
-                if (mbu.active) apply_mesh_base_model(*prog, rep.model);
-                if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                if (skinned && declares(prog, UB_mesh_fa_skin))
-                    apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
-                if (prog) {
-                    if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                        apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
-                    if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                    apply_material_params(*prog, inputs);
+    // One draw per batch and view (a cascade of the sun, a tile of a local light), each into its own tile of the atlas: the viewport and
+    // the scissor are the tile (y from the top). A batch's runs are in ascending view order, so each batch keeps a cursor.
+    const std::vector<ShadowRun>& runs = ctx.shadowRuns;
+    std::array<std::vector<std::uint32_t>, 2> cursors;
+    cursors[0].assign(opaqueBatches.size(), 0);
+    cursors[1].assign(blendedBatches.size(), 0);
+    for (int view = 0; view < int(ctx.viewProj.size()); ++view) {
+        const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
+        if (!tile.placed() || (view >= ctx.cascades && view < ctx.sunViews)) continue;
+        sg_apply_viewport(tile.x, tile.y, tile.size, tile.size, true);
+        sg_apply_scissor_rect(tile.x, tile.y, tile.size, tile.size, true);
+        copy_mat(u.fa_light_vp, ctx.viewProj[std::size_t(view)]);
+        for (int pass = 0; pass < 2; ++pass) {
+            const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
+            const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
+            for (std::size_t bi = 0; bi < batches.size(); ++bi) {
+                const MeshBatch& batch = batches[bi];
+                std::uint32_t& cur = cursors[std::size_t(pass)][bi];
+                while (cur < batch.runCount && runs[batch.runFirst + cur].view < std::uint32_t(view)) ++cur;
+                if (cur >= batch.runCount || runs[batch.runFirst + cur].view != std::uint32_t(view)) continue;
+                const ShadowRun& run = runs[batch.runFirst + cur];
+                const std::uint32_t count = run.count, first = run.first;
+                if (count == 0) continue;
+                const MeshItem& rep = items[batch.rep];
+                u.fa_uv_scale[0] = rep.mr->uvScale.x;
+                u.fa_uv_scale[1] = rep.mr->uvScale.y;
+                MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
+                MaterialInputs inputs{};
+                if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
+                    material_inputs(rep, mat, inputs);
+                if (mat && mat->full && mat->shadow == FullShadow::None) continue;      // casts no shadow
+                const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, rep);  // mesh_buffer_draw.h
+                if (mbu.skip) continue;
+                for (auto& p : rep.mesh->parts) {
+                    const bool skinned = rep.anim && p.skinVb.id;
+                    const PartDraw pd = part_draw(ctx, rep, p);
+                    const MaterialProgram* prog =
+                        pd.mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
+                    if (prog && !prog->shader.id) prog = nullptr;
+                    if (mbu.active && !prog)
+                        continue;  // the engine's shadow program cannot place what the buffers place
+                    sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
+                                           : gpu.shadow_pipeline(skinned));
+                    sg_bindings b{};
+                    b.vertex_buffers[0] = p.vb;
+                    b.vertex_buffers[1] = shadowInst;
+                    b.vertex_buffer_offsets[1] = int(first * kMeshInstanceBytes);
+                    if (skinned) b.vertex_buffers[2] = p.skinVb;
+                    if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, run.extra);
+                    b.index_buffer = p.ib;
+                    b.index_buffer_offset = p.ibOffset;
+                    if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
+                    if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
+                    sg_apply_bindings(&b);
+                    if (mbu.active) apply_mesh_base_model(*prog, rep.model);
+                    if (declares(prog, UB_mesh_fa_mesh_vs_params)) apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                    if (skinned && declares(prog, UB_mesh_fa_skin))
+                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
+                    if (prog) {
+                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
+                        if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
+                        apply_material_params(*prog, inputs);
+                    }
+                    sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(count));
+                    ++stats.drawCalls;
                 }
-                sg_draw(0, p.indexCount, mbu.active ? mbu.instances : int(batch.shadowCount));
-                ++stats.drawCalls;
             }
         }
     }
@@ -1575,9 +2661,13 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = false;
-    if ((ctx.plan.view && !ctx.plan.customPost) || !ctx.fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1)
+    if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
+        ctx.camPx.h < 1)
         return false;
-    if (!(pp.needsDepth || pp.needsNormals || debugView != DebugView::None)) return false;
+    // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
+    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
+          (debugView != DebugView::None && debugView != DebugView::Cascades)))
+        return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
     // A custom post pass that reads the depth gets the prepass of a camera with no opaque mesh too: it is cleared to
@@ -1604,8 +2694,31 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass = (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    ctx.debugPrepass =
+        !ctx.plan.gi && (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
     return true;
+}
+
+// Transmission (M73-P6b, renderer_xmit.h): counts the visible transmissive meshes of the blended phase; when there is one and the copy of the
+// opaque picture can be made (the shader compiled, the pool makes the atlas and its level images), the main pass splits after the opaque phase
+// (ctx.xmit.want). Without it the draws are blended plainly, with no refraction (the shader's mode 2). A job with no transmissive draw
+// does nothing here, so its frame is the frame without the feature. Reads: ctx.blendedBatches, ctx.blended, ctx.camPx, ctx.fr, ctx.plan.
+// Writes: ctx.xmit.want, stats.transmissiveMeshes, stats.transmissionPlain.
+void Renderer::Impl::plan_transmission(DrawContext& ctx) {
+    ctx.xmit = {};
+    if (!ctx.fr.wantWorld || !ctx.doMainPass || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
+    int meshes = 0;
+    for (const MeshBatch& b : ctx.blendedBatches) {
+        if (b.mainCount == 0) continue;
+        const MeshItem& mi = ctx.blended[b.rep];
+        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
+    }
+    if (meshes == 0) return;
+    stats.transmissiveMeshes += meshes;
+    if (xmit.can_make(transient_targets(), gpu, ctx.camPx.w, ctx.camPx.h))
+        ctx.xmit.want = true;
+    else
+        ++stats.transmissionPlain;
 }
 
 // The image the outline reads. Depth mode needs the prepass (plan_prepass made it or said why not, once); sprite mode needs a coverage
@@ -1660,10 +2773,10 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
 
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
-void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces) {
     const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
     const std::vector<MeshItem>& items = ctx.opaque;
-    PassDesc pd = pass_into(t, "prepass");
+    PassDesc pd = pass_into(t, backFaces ? "prepass-back" : "prepass");
     pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
@@ -1697,7 +2810,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
                                                    skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}));
+                                                   custom ? mat->extras() : MeshExtras{}, backFaces));
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
@@ -1715,10 +2828,80 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t) {
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
-            if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, ctx.lightUniforms);
+            if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
             apply_material_params(*prog, inputs);
             sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
             ++stats.drawCalls;
+        }
+    }
+    gpu.end_pass();
+}
+
+// The subsurface draw (M73.5, docs/design/ARCHITECTURE_SUBSURFACE.md): the opaque meshes that scatter, drawn again with the sss program of the mesh
+// shader into two images of the camera's size: `a` = the diffuse light the surface sends to the camera and its linear depth, `b` = the scatter radius
+// per colour channel and the strength. The geometry, the instances, the skin, the lightmap and every uniform are the main pass's; only the surface the
+// camera sees counts (the shader tests its depth against `pre`). Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene,
+// ctx.shadowU. Writes: stats.subsurfaceDraws.
+void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre) {
+    if (!a.colorAtt.id || !b.colorAtt.id || !pre.texView.id) return;
+    PassDesc pd = pass_into(a, "sss-draw");
+    pd.format = Gpu::sss_target_format();
+    pd.color1 = b.colorAtt;
+    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing scatters: no light, depth 0, no strength
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.clearDepth = 1.0f;
+    gpu.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    for (const MeshBatch& batch : ctx.opaqueBatches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        if (!sss_scatters(mi)) continue;
+        const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
+        if (mbu.skip || mbu.active) continue;  // a mesh placed by GPU buffers has its own program
+        const std::array<float, 5> sss = subsurface_of(*mi.mr);
+        mesh_fa_sss_params_t su{};
+        su.fa_sss[0] = sss[1] * sss[2];
+        su.fa_sss[1] = sss[1] * sss[3];
+        su.fa_sss[2] = sss[1] * sss[4];
+        su.fa_sss[3] = sss[0];
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        for (int k = 0; k < 4; ++k) vu.fa_lm_so[k] = mi.lm.mesh ? mi.lm.scaleOffset[k] : 0.0f;
+        const std::vector<SubMesh>& drawParts = mi.lm.mesh ? mi.lm.mesh->parts : mi.mesh->parts;
+        for (const SubMesh& part : drawParts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw d = part_draw(ctx, mi, part);
+            if (d.error || d.mat) continue;
+            const MaterialProgram& prog = gpu.sss_program(skinned);
+            const sg_pipeline pipe = gpu.sss_pipeline(part.doubleSided, skinned);
+            if (!pipe.id) continue;
+            sg_apply_pipeline(pipe);
+            sg_bindings bind{};
+            bind.vertex_buffers[0] = part.vb;
+            bind.vertex_buffers[1] = ctx.mainInst;
+            bind.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned)
+                bind.vertex_buffers[2] = part.skinVb;
+            else  // like the main pass: the lightmap UV, or zeros
+                bind.vertex_buffers[kUv1Buffer] =
+                    part.uv1Vb.id && mi.lm.mesh ? part.uv1Vb : assets->zero_uv1(std::size_t(part.vertexCount));
+            bind.index_buffer = part.ib;
+            bind.index_buffer_offset = part.ibOffset;
+            bind_textures(ctx, bind, d, &prog, MaterialInputs{}, false, true);
+            bind.views[VIEW_mesh_fa_screen_tex] =
+                pre.texView;  // the shader's visibility test, always (contact shadows read it too)
+            sg_apply_bindings(&bind);
+            apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            if (skinned && prog.has_ub(UB_mesh_fa_skin))
+                apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog.has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d));
+            if (prog.has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
+            if (prog.has_ub(UB_mesh_fa_sss_params)) apply_uniforms(UB_mesh_fa_sss_params, su);
+            sg_draw(0, part.indexCount, int(batch.mainCount));
+            ++stats.subsurfaceDraws;
         }
     }
     gpu.end_pass();
@@ -1978,15 +3161,15 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 }
 
 // ---- main pass ----
-// Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
+// PostProcess.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
 // glows it, and a second pass (hud_pass) draws the screen-space groups (HUD) on top, so the HUD never glows.
 // With MSAA the multisampled image must survive every pass but the last one (STORE): the next pass loads it, and with
 // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
 // the final resolve contains everything.
 // Reads: plan (first / last / view), fr (camera, wantWorld, wantScreen, debugLines), ctx.z01, msaa, hudAfterBloom,
-// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightUniforms, shadowRowsTex, litMode,
+// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightView, shadowRowsTex, litMode,
 // opaque / blended with their batches, mainInst, the quad groups (gClear, gWorld, gDebugWorld, gScreen, gDebugScreen), vbuf,
-// lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
+// lineFirst, screenProj, ctx.shadowTgt.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
 // Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
 void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
@@ -2012,7 +3195,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
@@ -2020,6 +3202,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         ctx.fuBlend.fa_env_sky[3] = 0.0f;
     }
     if (ctx.doMainPass) {
+        // The prepass image (M73.2c): bound at the screen slot of the opaque meshes (bind_textures) while a light has a contact shadow, and
+        // read by the effects after them (below).
+        const Target* preT = ctx.postPlan.prepass.target(pc);
+        ctx.screenView = preT ? preT->texView : sg_view{};
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
@@ -2028,6 +3214,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         mp.colorStore = (msaa && (plan.last || plan.view) && !hudAfterBloom && !ctx.debugPrepass)
                             ? SG_STOREACTION_DONTCARE
                             : SG_STOREACTION_STORE;
+        const sg_store_action finalStore = mp.colorStore;
+        // A transmissive draw splits the pass after the opaque phase (below): the first half keeps the picture, the depth and the stencil for the
+        // second.
+        if (ctx.xmit.want) {
+            mp.colorStore = SG_STOREACTION_STORE;
+            mp.depthStore = SG_STOREACTION_STORE;
+            mp.stencilStore = SG_STOREACTION_STORE;
+        }
         mp.depthLoad = SG_LOADACTION_CLEAR;
         mp.clearDepth = 1.0f;
         mp.stencilLoad = SG_LOADACTION_CLEAR;
@@ -2039,15 +3233,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // sky. Not for a studio camera (Camera.lighting = studio paints its clearColor). The editor's Viewport has no
         // camera of its own: it shows what the scene's cameras draw, so it draws the sky exactly when the game does.
-        if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
+        if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio && !fr.cam.noSky) {
             // SceneSettings.skyMaterial draws the sky through its own program (same vertex stage, same uniform blocks,
             // plus the material's block and textures); anything wrong with it keeps the gradient. The meshes'
             // reflections and ambient light follow the sky that is drawn here when it is a material (plan_env bakes
             // it), else skyColor and horizonColor.
             SkyDraw sky;
-            fill_sky(*this, ctx, sky_material(ss), sky);
-            if (sky.mat && sky.mat == ctx.skyPlannedMat)
-                std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            if (ctx.hdriMain) {
+                sky.hdri = ctx.hdriMain;
+                sky.hdriRotation = ctx.envRotation;
+                sky.hdriGain = ctx.envGain;
+                sky.linear = fr.linear;
+            } else if (ctx.physMainOn) {
+                sky.physical = true;
+                sky.sunDisc = true;
+                sky.slot = 0;
+                sky.phys = ctx.physMain;
+            } else {
+                fill_sky(*this, ctx, sky_material(ss), sky);
+                if (sky.mat && sky.mat == ctx.skyPlannedMat)
+                    std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
+            }
             draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
@@ -2062,6 +3268,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshRenderer& mr = *mi.mr;
                 vu.fa_uv_scale[0] = mr.uvScale.x;
                 vu.fa_uv_scale[1] = mr.uvScale.y;
+                // A lightmapped entity: the rectangle of its page (fa_lm_so.x > 0 switches the lightmap on), its own geometry and no baked lights.
+                for (int k = 0; k < 4; ++k) vu.fa_lm_so[k] = mi.lm.mesh ? mi.lm.scaleOffset[k] : 0.0f;
+                const std::vector<SubMesh>& drawParts = mi.lm.mesh ? mi.lm.mesh->parts : mi.mesh->parts;
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
@@ -2073,7 +3282,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);  // mesh_buffer_draw.h
                 if (mbu.skip) continue;
                 bool anyDrawn = false;  // a material with buffers that has no program for this mesh draws nothing
-                for (auto& part : mi.mesh->parts) {
+                for (const SubMesh& part : drawParts) {
                     const bool skinned = mi.anim && part.skinVb.id;
                     const PartDraw pd = part_draw(ctx, mi, part);
                     if (pd.error && mi.material && mi.material->ok &&
@@ -2101,16 +3310,22 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         else
                             sg_apply_pipeline(gpu.mesh_pipeline(
                                 isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
-                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{}));
+                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
+                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material)));
                         sg_bindings b{};
                         b.vertex_buffers[0] = part.vb;
                         b.vertex_buffers[1] = mainInst;
                         b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                         if (skinned) b.vertex_buffers[2] = part.skinVb;
-                        if (pd.mat) bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        if (pd.mat)
+                            bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
+                        else if (!skinned)  // the engine's program always reads uv1: the lightmap UV, or zeros
+                            b.vertex_buffers[kUv1Buffer] = part.uv1Vb.id && mi.lm.mesh
+                                                               ? part.uv1Vb
+                                                               : assets->zero_uv1(std::size_t(part.vertexCount));
                         b.index_buffer = part.ib;
                         b.index_buffer_offset = part.ibOffset;
-                        bind_textures(ctx, b, pd, prog, inputs, false);
+                        bind_textures(ctx, b, pd, prog, inputs, false, !isBlend);
                         if (mbu.active && prog) bind_mesh_buffers(b, mbu, *prog);
                         sg_apply_bindings(&b);
                         if (mbu.active && prog) apply_mesh_base_model(*prog, mi.model);
@@ -2130,7 +3345,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             }
                             apply_uniforms(UB_mesh_fa_mesh_fs_params, fragmentParams);
                         }
-                        if (declares(prog, UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                        if (declares(prog, UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
                         if (prog) apply_material_params(*prog, inputs);
                         sg_draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
                         ++stats.drawCalls;
@@ -2151,7 +3366,6 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
         // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
         bool fogDrawn = false;
-        const Target* preT = ctx.postPlan.prepass.target(pc);
         if (preT && preT->texView.id) {
             if (partial) apply_view(camPx);
             if (ctx.ssaoApply.valid) {
@@ -2174,6 +3388,30 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                      "The camera's fog could not be drawn this frame (its depth image is missing): the opaque meshes "
                      "show no fog. "
                      "Hint: turn PostProcess.fogEnabled off, or lower the render scale if the GPU is out of memory.");
+        }
+
+        // Transmission (renderer_xmit.h): the opaque picture is finished here. The pass ends (the multisampled picture is resolved), the picture is
+        // copied into the refraction atlas, and the pass goes on from what it stored (colour, depth, stencil LOAD): the blended meshes, which see
+        // the atlas at view 28, then everything drawn after them. A copy that cannot be made leaves ctx.xmit.on off: the plain blend.
+        XmitImages xmitImages;
+        if (ctx.xmit.want) {
+            gpu.end_pass();
+            const int row = gpu.is_gl() ? gameTarget.h - camPx.y - camPx.h : camPx.y;  // image rows (xmit.h)
+            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages)) {
+                ctx.xmit.on = true;
+                ctx.xmit.levels = xmitImages.levels;
+                ctx.xmit.atlasView = xmitImages.atlasView;
+                ++stats.transmissionCopies;
+            } else {
+                ++stats.transmissionPlain;
+            }
+            PassDesc cp = pass_into(gameTarget, plan.view ? "view-glass" : fr.wantWorld ? "game-glass" : "game-hud");
+            cp.colorLoad = SG_LOADACTION_LOAD;
+            cp.colorStore = finalStore;
+            cp.depthLoad = SG_LOADACTION_LOAD;
+            cp.stencilLoad = SG_LOADACTION_LOAD;
+            gpu.begin_pass(cp);
+            if (partial) apply_view(camPx);
         }
 
         draw_meshes(blendedBatches, blended, true);
@@ -2210,11 +3448,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         }
 
         gpu.end_pass();
+        if (xmitImages.atlas) xmit.finish(transient_targets(), xmitImages);
     }  // doMainPass
 }
 
 // ---- HUD pass: screen-space groups over the finished frame ----
-// Camera.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
+// PostProcess.bloomScreenSpace = false draws them over the glowing game target ("hud-over-bloom"); a final pass that converts the picture
 // (exposure, tonemap, linear colour) draws them over its result in hudTarget, in display space ("hud-over-post"). Either way they are
 // never glowed, tonemapped or exposed.
 // Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
@@ -2248,7 +3487,7 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
 
 // Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
 // the shadow map, the main pass, and in the last job of the frame the post-processing stack of the frame (the postCams' plans, postprocess.h): bloom (its
-// stages), the HUD over the bloom (Camera.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
+// stages), the HUD over the bloom (PostProcess.bloomScreenSpace false), the automatic exposure of each camera, the final pass `post` of each camera over its rectangle (exposure, tonemap, the
 // output encode), the HUD over it (`hud-over-post`) and the colour filter. A frame without a stack declares none of them. The targets
 // that outlive the frame (the game target or the view's image, the light buffer, the shadow map, the final images: present() and
 // capture() sample them after the graph ran) are imported; the bloom levels and the exposure measure are transients of the pool. The game target, the light buffer and the shadow map
@@ -2303,8 +3542,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
     }
     if (ctx.doShadows) {  // no shadow caster, no pass
-        shadowRes = shared(sharedShadow, "shadow-map", shadowTarget.color.id,
-                           import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
+        shadowRes = shared(sharedShadow, "shadow-map", ctx.shadowTgt.color.id,
+                           import_desc(ctx.shadowTgt.w, ctx.shadowTgt.h, ctx.shadowTgt.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
     // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it
@@ -2319,13 +3558,36 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (!ctx.envBake) return;  // the job lost the environment to a camera of the picture (plan_env)
                 const std::uint64_t key = ctx.envKey;
                 const SkyDraw& sky = ctx.envSky;
-                skyEnv.bake(
-                    gpu, key,
-                    [this, &sky](const float* invViewProj, const TargetFormat& format) {
-                        draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
-                    },
-                    &stats.drawCalls);
+                // A bake that starts (a whole one, or the first slice of a sequence) draws the sky of this frame, and the physical
+                // sky needs its environment table for it; the next slices finish the images from the first's.
+                const bool starts = !ctx.envSliced || !skyEnv.busy();
+                if (starts) {
+                    skyEnv.set_look(ctx.envGain, ctx.envTap);
+                    if (sky.physical) physSky.update(gpu, sky.slot, sky.phys, &stats.drawCalls);
+                    skyEnv.set_tag(sky.physical ? ctx.envStatic : 0,
+                                   ctx.envSun);  // a sky of another kind: the next physical bake is whole
+                }
+                const auto draw = [this, &sky](const float* invViewProj, const TargetFormat& format) {
+                    draw_sky(*this, sky, invViewProj, Vec3{0.0f, 0.0f, 0.0f}, &format);
+                };
+                if (ctx.envSliced)
+                    skyEnv.bake_slice(gpu, key, draw, &stats.drawCalls);
+                else
+                    skyEnv.bake(gpu, key, draw, &stats.drawCalls);
+                probes_write_sky();  // the meshes read the sky from its entry of the probe atlas
             });
+    }
+    // The physical sky's table of the picture: the first job that shows the sky draws it, the others read it.
+    ResourceId skyLutRes;
+    if (ctx.physMainOn) {
+        const TransientDesc lutDesc =
+            import_desc(kSkyViewW, kSkyViewH, TargetFormat{physSky.format(), SG_PIXELFORMAT_NONE, 1}, "sky-view");
+        skyLutRes = shared(sharedSkyLut, "sky-view", physSky.image_id(), lutDesc);
+        if (skyLutFrame != frameSerial) {
+            skyLutFrame = frameSerial;
+            add("sky-view", {}, {skyLutRes},
+                [this, &ctx](const PassContext&) { physSky.update(gpu, 0, ctx.physMain, &stats.drawCalls); });
+        }
     }
     ResourceId prepassRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
@@ -2344,6 +3606,68 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
+        // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
+        if (plan.gi) {
+            pdsc.label = plan.name + "/prepass-back";
+            const ResourceId backRes = graph.create_transient(pdsc);
+            add(
+                "prepass-back", {}, {backRes},
+                [this, &ctx, backRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(backRes));
+                    if (t) prepass_pass(ctx, *t, true);
+                },
+                true);
+            GiFacePlan* gi = plan.gi;
+            gi->drawn = true;
+            add(
+                "gi-distance", {prepassRes, backRes}, {},
+                [this, prepassRes, backRes, gi](const PassContext& c) {
+                    const Target* front = transient_targets().get(c.handle(prepassRes));
+                    const Target* back = transient_targets().get(c.handle(backRes));
+                    if (front && back && front->texView.id && back->texView.id)
+                        probes.gpu.gi_dist(gpu, gi->distIndex, front->texView, back->texView, gi->maxDistance,
+                                           &probes.gi.drawCalls);
+                },
+                true);
+        }
+    }
+    // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
+    // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the
+    // post stack, in the last job.
+    if (ctx.postPlan.vol.on && ctx.postPlan.prepass.valid()) {
+        const ResourceId volRes = graph.create_transient(VolumetricFx::image_desc(ctx.postPlan.vol, plan.name));
+        ctx.postPlan.volImage = volRes;
+        std::vector<ResourceId> reads{prepassRes};
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        add("vol-march", std::move(reads), {volRes}, [this, &ctx, volRes, prepassRes](const PassContext& c) {
+            const Target* vt = transient_targets().get(c.handle(volRes));
+            const Target* pt = transient_targets().get(c.handle(prepassRes));
+            if (!vt || !pt) return;
+            const sg_view shadowTex =
+                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : ctx.white->view;
+            volFx.march(gpu, ctx.postPlan.vol, *vt, pt->texView, shadowTex, ctx.lightView, ctx.shadowU,
+                        &stats.drawCalls);
+        });
+    }
+    // The subsurface draw (M73.5): in this camera's own job, after its shadow and prepass passes (it reads this job's shadow atlas); the blur and the pass that
+    // adds the change to the picture are declared with the post stack, in the last job.
+    if (ctx.sssOn && ctx.postPlan.prepass.valid()) {
+        const ResourceId lightRes_ = graph.create_transient(SssFx::light_desc(ctx.postPlan.sss, plan.name));
+        const ResourceId paramRes = graph.create_transient(SssFx::params_desc(ctx.postPlan.sss, plan.name + "/b"));
+        ctx.postPlan.sssLight = lightRes_;
+        ctx.postPlan.sssParams = paramRes;
+        std::vector<ResourceId> reads{prepassRes};
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        if (ctx.envActive) reads.push_back(envRes);
+        reads.insert(reads.end(), shown.begin(), shown.end());
+        add("sss-draw", std::move(reads), {lightRes_, paramRes},
+            [this, &ctx, lightRes_, paramRes, prepassRes](const PassContext& c) {
+                const Target* at = transient_targets().get(c.handle(lightRes_));
+                const Target* bt = transient_targets().get(c.handle(paramRes));
+                const Target* pt = transient_targets().get(c.handle(prepassRes));
+                if (at && bt && pt) sss_draw_pass(ctx, *at, *bt, *pt);
+            });
     }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
@@ -2359,6 +3683,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
+        if (ctx.physMainOn) reads.push_back(skyLutRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
         reads.insert(reads.end(), shown.begin(), shown.end());
         add(plan.view      ? "view"
@@ -2442,6 +3767,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         }
     };
     custom_slot(PostSlot::Main);
+    // The subsurface scattering of every camera (renderer_subsurface.h): the blur of the light the sss-draw pass left in its images, and the change it makes
+    // added to the camera's rectangle of the picture the main pass drew (the blended meshes are in it, as the fog sees them).
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.sss.on || !c->postPlan.sssLight.valid() || !c->postPlan.sssParams.valid()) continue;
+        sssFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sss, c->postPlan.sssLight, c->postPlan.sssParams,
+                         c->postPlan.rect, physW, physH, game, game_dst(), &stats.drawCalls, c->plan.name);
+    }
+    // The volumetric fog of every camera (renderer_volumetric.h): its march image blended over the camera's rectangle of the picture the main pass drew (the
+    // blended meshes are in it), before the reflections, the sun shafts and the rest of the stack.
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.vol.on || !c->postPlan.prepass.valid() || !c->postPlan.volImage.valid()) continue;
+        const BloomTarget volDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        volFx.add_apply(graph, transient_targets(), gpu, c->postPlan.vol, c->postPlan.volImage, c->postPlan.rect, physW,
+                        physH, game, volDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
     // Screen-space reflections of every camera (renderer_ssr.h), over its rectangle of the scene colour, on the picture the main pass drew (the ambient occlusion
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
@@ -2684,7 +4027,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             }
         }
     } else if (pp.colorFilter != 0 && ensure_filter_target()) {
-        // Only the colour filter (Camera.colorFilter / PostProcess.colorFilter): a copy of the game target through the filter.
+        // Only the colour filter (PostProcess.colorFilterEnabled / colorFilterMode): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {

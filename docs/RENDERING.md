@@ -15,10 +15,16 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on three pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on nine pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
+- [Lighting (M73)](rendering/RENDERING_LIGHTING.md): the Light, scene and material fields of the M73 lighting, which of them draw yet, and the `render.supports` rows.
+- [Lightmaps and baked light (M73.4)](rendering/RENDERING_LIGHTMAPS.md): baked lightmaps, the bake commands, light probes and mixed lights.
+- [Decals and volumetric fog (M73.5)](rendering/RENDERING_DECALS_FOG.md): `Decal` projection, volumetric fog and light shafts.
+- [Reflection probes (M73)](rendering/RENDERING_PROBES.md): the `ReflectionProbe` component, realtime and baked captures, `probe.bake`, `render.probes`, the atlas and its limits.
+- [Light probes and mixed lights](rendering/RENDERING_LIGHT_PROBES.md): `LightProbeGroup`, how the bake stores light for moving objects, what receives it, and what a light of each mode does to each receiver.
+- [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
@@ -340,7 +346,7 @@ image and its automatic exposure work over that camera's rectangle of the pictur
 grid, the lens centre, the vignette, the grain and the dither start at the corner of the rectangle, so the two halves of a split
 screen look alike). Two things stay one per frame, taken from the camera that draws first: the **bloom** (it runs over the whole
 picture, before the final passes) and the **colour filter** (it is the last step over everything the screen shows).
-`Camera.bloom*` and `Camera.colorFilter` stand in for a `PostProcess` on a camera that has none (deprecated, the same picture).
+A scene that still has the bloom or colour filter keys that `Camera` had until 0.32 fails to load with a message that says to use a `PostProcess`.
 The passes of camera `n` are named `camera:<n>/post`, `camera:<n>/prepass` and so on. Where the cameras' rectangles do not cover the
 picture, or overlap, a `post-base` pass first draws the picture the way a frame without effects would (the encode of a linear scene, a
 copy of a gamma one), and a camera without a stack over one with a stack gets that plain pass over its own rectangle, so the stack
@@ -462,9 +468,9 @@ Things to know:
 ### Reading and changing the stack: commands, looks and the editor panel
 
 - `postprocess.get {"id": "camera", "resolved": true}` answers with the stack the camera draws, computed on the CPU (it works without a
-  window): `layers` (the camera's own PostProcess or the deprecated `Camera.bloom*` fields, then each volume the camera is inside, with
+  window): `layers` (the camera's own PostProcess, then each volume the camera is inside, with
   its priority, weight and influence) and `effects`, every effect in the order it runs with `enabled` and, for each parameter of an
-  effect that runs, `{value, from, strength}`. `from` is `own`, `legacy`, `volume:<entity id>` or `default`, so "why is the picture
+  effect that runs, `{value, from, strength}`. `from` is `own`, `volume:<entity id>` or `default`, so "why is the picture
   this dark" has an answer: the field that sets it and the entity that owns it. Without `resolved` it reads the component's own fields.
 - `postprocess.set {"id", "fields"}` writes fields of a PostProcess (added when the entity has none: on a Camera entity it is the
   camera's own stack, on an entity without a Camera a volume) and `postprocess.presets` lists the looks. `postprocess.apply_preset
@@ -515,7 +521,7 @@ orthographic 3D camera.
   reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
   depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
   mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
-  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals` or `ao` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `"cascades"` tints the lit meshes by the cascade of the sun's shadow that covers them (see [Lighting](rendering/RENDERING_LIGHTING.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals`, `ao` or `cascades` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
   It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
   argument for it: set the view, step a frame, take the shot.
 - **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;

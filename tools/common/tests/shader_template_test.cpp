@@ -27,8 +27,10 @@ TEST_CASE("shader template: the bundled files are engine/render/shaders/*_common
         const std::string name = e.path().filename().string();
         if (name.ends_with("_common.glsl")) onDisk.push_back("engine/render/shaders/" + name);
     }
-    // and the files the templates @include (the sprite template reads the colour-space and 2D shadow helpers)
-    for (const char* included : {"color_space.glsl", "light_shadow.glsl"})
+    // and the files the templates @include (the sprite template reads the colour-space and 2D shadow helpers, the mesh template
+    // the light data and the light loop; shadow_common.glsl ends in _common.glsl)
+    for (const char* included : {"color_space.glsl", "light_shadow.glsl", "light_data.glsl", "light_loop.glsl",
+                                 "ltc.glsl", "brdf_layers.glsl"})
         onDisk.push_back(std::string("engine/render/shaders/") + included);
     std::sort(onDisk.begin(), onDisk.end());
     REQUIRE_FALSE(onDisk.empty());
@@ -73,10 +75,12 @@ TEST_CASE(
         CHECK(shaders_detail::template_files(kind).size() == shaders_detail::template_file_names(kind).size());
     }
     // The full-shader template of a mesh material (mode "full") is not a kind: it is the mesh template plus its own file, so
-    // mesh_common.glsl is in both lists on purpose.
+    // the mesh template's files are in both lists on purpose.
     {
         std::string list;
-        const std::string kind = "mesh-full";  // a named argument: GCC 14 -Wdangling-reference flags a temporary one
+        // named arguments: GCC 14 -Wdangling-reference flags a reference bound to a call that takes a temporary
+        const std::string kind = "mesh-full", meshKind = "mesh";
+        const auto& meshNames = shaders_detail::template_file_names(meshKind);
         for (const std::string& name : shaders_detail::template_file_names(kind)) {
             CAPTURE(name);
             std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
@@ -85,9 +89,11 @@ TEST_CASE(
             std::string content = text.str();
             content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
             list += name + "\n" + sha256_hex(content) + "\n";
-            if (name != "mesh_common.glsl") seen.push_back(name);
+            if (std::find(meshNames.begin(), meshNames.end(), name) == meshNames.end()) seen.push_back(name);
         }
-        CHECK(shaders_detail::template_file_names("mesh-full").size() == 2);
+        // the mesh template's four files plus mesh_full_common.glsl
+        CHECK(shaders_detail::template_file_names("mesh-full").size() ==
+              shaders_detail::template_file_names("mesh").size() + 1);
         CHECK(shader_template_hash("mesh-full") == sha256_hex(list));
         CHECK(mesh_full_template_hash() == sha256_hex(list));
         CHECK(shader_template_hash("mesh-full") != shader_template_hash("mesh"));
@@ -128,10 +134,12 @@ TEST_CASE("shader template: every kind's contract structs are read from its own 
     CHECK(shaders_detail::contract_structs("sprite")[2].second.size() == 3);  // QuadVertex: world_pos, uv, color
 }
 
-// mesh_full_common.glsl declares its own copies of the fragment uniform blocks of mesh_common.glsl (it cannot include the block
-// that holds them: that one also declares the engine's varyings). The CPU fills both from the same structs, so a member added to
-// one and not to the other would shift every value after it.
-TEST_CASE("shader template: the full-shader template's uniform blocks are those of mesh_common.glsl") {
+// mesh_full_common.glsl declares its own copy of the fragment uniform block fa_mesh_fs_params of mesh_common.glsl (it cannot include
+// the block that holds it: that one also declares the engine's varyings). The CPU fills both from the same struct, so a member added
+// to one and not to the other would shift every value after it. The light functions are NOT copied: light_data.glsl declares them
+// once and both templates include that block (M73-P0); the lights themselves are in a data texture (M73.1), not in a uniform block.
+TEST_CASE("shader template: the full-shader template's uniform block is that of mesh_common.glsl, the light block is "
+          "shared") {
     auto read = [](const char* name) {
         std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/render/shaders" / name, std::ios::binary);
         std::ostringstream text;
@@ -153,11 +161,37 @@ TEST_CASE("shader template: the full-shader template's uniform blocks are those 
         }
         return out;
     };
-    const std::string mesh = read("mesh_common.glsl"), full = read("mesh_full_common.glsl");
-    for (const char* name : {"fa_mesh_fs_params", "fa_lights"}) {
-        CAPTURE(name);
-        const std::string a = block(mesh, name), b = block(full, name);
+    const std::string mesh = read("mesh_common.glsl"), full = read("mesh_full_common.glsl"),
+                      data = read("light_data.glsl");
+    {
+        const std::string a = block(mesh, "fa_mesh_fs_params"), b = block(full, "fa_mesh_fs_params");
         CHECK_FALSE(a.empty());
         CHECK(a == b);
     }
+    // The lights are texels of the data texture (view 24), read by the functions of light_data.glsl: no uniform block of lights is
+    // declared in any template, and the cluster numbers are members of the fragment block of both (the equality above)...
+    CHECK(block(data, "fa_lights").empty());
+    CHECK(block(mesh, "fa_lights").empty());
+    CHECK(block(full, "fa_lights").empty());
+    CHECK(data.find("texelFetch(sampler2D(FA_LIGHT_TEX, FA_LIGHT_SMP)") != std::string::npos);
+    for (const char* member : {"fa_cl_vpx", "fa_cl_vpy", "fa_cl_vpw", "fa_cl_fwd", "fa_cl_grid", "fa_cl_info"})
+        CHECK(block(mesh, "fa_mesh_fs_params").find(member) != std::string::npos);
+    CHECK(mesh.find("layout(binding=24) uniform texture2D fa_light_tex;") != std::string::npos);
+    CHECK(full.find("layout(binding=24) uniform texture2D fa_full_light_tex;") != std::string::npos);
+    // ...and both templates include the block that holds them, after fa_types (LightSample is declared there).
+    const auto includes_in_order = [](const std::string& text, const char* first, const char* second) {
+        const std::size_t a = text.find(first), b = text.find(second);
+        return a != std::string::npos && b != std::string::npos && a < b;
+    };
+    CHECK(mesh.find("@include light_data.glsl") != std::string::npos);
+    CHECK(mesh.find("@include_block fa_light_data") != std::string::npos);
+    CHECK(full.find("@include_block fa_light_data") != std::string::npos);
+    CHECK(includes_in_order(full, "@include_block fa_types", "@include_block fa_light_data"));
+    // The shadow lookup too: one fa_shadow_sun, used by both.
+    const std::string shadow = read("shadow_common.glsl");
+    CHECK(shadow.find("float fa_shadow_sun(") != std::string::npos);
+    CHECK(mesh.find("float fa_shadow_sun(") == std::string::npos);
+    CHECK(full.find("float fa_shadow_sun(") == std::string::npos);
+    CHECK(full.find("@include_block fa_shadow_common") != std::string::npos);
+    CHECK(mesh.find("@include_block fa_shadow_common") != std::string::npos);
 }

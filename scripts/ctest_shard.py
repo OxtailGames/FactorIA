@@ -44,6 +44,7 @@ WINDOWS_SECONDS = {
     "physics": 94.7,
     "editor_autotest_1": 80.1,
     "example_larkspur-lodge_test": 67.0,
+    "ltc_tables_up_to_date": 60.0,  # ESTIMATE (30-100 s in an optimized build): replace from the next green run
     "editor_autotest_4": 52.9,
     "example_burrow-brigade_test": 48.1,
     "tooling_4": 46.6,

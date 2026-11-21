@@ -652,6 +652,184 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.probes",
+         "The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture.",
+         "Reads the state of the reflection probes (ReflectionProbe components, "
+         "docs/design/ARCHITECTURE_PROBES.md) after drawing a frame "
+         "when none is current. Result: {atlas: {size, format (\"RGBA16F\" or \"RGBA8\"), tiles, "
+         "usedTexels, reservedTexels, "
+         "capacityTexels, created}, sky: {state, tile, writtenFrame}, faceBudget, frame, passes, overLimit, "
+         "probes: [{entity, mode, "
+         "update, state, message?, resolution, importance, tile: {x, y, resolution} or null, captures, "
+         "lastFrame, facesDone | bakedMap, "
+         "hash?}]}. `state` is \"ready\", \"pending\", \"capturing\", \"noRoom\", \"noBake\" or \"failed\". "
+         "The lit meshes sample the atlas (the sky is its entry 0, `sky`). The result is "
+         "{probes: [], atlas: null} while no ReflectionProbe has been drawn. With `entity` (a mesh), the result also "
+         "has `mesh: {probes: [{entity, share}], sky}`: which probes that mesh reflected in the last frame and "
+         "how much of its reflection each holds (0..1, steps of 1/32; the probes and the sky add up to 1). "
+         "Errors: `unavailable` without graphics; `invalid_argument` for an `entity` that is not a string or has no "
+         "MeshRenderer. "
+         "Example: render.probes {} or render.probes {\"entity\": \"sphere\"}. What each state means: "
+         "docs/rendering/RENDERING_PROBES.md, the render.probes item." FA_COMMAND_DETAILS
+         "The first ask for a mesh draws one more frame (the renderer keeps the picks of that one mesh only): the "
+         "debug-draw lines queued since the last draw are consumed and a time-sliced capture moves on by a frame. "
+         "An ask without `entity` ends that watch.\n\n"
+         "`state`: \"ready\"; \"pending\" (waiting for its first capture); \"capturing\" (facesDone of 6 faces drawn); "
+         "\"noRoom\" (the atlas has no tile for it: `message` says why); \"noBake\" (a baked probe with no readable "
+         "bakedMap: run probe.bake); \"failed\" (retried after 30 frames). `overLimit` counts the active probes beyond "
+         "the 256 the renderer keeps (those with the smallest importance): they have no entry in `probes`. A capture "
+         "is "
+         "asked again with render.probe_refresh. `lastFrame` counts the frames that had probes. A mesh no probe "
+         "reaches "
+         "reflects the sky. "
+         "The atlas of the realtime and baked probes is one image 1024 texels wide (1024 x 1024, 8 MB as RGBA16F, "
+         "unless "
+         "a RealtimeGI makes it taller); "
+         "`usedTexels` is what the tiles cover and "
+         "`reservedTexels` what their shelves hold, so a large gap means fragmentation by resolution.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"A mesh entity (id or name): the result also says which probes it reflects."}}})"),
+         true, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.probes");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_argument",
+                    std::string("render.probes: `entity` is a string (the mesh's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass \"entity\": \"sphere\", or leave `entity` out. scene.list_entities shows the ids.");
+            const Entity named = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (one && !I.world.get<MeshRenderer>(named))
+                throw CommandError("invalid_argument",
+                                   "/entity: '" + I.world.id_of(named) + "' has no MeshRenderer component.",
+                                   "Name the entity that draws the mesh whose reflections you want to see.");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            // The renderer keeps the picks of one mesh only (the one asked about); the first ask for a mesh draws a frame that keeps them.
+            if (!I.renderer->probe_watch_mesh(named) && one)  // no `entity`: the watch of an earlier ask ends
+                engine.redraw(1);
+            else
+                engine.render_now();
+            Json j = I.renderer->probe_report();
+            if (j.empty()) j = Json::object({{"probes", Json::array()}, {"atlas", Json()}});
+            if (one) j["mesh"] = I.renderer->probe_mesh_report(named);
+            return j;
+        });
+
+    I.commands.add(
+        {"render.gi_grid",
+         "The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry.",
+         "Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, "
+         "captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, "
+         "blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, "
+         "probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, "
+         "invalid: [{index, position}] (up to 64)}]}. `state` is \"updating\" (probes not captured yet), \"ready\", "
+         "\"invalid\" (`message` names the field and the fix), \"noRoom\" (more than `probeLimit` probes), "
+         "\"failed\" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay "
+         "until the next capture succeeds) or \"unsupported\" (no RGBA16F blending). `invalidProbes` counts "
+         "the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call "
+         "this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the "
+         "renderer supports it). {grids: [], atlas: null} "
+         "while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} "
+         "See docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\"." FA_COMMAND_DETAILS
+         "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x "
+         "10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces "
+         "of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any "
+         "RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, "
+         "`framesPerCycle` frames for all.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {}, "render.gi_grid");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no GI probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            engine.render_now();
+            Json j = I.renderer->gi_report();
+            if (j.empty()) return Json::object({{"grids", Json::array()}, {"atlas", Json()}});
+            return j;
+        });
+
+    I.commands.add(
+        {"render.probe_refresh",
+         "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
+         "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
+         "out): "
+         "the one that an `onDemand` probe waits for, and a way to refresh a `timeSliced` or `everyFrame` probe after "
+         "the "
+         "scene around it changed. The capture is made in the next frames, a few cube faces each "
+         "(render.probes shows `facesDone` and `captures`; the faces per frame are the renderer's budget, 2 by "
+         "default), "
+         "so draw a few frames before reading it. Result: {refreshed: [entity ids], skipped: [{entity, reason}]}. "
+         "Without `entity`, a probe that has no tile yet is listed in `skipped` with the reason; with `entity` it is "
+         "an "
+         "error. Example: render.probe_refresh {\"entity\": \"lobby\"}" FA_COMMAND_DETAILS
+         "Errors: `invalid_arguments` for an `entity` that is not a string; `not_found` for an `entity` that does not "
+         "exist; `invalid_argument` when the named entity has no ReflectionProbe or is a baked one; "
+         "`unavailable` without graphics (graphics=false) or when the named probe has no tile in the atlas. The same "
+         "is "
+         "Renderer::probe_refresh in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The probe's entity (id or name). Default: every realtime probe."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.probe_refresh");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_arguments",
+                    std::string("render.probe_refresh: `entity` is a string (the probe's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass the probe as \"entity\": \"lobby\", or leave `entity` out to refresh every "
+                    "realtime probe. scene.list_entities shows the ids.");
+            const Entity named = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probes are captured.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            std::vector<Entity> targets;
+            if (one) {
+                const std::string name = I.world.id_of(named);
+                const ReflectionProbe* rp = I.world.get<ReflectionProbe>(named);
+                if (!rp)
+                    throw CommandError("invalid_argument", "/entity: '" + name + "' has no ReflectionProbe component.",
+                                       "Add one first: scene.set_component {\"id\":\"" + name +
+                                           "\",\"component\":\"ReflectionProbe\"}.");
+                if (rp->mode != ProbeMode::Realtime)
+                    throw CommandError("invalid_argument",
+                                       "/entity: '" + name + "' is a baked probe: nothing is captured at run time.",
+                                       "Bake it again with probe.bake, or set ReflectionProbe.mode to realtime.");
+                targets.push_back(named);
+            } else {
+                I.world.each<ReflectionProbe>([&](Entity e, ReflectionProbe& rp) {
+                    if (rp.mode == ProbeMode::Realtime) targets.push_back(e);
+                });
+            }
+            engine.render_now();  // a probe added since the last frame is known to the renderer now
+            Json refreshed = Json::array(), skipped = Json::array();
+            for (Entity e : targets) {
+                const std::string name = I.world.id_of(e);
+                if (I.renderer->probe_refresh(e)) {
+                    refreshed.push_back(name);
+                } else if (one) {
+                    throw CommandError(
+                        "unavailable",
+                        "The probe '" + name + "' has no tile in the atlas, so there is nothing to refresh.",
+                        "render.probes says why (noRoom: the atlas is full of probes that matter more; failed: "
+                        "see its message). An inactive entity is not captured.");
+                } else {
+                    skipped.push_back(Json::object(
+                        {{"entity", name},
+                         {"reason", "no tile in the atlas (inactive, noRoom or failed: render.probes says which)"}}));
+                }
+            }
+            return Json::object({{"refreshed", refreshed}, {"skipped", skipped}});
+        });
+
+    I.commands.add(
         {"render.supports",
          "What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post "
          "effects.",
@@ -660,15 +838,25 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, "
          "backend, "
          "supported, status}. A feature the renderer does not draw is false with the status \"planned (<milestone>)\" "
-         "(none is today): this command never claims what is not drawn. Example: render.supports "
+         "(the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: "
+         "render.supports "
          "{\"feature\":\"floatTargets\"}" FA_COMMAND_DETAILS
-         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine "
-         "(linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
+         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, "
+         "float32Targets), engine "
+         "(linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, "
+         "iesProfiles, "
+         "cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, "
+         "lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, "
+         "transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
          "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
-         "renderer does not draw (none today), or one sentence that names the backend or the missing GPU capability. "
+         "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
+         "lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and "
+         "transmission are drawn), or one "
+         "sentence that names the backend or the missing "
+         "GPU capability. "
          "hdrOutput "
          "is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes "
          "(EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the "
@@ -678,7 +866,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
          "in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
+               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
          true, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"feature"}, "render.supports");
@@ -709,6 +897,112 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                          {"supported", f["supported"]},
                                          {"status", f["status"]}});
             throw CommandError("unavailable", "The renderer reported no feature '" + feature + "'.");
+        });
+
+    I.commands.add(
+        {"render.material_cost",
+         "What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that "
+         "only add "
+         "shader work.",
+         "The one list the Inspector's cost view shows: for the MeshRenderer of entity `id` it says which features are "
+         "on and "
+         "what each adds to the frame. Returns {id, extraPasses, phase, summary, features: [{name, field, active, "
+         "cost, "
+         "extraPasses, note}]}. `phase` is \"opaque\" or \"blended\" (blended meshes are drawn after the opaque ones, "
+         "far to "
+         "near, without writing depth; a transmissive mesh is one of them). `cost` of a feature is \"extraPass\" "
+         "(transmission copies the opaque picture once per camera that sees such a mesh: a pass for each reduced half, "
+         "one "
+         "that writes the atlas and the second half of the main pass; a full-shader material draws the mesh once per "
+         "pass), "
+         "\"phase\" (blended: no pass, a different place in the frame) or \"shader\" (clear coat, sheen, anisotropy: "
+         "more work "
+         "per pixel, no pass). `extraPasses` counts the passes of an active feature (0 when it is off), and the "
+         "top-level "
+         "one adds them up; the pass count of transmission follows the size of the picture (a small one has fewer "
+         "halves). "
+         "The decision is the renderer's own (a MeshRenderer field replaces the model's, a full-shader material gets "
+         "no "
+         "layers and no transmission). Example: render.material_cost {\"id\":\"window\"}" FA_COMMAND_DETAILS
+         "Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` when the entity has no "
+         "MeshRenderer, "
+         "`unavailable` without graphics (graphics=false). It loads the entity's mesh and material when they are not "
+         "loaded "
+         "yet. The same answer is Renderer::material_cost in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "id":{"type":"string","description":"The id of an entity with a MeshRenderer."}},"required":["id"]})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"id"}, "render.material_cost");
+            if (!a.is_object() || !a.contains("id") || !a["id"].is_string())
+                throw CommandError(
+                    "invalid_argument",
+                    "id: " +
+                        (a.is_object() && a.contains("id") ? describe_json_value(a["id"]) : std::string("missing")) +
+                        " is not an entity id string.",
+                    "Pass the id of an entity with a MeshRenderer, e.g. {\"id\":\"window\"}.");
+            const std::string id = a["id"].get<std::string>();
+            const Entity e = I.world.find_by_id(id);
+            if (e == kNullEntity)
+                throw CommandError(
+                    "not_found", "id: no entity '" + id + "' in the scene.",
+                    "List the entities with scene.list_entities, or pass the id of the entity you mean.");
+            const MeshRenderer* mr = I.world.get<MeshRenderer>(e);
+            if (!mr)
+                throw CommandError("invalid_argument", "id: entity '" + id + "' has no MeshRenderer.",
+                                   "Add one with scene.add_component, or pass the id of a mesh entity.");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no frame is drawn to cost.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            Json report = I.renderer->material_cost(*mr);
+            report["id"] = id;
+            return report;
+        });
+
+    I.commands.add(
+        {"render.light_probes", "The baked light probes of the scene and the light a MeshRenderer receives from them.",
+         "Light probes (M73.4d) are the LightProbeGroup components baked by lightmap.bake into the .probes file of the "
+         "scene's lightmap manifest "
+         "(SceneSettings.lightmaps): a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) "
+         "receives their spherical "
+         "harmonics in place of the sky's ambient, interpolated at the centre of its bounds (or at "
+         "MeshRenderer.probeAnchor). Without `entity`: "
+         "{lightmaps, baked, probes, invalid, groups: [{id, kind: \"grid\" | \"points\", count, invalid, stale}], "
+         "unbaked: [ids]}; `invalid` "
+         "probes sit inside geometry and are "
+         "skipped. With `entity` (a MeshRenderer): also {entity: {id, name, source: \"probes\" | \"lightmap\" | "
+         "\"sky\" | \"none\", position, "
+         "coverage (0..1: how much of the light comes from the probes, the rest from the sky), probesUsed, sh (nine "
+         "[r, g, b] coefficients), "
+         "ambient: {up, down, east, west, north, south} (the diffuse light a surface facing that way gets), note}}; "
+         "`sky` means no probe reaches "
+         "it. Floats are rounded to 3 digits. Needs graphics. Example: render.light_probes "
+         "{\"entity\":\"Player\"}" FA_COMMAND_DETAILS
+         "A group is `stale` when its LightProbeGroup was edited (moved, resized, other spacing or points) since the "
+         "bake; `unbaked` lists the scene's groups the baked file does not hold (added or edited since): bake again "
+         "for both. Both are left out when the scene has no baked probes. "
+         "Errors: `invalid_argument` for an `entity` that is not a string; `not_found` for an entity that does not "
+         "exist; `unavailable` "
+         "without graphics (graphics=false). The same is Renderer::light_probes_report in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"The MeshRenderer entity (id or name) whose received light to report. Default: only the scene's probes."}}})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"entity"}, "render.light_probes");
+            const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
+            if (one && !a["entity"].is_string())
+                throw CommandError(
+                    "invalid_argument",
+                    std::string("render.light_probes: `entity` is a string (the entity's id or name), got ") +
+                        a["entity"].type_name() + ".",
+                    "Pass \"entity\": \"Player\", or leave `entity` out. scene.list_entities shows the ids.");
+            const Entity e = one ? need_entity(I.world, a, "entity") : kNullEntity;
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no probe is read.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            return I.renderer->light_probes_report(I.world, e);
         });
 
     I.commands.add(
@@ -777,34 +1071,38 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"render.debug_view",
-         "Show the depth or the normals of the depth and normal prepass, or the ambient occlusion, instead of the game "
-         "picture, or report which view is on.",
+         "Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the "
+         "sun's shadow, instead of the game picture, or report which view is on.",
          "A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints "
          "the "
          "prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as "
          "colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the "
          "ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, "
          "with the camera's own "
-         "PostProcess ssao settings or, when it has none, the defaults; `none` shows the game "
+         "PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of "
+         "the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past "
+         "the last or with no shadow); `none` shows the game "
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
          "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
-         "normals\"). Errors: `invalid_arguments` for a `view` that is not none, depth, normals or ao (with a "
+         "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
+         "`view` that is not none, depth, normals, ao or cascades (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao"],"description":"none (the game picture), depth, normals or ao (the ambient occlusion). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth     ? "depth"
-                       : v == DebugView::Normals ? "normals"
-                       : v == DebugView::Ao      ? "ao"
-                                                 : "none";
+                return v == DebugView::Depth      ? "depth"
+                       : v == DebugView::Normals  ? "normals"
+                       : v == DebugView::Ao       ? "ao"
+                       : v == DebugView::Cascades ? "cascades"
+                                                  : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -816,10 +1114,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             const DebugView previous = I.renderer->debug_view();
             if (set)
-                I.renderer->set_debug_view(wanted == "depth"     ? DebugView::Depth
-                                           : wanted == "normals" ? DebugView::Normals
-                                           : wanted == "ao"      ? DebugView::Ao
-                                                                 : DebugView::None);
+                I.renderer->set_debug_view(wanted == "depth"      ? DebugView::Depth
+                                           : wanted == "normals"  ? DebugView::Normals
+                                           : wanted == "ao"       ? DebugView::Ao
+                                           : wanted == "cascades" ? DebugView::Cascades
+                                                                  : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 
@@ -871,6 +1170,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.material_cost", capability_sets::reads()},
+                                                 {"render.probes", capability_sets::reads()},
+                                                 {"render.gi_grid", capability_sets::reads()},
+                                                 {"render.probe_refresh", capability_sets::changes_state()},
+                                                 {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},

@@ -5,7 +5,7 @@
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
-> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.32; este texto sigue
+> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.33; este texto sigue
 > en la 0.1). Lo que falta aquí: el estado actual (versión 0.32 y los 11 juegos de ejemplo, no siete), el estado de la
 > firma en «Descarga» (las descargas de Windows no están firmadas todavía), las licencias de terceros (además de MIT, zlib
 > y dominio público hay Apache-2.0, BSL-1.0 y BSD-3-Clause) y la estructura del repositorio con `skills/` y el contenido
@@ -197,7 +197,7 @@ Lee primero [CLAUDE.md](CLAUDE.md) y [docs/design/ARCHITECTURE.md](docs/design/A
 
 - [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión (dividido en páginas: el archivo las enumera).
 - [docs/design/BUILDING.md](docs/design/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas (dividido en páginas: el archivo las enumera).
-- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md), [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
+- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md), [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md), [docs/design/CUSTOM_SHADERS_PACKAGES.md](docs/design/CUSTOM_SHADERS_PACKAGES.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
 - [feedback/ROADMAP.md](feedback/ROADMAP.md) y [CHANGELOG.md](CHANGELOG.md).
 
 ## Licencia

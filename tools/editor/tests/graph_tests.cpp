@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <thread>
 
 #include "doctest.h"
 #include "fa/core/command.h"
@@ -464,6 +465,60 @@ TEST_CASE("graph model: the file changing on disk is found; unsaved edits are no
     CHECK(m.reload());
     CHECK(m.input_value("noise", "scale") == 12.0);
     CHECK_FALSE(m.external_conflict());
+}
+
+TEST_CASE("graph model: a second outside write of the same size, right after the first, is still found") {
+    // Windows steps file times by ~15 ms: two writes in one step keep time and size, so a recent file is told by content.
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    Json doc = Json::parse(kDissolve);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
+    p.write(kMat, doc.dump(2));
+    std::error_code ec;
+    // An hour ahead: the file is "fresh" (younger than a second) at every poll, however slow this host is.
+    const auto firstTime = stdfs::file_time_type::clock::now() + std::chrono::hours(1);
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);
+    REQUIRE_FALSE(ec);
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 12.0);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
+    p.write(kMat, doc.dump(2));
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
+    REQUIRE_FALSE(ec);
+    REQUIRE(
+        (stdfs::last_write_time(p.dir / kMat, ec) ==
+         firstTime));  // forced (a filesystem that rounds the time fails here): the hash is what tells the files apart
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 13.0);
+}
+
+TEST_CASE("graph model: a rewrite that keeps time and size is found when the file was polled fresh and again") {
+    GraphProject p;
+    p.open();
+    GraphModel& m = *p.model;
+    Json doc = Json::parse(kDissolve);
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 12.0;
+    p.write(kMat, doc.dump(2));
+    std::error_code ec;
+    // The stamp holds the hash only while the file is fresh (< 1 s old) at the polls: an hour ahead is fresh at every
+    // poll, so the test never depends on how fast the host got here.
+    const auto firstTime = stdfs::file_time_type::clock::now() + std::chrono::hours(1);
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);
+    REQUIRE_FALSE(ec);
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 12.0);
+    CHECK_FALSE(m.poll_external());                      // nothing changed: the hash is kept
+    doc["graph"]["nodes"][0]["inputs"]["scale"] = 13.0;  // same number of characters
+    p.write(kMat, doc.dump(2));
+    stdfs::last_write_time(p.dir / kMat, firstTime, ec);  // the very same time stamp, on every OS
+    REQUIRE_FALSE(ec);
+    REQUIRE(
+        (stdfs::last_write_time(p.dir / kMat, ec) ==
+         firstTime));  // forced (a filesystem that rounds the time fails here): the hash is what tells the files apart
+    CHECK(m.poll_external());
+    CHECK(m.input_value("noise", "scale") == 13.0);
+    CHECK_FALSE(m.poll_external());
 }
 
 TEST_CASE("graph model: the palette lists the nodes of the material's kind and filters by name, category and doc") {

@@ -2,13 +2,16 @@
 // choice of the lights that fit the shader.
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "probe_select.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -32,11 +35,45 @@ struct MeshItem {
         nullptr;  // set when the mesh is drawn skinned by this Animator's palette: never batched with another
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // model-space bounds used for culling (the mesh's, or the skinned ones)
     bool visible = true;                // inside the camera frustum: drawn in the main pass
-    bool casts = false;                 // inside the light frustum and castShadows: drawn in the shadow pass
+    bool casts = false;                 // inside a shadow map's frustum and castShadows: drawn in the shadow pass
+    std::uint64_t castMask =
+        1;  // with `casts`: bit v = drawn into shadow view v (a cascade of the sun, a face of a local light)
     std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
+    LightmapUse lm;
+    // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
+    // and its quantised key (probe_light_key, 0 = none). Items with different keys never share a draw.
+    const ProbeLight* probe = nullptr;
+    std::uint64_t probeKey = 0;  // also folds in `refl`: items that reflect other probes never share a draw either
+    // The reflection probes the item reflects (M73-P3c, probe_select.h): up to two, with their shares of the light; none = the sky.
+    ProbePick refl;
 };
+
+// What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
+// 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
+inline int decal_recv(const MeshRenderer& mr) {
+    return mr.receiveDecals ? std::clamp<int>(mr.decalLayer, 0, 15) + 1 : 0;
+}
+
+// What the subsurface pass of the shader reads of a mesh (MeshRenderer.subsurface*, M73.5): strength, radius in metres and the three channel
+// spreads, each finite and clamped; all zero when the strength is 0 (the radius and the colour of a mesh that does not scatter are not part
+// of a batch's key: two such meshes still share a draw). Part of every batch key: two meshes with different values never share a draw.
+inline std::array<float, 5> subsurface_of(const MeshRenderer& mr) {
+    auto fin = [](float v, float lo, float hi) { return std::isfinite(v) ? std::clamp(v, lo, hi) : lo; };
+    const float k = fin(mr.subsurface, 0.0f, 1.0f);
+    if (!(k > 0.0f)) return {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    return {k, fin(mr.subsurfaceRadius, 0.0f, 0.5f), fin(mr.subsurfaceColor.r, 0.0f, 1.0f),
+            fin(mr.subsurfaceColor.g, 0.0f, 1.0f), fin(mr.subsurfaceColor.b, 0.0f, 1.0f)};
+}
+
+// Does a mesh scatter light (MeshRenderer.subsurface above 0)? Only an OPAQUE mesh drawn by the engine's own program does: a material brings its
+// own lighting, an unlit mesh has no diffuse light, and the sss variant of the shader (mesh_common.glsl, fs_sss) is of the engine's template.
+// The renderer (sss_scatters) and the material cost report (material_cost.cpp) both ask this; the caller says whether the mesh is blended.
+inline bool mesh_scatters(const MeshRenderer& mr, const MaterialAsset* material, bool blended) {
+    return !blended && !material && !mr.unlit && subsurface_of(mr)[0] > 0.0f;
+}
 
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
 struct SortFields {
@@ -49,15 +86,19 @@ struct SortFields {
     const MaterialAsset* material = nullptr;
     std::size_t paramsHash = 0, colorsHash = 0;
     Color flash{0, 0, 0, 0};
+    bool lightmapped =
+        false;  // a batch of its own, like a skinned one: its entity is part of what the batches differ by
+    std::uint64_t probeKey = 0;  // probe_light_key: items with other light probe SH are other batches
 };
 inline SortFields fields_of(const MeshItem& m) {
-    return {m.mesh, m.tex, m.normalTex, m.mr, m.entity, m.anim, m.material, m.paramsHash, m.colorsHash, m.flash};
+    return {m.mesh,       m.tex,   m.normalTex,          m.mr,      m.entity, m.anim, m.material, m.paramsHash,
+            m.colorsHash, m.flash, m.lm.mesh != nullptr, m.probeKey};
 }
 
 // The 64-bit sort key: four fields, most significant first, each the RANK of the value among those of the frame (never
 // an address or an id that changes from one run to the next): the mesh by name, the colour texture, the normal map by
 // name (one name table for both), and "rest" = every other value the batches differ by (MeshRenderer colours and
-// factors, skinning entity, material by name, override hashes, flash), by the tuple the old comparator used. The ranks
+// factors and layers, skinning entity, material by name, override hashes, flash), by the tuple the old comparator used. The ranks
 // keep the order of the values, so sorting the keys (stable) gives the order the comparator gave, and two items have
 // equal keys exactly when they compare equal.
 constexpr unsigned kSortMeshBits = 12, kSortTexBits = 11, kSortNormalBits = 11, kSortRestBits = 30;
@@ -99,10 +140,16 @@ public:
 private:
     // Every value of an item that is not a name above, in the order of the old comparator (floats through order_float).
     struct Rest {
-        std::array<float, 10> shading;  // colour rgba, metallic, roughness, emissive rgb, emissiveStrength
+        // colour rgba, metallic, roughness, emissive rgb, emissiveStrength, then the material layers (M73.6a): clearcoat,
+        // clearcoatRoughness, sheenColor rgb, sheenRoughness, anisotropy, anisotropyRotation, specular, ior, then the
+        // transmission and the volume (M73.6b): transmission, thickness, attenuationColor rgb, attenuationDistance, then the
+        // subsurface (M73.5, subsurface_of: strength, radius, colour rgb)
+        std::array<float, 31> shading;
         bool unlit = false, receiveShadows = true;
+        int decalRecv = 1;              // decal_recv()
         std::array<float, 3> uvNormal;  // uvScale x, y, normalScale
         std::uint64_t skinEntity = 0;   // Entity::bits() of a skinned item, else 0
+        std::uint64_t probeKey = 0;     // SortFields::probeKey
         std::string_view material;      // by name
         std::size_t paramsHash = 0, colorsHash = 0;
         std::array<float, 4> flash;
@@ -137,20 +184,37 @@ bool box_in_frustum(const Mat4& viewProj, bool zeroToOne, Vec3 bmin, Vec3 bmax, 
 void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3& outMin, Vec3& outMax);
 
 // A run of items drawn with one instanced draw per mesh part. The model matrices of the visible items sit at
-// mainMats[mainFirst .. +mainCount), those of the shadow casters at shadowMats[shadowFirst .. +shadowCount).
+// mainMats[mainFirst .. +mainCount).
+// The most shadow views of a frame: the cascades of the sun, then the tile of each shadowed spot light and the six faces of each
+// shadowed point light (shadow_cascades.h, local_shadows.h). A view is one tile of the shadow atlas drawn with one matrix.
+constexpr int kMaxShadowViews = 64;
+
+// The casters of one shadow view inside a batch: shadowMats[first .. +count), and the per-instance params of the same run at
+// shadowData[extra ..) (a material with "instanced" params).
+struct ShadowRun {
+    std::uint32_t view = 0, first = 0, count = 0, extra = 0;
+};
+
 struct MeshBatch {
     std::size_t rep = 0;  // index in `items` of the first item (stands for the material of the whole batch)
-    std::uint32_t mainFirst = 0, mainCount = 0, shadowFirst = 0, shadowCount = 0;
+    std::uint32_t mainFirst = 0, mainCount = 0;
+    // The shadow runs of the batch, one per view that holds a caster of it, in ascending view order: runs[runFirst .. +runCount) of the
+    // vector build_batches filled (the one the caller passed).
+    // Neighbouring batches that differ only in their probe SH (MeshItem::probeKey) share one set of runs, held by the first of
+    // them (the others have runCount 0): the shadow pass never reads the SH. shadowEnd = the end (in `items`) of the casters
+    // of those runs.
+    std::uint32_t runFirst = 0, runCount = 0, shadowEnd = 0;
     // The per-instance params of a material with "instanced" params (pack_instance_params): instanceVec4 vec4 for each
-    // instance, at mainData[mainExtra ..) (floats) for the visible items and shadowData[shadowExtra ..) for the
-    // casters, in the order of the matrices. instanceVec4 is 0 for a batch without them.
-    std::uint32_t instanceVec4 = 0, mainExtra = 0, shadowExtra = 0;
+    // instance, at mainData[mainExtra ..) (floats) for the visible items; the casters' are ShadowRun::extra. instanceVec4 is 0
+    // for a batch without them.
+    std::uint32_t instanceVec4 = 0, mainExtra = 0;
 };
 
 // Groups `items` (sorted in place by material when `sortByMaterial`, otherwise kept in order and only neighbours merge:
 // blended meshes stay far-to-near).
+// The casters (`casts`, one run per bit of castMask) go to shadowMats and, as ShadowRun entries in `runs` (null = not kept), per batch.
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats);
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runs = nullptr);
 
 // The packed per-instance params (pack_instance_params) of each entity, kept between frames: 10 000 instances of one
 // material must not run the param lookup 10 000 times per frame and camera. An entry is valid while the material is the
@@ -191,21 +255,59 @@ private:
 
 // Packs the per-instance params of every batch whose material has instanced ones (MaterialAsset::instanceVec4, built):
 // appends to `mainData` and `shadowData` the floats of each visible / casting item, in the order build_batches put the
-// matrices, and sets the batch's instanceVec4, mainExtra and shadowExtra. Entities with different values share the
+// matrices, and sets the batch's instanceVec4 and mainExtra (and the extra of its shadow runs). Entities with different values share the
 // batch: the values are not part of the batch key (MaterialHashCache::refresh). Batches of other materials are left
-// alone. `cache` (null = none) keeps the packed values of each entity between frames.
+// alone. `cache` (null = none) keeps the packed values of each entity between frames. `runs` is the vector build_batches filled: each
+// run of a batch gets its `extra`.
 void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBatch>& batches,
                           std::vector<float>& mainData, std::vector<float>& shadowData,
-                          InstanceParamCache* cache = nullptr);
+                          InstanceParamCache* cache = nullptr, std::vector<ShadowRun>* runs = nullptr);
+
+// The directional lights of a view: every cluster loops over all of them, so there are at most this many (the shader's light table
+// keeps them first).
+inline constexpr int kMaxDirectionalLights = 32;
+
+// Contact shadows (M73.2c) fade out between half of this distance from the camera and this distance (metres): a pixel of the prepass covers
+// too much of the world there for a ray of a few centimetres.
+inline constexpr float kContactShadowFadeEnd = 40.0f;
 
 struct LightData {
     Vec4 pos, color, dir;
     int rank = 2;     // 0 = shadow-casting directional, 1 = directional, 2 = point/spot
     float score = 0;  // how relevant the light is to the camera (larger = keep first)
+    // A spot's cos(innerAngle) (the cone inside which it is at full strength); 2 = Light.innerAngle 0, the default fade of the
+    // outer quarter of the cone (shaders/light_data.glsl).
+    float cosInner = 2.0f;
+    // The extension texels (shaders/light_data.glsl, +4 .. +7): an area light's axes and size, a cookie's or an IES profile's atlas
+    // tile. Only written when `hasExt`; a view where any light has them stores every light with 8 texels (LightTexture::stride).
+    Vec4 ext[4];
+    bool hasExt = false;
+    float extent =
+        0;  // an area light: the radius of the sphere around its emitter (the range is measured from its surface)
+    // The shadow of a point or spot light (Light.castShadows and the fields after it, collect_lights); the sun's are SunShadow.
+    struct LocalShadow {
+        bool casts = false;
+        int resolution = 0;  // Light.shadowResolution: texels per side of a tile (0 = from the distance to the camera)
+        float bias = 0, normalBias = 0;  // Light.shadowBias / shadowNormalBias in metres (0 = automatic)
+        float softness = 1;              // Light.shadowSoftness
+        float distance = 0;              // metres from the camera past which the shadow fades out (0 = no limit)
+        int filter = 0;                  // 0 pcf, 1 hard, 2 pcss (Light.shadowFilter)
+        float spotAngle = 0;             // a spot's cone half angle in degrees (0 for a point light and an area light)
+        float emitter = 0;  // an area light: its mean full size in metres, the PCSS light size (0 = not an area light)
+    } shadow;
+    bool baked =
+        false;  // Light.mode Baked: its direct light is in the lightmaps, so a lightmapped surface skips it (M73.4a)
+    // Light.volumetric (M73.5): the strength of this light's shafts in the volumetric fog; 0 = none.
+    float volumetric = 0.0f;
+    // Light.contactShadowLength (M73.2c) in metres when SceneSettings.contactShadows is on and the frame draws contact shadows; 0 = none.
+    // Packed in the y of the light's texel of the shadow region of the light data texture (shaders/light_data.glsl).
+    float contactLength = 0.0f;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by
-// brightness over distance to the camera: `score`) and drops what exceeds `maxCount`. Returns how many were dropped.
-int select_lights(std::vector<LightData>& lights, std::size_t maxCount);
+// brightness over distance to the camera: `score`) and drops what exceeds `maxCount` lights or `maxDirectional` directional ones.
+// Returns how many were dropped.
+int select_lights(std::vector<LightData>& lights, std::size_t maxCount,
+                  std::size_t maxDirectional = std::size_t(kMaxDirectionalLights));
 
 }  // namespace fa::render

@@ -12,7 +12,10 @@
 #include "music_internal.h"
 #include "fa/core/asset_manifest.h"
 #include "fa/core/strings.h"
+#include "fa/core/image_float.h"
 #include "fa/render/cube_lut.h"
+#include "fa/render/ies.h"
+#include "fa/render/hdri.h"
 #include "fa/tooling/asset_import.h"
 #include "fa/tooling/image_doc.h"
 #include "fa/tooling/project_fs.h"
@@ -114,11 +117,13 @@ struct Route {
 
 std::string default_folder(const std::string& outExt) {
     if (outExt == ".cube") return "assets/luts/";
+    if (outExt == ".ies") return "assets/lights/";
     switch (assets::kind_of("x" + outExt)) {
         case assets::AssetKind::Model: return "assets/models/";
         case assets::AssetKind::Audio: return "assets/audio/";
         case assets::AssetKind::Font: return "assets/fonts/";
         case assets::AssetKind::Video: return "assets/video/";
+        case assets::AssetKind::Hdri: return "assets/hdri/";
         default: return "assets/";
     }
 }
@@ -195,6 +200,53 @@ Result<ImportOutput> import_lut(const ImportRequest& request) {
     if (!lut.ok()) return lut.error();
     ImportOutput out;
     out.details = Json::object({{"size", lut->size}, {"title", lut->title}});
+    out.files.push_back({request.dest, std::move(*bytes)});
+    return out;
+}
+
+// An .ies photometric file (Light.ies): parsed with the reader the renderer uses, so a file that would not draw at run time is refused
+// here with the line that is wrong, then copied as it is.
+Result<ImportOutput> import_ies(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    if (bytes->size() > kIesMaxFileBytes)
+        return make_error(
+            std::format("'{}' is larger than {} MB, more than a photometric table needs",
+                        request.source.filename().string(), kIesMaxFileBytes >> 20),
+            "An IES file is a few kilobytes of text: this is probably not one. Export the profile again from the "
+            "manufacturer's tool.");
+    const std::string text(bytes->begin(), bytes->end());
+    auto profile = parse_ies(text, request.source.filename().string());
+    if (!profile.ok()) return profile.error();
+    ImportOutput out;
+    out.details = Json::object({{"name", profile->name},
+                                {"verticalAngles", int(profile->vertical.size())},
+                                {"horizontalAngles", int(profile->horizontal.size())},
+                                {"peakCandela", std::round(double(profile->maxCandela))}});
+    if (profile->lampLumens > 0) out.details["lampLumens"] = std::round(profile->lampLumens);
+    out.files.push_back({request.dest, std::move(*bytes)});
+    return out;
+}
+
+// A .hdr Radiance panorama (SceneSettings.environmentMap): checked with the code the renderer loads it with (hdri_check), so a file
+// the renderer would refuse is refused here, with the layout it has named and how to convert it, then the pixels are decoded once
+// to prove the file is not cut short. The file is copied as it is: the renderer shrinks a picture wider than the GPU takes when it
+// loads it.
+Result<ImportOutput> import_hdri(const ImportRequest& request) {
+    auto bytes = read_bytes(request.source);
+    if (!bytes.ok()) return bytes.error();
+    const std::string name = request.source.filename().string();
+    auto check = hdri_check(bytes->data(), bytes->size(), name);
+    if (!check.ok()) return check.error();
+    auto pixels = decode_hdr(bytes->data(), bytes->size());
+    if (!pixels.ok()) return make_error(name + ": " + pixels.error().message, pixels.error().hint);
+    ImportOutput out;
+    out.details = Json::object({{"width", check->width},
+                                {"height", check->height},
+                                {"gpuWidth", check->gpuWidth},
+                                {"gpuHeight", check->gpuHeight},
+                                {"shrunkForTheGpu", check->shrunk()},
+                                {"gpuMegabytes", double(check->gpuBytes >> 20)}});
     out.files.push_back({request.dest, std::move(*bytes)});
     return out;
 }
@@ -567,6 +619,8 @@ const std::map<std::string, Route>& routes() {
                                                    {".otf", {"copy", ".otf", import_copy}},
                                                    {".qoa", {"copy", ".qoa", import_copy}},
                                                    {".cube", {"lut", ".cube", import_lut}},
+                                                   {".ies", {"ies", ".ies", import_ies}},
+                                                   {".hdr", {"hdri", ".hdr", import_hdri}},
                                                    {".mpg", {"video", ".mpg", import_video}},
                                                    {".mpeg", {"video", ".mpeg", import_video}},
                                                    {".mp4", {"video", ".mpg", import_video}},
@@ -592,6 +646,11 @@ std::vector<std::string> default_next_steps(const std::string& path) {
     if (to_lower(fs::extension(path)) == ".cube")
         return {"Use it: a PostProcess with \"colorGradingEnabled\": true and \"colorGradingLut\": \"" + path +
                 "\" (\"colorGradingLutContribution\" blends it in; docs/RENDERING.md, \"Colour grading with a LUT\")."};
+    if (to_lower(fs::extension(path)) == ".ies")
+        return {"Use it: a Light (point or spot) with \"ies\": \"" + path +
+                "\". The table is divided by its peak, so \"intensity\" stays the brightness; the profile's nadir "
+                "points along the "
+                "light's forward direction (docs/rendering/RENDERING_LIGHTING.md, \"IES profiles\")."};
     switch (assets::kind_of(path)) {
         case assets::AssetKind::Texture:
             return {"Draw it: a Sprite with \"texture\": \"" + path +
@@ -602,6 +661,11 @@ std::vector<std::string> default_next_steps(const std::string& path) {
             return {"Play it: audio.play(\"" + path +
                     "\") in a script, an AudioSource \"clip\", or SceneSettings \"music\"."};
         case assets::AssetKind::Font: return {"Use it: a Text with \"font\": \"" + path + "\"."};
+        case assets::AssetKind::Hdri:
+            return {"Use it: SceneSettings \"environmentMap\": \"" + path +
+                    "\" (it lights the meshes and is the background; \"environmentRotation\", \"environmentIntensity\" "
+                    "and \"environmentBackground\" tune it; docs/rendering/RENDERING_LIGHTING.md, \"The environment "
+                    "map\")."};
         case assets::AssetKind::Video:
             return {"Show it: a Video component with \"path\": \"" + path +
                     "\" and a \"size\"; entity.video.play() / seek() / on(\"ended\") in a script."};
@@ -826,6 +890,14 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "- .cube: a 3D colour lookup table for PostProcess.colorGradingLut, checked and copied to "
         "assets/luts/ (LUT_3D_SIZE 2 to 65, the 0 to 1 domain; a malformed file is an error that names the "
         "line; a 1D table is refused).\n"
+        "- .ies: an IES photometric file (LM-63, type C) for Light.ies on a point or spot light, checked and copied to "
+        "assets/lights/ (a malformed or unsupported file is an error that names the line; the result has the name, the "
+        "angle counts and the peak candela).\n"
+        "- .hdr: a Radiance HDR panorama for SceneSettings.environmentMap, checked and copied to assets/hdri/. "
+        "Only an equirectangular picture (twice as wide as it is tall) is read: a cube cross, a strip of six "
+        "faces or a mirror-ball light probe is refused with the layout named and how to convert it. A picture "
+        "wider than 4096 is shrunk for the GPU when it is loaded; one over 8192 x 4096 is refused from its "
+        "header. A file that is cut short is an error.\n"
         "- .mid .midi: becomes a song document (assets/music/<name>.song.json, or `path`): tracks, patterns, "
         "sections from markers, drums as grids (music.import_midi has the options `quantize` and "
         "`soundfont`; docs/MUSIC.md, \"MIDI\").\n"
@@ -843,7 +915,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
       "type":"object","required":["source"],
       "properties":{
         "source":{"type":"string","description":"The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first."},
-        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/ or assets/luts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
+        "path":{"type":"string","description":"Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/, assets/fonts/, assets/video/, assets/luts/ or assets/lights/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX, .mpg for a video)."},
         "license":{"type":"string","description":"License or terms of the file, e.g. \"CC0\", \"CC-BY 4.0\", \"bought from itch.io, single project\". Recorded in assets.json."},
         "author":{"type":"string","description":"Who made it. Recorded in assets.json for the credits."},
         "sourceUrl":{"type":"string","description":"Where the file came from (a page URL). Recorded as the provenance source instead of the local path."},

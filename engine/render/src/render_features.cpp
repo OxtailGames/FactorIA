@@ -107,6 +107,10 @@ std::vector<FeatureDef> build_table() {
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
+    t.push_back(
+        {"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
+         "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
+         "lighting of M73 is drawn into (one depth value per texel): without them there is no cascaded shadow."});
     // The engine features built on them.
     t.push_back(
         {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
@@ -125,6 +129,133 @@ std::vector<FeatureDef> build_table() {
          "The feature needs nothing of the GPU (it is on wherever the engine draws); only a pass whose material reads "
          "the depth or the normals (fa_depth, fa_normal) needs the sampledDepth feature, and that pass alone is "
          "skipped without it."});
+    t.push_back(
+        {"lightmaps", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Baked lightmaps (M73.4a): the bake's light of a scene (SceneSettings.lightmaps, the lightmap.bake command) "
+         "is read from "
+         "the lightmap UV of each entity with MeshRenderer.receiveGI and replaces the ambient light on its diffuse "
+         "surface; "
+         "lights with mode baked are left out of those entities. The feature needs nothing of the GPU. A custom "
+         "material "
+         "gets the lightmap only when it declares \"uv1\" in vertexAttributes "
+         "(docs/rendering/RENDERING_LIGHTMAPS.md)."});
+    t.push_back(
+        {"physicalSky", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "A physically based sky (SceneSettings.skyModel \"physical\"): a sun with a disc, an atmosphere (Rayleigh, "
+         "Mie, ozone) and procedural clouds, drawn as the background and baked into the image-based lighting, so "
+         "the reflections and the ambient light follow the sun. It needs RGBA16F render targets that filter (its "
+         "look-up tables); without them the gradient sky is drawn."});
+    t.push_back(
+        {"environmentMap", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+         "An HDR environment image (SceneSettings.environmentMap, an equirectangular .hdr file) as the background and "
+         "the "
+         "image-based lighting of the scene, with intensity and rotation (docs/rendering/RENDERING_LIGHTING.md, "
+         "\"The environment map\"). It needs RGBA16F render targets that filter (the environment bake) and RGBA16F "
+         "textures that filter; without them the sky material, the physical sky or the gradient is used."});
+    // The material layers of M73.6: drawn by the standard mesh shading on every backend (docs/rendering/RENDERING_LIGHTING.md).
+    t.push_back({"clearCoat", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The clear coat layer of a material: car paint, lacquer (MeshRenderer.clearcoat, glTF "
+                 "KHR_materials_clearcoat): a second specular lobe over the surface that also dims what is under it."});
+    t.push_back({"sheen", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "The sheen layer of a material: cloth and velvet (MeshRenderer.sheenColor, glTF "
+                 "KHR_materials_sheen): a soft lobe at grazing angles on a Charlie distribution."});
+    t.push_back({"anisotropy", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Anisotropic highlights: brushed metal, hair (MeshRenderer.anisotropy, glTF "
+                 "KHR_materials_anisotropy), stretched along the mesh's tangent."});
+    t.push_back({"transmission", FeatureKind::Engine, kEveryGpu, "", nullptr,
+                 "Transmission and volume: glass and liquids that refract what is behind them "
+                 "(MeshRenderer.transmission, thickness, "
+                 "attenuationColor, attenuationDistance, glTF KHR_materials_transmission and KHR_materials_volume). A "
+                 "frame with a "
+                 "visible transmissive mesh copies the opaque picture (with a chain of blurred halves for rough glass) "
+                 "and the mesh "
+                 "looks through it; a frame with none copies nothing. When the copy cannot be made (its shader or an "
+                 "image fails), "
+                 "the mesh is a plain blend that darkens and tints what is behind it, with no refraction "
+                 "(docs/rendering/RENDERING_TRANSMISSION.md)."});
+    // The lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): every row of the table below answers false with "planned (M73)" until
+    // its package lands, then moves up to a row of its own. `needs` is what its pass asks of the GPU once built.
+    t.push_back(
+        {"clusteredLights", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Clustered forward lighting: up to 1024 lights in view at once (32 of them directional), each fragment "
+         "reading only the lights of its cluster (docs/rendering/RENDERING_LIGHTING.md, \"Many lights\")."});
+    // The light atlas of M73.1b (docs/design/ARCHITECTURE_RENDERING_LIGHTING.md, "The light atlas"): one RGBA16F image that filters holds the
+    // LTC tables, the cookies and the IES profiles. Without such images the lights are drawn as point and spot lights, without them.
+    t.push_back({"areaLights", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "Rectangle, disc and tube area lights (Light.type area) with soft highlights, shaded with linearly "
+                 "transformed cosines; a rectangle and a disc emit from their front, a tube from all around. Without "
+                 "RGBA16F images that filter, an area light is drawn as a point light of the same energy."});
+    t.push_back({"lightCookies", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "Light cookies (Light.cookie): a texture projected by a spot light (perspective), along a "
+                 "directional light (orthographic, tiled over Light.size metres) or all around a point light (an "
+                 "equirectangular panorama, baked into a cube of six faces). An area light ignores its cookie."});
+    t.push_back({"iesProfiles", FeatureKind::Engine, kEveryGpu, "half", nullptr,
+                 "IES profiles (Light.ies, an .ies file of the project): the measured light distribution of a real "
+                 "lamp on a point or spot light, normalised to its peak so Light.intensity stays the brightness."});
+    t.push_back(
+        {"lightProbes", FeatureKind::Engine, kEveryGpu, "", nullptr,
+         "Light probes (M73.4d): the LightProbeGroup components baked by lightmap.bake hold spherical-harmonics "
+         "lighting that a mesh without a lightmap (a moving object, lightmapScale 0, a skinned mesh) receives "
+         "in place of the sky's ambient, interpolated on the CPU at the centre of its bounds (or at "
+         "MeshRenderer.probeAnchor); lights with mode baked light those meshes only through the probes. The "
+         "feature needs nothing of the GPU (docs/rendering/RENDERING_LIGHT_PROBES.md)."});
+    struct Planned {
+        const char* name;
+        const char* needs;
+        const char* doc;
+        const char* planned = "M73";  // nullptr once the package that draws it has landed
+    };
+    static const Planned kLighting[] = {
+        {"cascadedShadows", "float32",
+         "Cascaded shadow maps for the directional light (1 to 4 cascades fitted to the camera, stable, blended at the "
+         "seams, with PCF or PCSS soft edges), drawn into one shadow atlas of 32-bit float (M73.2a).",
+         nullptr},
+        {"pointShadows", "float32",
+         "Shadows of point lights: six face tiles in the shadow atlas, ranked by importance with a budget per frame, "
+         "PCF, PCSS or hard, faded out by distance (M73.2b).",
+         nullptr},
+        {"spotShadows", "float32",
+         "Shadows of spot lights: one perspective tile in the shadow atlas, with the same budget and filters "
+         "(M73.2b).",
+         nullptr},
+        {"contactShadows", "depth",
+         "Contact shadows: a short screen-space ray toward the light, marched against the depth prepass, adds fine "
+         "shadows "
+         "where objects touch (Light.contactShadowLength, SceneSettings.contactShadows; M73.2c).",
+         nullptr},
+        {"reflectionProbes", "",
+         "Reflection probes: local environment captures, baked or realtime, that the lit meshes reflect (M73.3, "
+         "M73-P3c): every ReflectionProbe holds an octahedral map with a roughness chain and spherical-harmonics "
+         "diffuse in the probe atlas, a mesh inside its box reflects it (box projection, blended with the next "
+         "probe and the sky), a mesh outside every box reflects the sky. Every GPU draws it: the atlas is RGBA16F, "
+         "or RGBA8 (coarser, no values above 4) where the GPU cannot render to half floats; render.probes says "
+         "which.",
+         nullptr},
+        {"volumetricFog", "half+depth",
+         "Volumetric fog and light shafts: a medium the sun and the point and spot lights (Light.volumetric) shine "
+         "through, raymarched at half or quarter resolution and joined to the picture with a depth-aware upsample "
+         "(SceneSettings.volumetricFog; M73.5).",
+         nullptr},
+        {"decals", "",
+         "Projected decals: a Decal box paints albedo, tint and normal relief on the meshes it touches, found through "
+         "the light "
+         "clusters and applied in the mesh shader (M73.5b).",
+         nullptr},
+        {"subsurface", "half+depth",
+         "Screen-space subsurface scattering for skin and wax: the diffuse light of a mesh with "
+         "MeshRenderer.subsurface "
+         "is blurred across the surface with a depth-aware separable profile (radius in metres, per colour channel), "
+         "never the specular light (M73.5).",
+         nullptr},
+        {"realtimeGI", "half",
+         "Realtime global illumination from a probe grid updated over a few frames, no ray tracing: a RealtimeGI "
+         "component is captured into the probe atlas a few probes a frame and the lit meshes inside its box are "
+         "shaded with it (the light of the eight probes around each pixel, with a visibility test so light does not "
+         "leak through walls), bouncing between captures; it fills the diffuse light where no lightmap and no baked "
+         "light probe reaches. It needs RGBA16F render targets that blend; render.gi_grid says which grids the "
+         "meshes read (docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\").",
+         nullptr}};
+    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
@@ -145,6 +276,7 @@ bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
     ok &= need("depth", env.sampledDepth,
                "sampling the depth of the scene in a shader (a float render target for the depth prepass)");
     ok &= need("compute", env.compute, "compute shaders");
+    ok &= need("float32", env.float32, "R32F and RGBA32F render targets that can be sampled");
     return ok;
 }
 
@@ -269,6 +401,8 @@ FeatureEnv feature_env_from_sokol() {
     const sg_pixelformat_info f32 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F);
     const sg_pixelformat_info f16 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     env.sampledDepth = depth.render && ((f32.render && f32.sample) || (f16.render && f16.sample));
+    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
+    env.float32 = r32.render && r32.sample && f32.render && f32.sample;
     env.compute = sg_query_features().compute;
     return env;
 }

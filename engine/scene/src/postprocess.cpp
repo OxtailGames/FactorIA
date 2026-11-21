@@ -85,9 +85,7 @@ void register_postprocess_component(TypeRegistry& r) {
          "draws its own stack over its "
          "own part of the picture (a "
          "split screen: each half has its own); the bloom and the colour filter are one per frame, the ones of the "
-         "camera that draws first. Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: "
-         "they "
-         "stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no "
+         "camera that draws first. A frame without any stack costs nothing: no "
          "pass, no "
          "target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the "
          "output "
@@ -171,8 +169,7 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // bloom
         .field("bloomEnabled", &PostProcess::bloomEnabled,
-               "Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the "
-               "stack. Cost: "
+               "Switches the bloom on: a glow around bright pixels. Cost: "
                "a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider "
                "bloomRadius) and one "
                "composite pass over the frame; see docs/RENDERING.md for the measured cost.")
@@ -267,14 +264,22 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // colorFilter
         .field("colorFilterEnabled", &PostProcess::colorFilterEnabled,
-               "Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it "
-               "is the "
-               "last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final "
+               "Switches the accessibility colour filter on. The last pass of the frame and covers the HUD. Cost: one "
+               "full-screen pass; none of its own when the final "
                "pass "
                "runs and there is no HUD (it is fused into it).")
-        .enum_field("colorFilterMode", &PostProcess::colorFilterMode,
-                    {"none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"},
-                    "Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter.")
+        .enum_field(
+            "colorFilterMode", &PostProcess::colorFilterMode,
+            {"none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"},
+            "Only used when colorFilterEnabled. The filter: greyscale (Rec. 709 luminance in linear light), "
+            "highContrast "
+            "(contrast stretched 1.8x around mid grey, clipped), protanopia, deuteranopia, tritanopia (a daltonize "
+            "correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix "
+            "(severity 1.0) and the lost information is shifted into the channels the player still sees, so "
+            "colours that collapse together (red vs green) differ in brightness or in the remaining hue). A "
+            "game's options screen sets it from the player's choice (it is not saved by itself). To CHECK a "
+            "game without changing what the player sees, use the `simulate` option of game.screenshot / "
+            "--screenshot-simulate instead.")
 
         // vignette
         .field("vignetteEnabled", &PostProcess::vignetteEnabled,

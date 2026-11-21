@@ -56,7 +56,7 @@ struct Transform {
 
 // --------------------------------------------------------------- camera ---
 enum class Projection : std::int32_t { Orthographic, Perspective };
-// Last post-process of the frame, see Camera::colorFilter.
+// Accessibility filter, the last post-process of the frame (PostProcess.colorFilterMode).
 enum class ColorFilter : std::int32_t { None, Greyscale, HighContrast, Protanopia, Deuteranopia, Tritanopia };
 // Camera.lighting: Scene = the lights, ambient light, environment and fog of the scene; Studio = the camera's own key, fill and
 // rim lights (see Camera::studioIntensity).
@@ -88,15 +88,6 @@ struct Camera {
     // camera (a key, a fill and a rim light, a neutral ambient and environment, no sky, no fog), whatever the scene holds.
     CameraLighting lighting = CameraLighting::Scene;
     float studioIntensity = 1.0f;  // Studio only: multiplies the brightness of the rig
-    // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
-    // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
-    bool bloom = false;
-    float bloomThreshold = 0.7f;   // brightness (largest of r, g, b; 0..1) where the glow starts
-    float bloomIntensity = 1.2f;   // strength of the added glow (0..10)
-    float bloomRadius = 20.0f;     // glow size in design pixels (1..128)
-    bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
-    // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
-    ColorFilter colorFilter = ColorFilter::None;
     // Render target: a name makes this camera draw into a texture of renderTargetSize pixels, live every frame, instead of the
     // screen. The texture is the id "target:<name>" (render_target_id), accepted wherever a texture path is. "" = the screen.
     std::string renderTarget;
@@ -1067,15 +1058,141 @@ struct MeshRenderer {
         0;  // 0 = one normal draw; N > 0 = N GPU instances read from the material's compute buffers
     float instanceBounds =
         0.0f;  // instances > 0: half-extent (local metres) of the box around the entity; 0 = never culled
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): they are read, written, validated and saved
+    // today, and drawn by the package named in each doc string. Their defaults keep the look of every scene made before M73.
+    float lightmapScale =
+        1.0f;  // M73.4: texels per metre of the lightmap, as a multiple of the scene's density; 0 = not in the lightmap
+    bool contributeGI = true;  // M73.4: the surface bounces light onto others in a bake and in the realtime GI
+    bool receiveGI =
+        true;  // M73.4: the surface is lit by the baked lightmap, the light probes (M73.4d) and, later, the realtime GI
+    Entity probeAnchor =
+        kNullEntity;  // M73.4d: the entity whose position samples the light probes; empty = the centre of the mesh's bounds
+    float clearcoat = 0.0f;  // M73.6: strength of the clear coat layer (KHR_materials_clearcoat)
+    float clearcoatRoughness = 0.03f;
+    Color sheenColor{0, 0, 0, 1};  // M73.6: the cloth sheen layer's colour (KHR_materials_sheen); black = none
+    float sheenRoughness = 0.5f;
+    float anisotropy = 0.0f;          // M73.6: stretch of the highlight along the tangent (KHR_materials_anisotropy)
+    float anisotropyRotation = 0.0f;  // degrees, turns the stretch direction around the normal
+    float specular = 1.0f;            // M73.6: strength of the dielectric specular (KHR_materials_specular)
+    float ior = 1.5f;                 // M73.6: index of refraction (KHR_materials_ior)
+    float transmission =
+        0.0f;                // M73.6: how much light passes through instead of reflecting (KHR_materials_transmission)
+    float thickness = 0.0f;  // M73.6: metres the light travels inside (KHR_materials_volume)
+    Color attenuationColor{1, 1, 1, 1};
+    float attenuationDistance = 0.0f;  // metres until attenuationColor is reached; 0 = the light is not tinted inside
+    float subsurface = 0.0f;           // M73.5: screen-space subsurface scattering, for skin and wax (the strength)
+    float subsurfaceRadius = 0.01f;    // M73.5: metres the diffuse light spreads (of the widest colour channel)
+    Color subsurfaceColor{1.0f, 0.4f, 0.25f, 1.0f};  // M73.5: the spread of each colour channel, relative to the radius
+    bool receiveDecals = true;                       // M73.5b: Decal components project onto this mesh
+    std::int32_t decalLayer = 0;  // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
 };
-enum class LightType : std::int32_t { Directional, Point, Spot };
+// M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_DECALS_FOG.md,
+// "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the
+// entity's forward (-Z) and faces +Z.
+struct Decal {
+    std::string albedo;           // texture painted onto the surface; empty = only `color`
+    std::string normal;           // optional normal map that bends the normal of the surface
+    Color color{1, 1, 1, 1};      // tint multiplied with the albedo (flat paint when there is no texture)
+    float opacity = 1.0f;         // 0..1 strength of the whole decal
+    float normalStrength = 1.0f;  // 0..4 how strongly `normal` bends the surface
+    float angleFade = 60.0f;      // degrees 0..90: fades out where the surface turns away from the decal
+    std::int32_t sortOrder = 0;   // decals draw in ascending order, a larger one on top
+    std::int32_t layers = 0;      // bit mask of the MeshRenderer.decalLayer values that receive it; 0 = every layer
+};
+// M73.3b: a reflection probe captures the scene around its position into a small octahedral map (and its diffuse
+// spherical harmonics) that fills the engine's probe atlas (docs/rendering/RENDERING_LIGHTING.md, "Reflection probes").
+// The box (boxSize, boxOffset in the entity's local axes) is the region the probe lights: a lit mesh inside it reflects the
+// probe (M73-P3c; blended with the next probe or the sky inside blendDistance of the box edge), a mesh outside every box
+// reflects the sky.
+enum class ProbeMode : std::int32_t { Baked, Realtime };
+enum class ProbeClear : std::int32_t { Sky, Color };
+enum class ProbeUpdate : std::int32_t { EveryFrame, TimeSliced, OnDemand };
+struct ReflectionProbe {
+    ProbeMode mode =
+        ProbeMode::Baked;  // baked: read from bakedMap (probe.bake); realtime: captured while the game runs
+    Vec3 boxSize{10.0f, 10.0f,
+                 10.0f};  // metres: the region the probe lights, in the entity's local axes (scale applies)
+    Vec3 boxOffset{0.0f, 0.0f, 0.0f};  // metres: where the box's centre is, from the entity's origin
+    float blendDistance = 1.0f;        // metres: the fade-out band inside the box edge
+    std::int32_t importance = 0;  // the probe with the larger importance wins where boxes overlap, and is evicted last
+    std::int32_t resolution = 128;             // texels per side of the probe's octahedral map: 32, 64, 128 or 256
+    float nearPlane = 0.1f;                    // metres: nearest distance the capture draws
+    float farPlane = 100.0f;                   // metres: farthest distance the capture draws
+    ProbeClear clear = ProbeClear::Sky;        // what the capture shows where no mesh is drawn
+    Color clearColor{0.0f, 0.0f, 0.0f, 1.0f};  // used with clear color
+    Json showTags = Json::array();  // culling mask like Camera.showTags: only entities with a tag are captured
+    Json hideTags = Json::array();  // entities with one of these tags (or a parent that has) are not captured
+    ProbeUpdate update = ProbeUpdate::TimeSliced;  // realtime only: every frame, one cube face per frame, or on demand
+    std::string bakedMap;       // project-relative .probe.json written by probe.bake (the manifest of the pages)
+    float intensity = 1.0f;     // multiplies what the probe reflects
+    bool boxProjection = true;  // correct the reflection for the box (parallax): a nearby wall reflects where it is
+};
+// M73.4d: light probes for moving objects (docs/rendering/RENDERING_LIGHT_PROBES.md). A grid of probes over an axis-aligned box
+// of the world (centred on the entity's world position + `offset`; the entity's rotation and scale do not turn it) plus optional single points.
+// lightmap.bake traces the light at every probe and stores it as spherical harmonics next to the lightmap pages.
+struct LightProbeGroup {
+    Vec3 size{10.0f, 4.0f, 10.0f};  // metres, the box of the grid; 0 on an axis = one layer of probes on it
+    float spacing = 2.0f;           // metres between two probes of the grid, 0.25..100
+    Vec3 offset{0.0f, 0.0f, 0.0f};  // metres: the box's centre relative to the entity's world position
+    bool grid = true;               // false = no grid, only `points`
+    Json points = Json::
+        array();  // extra probes [[x, y, z], ...] in world metres, up to 256; they light the objects close to them
+    bool showGizmo = true;  // the editor draws the probes of this group as small spheres coloured by their baked light
+};
+// M73.5d: realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world that the renderer
+// captures a few at a time (the capture of a reflection probe, at 16 or 32 texels a face), each into a spherical-harmonics irradiance and
+// depth moments (docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination"). The lit meshes read the grid (the diffuse
+// light of the probes around each pixel, with a visibility test); the commands render.gi_grid and render.probes show what it holds.
+struct RealtimeGI {
+    Vec3 size{20.0f, 6.0f, 20.0f};    // metres, the box of the grid; 0 on an axis = one layer of probes on it
+    Vec3 offset{0.0f, 0.0f, 0.0f};    // metres: the box's centre relative to the entity's world position
+    float spacing = 2.0f;             // metres between two probes, 0.25..100
+    std::int32_t probesPerFrame = 2;  // probes captured a frame (six faces each), 1..32
+    std::int32_t resolution = 16;     // texels per side of a capture face: 16 or 32
+    float intensity = 1.0f;           // 0..16 multiplies the light the grid gives
+    float bounce = 1.0f;              // 0..1 how much of the grid's own light the captures see (the extra bounces)
+    float hysteresis =
+        0.9f;  // 0..0.99 how much of a probe's old value a new capture keeps (less flicker, slower reaction)
+    float nearExclusion = 0.1f;  // metres 0.01..10: what is closer than this to a probe is not captured
+    float maxDistance =
+        30.0f;  // metres 1..1000: the farthest surface a probe sees; the depth moments are clamped to it
+    float backfaceTolerance =
+        0.25f;  // 0.02..0.9: a probe whose rays hit this fraction of back faces first is inside geometry
+    Json showTags = Json::array();  // culling mask like Camera.showTags
+    Json hideTags = Json::array();  // like Camera.hideTags: what is not in the captures (the player, particles...)
+};
+enum class LightType : std::int32_t { Directional, Point, Spot, Area };
+enum class LightShape : std::int32_t { Rectangle, Disc, Tube };
+enum class ShadowFilter : std::int32_t { Pcf, Hard, Pcss };
+enum class LightMode : std::int32_t { Realtime, Baked, Mixed };
 struct Light {
     LightType type = LightType::Directional;  // directional lights point along the entity's forward (-Z rotated)
     Color color{1, 1, 1, 1};
     float intensity = 1.0f;
     float range = 10.0f;       // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;   // spot cone half-angle (degrees)
-    bool castShadows = false;  // directional only for now
+    bool castShadows = false;  // directional (cascades), point and spot lights (the shadow atlas, with a budget)
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md); the doc string of each says whether it is drawn yet
+    // (the shadow fields are, since M73.2a) or names the package that brings it.
+    float innerAngle =
+        0.0f;  // M73.1a: spot cone half-angle (degrees) inside which the light is at full strength; 0 = as today
+    LightShape shape = LightShape::Rectangle;  // M73.1b: type area only
+    Vec2 size{
+        1.0f,
+        1.0f};  // M73.1b: type area (a tube uses x as its length and y as its thickness); a directional cookie's tile, metres
+    std::string
+        cookie;  // M73.1b: texture projected by a spot light (perspective), a directional one (tiled) or a point light (equirectangular, a cube of 6 faces)
+    std::string ies;  // M73.1b: IES profile (.ies) of a point or spot light's distribution
+    std::int32_t shadowResolution =
+        0;                          // M73.2: texels of the light's shadow map; 0 = the engine picks from the distance
+    float shadowBias = 0.0f;        // M73.2a: depth offset in metres; 0 = the engine's own
+    float shadowNormalBias = 0.0f;  // M73.2: offset along the normal; 0 = the engine's own
+    ShadowFilter shadowFilter = ShadowFilter::Pcf;
+    float shadowSoftness = 1.0f;  // M73.2: penumbra size with shadowFilter pcss
+    float shadowDistance = 0.0f;  // M73.2: how far from the camera the light shadows; 0 = the scene's shadowDistance
+    LightMode mode = LightMode::Realtime;  // M73.4: realtime, baked into lightmaps, or mixed
+    float volumetric = 0.0f;  // M73.5: strength of the light shafts of this light in the volumetric fog; 0 = none
+    float contactShadowLength = 0.0f;  // M73.2c: metres of the screen-space contact shadow ray of this light; 0 = none
 };
 
 struct ClipRuntime;  // what the Animator keeps while it plays *.anim.json clips (src/clip_animator.h)
@@ -1479,6 +1596,14 @@ enum class ColorSpace : std::int32_t { Gamma, Linear };
 // window's display and the platform allow it (Windows HDR10 / scRGB, macOS EDR), the standard range elsewhere.
 enum class HdrOutput : std::int32_t { Off, Auto };
 
+// SceneSettings.skyModel: how the sky behind the 3D scene is made when there is no sky material and no environment map.
+// (Physical: renderer_sky_phys.h, docs/rendering/RENDERING_LIGHTING.md, "The physical sky".)
+enum class SkyModel : std::int32_t { Gradient, Physical };
+
+// SceneSettings.volumetricQuality: how many samples the volumetric fog takes and at what resolution (M73.5;
+// docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts").
+enum class VolumetricQuality : std::int32_t { Low, Medium, High };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1496,6 +1621,40 @@ struct SceneSettings {
     ColorSpace colorSpace = ColorSpace::Gamma;  // gamma (every existing project) or linear lighting (M71)
     HdrOutput hdrOutput = HdrOutput::Off;       // off, or auto: an HDR display where the platform has one
     float paperWhiteNits = 200.0f;              // brightness of white (1.0) on an HDR display, in nits (80 .. 1000)
+    // The fields below belong to the lighting of M73 (docs/rendering/RENDERING_LIGHTING.md): the doc string of each says whether it is drawn
+    // yet (the shadow fields are, since M73.2a) or names the package that brings it. Their defaults keep the look of every scene made before M73.
+    std::int32_t shadowCascades = 1;      // M73.2: cascades of the directional light's shadow map (1 .. 4)
+    float shadowCascadeSplit = 0.5f;      // M73.2: 0 = linear splits, 1 = logarithmic
+    float shadowCascadeBlend = 0.1f;      // M73.2: fraction of a cascade over which it blends into the next
+    float shadowDistance = 0.0f;          // M73.2: how far from the camera shadows are drawn; 0 = the engine's own fit
+    std::int32_t shadowAtlasSize = 4096;  // M73.2: texels per side of the shadow atlas
+    bool contactShadows = false;          // M73.2: screen-space contact shadows
+    std::string environmentMap;           // M73.3: HDR image of the surroundings ("" = the sky material or gradient)
+    float environmentIntensity = 1.0f;    // M73.3
+    float environmentRotation = 0.0f;     // M73.3: degrees around the up axis
+    bool environmentBackground = true;    // M73.3: the environment map is also the background (no sky material set)
+    SkyModel skyModel = SkyModel::Gradient;  // M73.3: gradient (the colours above) or physical (sun and atmosphere)
+    std::string
+        lightmaps;  // M73.4: the lightmap manifest of the scene (*.lightmap.json, written by lightmap.bake); "" = none
+    // The physical sky (skyModel = physical, M73-P3d): read only then. Defaults are a clear mid-day sky.
+    float skySunSize = 0.53f;                       // angular diameter of the sun disc, degrees
+    float skyTurbidity = 2.0f;                      // aerosols: 1 = very clean air .. 10 = heavy haze
+    Color skyGroundAlbedo{0.3f, 0.3f, 0.3f, 1.0f};  // colour of the ground the atmosphere sees below the horizon
+    float skyExposure = 1.0f;                       // brightness of the sky and of the light it gives the meshes
+    bool skyTintsSun = true;                        // the directional light takes the colour of the sun through the air
+    float cloudCoverage = 0.25f;                    // 0 = a clear sky .. 1 = overcast
+    float cloudDensity = 0.6f;                      // how opaque and dark the clouds are, 0..1
+    float cloudAltitude = 2500.0f;                  // metres above the observer
+    Vec2 cloudWind{8.0f, 3.0f};                     // metres per second the clouds drift along world x and z
+    // The volumetric fog (M73.5): read only with volumetricFog on. The medium's colour is fogColor.
+    bool volumetricFog = false;            // off = nothing changes
+    float volumetricDensity = 0.02f;       // extinction per metre at the height base
+    float volumetricHeightBase = 0.0f;     // world y below which the density is constant
+    float volumetricHeightFalloff = 0.0f;  // per metre above the base; 0 = the same density at every height
+    float volumetricAnisotropy = 0.4f;     // Henyey-Greenstein g: -0.99 (back) .. 0 (even) .. 0.99 (forward)
+    float volumetricAmbient = 1.0f;        // how much of ambientLight the fog scatters
+    float volumetricDistance = 100.0f;     // metres from the camera the medium extends to
+    VolumetricQuality volumetricQuality = VolumetricQuality::Medium;
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

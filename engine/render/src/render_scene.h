@@ -30,8 +30,14 @@ inline const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
 // deformed by that Animator's palette (such an item is never batched with another).
 void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmin, Vec3& bmax, const Animator*& anim);
 
+// Whether `mr` draws `mesh` as a transmissive surface (glass, liquid; M73.6b): MeshRenderer.transmission above 0, or the transmission of a
+// glTF part of the model (KHR_materials_transmission) when the field is 0. A material that is a full shader draws none (it has no template
+// to read the picture behind it with), and neither does an unlit mesh or a material with lighting "unlit".
+bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
+
 // Whether `mr` is drawn with the blended meshes (far to near) rather than the opaque ones. The alphaMode of a material
-// decides; without one, a translucent colour or a blended glTF part does.
+// decides; without one, a translucent colour or a blended glTF part does. A transmissive mesh (mesh_is_transmissive) is always one of them:
+// it is drawn after the opaque picture is finished, because it reads it.
 bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
 
 // Hashes of MeshRenderer.materialParams and materialColors: items with different overrides never share a draw. They were
@@ -106,6 +112,13 @@ struct SceneMesh {
     // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
     std::uint64_t sortKey = 0;
     bool keyed = false;
+    LightmapUse lm;  // lit by a baked lightmap (SceneSettings.lightmaps, M73.4a); lm.mesh null = not
+    // Baked light probes (M73.4d): what a mesh without a lightmap receives instead of the sky ambient; points into
+    // a vector of the RenderScene (null = no probes reach it, or none are baked), probeKey = probe_light_key of it.
+    const ProbeLight* probe = nullptr;
+    std::uint64_t probeKey =
+        0;                 // the light probe key with the reflection pick folded in (they choose different draws too)
+    ProbePick refl;        // the reflection probes that reach the mesh (probe_select.h); none without volumes
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
@@ -119,17 +132,23 @@ public:
     // the asset lookups on this thread and the matrices, flashes, boxes and hashes as jobs ("render.mesh_matrices",
     // "render.mesh_cull"). The order is the world's own, whatever the job threads. `wantTargets` also lists, per mesh, the
     // render targets it shows.
-    void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets);
+    // `probeVolumes`: the boxes of this frame's reflection probes (null or empty = none: every mesh reflects the sky).
+    void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
+               const std::vector<ProbeVolume>* probeVolumes = nullptr);
     const std::vector<SceneMesh>& meshes() const { return meshes_; }
     Entity scope() const { return scope_; }
     bool built() const { return built_; }
     MaterialHashCache& hash_cache() { return hashes_; }
     // The ranks the meshes' sort keys were made with; valid() is false when a field had more values than its bits hold.
     const SortKeyTable& sort_table() const { return sortTable_; }
+    // True when the scene's lightmap manifest carries baked light probes this frame.
+    bool has_probes() const { return hasProbes_; }
     // Forgets the meshes (the world they point into may go away) but keeps the hash cache.
     void reset() {
         meshes_.clear();
         sortTable_.clear();
+        probeLights_.clear();
+        hasProbes_ = false;
         built_ = false;
     }
     // Frames (builds of the whole world or of a subtree) whose sort keys did not fit (SortKeyTable limits): their opaque
@@ -142,6 +161,8 @@ private:
     MaterialHashCache hashes_;
     SortKeyTable sortTable_;
     // Work buffers of build(), kept between frames.
+    std::vector<ProbeLight> probeLights_;  // SceneMesh::probe points here; sized once per build, only with baked probes
+    bool hasProbes_ = false;
     std::vector<SortFields> fields_;
     std::vector<std::string_view> lodNames_;
     std::vector<std::uint64_t> keys_;
@@ -150,6 +171,10 @@ private:
     Entity scope_;
     bool built_ = false;
 };
+
+// Where a mesh without a lightmap reads the light probes (M73.4d): the MeshRenderer.probeAnchor entity when it is alive, else the centre of the
+// mesh's box (`bmin`..`bmax`, model space) in the world.
+Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, Vec3 bmin, Vec3 bmax);
 
 // `e` is drawn inside `scopeRoot` (entity_active of a Frame with that scopeRoot): with none, active in the hierarchy; with
 // one, the root and the descendants whose own flag and whose ancestors' flags below the root are on.

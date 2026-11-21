@@ -95,10 +95,12 @@ std::uint32_t pack_checksum(std::span<const std::uint8_t> data) { return xxh32(d
 
 Codec pack_default_codec(std::string_view path, std::span<const std::uint8_t> head) {
     const std::string ext = fs::extension(path);
-    static const std::unordered_set<std::string> stored = {
-        ".png",  ".jpg",   ".jpeg", ".webp", ".gif", ".avif", ".heic", ".basis", ".ogg",  ".oga",
-        ".opus", ".mp3",   ".qoa",  ".flac", ".m4a", ".aac",  ".mp4",  ".m4v",   ".webm", ".mov",
-        ".woff", ".woff2", ".zip",  ".gz",   ".zst", ".lz4",  ".7z",   ".xz",    ".bz2",  ".pak"};
+    static const std::unordered_set<std::string> stored = {".png",  ".jpg",   ".jpeg", ".webp",  ".gif",  ".avif",
+                                                           ".heic", ".basis", ".ogg",  ".oga",   ".opus", ".mp3",
+                                                           ".qoa",  ".flac",  ".m4a",  ".aac",   ".mp4",  ".m4v",
+                                                           ".webm", ".mov",   ".woff", ".woff2", ".zip",  ".gz",
+                                                           ".zst",  ".lz4",   ".7z",   ".xz",    ".bz2",  ".pak",
+                                                           ".hdr"};  // a Radiance .hdr is run-length coded RGBE
     static const std::unordered_set<std::string> zstd = {".ttf",   ".otf", ".ttc",  ".txt",  ".md",   ".csv",  ".tsv",
                                                          ".xml",   ".svg", ".html", ".htm",  ".glsl", ".wgsl", ".hlsl",
                                                          ".metal", ".po",  ".pot",  ".yaml", ".yml",  ".ini",  ".fnt"};
