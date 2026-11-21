@@ -1050,7 +1050,6 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.ext[0] = Vec4{ax, 1.0f / std::max(l.size.x, 0.001f)};
                     ld.ext[1] = Vec4{ay, 1.0f / std::max(l.size.y, 0.001f)};
                     pendingAtlas.push_back({lights.size(), fs::normalize(l.cookie), {}, false});
-                    lightAtlas.request(LightAtlasKind::Cookie, pendingAtlas.back().cookie);
                 }
             } else {
                 Vec3 d = normalize(m.transform_dir(kForward));
@@ -1070,7 +1069,6 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.ext[2].w = float(int(l.shape));
                     ld.extent = l.shape == LightShape::Disc ? hx * 1.06f : std::sqrt(hx * hx + h2 * h2);
                     ld.ext[3].w = ld.extent;
-                    lightAtlas.request_ltc();
                     if (!l.cookie.empty() && !warnedAreaCookie) {
                         warnedAreaCookie = true;
                         FA_WARN(
@@ -1093,12 +1091,9 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                         // equirectangular picture (light_atlas.h), picked by the same face selection as its shadow's cube.
                         pend.cookie = fs::normalize(l.cookie);
                         pend.cube = l.type == LightType::Point;
-                        lightAtlas.request(pend.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie,
-                                           pend.cookie);
                     }
                     if (!l.ies.empty()) {
                         pend.ies = fs::normalize(l.ies);
-                        lightAtlas.request(LightAtlasKind::Ies, pend.ies);
                     }
                     ld.ext[0] = Vec4{ax, 0.0f};
                     ld.ext[1] = Vec4{ay, 0.0f};
@@ -1151,6 +1146,14 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     // The light atlas for the lights that use it: made (or made again) when a light asked for something it does not hold yet; each
     // light then gets the rects of its tiles. Without the atlas (a GPU that cannot filter RGBA16F) an area light shines like a point
     // light and a cookie or profile is not drawn.
+    // (The tiles are asked for only now, so a light the frustum cull dropped does not make its cookie or profile bake.)
+    for (const PendingAtlas& pa : pendingAtlas) {
+        if (pa.area) lightAtlas.request_ltc();
+        if (!pa.cookie.empty())
+            lightAtlas.request(pa.cube ? LightAtlasKind::CookieCube : LightAtlasKind::Cookie, pa.cookie);
+        if (!pa.ies.empty()) lightAtlas.request(LightAtlasKind::Ies, pa.ies);
+    }
+    lightAtlas.end_requests();
     if (!pendingAtlas.empty()) {
         const bool atlasOk =
             lightAtlas.sync([](const LightAtlasKey& k) { return load_light_atlas_source(k); },
@@ -1236,7 +1239,9 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             }
         }
     }
-    ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
+    // A sun that gives no light (below the horizon of the physical sky, or an intensity of 0) has no shadow to draw.
+    ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0 &&
+                           std::max({lights[0].color.x, lights[0].color.y, lights[0].color.z}) > 0.0f;
     if (!opaque.empty() && lights.empty() && culledLocal == 0 && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
@@ -1361,7 +1366,8 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         if (ld.shadow.emitter > 0.0f && in.resolution <= 0 && ld.shadow.filter == 2) {
             int px = 512;
             while (px > 64 && float(px) * ld.shadow.emitter > 256.0f) px /= 2;
-            in.resolution = px;
+            // ... and, like any other light, smaller the farther the camera is (the size the light would get with resolution 0).
+            in.resolution = std::min(px, render::local_shadow_wanted_tile(in, length(pos - fr.cam.position)));
         }
         in.shadowDistance = ld.shadow.distance;
         ctx.localInputs.push_back(in);

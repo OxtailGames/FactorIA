@@ -12,7 +12,7 @@ add_custom_target(fa_ltc_regenerate
     COMMAND fa_ltc_gen --out ${FA_ROOT}/engine/render/src/ltc_tables.h
     WORKING_DIRECTORY ${FA_ROOT}
     DEPENDS fa_ltc_gen
-    COMMENT "Fitting the LTC tables (about a minute) and writing engine/render/src/ltc_tables.h"
+    COMMENT "Fitting the LTC tables (seconds in a Release tree, minutes in Debug: it builds fa_ltc_gen in the tree's configuration) and writing engine/render/src/ltc_tables.h"
     VERBATIM)
 
 if(FA_BUILD_TESTS)
@@ -30,6 +30,13 @@ if(FA_BUILD_TESTS)
     if(FA_SANITIZE OR ((CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "") AND NOT CMAKE_CONFIGURATION_TYPES))
         set(fa_ltc_slow_disabled true)
     endif()
-    add_test(NAME ltc_tables_up_to_date COMMAND fa_test_ltc "--test-case=*(slow)*" WORKING_DIRECTORY ${FA_ROOT})
+    # A multi-config generator (Visual Studio, Xcode) runs it only for the optimized configurations: `ctest -C Debug` would fit the table
+    # unoptimised and may pass the TIMEOUT.
+    set(fa_ltc_slow_configs)
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(fa_ltc_slow_configs CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
+    endif()
+    add_test(NAME ltc_tables_up_to_date COMMAND fa_test_ltc "--test-case=*(slow)*" WORKING_DIRECTORY ${FA_ROOT}
+             ${fa_ltc_slow_configs})
     set_tests_properties(ltc_tables_up_to_date PROPERTIES LABELS "slow" TIMEOUT 900 DISABLED ${fa_ltc_slow_disabled})
 endif()

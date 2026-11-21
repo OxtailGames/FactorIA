@@ -120,6 +120,11 @@ TEST_CASE("shadow cascades: a still point lands on the same texel as the camera 
     const Vec3 moved = texel_of(s * base.texel);
     CHECK(std::fabs(moved.x - t0.x) == doctest::Approx(1.0f).epsilon(0.01));
     CHECK(std::fabs(moved.y - t0.y) < 0.01f);
+    // The jump is at half a texel (the centre is rounded to the nearest texel): just under it nothing moves, just over it the point moves
+    // by exactly one texel, never by a fraction.
+    const Vec3 under = texel_of(s * (base.texel * 0.49f)), over = texel_of(s * (base.texel * 0.51f));
+    CHECK(under.x == doctest::Approx(t0.x).epsilon(1e-4));
+    CHECK(std::fabs(over.x - t0.x) == doctest::Approx(1.0f).epsilon(0.01));
 }
 
 TEST_CASE("shadow cascades: the fitted map covers its sphere and the near plane reaches the casters") {

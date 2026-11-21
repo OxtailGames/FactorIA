@@ -1640,6 +1640,8 @@ public:
         sg_view view{};
     };
     LightImage write_light_image(int rows, const float* texels);
+    // Frees the pooled light images from index `keep` on (the pool is restarted, none is in use).
+    void trim_light_images(std::size_t keep);
     // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
     // frame, and a second draw before the commit (editor screenshots, render_now) must not reuse a bound buffer.
     // Many draws without a commit (game.step and tests in the editor, which commits once per UI frame; FB-0005) end
@@ -1648,7 +1650,16 @@ public:
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
         const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16;
         if (!committed_ && full) sg_commit();
-        if (committed_ || full) transientUsed_ = lightImagesUsed_ = 0;
+        if (committed_ || full) {
+            // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
+            lightImagesPeak_ = std::max(lightImagesPeak_, lightImagesUsed_);
+            if (++lightImagesRestarts_ >= 256) {
+                trim_light_images(lightImagesPeak_);
+                lightImagesPeak_ = 0;
+                lightImagesRestarts_ = 0;
+            }
+            transientUsed_ = lightImagesUsed_ = 0;
+        }
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
@@ -1741,6 +1752,8 @@ private:
     };
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
     std::size_t lightImagesUsed_ = 0;
+    std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim
+    std::uint32_t lightImagesRestarts_ = 0;
     bool committed_ = true;
     sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
     std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for

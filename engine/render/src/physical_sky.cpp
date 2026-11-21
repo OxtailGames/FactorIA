@@ -145,6 +145,10 @@ PhysicalSkyState sky_quantised(const PhysicalSkyState& st) {
     } else {
         q.time = 0.0;
     }
+    // The sun's colour and the exposure move in steps too: a sun whose light is animated (or whose colour follows its height) would
+    // otherwise change the static key, and so bake the whole environment, in every frame.
+    for (float& c : q.sunColor) c = std::isfinite(c) ? std::round(c / kSkyColorStep) * kSkyColorStep : 1.0f;
+    if (std::isfinite(q.s.exposure)) q.s.exposure = std::round(q.s.exposure / kSkyColorStep) * kSkyColorStep;
     return q;
 }
 

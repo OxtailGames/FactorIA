@@ -263,7 +263,7 @@ CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMa
     CascadePlan out;
     const int count = std::min(int(tileSizes.size()), kMaxShadowCascades);
     if (count < 1) return out;
-    const float nearD = cf.nearDist;
+    const float nearD = std::max(cf.nearDist, 0.0f);  // an orthographic camera's near plane may be behind it
     float farD = shadowDistance > 0.0f ? std::min(shadowDistance, cf.farDist)
                                        : std::min(cf.farDist, auto_shadow_far(cf.position, casterMin, casterMax));
     if (!(farD > nearD + 0.1f)) farD = std::min(cf.farDist, nearD + 0.1f);

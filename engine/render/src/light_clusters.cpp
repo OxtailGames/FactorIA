@@ -136,9 +136,32 @@ void assign_lists(const ClusterGrid& grid, const std::vector<ClusterRange>& rang
     out.first.assign(clusters, 0);
     out.count.assign(clusters, 0);
     std::size_t total = 0;
+    // The view's cap is shared fairly between the slices (water-filling: a slice that wants less than an equal share keeps all of it, the
+    // rest is split between the others), so a view over the cap does not empty the far slices. A cluster keeps what the slice has left.
+    std::vector<std::size_t> allowance(slices, 0);
+    {
+        std::vector<std::size_t> order(slices);
+        for (std::size_t s = 0; s < slices; ++s) {
+            order[s] = s;
+            for (std::size_t k = 0; k < perSliceClusters; ++k)
+                allowance[s] += std::min<std::size_t>(want[s * perSliceClusters + k], maxPerCluster);
+        }
+        std::stable_sort(order.begin(), order.end(),
+                         [&](std::size_t a, std::size_t b) { return allowance[a] < allowance[b]; });
+        std::size_t left = maxEntries;
+        for (std::size_t i = 0; i < slices; ++i) {
+            const std::size_t share = left / (slices - i);
+            allowance[order[i]] = std::min(allowance[order[i]], share);
+            left -= allowance[order[i]];
+        }
+    }
+    std::size_t sliceUsed = 0;
     for (std::size_t c = 0; c < clusters; ++c) {
-        const std::size_t room = maxEntries - total;
+        const std::size_t slice = perSliceClusters ? c / perSliceClusters : 0;
+        if (perSliceClusters && c % perSliceClusters == 0) sliceUsed = 0;
+        const std::size_t room = std::min(maxEntries - total, allowance[slice] - sliceUsed);
         const std::size_t keep = std::min<std::size_t>({want[c], maxPerCluster, room});
+        sliceUsed += keep;
         out.first[c] = std::uint32_t(total);
         out.count[c] = std::uint32_t(keep);
         total += keep;

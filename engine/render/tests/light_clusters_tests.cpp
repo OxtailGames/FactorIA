@@ -280,6 +280,21 @@ TEST_CASE("clusters: a list keeps its first 128 lights, and a view at most 52428
     CHECK(kept + lists.clippedEntries == clusters * 200);
 }
 
+TEST_CASE("clusters: a view over the entry cap shares it between the slices, the far ones keep lights too") {
+    const View v = make_view(1280, 720, false);
+    std::vector<LightSphere> spheres(200, LightSphere{0, 0, -20, 500.0f});
+    ClusterLists lists;
+    build_light_clusters(v.cam, v.grid, spheres, lists);
+    const std::size_t perSlice = std::size_t(v.grid.tilesX) * std::size_t(v.grid.tilesY);
+    std::vector<std::size_t> kept(std::size_t(v.grid.slices), 0);
+    for (std::size_t c = 0; c < lists.count.size(); ++c) kept[c / perSlice] += lists.count[c];
+    REQUIRE(lists.clippedClusters > 0);
+    for (std::size_t s = 0; s < kept.size(); ++s) CHECK_MESSAGE(kept[s] > 0, "slice ", s);
+    // No slice takes more than its fair share plus the rounding of the clusters.
+    CHECK(*std::max_element(kept.begin(), kept.end()) <=
+          kMaxClusterIndices / kept.size() + std::size_t(kMaxLightsPerCluster));
+}
+
 TEST_CASE(
     "clusters: at most 32 lights that cover the view give every cluster the lights in table order, like today's loop") {
     const View v = make_view(1280, 720, false);

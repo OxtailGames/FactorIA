@@ -43,6 +43,7 @@ inline constexpr int kSkyViewW = 128, kSkyViewH = 128;
 // for drifting clouds, the game clock in steps of kSkyCloudStep seconds. A change below a step does not bake again.
 inline constexpr float kSkySunStep = 1.0f / 256.0f;
 inline constexpr double kSkyCloudStep = 2.0;
+inline constexpr float kSkyColorStep = 1.0f / 256.0f;  // the sun's colour and the exposure of the baked environment
 
 // The settings of SceneSettings the physical sky reads, clamped to their ranges (a script can write any number).
 struct PhysicalSkySettings {
@@ -94,8 +95,10 @@ struct PhysicalSkyState {
     bool linear = true;                      // the scene computes in linear light: else the sky is encoded to sRGB
     double time = 0.0;                       // seconds of game time (the cloud drift)
 };
-// The state the baked environment is drawn with: the sun direction rounded to kSkySunStep and the clock to kSkyCloudStep (a
-// still sky keeps the clock at 0), so a run draws the same environment at any frame rate.
+// The state the baked environment is drawn with: the sun direction rounded to kSkySunStep, the clock to kSkyCloudStep (a still sky
+// keeps the clock at 0) and the sun's colour and the exposure to kSkyColorStep, so a run draws the same environment at any frame rate
+// (a sliced bake, which follows a moving sun, shows it a few frames late). Called once on the state of a frame: the sun direction is
+// normalised after rounding, so a second call may round it to another step.
 PhysicalSkyState sky_quantised(const PhysicalSkyState& st);
 // Hashes of what each table depends on. The atmosphere (transmittance and multiple scattering) changes with the air and the
 // ground; the sky view also with the sun's height; the environment with everything quantised.
