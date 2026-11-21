@@ -348,8 +348,8 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
             p[26] = r.angleScale;
             p[27] = r.layers;
         }
-        float* idx = t + decalIndexBase * 4;
-        for (std::size_t i = 0; i < decals->lists.indices.size(); ++i) idx[i] = float(decals->lists.indices[i]);
+        float* decalIdx = t + decalIndexBase * 4;
+        for (std::size_t i = 0; i < decals->lists.indices.size(); ++i) decalIdx[i] = float(decals->lists.indices[i]);
         out.uniforms.decalBase = float(decalBase);
     }
     ClusterUniforms& u = out.uniforms;

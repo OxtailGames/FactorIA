@@ -570,8 +570,8 @@ TEST_CASE("lightmap bake plan: an environment map is used, a missing or malforme
     CHECK(wrong.error.dump().find("equirectangular") != std::string::npos);
     // A good one lights the scene: compared with no sky at all, the gain is the sky's colour (the sun adds the same to every channel).
     auto sums = [&](Json args) {
-        auto r = e.commands().call("lightmap.bake", args);
-        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        auto baked = e.commands().call("lightmap.bake", args);
+        REQUIRE_MESSAGE(baked.ok, baked.error.dump());
         auto manifest = load_lightmap_manifest("scenes/main.lightmap.json");
         REQUIRE(manifest.ok());
         std::array<double, 3> total{};
