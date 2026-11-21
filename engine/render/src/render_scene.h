@@ -32,7 +32,7 @@ void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmi
 
 // Whether `mr` draws `mesh` as a transmissive surface (glass, liquid; M73.6b): MeshRenderer.transmission above 0, or the transmission of a
 // glTF part of the model (KHR_materials_transmission) when the field is 0. A material that is a full shader draws none (it has no template
-// to read the picture behind it with).
+// to read the picture behind it with), and neither does an unlit mesh or a material with lighting "unlit".
 bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
 
 // Whether `mr` is drawn with the blended meshes (far to near) rather than the opaque ones. The alphaMode of a material

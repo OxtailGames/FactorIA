@@ -8,6 +8,7 @@
 // still open elsewhere stays, and the next bake takes it).
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <string>
 
 #include "authoring_internal.h"
@@ -54,11 +55,24 @@ std::string file_of(const std::string& path) {
     return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
-// The entity's id with only the characters of a file name.
+// The entity's id with only the characters of a file name. An id that had a character replaced gets 8 hex digits of its own hash
+// (FNV-1a), so "a.b" and "a_b" do not bake into one file.
 std::string safe_name(const std::string& id) {
     std::string out;
-    for (char c : id) out.push_back(std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' ? c : '_');
-    return out.empty() ? std::string("probe") : out;
+    bool changed = false;
+    for (char c : id) {
+        const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_';
+        changed = changed || !ok;
+        out.push_back(ok ? c : '_');
+    }
+    if (out.empty()) return "probe";
+    if (changed) {
+        std::uint32_t h = 2166136261u;
+        for (char c : id) h = (h ^ static_cast<unsigned char>(c)) * 16777619u;
+        out.push_back('-');
+        for (int shift = 28; shift >= 0; shift -= 4) out.push_back("0123456789abcdef"[(h >> shift) & 15u]);
+    }
+    return out;
 }
 
 // The manifest a probe.bake without `path` writes: next to the open scene, named after the scene and the entity.

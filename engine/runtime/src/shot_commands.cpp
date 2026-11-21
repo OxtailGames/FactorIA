@@ -671,6 +671,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "MeshRenderer. "
          "Example: render.probes {} or render.probes {\"entity\": \"sphere\"}. What each state means: "
          "docs/rendering/RENDERING_PROBES.md, the render.probes item." FA_COMMAND_DETAILS
+         "The first ask for a mesh draws one more frame (the renderer keeps the picks of that one mesh only): the "
+         "debug-draw lines queued since the last draw are consumed and a time-sliced capture moves on by a frame. "
+         "An ask without `entity` ends that watch.\n\n"
          "`state`: \"ready\"; \"pending\" (waiting for its first capture); \"capturing\" (facesDone of 6 faces drawn); "
          "\"noRoom\" (the atlas has no tile for it: `message` says why); \"noBake\" (a baked probe with no readable "
          "bakedMap: run probe.bake); \"failed\" (retried after 30 frames). `overLimit` counts the active probes beyond "
@@ -706,7 +709,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "No renderer: the engine runs with graphics=false, so no probes are captured.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             // The renderer keeps the picks of one mesh only (the one asked about); the first ask for a mesh draws a frame that keeps them.
-            if (one && !I.renderer->probe_watch_mesh(named))
+            if (!I.renderer->probe_watch_mesh(named) && one)  // no `entity`: the watch of an earlier ask ends
                 engine.redraw(1);
             else
                 engine.render_now();

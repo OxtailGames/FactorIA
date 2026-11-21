@@ -68,6 +68,13 @@ inline std::array<float, 5> subsurface_of(const MeshRenderer& mr) {
             fin(mr.subsurfaceColor.g, 0.0f, 1.0f), fin(mr.subsurfaceColor.b, 0.0f, 1.0f)};
 }
 
+// Does a mesh scatter light (MeshRenderer.subsurface above 0)? Only an OPAQUE mesh drawn by the engine's own program does: a material brings its
+// own lighting, an unlit mesh has no diffuse light, and the sss variant of the shader (mesh_common.glsl, fs_sss) is of the engine's template.
+// The renderer (sss_scatters) and the material cost report (material_cost.cpp) both ask this; the caller says whether the mesh is blended.
+inline bool mesh_scatters(const MeshRenderer& mr, const MaterialAsset* material, bool blended) {
+    return !blended && !material && !mr.unlit && subsurface_of(mr)[0] > 0.0f;
+}
+
 // What the sort of the opaque meshes reads of an item (a MeshItem, or a SceneMesh before a camera makes its item).
 struct SortFields {
     const MeshAsset* mesh = nullptr;

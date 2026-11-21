@@ -451,7 +451,8 @@ bool frames_until_captured(Own& o, World& w, Entity probe, int captures, int lim
     return false;
 }
 
-// Whether the colour room's directions read from the atlas tile of `probe` are right; `why` names the first one that is not.
+// Whether the colour room's directions read from the atlas tile of `probe` are right; `why` names the first one that
+// is not.
 bool tile_colors_right(Own& o, Entity probe, int resolution, std::string& why) {
     ProbeTile tile;
     REQUIRE(renderer_probe_tile(o.r, probe.bits(), tile));
@@ -502,10 +503,11 @@ TEST_CASE("realtime probe: two probes of different resolutions share the scratch
         MESSAGE("this GPU has no half-float render targets: not run");
         return;
     }
-    // A budget of 2 draws a capture over three frames; 4 and 8 make the second probe start in the frame the first one ends, the case in
-    // which the scratch images of a slot used to be remade for the other resolution before the first probe's filtering ran.
-    // Every capture is compared, the first ones too: a capture that spreads over several frames once drew one face of its tile with
-    // the data of another frame when the GPU was behind (Gpu::begin_transient_writes), which only a loaded machine showed.
+    // A budget of 2 draws a capture over three frames; 4 and 8 make the second probe start in the frame the first one
+    // ends, the case in which the scratch images of a slot used to be remade for the other resolution before the first
+    // probe's filtering ran. Every capture is compared, the first ones too: a capture that spreads over several frames
+    // once drew one face of its tile with the data of another frame when the GPU was behind
+    // (Gpu::begin_transient_writes), which only a loaded machine showed.
     for (int budget : {2, 4, 8}) {
         INFO("budget " << budget);
         Own o(g);

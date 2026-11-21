@@ -6,6 +6,8 @@
 // ProbePick::key() into SceneMesh::probeKey), so meshes that reflect the same probes with the same shares still share a draw and the others do not.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -28,6 +30,11 @@ struct ProbeVolume {
     // world -> unit box: row i holds axis[i] / half[i] and the offset -dot(axis[i], center) / half[i]; the box is where all three are in [-1, 1]
     float rows[3][4]{};
 };
+
+// ReflectionProbe.boxSize's side and blendDistance as the renderer uses them, inside the ranges the doc strings give (a side 0.01..100000
+// metres, the sign dropped; the blend band 0..1000; what is not finite is the default).
+inline float probe_box_side(float v) { return std::isfinite(v) ? std::clamp(std::fabs(v), 0.01f, 1.0e5f) : 10.0f; }
+inline float probe_blend_band(float v) { return std::isfinite(v) ? std::clamp(v, 0.0f, 1000.0f) : 0.0f; }
 
 // The unit box rows of `v` from its centre, axes and half sizes (call after setting them).
 void probe_volume_finish(ProbeVolume& v);

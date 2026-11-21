@@ -26,7 +26,7 @@ flight, and the rule for each is what keeps the CPU from overwriting what the GP
   goes into the copy that frame N-2 read. sokol's Metal backend waits for N-2 only when it makes the frame's command buffer (the
   first pass or copy of the frame), after those writes. So every writer calls `Gpu::begin_transient_writes()` first: on Metal it
   makes the frame's command buffer with an empty copy, which moves the wait sokol does anyway to before the writes (no extra
-  synchronisation); on the other backends it does nothing. A new place that writes a write-transient resource calls it too. Without
+  synchronisation, only earlier: a little of the CPU/GPU overlap of the planning is lost on Metal); on the other backends it does nothing. A new place that writes a write-transient resource calls it too. Without
   it a frame whose data differs from the frame before (every face of a time-sliced probe capture has other visible instances)
   drew with the data of another frame whenever the GPU was behind, which a static scene never shows.
 - Everything else the GPU reads (images, meshes, the frame graph's targets) is written by the GPU in submission order, or made new
