@@ -27,6 +27,22 @@ export const GRAPHICS_QUALITIES = ["high", "medium", "low", "off"];
 /** The choices of the "2D lighting" row of the graphics tab, off first: they set GlobalIllumination2D.enabled and .quality. */
 export const LIGHTING_QUALITIES = ["off", "low", "medium", "high"];
 
+/**
+ * The choices of the "2D lighting" row on `platform`: the engine's budget for the GI cascades turns "high" off on a phone and in a
+ * browser (docs/rendering/RENDERING_2D_GI.md), so game.platform "ios", "android" and "web" offer Off, Low and Medium only.
+ */
+export function lightingChoices(platform = game.platform) {
+  const budgeted = platform === "ios" || platform === "android" || platform === "web";
+  return budgeted ? LIGHTING_QUALITIES.filter((q) => q !== "high") : LIGHTING_QUALITIES;
+}
+
+/** The player's saved "2D lighting" choice as this platform can apply it ("high" becomes "medium" where it is not offered), or null. */
+export function lightingChoice(s = load(), platform = game.platform) {
+  const choice = s.graphics.lighting2d;
+  if (!LIGHTING_QUALITIES.includes(choice)) return null;
+  return lightingChoices(platform).includes(choice) ? choice : "medium";
+}
+
 /** The main screen effects the graphics tab switches one by one: `id` is the key in settings.graphics.effects, `field` the PostProcess field. */
 export const GRAPHICS_EFFECTS = [
   { id: "bloom", field: "bloomEnabled" },
@@ -193,8 +209,8 @@ export function lightingEntities() {
  * A scene without a GlobalIllumination2D gets none; the choice applies to the scenes that have one.
  */
 export function applyLighting2D(s = load()) {
-  const choice = s.graphics.lighting2d;
-  if (!LIGHTING_QUALITIES.includes(choice)) return;
+  const choice = lightingChoice(s);
+  if (!choice) return;
   for (const e of lightingEntities()) {
     const gi = e.get("GlobalIllumination2D");
     if (choice === "off") {
@@ -208,7 +224,8 @@ export function applyLighting2D(s = load()) {
 
 /** What the "2D lighting" row shows: the player's choice, else the scene's own GlobalIllumination2D (its quality, or "off" when disabled), else "off". */
 export function lightingShown(s = load()) {
-  if (LIGHTING_QUALITIES.includes(s.graphics.lighting2d)) return s.graphics.lighting2d;
+  const choice = lightingChoice(s);
+  if (choice) return choice;
   const gi = lightingEntities()[0]?.get("GlobalIllumination2D");
   return gi && gi.enabled ? gi.quality : "off";
 }

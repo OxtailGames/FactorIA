@@ -599,10 +599,8 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                      "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
         }
         if (const Sprite* sp = world_.get<Sprite>(e)) {
-            if (!sp->normalMap.empty() && !sp->lit)
-                warn(cptr + "/Sprite/normalMap",
-                     "Sprite.normalMap is set but Sprite.lit is false, so the normal map is not used",
-                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            // Sprite.lit false is one cause for normalMap, normalFrom and heightMap having no effect: it is warned
+            // about once, below (the others only when the sprite is lit, so the fix of one does not hide the next).
             if (const std::string problem = sprite_vertex_colors_problem(*sp); !problem.empty())
                 error(cptr + "/Sprite/vertexColors", problem,
                       "vertexColors is [r, g, b, a, ...] with 4 numbers (0..1) per vertex of the (meshColumns + 1) x "
@@ -619,23 +617,31 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
         // contradictions between fields).
         const std::string who = "'" + world_.id_of(e) + "'";
         if (const Sprite* sp = world_.get<Sprite>(e)) {
-            if (sp->normalFrom == SpriteNormalFrom::Height && sp->heightMap.empty())
+            if (sp->lit && sp->normalFrom == SpriteNormalFrom::Height && sp->heightMap.empty())
                 warn(cptr + "/Sprite/heightMap",
                      "Sprite.normalFrom is \"height\" on " + who + " but heightMap is empty, so the sprite is flat",
                      "Set \"heightMap\" to a grey image laid out like the texture, or use \"normalFrom\": \"sprite\" "
                      "or \"file\".");
-            if (sp->normalFrom != SpriteNormalFrom::File && !sp->lit)
+            if (!sp->lit && sp->normalFrom != SpriteNormalFrom::File)
                 warn(cptr + "/Sprite/normalFrom",
                      "Sprite.normalFrom is \"" +
                          std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") + "\" on " +
                          who + " but Sprite.lit is false, so no normals are used and the setting has no effect",
                      "Set \"lit\": true and add a Light2D entity, or remove normalFrom.");
-            if (!sp->normalMap.empty() && sp->normalFrom != SpriteNormalFrom::File)
+            else if (!sp->lit && !sp->normalMap.empty())
+                warn(cptr + "/Sprite/normalMap",
+                     "Sprite.normalMap is set on " + who + " but Sprite.lit is false, so the normal map is not used",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            if (sp->lit && !sp->normalMap.empty() && sp->normalFrom != SpriteNormalFrom::File)
                 warn(cptr + "/Sprite/normalMap",
                      "Sprite.normalMap is set on " + who + " while normalFrom is \"" +
                          std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") +
                          "\", so the normal map file is ignored",
                      "Set \"normalFrom\": \"file\" to use normalMap, or remove normalMap.");
+            if (sp->lit && sp->space == RenderSpace::Screen)
+                warn(cptr + "/Sprite/lit",
+                     "Sprite.lit is true on " + who + " but the sprite is in screen space, which Light2D never lights",
+                     "Set \"lit\": false, or use \"space\": \"world\" for a sprite that the lights should shade.");
             if (sp->rimIntensity > 0.0f && !sp->lit)
                 warn(cptr + "/Sprite/rimIntensity",
                      "Sprite.rimIntensity is " + std::format("{:g}", sp->rimIntensity) + " on " + who +

@@ -485,8 +485,8 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                                       true);
                         }
                         entry.used = cache.tick;
-                        if (cache.contours.size() >=
-                            4096) {  // forget what no gather pass used in the last two (a gather pass, not a frame, ages the cache)
+                        // forget what no gather pass used in the last two (a gather pass, not a frame, ages the cache)
+                        if (cache.contours.size() >= 4096) {
                             for (auto c = cache.contours.begin(); c != cache.contours.end();)
                                 c = c->second.used + 1 < cache.tick ? cache.contours.erase(c) : std::next(c);
                             if (cache.contours.size() >= 4096)

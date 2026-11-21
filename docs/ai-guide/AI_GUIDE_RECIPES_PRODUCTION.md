@@ -31,6 +31,9 @@ Part of [AI guide](../AI_GUIDE.md): recipes 9.26 to 9.32: 2D production, enemy A
   ```js
   world.spawn({ name: "Neon", components: { Transform: { position: [0, 40, 0] },
     Sprite: { texture: "assets/sign.png", size: [64, 24], lit: true, emissive: [1, 0.2, 0.8, 1], emissiveIntensity: 3 } } });
+  // the floor shares bit 1 (lightLayers 2) with the window light: sprites default to 1, which this light does not reach
+  world.spawn({ name: "Floor", components: { Transform: { position: [-80, -40, 0] },
+    Sprite: { texture: "assets/floor.png", size: [160, 80], lit: true, lightLayers: 2 } } });
   world.spawn({ name: "Window", components: { Transform: { position: [-80, 0, 0] },
     Light2D: { radius: 120, cookie: "assets/window_panes.png", cookieRotationDeg: 15, lightLayers: 2 } } });
   ```

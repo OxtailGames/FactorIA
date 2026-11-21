@@ -204,7 +204,7 @@ export default class Options extends Behaviour {
     }
     // 2D lighting (GlobalIllumination2D): Off, Low, Medium, High. The first click moves on from what the scene shows.
     ui.on("click", "gfx_light", () => {
-      const all = settings.LIGHTING_QUALITIES;
+      const all = settings.lightingChoices();
       s.graphics.lighting2d = all[(all.indexOf(settings.lightingShown(s)) + 1) % all.length];
       settings.applyLighting2D(s);
       settings.save(s);
@@ -249,8 +249,9 @@ export default class Options extends Behaviour {
       hdr.value = hdrAvailable && (s.graphics.hdr ?? world.settings?.hdrOutput === "auto");
       const note = world.find("graphics_note");
       const none = !hasPost;
-      note.active = none || !hdrAvailable;
-      note.get("Text").text = i18n.t(none ? "options.gfx.note" : "options.gfx.hdrNote");
+      const noLight = settings.lightingEntities().length === 0; // the 2D lighting button has nothing to change in this scene
+      note.active = none || noLight || !hdrAvailable;
+      note.get("Text").text = i18n.t(none ? "options.gfx.note" : noLight ? "options.gfx.lightNote" : "options.gfx.hdrNote");
     } finally {
       this.syncing = false;
     }
