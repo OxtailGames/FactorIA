@@ -383,6 +383,21 @@ TEST_CASE("multi_edit_value: an edited number replaces only that number of each 
     CHECK(multi_edit_value(Json::array({1}), shown, edited) == edited);
 }
 
+TEST_CASE("multi_edit_value: a layer-mask click flips one bit of each entity's own mask") {
+    const Json shown = 1;  // the primary's lightLayers
+    const Json on2 = Json::object({{kLayerBitKey, 2}, {"on", true}});
+    CHECK(multi_edit_value(Json(1), shown, on2) == Json(5));
+    CHECK(multi_edit_value(Json(8), shown, on2) == Json(12));         // the other bits are kept
+    CHECK(multi_edit_value(Json(4), shown, on2) == Json(4));          // already on
+    CHECK(multi_edit_value(Json(0x100), shown, on2) == Json(0x104));  // a bit with no toggle is kept
+    const Json off0 = Json::object({{kLayerBitKey, 0}, {"on", false}});
+    CHECK(multi_edit_value(Json(7), shown, off0) == Json(6));
+    CHECK(multi_edit_value(Json(-1), shown, off0) == Json(-2));
+    // a bit out of range or an entity without a number changes nothing / starts from 0
+    CHECK(multi_edit_value(Json(3), shown, Json::object({{kLayerBitKey, 99}, {"on", true}})) == Json(3));
+    CHECK(multi_edit_value(Json("x"), shown, on2) == Json(4));
+}
+
 TEST_CASE("multi_selection_title") {
     CHECK(multi_selection_title(3) == "3 entities");
     CHECK(multi_selection_title(12) == "12 entities");
