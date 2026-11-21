@@ -330,7 +330,7 @@ vec4 fa_decal_tile(vec4 rect, vec2 uv, vec2 atlas, vec2 ddx, vec2 ddy) {
     vec2 px = size * atlas;
     vec2 gx = ddx * px;
     vec2 gy = ddy * px;
-    float lod = clamp(0.5 * log2(max(max(dot(gx, gx), dot(gy, gy)), 1e-8)), 0.0, 4.0);
+    float lod = clamp(0.5 * log2(max(max(dot(gx, gx), dot(gy, gy)), 1e-8)), 0.0, 3.0);  // 3 = kDecalMaxLod (decal_atlas.h): the gutter holds a bilinear tap of level 3
     return textureLod(sampler2D(FA_DECAL_TEX, FA_DECAL_SMP), rect.xy + clamp(uv, 0.0, 1.0) * size, lod);
 }
 

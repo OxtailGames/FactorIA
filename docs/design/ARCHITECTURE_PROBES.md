@@ -65,7 +65,7 @@ ties up). `probe_layout(R)` gives the rectangles:
 - **Size.** The tile is `(R + 2) + (R/2 + 2)` wide and `R + 2 + 1` tall: 52 x 35, 100 x 67, 196 x 131, 388 x 259 texels.
 - **The SH row.** The nine L2 spherical-harmonics coefficients of the probe's light (the diffuse ambient term) are the nine texels
   of the LAST ROW of the tile, coefficient i at x = i, RGB each. In RGBA16F they are the raw values; in the RGBA8 fallback each
-  channel is `clamp(c / 4, -1, 1) * 0.5 + 0.5` (so a coefficient is read back as `(t * 2 - 1) * 4`, a resolution of 1/64 and a range
+  channel is `clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255` (so a coefficient is read back as `(t * 255 - 128) * 4 / 127`, 0 is the exact byte 128, a step of 1/32 and a range
   of +-4). The SH is projected, in one pass, from the 16 x 16 image of the pyramid (`probe_sh_source`), so its cost does not depend
   on R.
 - **A baked page** is the tile without the SH row (`probe_page_width` x `probe_page_height`); the SH is nine numbers in the manifest.
@@ -338,10 +338,12 @@ reach only partly mixes them with the ambient light as before, not with the grid
 with `r3.w` = 0), the nine coefficients are nine unrolled reads multiplied by the basis (no array), and `fa_indirect_diffuse` calls the grid
 from one place only: Apple's Metal compiler (the AGX service) crashed on the pipeline of a clip (discard) graph material with the grid's code at two
 call sites, or with its result blended into the baked SH after the fact; those shapes are avoided on purpose, and a change to this code must
-build such a material on Metal (the editor autotest section G3 does).
+build such a material on Metal (the editor autotest section G3 does). M73 POL-R2a tried the one shape that would remove the deviation above (one call
+`fa_realtime_or_ambient(n, cover, sh)` that blends the baked SH inside the function): the same service crashed on it (`XPC_ERROR_CONNECTION_INTERRUPTED`,
+G3 failed), so the deviation stays.
 
-**Bounce.** A capture frame has `Frame::noProbes` and `fa_gi.z` = 1: its shading multiplies the grid's light by the grid's `bounce`; the frame of a camera
-uses 1. The record is the same for both (there is no second set of records and no extra unit). `bounce` 0 makes a capture ignore the grid (one bounce:
+**Bounce.** A capture frame of the grid's own probes has `Frame::giCapture` and `fa_gi.z` = 1: its shading multiplies the grid's light by the grid's `bounce`; the
+frame of a camera and the capture of a ReflectionProbe (which has `noProbes` but is not a `giCapture`) use 1, so a reflection shows what the screen shows. The record is the same for both (there is no second set of records and no extra unit). `bounce` 0 makes a capture ignore the grid (one bounce:
 the direct light and the sky), 1 lets every refresh of a probe add one more bounce. A probe that is refreshed blends the new picture into its old one by
 `hysteresis`, so the series converges.
 

@@ -24,7 +24,8 @@ inline constexpr int kDecalTileMaxSide =
     1024;                                 // a texture is scaled down to at most this many pixels on its longer side
 inline constexpr int kDecalMinSide = 16;  // the smallest a tile is shrunk to when the atlas is full
 inline constexpr int kDecalGutter = 16;   // pixels around a tile that repeat its edge
-inline constexpr int kDecalMaxLod = 4;    // the highest mip level the shader reads (2^4 = the gutter)
+inline constexpr int kDecalMaxLod =
+    3;  // the highest mip level the shader reads (fa_decal_tile): a bilinear tap at level L reaches 1.5 * 2^L pixels, 12 <= the gutter
 inline constexpr int kDecalAtlasMaxSide = 4096;  // the largest atlas side (the GPU's own limit may be lower)
 inline constexpr std::size_t kDecalAtlasMaxBytes = std::size_t(96)
                                                    << 20;  // RGBA8 level 0 plus the mips of the largest atlas is 85 MB

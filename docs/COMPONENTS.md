@@ -522,7 +522,7 @@ Realtime global illumination without ray tracing: a grid of probes over an axis-
 | `probesPerFrame` | int | `2` | 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2. Range 1..32. |
 | `resolution` | int | `16` | Texels per side of one of the six pictures of a capture: 16 (default) or 32 (another value is an error). 32 sees small bright lights better and costs about four times as much. Range 16..32. |
 | `intensity` | float | `1.0` | 0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing it does not capture again. Default 1. Range 0.0..16.0. |
-| `bounce` | float | `1.0` | 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen always see the grid at full strength. Default 1. Range 0.0..1.0. |
+| `bounce` | float | `1.0` | 0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures of a ReflectionProbe always see the grid at full strength. Default 1. Range 0.0..1.0. |
 | `hysteresis` | float | `0.9` | 0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of each capture: smooth light that follows a change within about 20 refreshes of the probe; 0 replaces the old value at once (flickers when the scene moves). Range 0.0..0.99. |
 | `nearExclusion` | float | `0.1` | Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1. Range 0.01..10.0. |
 | `maxDistance` | float | `30.0` | Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30. Range 1.0..1000.0. |
@@ -18567,7 +18567,7 @@ declare module "factoria" {
      */
     intensity: number;
     /**
-     * 0..1: how much of the grid's own light the captures see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen always see the grid at full strength. Default 1.
+     * 0..1: how much of the grid's own light the captures of the grid's probes see, that is how many bounces the light makes (0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen and the captures of a ReflectionProbe always see the grid at full strength. Default 1.
      * @since unreleased
      */
     bounce: number;
