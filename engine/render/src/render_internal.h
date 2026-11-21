@@ -1452,6 +1452,8 @@ public:
     static TargetFormat sss_target_format() {
         return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
     }
+    // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
+    sg_shader builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label);
     bool sss_ready();
     // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
     const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }

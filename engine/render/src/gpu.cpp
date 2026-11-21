@@ -242,15 +242,10 @@ bool Gpu::init(int sampleCount, std::string* error) {
 
     quad_shader_ = make_shader(quad_quad_shader_desc(backend), "quad_quad");
     quadPlainShader_ = make_shader(quad_quad_plain_shader_desc(backend), "quad_quad_plain");
-    mesh_shader_ = make_shader(mesh_mesh_shader_desc(backend), "mesh_mesh");
-    sky_shader_ = make_shader(sky_sky_shader_desc(backend), "sky_sky");
-    shadow_shader_ = make_shader(mesh_shadow_shader_desc(backend), "mesh_shadow");
+    // The mesh, shadow and sky programs are made on first use (builtin_shader): a 2D game never compiles them.
     blit_shader_ = make_shader(blit_blit_shader_desc(backend), "blit_blit");
     blitKeepShader_ = make_shader(blit_blit_keep_shader_desc(backend), "blit_blit_keep");
-    meshSkinShader_ = make_shader(mesh_mesh_skin_shader_desc(backend), "mesh_mesh_skin");
-    shadowSkinShader_ = make_shader(mesh_shadow_skin_shader_desc(backend), "mesh_shadow_skin");
-    for (sg_shader s : {quad_shader_, quadPlainShader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_,
-                        blitKeepShader_, meshSkinShader_, shadowSkinShader_}) {
+    for (sg_shader s : {quad_shader_, quadPlainShader_, blit_shader_, blitKeepShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
                 *error = "Failed to create a built-in shader for the " +
@@ -569,7 +564,9 @@ sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool do
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u),
                     shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
+    d.shader = shader.id ? shader
+                         : (skinned ? builtin_shader(meshSkinShader_, mesh_mesh_skin_shader_desc, "mesh_mesh_skin")
+                                    : builtin_shader(mesh_shader_, mesh_mesh_shader_desc, "mesh_mesh"));
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
@@ -654,7 +651,7 @@ sg_pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassSta
 sg_pipeline Gpu::sky_pipeline(const TargetFormat& format, sg_shader shader) {
     PipelineKey key{0x300u, shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : sky_shader_;
+    d.shader = shader.id ? shader : builtin_shader(sky_shader_, sky_sky_shader_desc, "sky_sky");
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
@@ -667,7 +664,10 @@ sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_sh
                                  MeshExtras extras) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
+    d.shader = shader.id
+                   ? shader
+                   : (skinned ? builtin_shader(shadowSkinShader_, mesh_shadow_skin_shader_desc, "mesh_shadow_skin")
+                              : builtin_shader(shadow_shader_, mesh_shadow_shader_desc, "mesh_shadow"));
     d.layout.attrs[ATTR_mesh_shadow_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
     if (fullVertex) {  // offsets are the packed ones of MeshVertex: attributes of buffer 0 in location order
@@ -901,6 +901,22 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass";
     return find_or_make(key, format, d);
+}
+
+// Since M73 the mesh fragment shader is about 100 KB of GLSL; a driver that compiles it at start (Mesa keeps the NIR of
+// every linked program) costs a game that draws no mesh around 100 MB of peak memory. So the 3D programs are made the
+// first time a pipeline asks for one: the renderer's warm-up asks only when the scene has a MeshRenderer. A program
+// the driver rejects is reported once and kept (find_or_make then makes no pipeline from it) rather than retried.
+sg_shader Gpu::builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label) {
+    if (slot.id || layoutProbe_) return slot;
+    slot = make_shader(desc(sg_query_backend()), label);
+    if (sg_query_shader_state(slot) != SG_RESOURCESTATE_VALID) {
+        FA_ERROR("render",
+                 "Failed to create the built-in shader '{}' for this backend (see the sokol log lines above): what it "
+                 "draws is skipped. With Mesa an older GL than 4.3 may be the cause: try LIBGL_ALWAYS_SOFTWARE=1.",
+                 label);
+    }
+    return slot;
 }
 
 bool Gpu::sss_ready() {
