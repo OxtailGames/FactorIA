@@ -6,7 +6,7 @@
 //   run_post_pass     the final pass (post.glsl): the lens, exposure, tonemap, the output encode, the display-space effects of
 //                     post_fx.h (grade, vignette, sharpen, outline, pixelate, posterize, grain), a dither, the colour filter, fused
 //
-// A frame without a PostProcess and has an empty plan: no pass is declared and no target is
+// A frame without a PostProcess has an empty plan: no pass is declared and no target is
 // made. The renderer declares the passes in build_graph (renderer_draw.cpp) in this order: bloom (bloom.h) -> automatic exposure ->
 // the final pass -> (the HUD, drawn over the final picture in display space) -> the colour filter when the HUD went in between.
 // Every camera job has its own PostPlan, prepass, coverage image and AutoExposure (M71-C3a): its final pass draws into the camera's

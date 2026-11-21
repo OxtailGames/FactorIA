@@ -52,6 +52,7 @@ struct RendererTestAccess {
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
     static render::SkyBuilds sky_builds(Renderer& r);
+    static std::uint64_t decal_atlas_bytes(Renderer& r);
     static bool read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error);
     static bool probe_tile(Renderer& r, std::uint64_t id, render::ProbeTile& out);
     static void probe_force_rgba8(bool force);
@@ -69,6 +70,8 @@ inline const FrameGraph* renderer_frame_graph(Renderer& r) { return RendererTest
 inline TransientPoolStats renderer_transient_stats(Renderer& r) { return RendererTestAccess::transient_stats(r); }
 inline ShadowRowsStats renderer_shadow_rows_stats(Renderer& r) { return RendererTestAccess::shadow_rows_stats(r); }
 inline SkyBuilds renderer_sky_builds(Renderer& r) { return RendererTestAccess::sky_builds(r); }
+// The bytes of the decal atlas alone (texture_bytes() adds them to the textures and the ramps).
+inline std::uint64_t renderer_decal_atlas_bytes(Renderer& r) { return RendererTestAccess::decal_atlas_bytes(r); }
 // The images the post passes that read their own output of the frame before (fa_history) hold now.
 inline int renderer_post_history_images(Renderer& r) { return RendererTestAccess::post_history_images(r); }
 // The pixel format (sg_pixel_format as an int) of the images the final pass goes through when display-referred custom

@@ -287,16 +287,19 @@ TEST_CASE("decals: only the reload of a texture the atlas holds asks for a rebui
     Renderer own;
     std::string error;
     REQUIRE_MESSAGE(own.init(d, g.gpu.environment(), &error), error);
+    REQUIRE(own.supports("decals"));
+    CHECK(render::renderer_decal_atlas_bytes(own) == 0);
     const std::uint64_t bytesBefore = own.texture_bytes();
-    if (own.supports("decals")) {
-        write_textures();
-        World w;
-        make_scene(w, true);
-        own.begin_frame();
-        own.render_world(w, 0.0f);
-        own.end_frame();
-        g.gpu.end_frame();
-        CHECK(own.texture_bytes() > bytesBefore);
-    }
+    write_textures();
+    World w;
+    make_scene(w, true);
+    own.begin_frame();
+    own.render_world(w, 0.0f);
+    own.end_frame();
+    g.gpu.end_frame();
+    // The atlas itself is counted: its bytes are in texture_bytes() on top of the decal textures the asset cache loaded.
+    const std::uint64_t atlas = render::renderer_decal_atlas_bytes(own);
+    CHECK(atlas > 0);
+    CHECK(own.texture_bytes() >= bytesBefore + atlas);
     own.shutdown();
 }

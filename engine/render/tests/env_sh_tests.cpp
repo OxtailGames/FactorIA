@@ -406,7 +406,7 @@ TEST_CASE("sky SH on the GPU: the baked SH is the same on an RGBA8 environment, 
     CHECK(worst < 0.03);
 }
 
-TEST_CASE("sky SH on the GPU: a black sky reads back exactly zero on an RGBA8 environment") {
+TEST_CASE("sky SH on the GPU: a black sky reads back zero (within 1e-5) on an RGBA8 environment") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;

@@ -144,7 +144,7 @@ struct PostProcess {
     std::string colorGradingLut;               // a .cube 3D lookup table ("" = none)
     float colorGradingLutContribution = 1.0f;  // 0..1: how much of the LUT is mixed in
 
-    // --- colorFilter: the accessibility filter--------------------------------------
+    // --- colorFilter: the accessibility filter --------------------------------------
     bool colorFilterEnabled = false;
     ColorFilter colorFilterMode = ColorFilter::None;
 
