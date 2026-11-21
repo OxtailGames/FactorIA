@@ -87,8 +87,6 @@ struct Frame {
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};
     bool* warnedLights2d =
         nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
-    bool* warnedShadows2d =
-        nullptr;  // set once gather_2d warned that more than kMaxShadowLights2D lights cast shadows (per scene)
     // The shadow rows of the point lights with castShadows (light2d.cpp): shadowRows rows of kShadowAngles RGBA8 texels,
     // row r for the light whose Light2DData::extra[0] is r. Empty when no light casts a shadow this frame.
     std::vector<std::uint8_t> shadowData;

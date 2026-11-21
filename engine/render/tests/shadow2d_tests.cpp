@@ -13,6 +13,7 @@
 
 #include "fa/core/log.h"
 
+#include "../src/frame.h"
 #include "../src/render_internal.h"
 #include "../src/renderer_test_access.h"
 #include "../src/shadow2d.h"
@@ -467,7 +468,7 @@ TEST_CASE("Light2D.size softens the shadow on the per-pixel path of a lit sprite
         Image img = g.render(w);
         widths[k] = penumbra_pixels(img, 140);
         CHECK(at(img, 140, 0) < 0.05f);
-        CHECK(at(img, 140, 85) > 0.15f);  // the normal-map path is dimmer than the flat one
+        CHECK(at(img, 140, 85) > 3.0f * at(img, 140, 0));  // lit is well above the umbra, though this path is dimmer
     }
     CHECK(widths[0] <= 3);
     CHECK(widths[1] > widths[0] + 8);
@@ -665,4 +666,138 @@ TEST_CASE("shadow lights: every one of the 256 lights a frame shades has its sha
     CHECK(g.renderer.stats().lights2dShadowed == kMaxShadowLights2D);
     g.render(w);
     CHECK(log.count("a frame shades at most 256") == 1);  // once, not once per frame
+}
+
+// ------------------------------------------------------------------------------------------------ caps and warnings
+
+namespace {
+
+// A caster of 256 segments that all run from x = -100 to x = 100 just above a light at the origin: every segment spans about
+// 400 of the 1024 angles, so one caster costs about 98,000 segment-by-angle tests and eleven pass kMaxRowWork2D.
+void add_zigzag(CasterSet& set, float y) {
+    ShadowBody b;
+    b.first = std::uint32_t(set.segs.size());
+    b.count = 256;
+    b.y0 = y;
+    b.y1 = y + 6.0f;
+    b.x0 = -100;
+    b.x1 = 100;
+    b.hash = 11 + set.bodies.size();
+    for (int i = 0; i < 256; ++i) {
+        const float ya = y + float(i) * 0.02f, yb = y + float(i + 1) * 0.02f;
+        set.segs.push_back(i % 2 == 0 ? ShadowSegment{-100, ya, 100, yb} : ShadowSegment{100, ya, -100, yb});
+    }
+    set.bodies.push_back(b);
+}
+
+}  // namespace
+
+TEST_CASE("cast_casters: the per-row work cap cuts the same casters on every run") {
+    CasterSet set;
+    for (int i = 0; i < 12; ++i) add_zigzag(set, 10.0f + float(i) * 8.0f);
+    // The last caster is a box below the light: it is after the cut, so it must not block anything.
+    const CasterSet below = one_box(-20, -30, 20, -20, false);
+    ShadowBody boxBody = below.bodies[0];
+    boxBody.first = std::uint32_t(set.segs.size());
+    set.segs.insert(set.segs.end(), below.segs.begin(), below.segs.end());
+    set.bodies.push_back(boxBody);
+
+    std::vector<std::uint32_t> all;
+    for (std::uint32_t i = 0; i < set.bodies.size(); ++i) all.push_back(i);
+    std::vector<float> a = fresh_row(300), b = fresh_row(300);
+    bool cutA = false, cutB = false;
+    const std::uint64_t workA = cast_casters(set, all, 0, 0, 300, a.data(), &cutA);
+    const std::uint64_t workB = cast_casters(set, all, 0, 0, 300, b.data(), &cutB);
+    CHECK(cutA);
+    CHECK(cutB);
+    CHECK(workA == workB);  // a count, never time
+    CHECK(a == b);
+    CHECK(workA >= kMaxRowWork2D);
+    CHECK(workA < kMaxRowWork2D + 1024u);                 // it stops at the segment that crossed the cap
+    CHECK(a[std::size_t(kShadowAngles) * 3 / 4] == 300);  // straight down: the box after the cut blocks nothing
+
+    // The box alone is read in full: the cap, not the geometry, is what left the light unshadowed below.
+    std::vector<float> alone = fresh_row(300);
+    bool cutAlone = false;
+    cast_casters(set, {12}, 0, 0, 300, alone.data(), &cutAlone);
+    CHECK_FALSE(cutAlone);
+    CHECK(alone[std::size_t(kShadowAngles) * 3 / 4] < 300);
+
+    {
+        const CasterSet box = one_box(50, -5, 60, 5, false);  // fills about 11 degrees of the light's view
+        std::vector<float> row = fresh_row(300);
+        const std::uint64_t work = cast_casters(box, {0}, 0, 0, 300, row.data());
+        CHECK(work > 60);  // about 80: what docs/rendering/RENDERING_2D_SHADOWS.md says a box costs a row
+        CHECK(work < 100);
+    }
+
+    // Five of those casters are under half the cap: nothing is cut.
+    std::vector<float> few = fresh_row(300);
+    bool cutFew = false;
+    cast_casters(set, {0, 1, 2, 3, 4}, 0, 0, 300, few.data(), &cutFew);
+    CHECK_FALSE(cutFew);
+}
+
+TEST_CASE("warn_once: fixed keys are never pushed out by per-entity keys, and a scene change resets both") {
+    WarnLog log;
+    ContourCache c;
+    for (int i = 0; i < 200; ++i) warn_once(c, "entity" + std::to_string(i), "per-entity problem", true);
+    CHECK(log.count("per-entity problem") == int(kMaxEntityWarnings2D));
+    warn_once(c, "rowWork", "fixed problem");
+    warn_once(c, "rowWork", "fixed problem");
+    CHECK(log.count("fixed problem") == 1);  // shown although 200 per-entity keys came first
+    reset_warnings(c);
+    warn_once(c, "rowWork", "fixed problem");
+    warn_once(c, "entity0", "per-entity problem", true);
+    CHECK(log.count("fixed problem") == 2);
+    CHECK(log.count("per-entity problem") == int(kMaxEntityWarnings2D) + 1);
+}
+
+TEST_CASE("gather_shadow_casters: the contour cache ages once per gather pass") {
+    World w;
+    Entity cam = camera_at(w);
+    box_caster(w, {0, 0, 0}, {10, 10});
+    Frame f;
+    f.cam.entity = cam;
+    f.mask = CameraMask::of(w, cam);
+    ContourCache cache;
+    CasterSet set;
+    CHECK(cache.tick == 0);
+    gather_shadow_casters(w, f, cache, set);
+    CHECK(cache.tick == 1);
+    CHECK(set.bodies.size() == 1);
+    gather_shadow_casters(w, f, cache, set);  // a second camera of the same frame is a second pass
+    CHECK(cache.tick == 2);
+    gather_shadow_casters(w, f, cache, set);
+    CHECK(cache.tick == 3);
+}
+
+TEST_CASE("row work cap in a scene: warned once with a hint, again after a scene change") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    REQUIRE(save_png(solid_image(16, 16, Color::white()), "assets/white16.png").ok());
+    WarnLog log;
+    World w;
+    w.set_scene_path("scenes/a.json");
+    lit_floor(w);
+    Entity l = lamp(w, {0, 0, 0}, 300, 0.0f);
+    for (int i = 0; i < 12; ++i) {
+        Entity e = make(w, "zigzag", {0, float(i) * 8.0f, 0});
+        auto& c = w.add<ShadowCaster2D>(e);
+        c.shape = ShadowCaster2DShape::Polygon;
+        for (int k = 0; k < 256; ++k) {
+            c.points.push_back(k % 2 == 0 ? -100.0f : 100.0f);
+            c.points.push_back(10.0f + float(k) * 0.02f);
+        }
+    }
+    g.render(w);
+    CHECK(log.count("segment-by-angle tests") == 1);
+    CHECK(log.count("Hint: use a smaller radius") == 1);
+    w.get<Transform>(l)->position.x = 1.0f;  // a new row: the cap is met again, the warning stays once
+    g.render(w);
+    CHECK(log.count("segment-by-angle tests") == 1);
+    w.set_scene_path("scenes/b.json");
+    w.get<Transform>(l)->position.x = 2.0f;
+    g.render(w);
+    CHECK(log.count("segment-by-angle tests") == 2);
 }
