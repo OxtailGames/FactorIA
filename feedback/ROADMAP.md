@@ -112,8 +112,8 @@ file: then put this status and the milestones section back).
 # Next engine milestones
 
 **What comes next (2026-11-19):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
-M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0) and M72
-(0.32.0) are done. Next M73-M89 in their own order (M73 builds on M71, M75 on M94.4). M99 waits for the user's hardware and
+M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
+(0.32.0) and M73 (0.33.0) are done. Next M74-M89 in their own order (M75 on M94.4). M99 waits for the user's hardware and
 accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -375,8 +375,11 @@ story of each milestone is in `feedback/done/`). Hardware and accounts are in M9
   device (docs/LEGAL.md; [M13](done/M13.md)).
 - Animation of glTF models: no morph targets and no root motion, at most 64 joints per skin, and every animated model is
   its own draw call, never instanced (docs/ANIMATION.md; [M18](done/M18.md)).
-- Rendering: the shadow map fits every caster, there are no cascades, so shadows of big scenes are blurry
-  ([M18](done/M18.md); M73 plans the lighting).
+- Rendering: M73 (0.33.0) added cascaded shadows, so the old blurry shadows of big scenes are gone ([M18](done/M18.md)).
+- Lightmaps (M73.4): the pages are decoded and the xatlas unwrap runs on the render thread on first use; planned: load the `.hdr`
+  pages and run the unwrap off the render thread, with a disk cache of the unwrap (docs/rendering/RENDERING_LIGHTMAPS.md).
+- Lightmaps (M73.4): a lightmapped entity is drawn alone (never batched); planned: batch the lightmapped meshes of one lightmap page,
+  with a per-instance scale and offset.
 - macOS has no AdMob: the plugin offers no ads there and `platform.has("ads")` is false (docs/PLATFORM.md;
   [M27](done/M27.md)).
 
@@ -783,19 +786,19 @@ SHADERS.md "Not available yet" becomes empty.
   document), with live preview on mesh, sprite and quad, and a library of nodes (noise, dissolve, flow, fresnel,
   triplanar, parallax occlusion).
 
-## M73. 3D lighting of a leading engine (L; 6 packages) — the user, 2026-11-06
+## M73. 3D lighting of a leading engine (L; 6 packages) — the user, 2026-11-06 — DONE in 0.33.0
 
-- M73.1 (L) Clustered forward lighting: hundreds of lights instead of 32, light cookies, IES profiles, area lights.
-- M73.2 (L) Shadows: cascaded shadow maps for the directional light (stable, blended cascades), point (cube) and spot
+- M73.1 (L) — DONE in 0.33.0 Clustered forward lighting: hundreds of lights instead of 32, light cookies, IES profiles, area lights.
+- M73.2 (L) — DONE in 0.33.0 Shadows: cascaded shadow maps for the directional light (stable, blended cascades), point (cube) and spot
   shadows in an atlas with a budget, soft shadows (PCF/PCSS), contact shadows, per-light resolution and distance.
-- M73.3 (L) Environment: HDRI import, prefiltered environment cubemaps for IBL, reflection probes (baked and realtime,
+- M73.3 (L) — DONE in 0.33.0 Environment: HDRI import, prefiltered environment cubemaps for IBL, reflection probes (baked and realtime,
   box projection, blending), sky models (physical sun and atmosphere, clouds) feeding IBL.
-- M73.4 (L) Baked lighting: a deterministic lightmap baker (CPU path tracer, multi-threaded on M70, GPU with M79),
+- M73.4 (L) — DONE in 0.33.0 Baked lighting: a deterministic lightmap baker (CPU path tracer, multi-threaded on M70, GPU with M79),
   lightmap UVs generated, light probes for moving objects, mixed lights; bake jobs with progress and cancel.
-- M73.5 (M) Volumetrics and decals: volumetric fog and light shafts per light, projected decals (deferred-style on
+- M73.5 (M) — DONE in 0.33.0 Volumetrics and decals: volumetric fog and light shafts per light, projected decals (deferred-style on
   forward), screen-space subsurface for skin and wax, and a realtime GI option without ray tracing (probe grid, DDGI-style
   updated over frames).
-- M73.6 (M) Materials catch up: clear coat, sheen, transmission, anisotropy, glTF extensions for them, and the
+- M73.6 (M) — DONE in 0.33.0 Materials catch up: clear coat, sheen, transmission, anisotropy, glTF extensions for them, and the
   material inspector showing which ones cost a pass.
 
 ## M74. Ambitious 2D lighting and effects (M; 4 packages) — the user, 2026-11-06
@@ -1149,7 +1152,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96, M98, M71 (done in 0.31.0) and M72 (done in 0.32.0). M73-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0) and M73 (done in 0.33.0). M74-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):

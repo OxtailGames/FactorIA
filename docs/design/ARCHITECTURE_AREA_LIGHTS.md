@@ -128,7 +128,7 @@ golden, and an area light far away against the point light of the same intensity
   height; disc: the diameter; tube: length and thickness), written to the record's softness texel as a NEGATIVE number,
   `-emitter * shadowSoftness` (`fa_shadow_filter` reads a negative `k` as metres, a positive one as the old multiple of the texel). The
   filter reaches at most 16 texels, so an area light with no `shadowResolution` gets a smaller tile the larger the emitter (512 texels
-  for 0.5 m down to 64), which keeps the widest penumbra it can show proportional to the emitter. Approximation: one centre for all points
+  for 0.5 m down to 64), which keeps the widest penumbra it can show proportional to the emitter. The tile also shrinks with the camera's distance like any other light's (`local_shadow_wanted_tile`), never larger than that distance-based tile. Approximation: one centre for all points
   of the emitter and the mean size for a tube, so the penumbra of a long tube is as wide along its length as across.
 - **Point cookies.** A point light's `cookie` is a cube of six 256 x 256 tiles (3 x 2, a 768 x 512 block, `LightAtlasKind::CookieCube`)
   baked by `bake_cookie_cube_tile` from the picture read as an EQUIRECTANGULAR panorama (the centre of the picture is the light's forward
@@ -185,7 +185,9 @@ the fit are in [ARCHITECTURE_AREA_LIGHTS.md](ARCHITECTURE_AREA_LIGHTS.md)). The 
   directional cookie has no seam, rgb premultiplied by alpha); an IES profile is a 66 x 34 tile (64 x 32 values, a border that wraps across
   and clamps down). The image is made by `LightAtlas::sync` when a light asks for it (`request_ltc`, `request`), made again when the set of
   keys changes or `invalidate(path)` says a file changed (the hot reload; the old image is retired and freed a frame later like the
-  shadow atlas', so the frame in flight keeps the one it captured). A view without such a light makes none and binds a dummy.
+  shadow atlas', so the frame in flight keeps the one it captured). A view without such a light makes none and binds a dummy. Tiles are requested only for
+  the lights that pass the frustum culling of the view. A key (cookie or IES profile) that no view requested for 600 collections (`kKeyIdleTicks`; one
+  `collect_lights` call per view, so several per frame with several cameras or probe captures) is forgotten, and the next sync repacks without it.
 - **Texels of a light** (`light_data.glsl`, header): 4, or 8 with an extension `+4 .. +7` (ARCHITECTURE_AREA_LIGHTS.md, same section as above).
 - **Shading.** `fa_light_sample_n(li, pos, n)` (`fa_light_sample` is it with `n = 0`) gives an area light to every path as a point light at
   the REPRESENTATIVE POINT of its emitter, with the window attenuation measured from the emitter's surface (`reach = dist - extent`); a

@@ -429,7 +429,9 @@ TEST_CASE("sky SH on the GPU: a black sky reads back exactly zero on an RGBA8 en
         const Vec3 c = gpu_ambient([&](World& w) { return own.draw(w); }, black, n);
         worst = std::max({worst, double(c.x), double(c.y), double(c.z)});
     }
-    CHECK(worst == 0.0);
+    // Exactly zero where the backend reads the RGBA8 image back as written; a few ulps of filtering elsewhere. The old 4/255 tint
+    // was about 0.016, three orders of magnitude above this bound.
+    CHECK(worst < 1e-5);
 }
 
 TEST_CASE("sky SH on the GPU: the shaders hold the nine coefficients in highp on GLES3 and WebGL2") {
