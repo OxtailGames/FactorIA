@@ -6382,54 +6382,54 @@ declare module "factoria" {
     normalMap: string;
     /**
      * Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space sprite (a screen-space sprite does not light the scene). Black (default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. Alpha of the colour is ignored.
-     * @since unreleased
+     * @since 0.34.0
      */
     get emissive(): Color;
     set emissive(value: ColorLike);
     /**
      * HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
-     * @since unreleased
+     * @since 0.34.0
      */
     emissiveIntensity: number;
     /**
      * Texture laid out exactly like `texture` and `region` that says where the sprite glows: its RGB is multiplied with `emissive` per pixel, so only the windows or runes of a sprite shine. Empty (default) = the whole sprite emits `emissive`, shaped by its own alpha. (asset path: texture)
-     * @since unreleased
+     * @since 0.34.0
      */
     emissiveMap: string;
     /**
      * Bit mask (a whole number, -1 = every bit) of the light layers this sprite is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
-     * @since unreleased
+     * @since 0.34.0
      */
     lightLayers: number;
     /**
      * Colour of the rim light: a bright edge on the side of the sprite that faces a Light2D, as if light wrapped around it. Alpha is ignored. Only drawn when rimIntensity is above 0 and the sprite is lit.
-     * @since unreleased
+     * @since 0.34.0
      */
     get rimColor(): Color;
     set rimColor(value: ColorLike);
     /**
      * Strength of the rim light. 0 (default) = off. 1 = a rim as bright as the light that makes it.
-     * @since unreleased
+     * @since 0.34.0
      */
     rimIntensity: number;
     /**
      * Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin edge, 0.5 a wide glow.
-     * @since unreleased
+     * @since 0.34.0
      */
     rimWidth: number;
     /**
      * Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` sets the relief of a generated map; `normalMap` is ignored with sprite and height.
-     * @since unreleased
+     * @since 0.34.0
      */
     normalFrom: "file" | "sprite" | "height";
     /**
      * Grey image laid out like `texture` (white = high, black = low) that the normals are generated from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none. (asset path: texture)
-     * @since unreleased
+     * @since 0.34.0
      */
     heightMap: string;
     /**
      * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it.
-     * @since unreleased
+     * @since 0.34.0
      */
     normalStrength: number;
     /**
@@ -6593,27 +6593,27 @@ declare module "factoria" {
     castShadows: boolean;
     /**
      * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
-     * @since unreleased
+     * @since 0.34.0
      */
     size: number;
     /**
      * Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a Sprite, Shape2D or Tilemap when their lightLayers share a bit with it, and a ShadowCaster2D blocks it only when their lightLayers share a bit. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default -1 (all layers).
-     * @since unreleased
+     * @since 0.34.0
      */
     lightLayers: number;
     /**
      * Texture the light shines through (a window, foliage, a gobo): its brightness multiplies the light across the light's disc, centred on the entity. Point lights only. Empty (default) = no cookie. (asset path: texture)
-     * @since unreleased
+     * @since 0.34.0
      */
     cookie: string;
     /**
      * Degrees the cookie is turned around the light, counter-clockwise. Default 0.
-     * @since unreleased
+     * @since 0.34.0
      */
     cookieRotationDeg: number;
     /**
      * Size of the cookie as a multiple of the light's diameter (2 x radius): 1 (default) fits the cookie to the whole disc, 0.5 makes it half as big, 2 shows its middle half.
-     * @since unreleased
+     * @since 0.34.0
      */
     cookieScale: number;
   }
@@ -6621,44 +6621,44 @@ declare module "factoria" {
    * Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: docs/rendering/RENDERING_2D_SHADOWS.md.
    * 
    * Category: 2D
-   * @since unreleased
+   * @since 0.34.0
    */
   export interface ShadowCaster2DComponent {
     /**
      * The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose alpha is above alphaThreshold (needs a Sprite). polygon: the outline in `points`. box: a rectangle of `size` centred on the entity.
-     * @since unreleased
+     * @since 0.34.0
      */
     shape: "spriteAlpha" | "polygon" | "box";
     /**
      * polygon only: the outline as a flat array of numbers [x0, y0, x1, y1, ...] in the entity's local space (world units before the Transform's scale and rotation, +y up), at least 3 points (6 numbers) in order around the shape. The shape may be convex or concave. Default [] (blocks nothing). Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
-     * @since unreleased
+     * @since 0.34.0
      */
     get points(): Float32Array;
     set points(value: Float32Array | readonly number[]);
     /**
      * box only: [width, height] in world units, centred on the entity, before its scale. Both must be above 0. Default [32, 32].
-     * @since unreleased
+     * @since 0.34.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * spriteAlpha only: pixels with alpha above this value block light, 0..1. Default 0.5; lower it to let soft edges and smoke cast a shadow.
-     * @since unreleased
+     * @since 0.34.0
      */
     alphaThreshold: number;
     /**
      * true: the caster is shadowed by its own silhouette, so the side facing away from a light is dark. false (default): the caster is lit as if it did not block light, which looks right for a character.
-     * @since unreleased
+     * @since 0.34.0
      */
     selfShadow: boolean;
     /**
      * Bit mask (a whole number, -1 = every bit) of the Light2D.lightLayers this caster blocks: a light whose lightLayers share no bit with it shines through. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1 ...). Default -1 (every light).
-     * @since unreleased
+     * @since 0.34.0
      */
     lightLayers: number;
     /**
      * false switches the caster off without removing the component, so it casts no shadow. Default true.
-     * @since unreleased
+     * @since 0.34.0
      */
     enabled: boolean;
   }
@@ -6666,37 +6666,37 @@ declare module "factoria" {
    * Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. Off unless an entity of the scene has this component and `enabled` is true (the first one counts), so a scene without it costs nothing and draws the same pixels. It needs render targets of 16-bit float colour and a memory budget: where the GPU has none, or `quality` and `range` ask for more than the platform budgets (render.supports 2dGlobalIllumination says which), the scene is drawn without it and the log tells why once. Only LIT visuals receive the light (albedo times the irradiance at their position, whatever their lightLayers); unlit visuals, 3D meshes, and pictures drawn into their own image (render targets, CameraView, editor views, camera captures) get none. Light comes from emitters and occluders inside the view plus `range`. Details, cost and limits: docs/rendering/RENDERING_2D_GI.md.
    * 
    * Category: 2D
-   * @since unreleased
+   * @since 0.34.0
    */
   export interface GlobalIllumination2DComponent {
     /**
      * false switches the global illumination off without removing the component. Default true.
-     * @since unreleased
+     * @since 0.34.0
      */
     enabled: boolean;
     /**
      * How finely the cascades sample the light, as counts that are the same on every machine (rays are those of cascade 0): low = 3 cascades, a probe every 4 texels, 16 rays per probe, 20 steps per ray; medium (default) = 4 cascades, a probe every 2 texels, 4 rays per probe, 28 steps; high = 5 cascades, a probe every 2 texels, 4 rays, 40 steps. A small view uses fewer cascades than that. High needs 5 cascade passes: on a phone or a browser it is over the budget and the scene is drawn without GI (use medium there). It changes the cost, not the meaning of the other fields.
-     * @since unreleased
+     * @since 0.34.0
      */
     quality: "low" | "medium" | "high";
     /**
      * Multiplies the irradiance a lit visual receives (the light it adds is albedo times irradiance times this), 0..16. 1 = the light as the cascades computed it (default), 0 = no light added.
-     * @since unreleased
+     * @since 0.34.0
      */
     intensity: number;
     /**
      * 0..1: how much of the light that reached a surface (last frame's irradiance) it bounces back, times its colour: a red wall tints the floor next to it. 0 = only the light of emitters, no bounce; 1 = surfaces reflect all they receive times their colour. Only things that block light (ShadowCaster2D, solid Tilemap cells) bounce. Default 0.5.
-     * @since unreleased
+     * @since 0.34.0
      */
     bounce: number;
     /**
      * World units added around the camera's view on every side: the field of emitters and occluders covers the view plus this margin, so a lamp just off screen still lights it and a wall just off screen still shadows it; what is farther away does not exist for the GI. Larger costs more memory (the field grows with it) and over the platform's budget turns the GI off with a log line. 1..100000, default 512.
-     * @since unreleased
+     * @since 0.34.0
      */
     range: number;
     /**
      * Texels of the field per screen pixel, 0.1..1: 0.5 (default) computes the field at half the screen's resolution; lower is cheaper and softer, and a thin shadow caster narrower than a texel can be missed. The field's sides are rounded up to a multiple of 32 texels and its memory is about 64 bytes a texel.
-     * @since unreleased
+     * @since 0.34.0
      */
     resolutionScale: number;
   }
@@ -6704,54 +6704,54 @@ declare module "factoria" {
    * A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/RENDERING_2D_WATER.md).
    * 
    * Category: 2D
-   * @since unreleased
+   * @since 0.34.0
    */
   export interface Water2DComponent {
     /**
      * [width, height] of the water area in world units, before the entity's scale; both above 0. The top edge is the surface. Default [256, 128].
-     * @since unreleased
+     * @since 0.34.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Colour (and opacity, the alpha) of the water body: what is seen through it is mixed with this. Default [0.2, 0.5, 0.7, 0.5].
-     * @since unreleased
+     * @since 0.34.0
      */
     get tint(): Color;
     set tint(value: ColorLike);
     /**
      * 0..1: how much of what is above the surface shows mirrored in the water. 0 = none, 1 = a mirror. Default 0.5.
-     * @since unreleased
+     * @since 0.34.0
      */
     reflection: number;
     /**
      * How far what is under the water is displaced by the waves, in pixels of the picture, 0..256. 0 = no distortion. Default 4.
-     * @since unreleased
+     * @since 0.34.0
      */
     refraction: number;
     /**
      * Height of the waves of the surface in world units, 0..1000. 0 = a still surface. Default 2.
-     * @since unreleased
+     * @since 0.34.0
      */
     waveAmplitude: number;
     /**
      * Distance between two wave crests in world units, 0.1..100000. Default 64.
-     * @since unreleased
+     * @since 0.34.0
      */
     waveLength: number;
     /**
      * How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). 0 = frozen. Default 1.
-     * @since unreleased
+     * @since 0.34.0
      */
     waveSpeed: number;
     /**
      * Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.
-     * @since unreleased
+     * @since 0.34.0
      */
     layer: number;
     /**
      * Optional sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that replaces the built-in water look; the area is its quad. Empty (default) = the built-in water. (asset path: material)
-     * @since unreleased
+     * @since 0.34.0
      */
     material: string;
   }
@@ -6759,28 +6759,28 @@ declare module "factoria" {
    * A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. The entity's Transform places the centre of the area.
    * 
    * Category: 2D
-   * @since unreleased
+   * @since 0.34.0
    */
   export interface DistortionZone2DComponent {
     /**
      * [width, height] of the zone in world units, before the entity's scale; both above 0. Default [128, 128].
-     * @since unreleased
+     * @since 0.34.0
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled by the material when there is one). 0 = no distortion. Default 1.
-     * @since unreleased
+     * @since 0.34.0
      */
     strength: number;
     /**
      * Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a higher layer is not bent. Default 20.
-     * @since unreleased
+     * @since 0.34.0
      */
     layer: number;
     /**
      * Sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that makes the displacement. Empty (default) = the built-in ripple. (asset path: material)
-     * @since unreleased
+     * @since 0.34.0
      */
     material: string;
   }
@@ -7047,7 +7047,7 @@ declare module "factoria" {
     lit: boolean;
     /**
      * Bit mask (a whole number, -1 = every bit) of the light layers this shape is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
-     * @since unreleased
+     * @since 0.34.0
      */
     lightLayers: number;
     /**
@@ -7314,18 +7314,18 @@ declare module "factoria" {
     occludesLight: boolean;
     /**
      * Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.
-     * @since unreleased
+     * @since 0.34.0
      */
     lightLayers: number;
     /**
      * Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works with or without `lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.
-     * @since unreleased
+     * @since 0.34.0
      */
     get emissive(): Color;
     set emissive(value: ColorLike);
     /**
      * HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
-     * @since unreleased
+     * @since 0.34.0
      */
     emissiveIntensity: number;
     /**
