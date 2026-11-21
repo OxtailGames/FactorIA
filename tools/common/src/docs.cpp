@@ -339,9 +339,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"scripting-tests-tools", "Scripting pages: script tests, tools, hook modules and runtime notes.",
          aud({kGameAi})},
         {"shaders",
-         "Custom shaders and materials: the template, uniforms, limits. Child pages: shaders-examples, -sprites, "
-         "-lighting, "
-         "-full, -post, -compute.",
+         "Custom shaders: the template, uniforms, limits. Pages: shaders-examples, -sprites, -lighting, -full, -post, "
+         "-compute.",
          aud({kGameAi, kEngineDev})},
         {"shaders-compute",
          "Custom shaders, part: compute materials, their storage buffers and the compute.* commands.",
