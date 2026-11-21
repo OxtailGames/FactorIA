@@ -569,6 +569,29 @@ TEST_CASE("physical sky: where the tables cannot be made the gradient is drawn a
     CHECK(diff_images(a, b, 1.0f / 255.0f).meanError < 0.0005);
 }
 
+TEST_CASE("physical sky: without a directional light there is no sun disc at the zenith") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!physical_sky_supported(g)) {
+        MESSAGE("physicalSky is not supported on this GPU: not run");
+        return;
+    }
+    // The camera looks straight up. With a sun standing overhead the middle of the picture is its (white) disc; without a light the
+    // sky keeps its glow there.
+    SkyScene withSun(90.0f, 180.0f, 90.0f);
+    withSun.w.settings().cloudCoverage = 0.0f;
+    const Image lit = g.render(withSun.w);
+    const Color disc = lit.pixel(lit.width / 2, lit.height / 2);
+    CHECK(disc.r > 0.95f);
+    SkyScene none(90.0f, 180.0f, 90.0f);
+    none.w.settings().cloudCoverage = 0.0f;
+    none.w.remove<Light>(none.sun);
+    const Image dark = g.render(none.w);
+    const Color zenith = dark.pixel(dark.width / 2, dark.height / 2);
+    // The air's own glow round the sun's direction is left (a pale sky), the disc is not: it is clearly darker than the disc.
+    CHECK(zenith.r < disc.r - 0.1f);
+}
+
 TEST_CASE("physical sky: the pictures: noon, sunset, overcast and a metal sphere that reflects the sky") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

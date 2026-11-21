@@ -188,6 +188,8 @@ struct Renderer::Impl::DrawContext {
     // with the state physMain (exact sun and clock, the picture's table), physSunDir / physSunColor = the sun as collect_lights
     // found it, before the sky tinted its light.
     bool envSliced = false, physMainOn = false;
+    bool physSunOn =
+        false;  // a directional light is the sun of this view (physSunDir / physSunColor are its): else no sun disc
     std::uint64_t envStatic = 0;
     float envSun[3]{0.0f, 1.0f, 0.0f};
     PhysicalSkyState physMain;
@@ -1221,8 +1223,10 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     // cannot make the sky's tables (the gradient is drawn then).
     {
         const SceneSettings& wss = world.settings();
+        ctx.physSunOn = false;
         if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
             LightData& sun = lights[0];
+            ctx.physSunOn = true;
             ctx.physSunDir[0] = sun.pos.x;
             ctx.physSunDir[1] = sun.pos.y;
             ctx.physSunDir[2] = sun.pos.z;
@@ -3248,7 +3252,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 sky.linear = fr.linear;
             } else if (ctx.physMainOn) {
                 sky.physical = true;
-                sky.sunDisc = true;
+                sky.sunDisc = ctx.physSunOn;  // no directional light: the gradient of the air, without a disc
                 sky.slot = 0;
                 sky.phys = ctx.physMain;
             } else {
