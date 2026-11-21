@@ -260,9 +260,18 @@ ContourLoops contour_from_alpha(const std::uint8_t* alpha, int w, int h, float t
 // Casters of a frame
 // ---------------------------------------------------------------------------------------------------------------------
 
-void warn_once(ContourCache& c, const std::string& key, const std::string& message) {
-    if (c.warned.size() >= 64 || !c.warned.insert(key).second) return;
+void warn_once(ContourCache& c, const std::string& key, const std::string& message, bool perEntity) {
+    if (perEntity) {
+        if (c.warned.size() >= kMaxEntityWarnings2D || !c.warned.insert(key).second) return;
+    } else if (!c.warnedFixed.insert(key).second) {
+        return;
+    }
     FA_WARN("render", "{}", message);
+}
+
+void reset_warnings(ContourCache& c) {
+    c.warned.clear();
+    c.warnedFixed.clear();
 }
 
 namespace {
@@ -375,7 +384,7 @@ const ContourCache::Alpha& alpha_plane(ContourCache& c, const TextureAsset& tex,
 void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSet& out) {
     out.segs.clear();
     out.bodies.clear();
-    ++cache.tick;
+    ++cache.tick;  // one per gather pass (one per camera of a frame that asks for shadows), never per frame
     bool over = false;
     world.each<ShadowCaster2D>([&](Entity e, ShadowCaster2D& caster) {
         const ShadowCaster2D& sc = caster;
@@ -400,7 +409,8 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                 warn_once(cache, std::format("poly{}", world.id_of(e)),
                           std::format("ShadowCaster2D on '{}' has {} polygon points; at most {} are used (the rest are "
                                       "cut). Hint: simplify the outline, or split it into several casters",
-                                      world.id_of(e), n, kMaxCasterSegments2D));
+                                      world.id_of(e), n, kMaxCasterSegments2D),
+                          true);
                 n = std::size_t(kMaxCasterSegments2D);
             }
             std::vector<Vec2> pts;
@@ -413,7 +423,8 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                     cache, std::format("nospr{}", world.id_of(e)),
                     std::format("ShadowCaster2D on '{}' has shape spriteAlpha but the entity has no Sprite, so it "
                                 "blocks no light. Hint: add a Sprite, or set shape to box or polygon",
-                                world.id_of(e)));
+                                world.id_of(e)),
+                    true);
             } else {
                 TextureAsset* tex = s->texture.empty() || !f.assets ? nullptr : f.assets->texture(s->texture);
                 Rect r = s->region;
@@ -470,10 +481,12 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                                       std::format("ShadowCaster2D on '{}' could not read the alpha of '{}': {}. The "
                                                   "sprite's rectangle blocks light instead. Hint: use shape polygon or "
                                                   "box for this sprite, or keep the texture file in the project",
-                                                  world.id_of(e), s->texture, problem));
+                                                  world.id_of(e), s->texture, problem),
+                                      true);
                         }
                         entry.used = cache.tick;
-                        if (cache.contours.size() >= 4096) {  // forget what was not used these two frames
+                        if (cache.contours.size() >=
+                            4096) {  // forget what no gather pass used in the last two (a gather pass, not a frame, ages the cache)
                             for (auto c = cache.contours.begin(); c != cache.contours.end();)
                                 c = c->second.used + 1 < cache.tick ? cache.contours.erase(c) : std::next(c);
                             if (cache.contours.size() >= 4096)

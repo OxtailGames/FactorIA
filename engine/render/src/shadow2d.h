@@ -6,6 +6,7 @@
 // covers, so the cost of a row is the number of (segment, angle) pairs it covers, not rays x all the segments of the scene.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -28,7 +29,8 @@ constexpr int kMaxCasterSegments2D = 256;  // segments of one caster (a contour 
 constexpr int kMaxCasterBodiesPerLight = 512;  // casters one light's row reads (in entity order)
 constexpr std::uint64_t kMaxRowWork2D =
     1u << 20;  // segment x angle tests of one light's row; the casters after it (in entity order) are skipped
-constexpr int kMaxContourLoops2D = 16;          // closed outlines kept from one sprite
+constexpr std::size_t kMaxEntityWarnings2D = 64;  // distinct per-entity warnings a scene logs
+constexpr int kMaxContourLoops2D = 16;            // closed outlines kept from one sprite
 constexpr int kMaxContourPixels2D = 512 * 512;  // alpha pixels one contour reads; a larger region is reduced by blocks
 
 // The outline(s) of an alpha image in pixel units of the region ([0, w] x [0, h], y down): marching squares on `alpha`
@@ -73,10 +75,12 @@ struct ContourCache {
     };
     std::unordered_map<std::string, Alpha> planes;    // alpha channel per texture file (key: path + image id)
     std::unordered_map<std::string, Entry> contours;  // key: path + image id + region + threshold
-    std::uint64_t tick = 0;
+    std::uint64_t tick = 0;  // one per gather_shadow_casters call: an entry is old when no pass of the last two used it
     std::uint64_t contoursMade = 0;  // for tests: how many contours were really extracted
     std::size_t planeBytes = 0;
-    std::unordered_set<std::string> warned;  // messages already logged (once per renderer)
+    std::unordered_set<std::string>
+        warned;  // per-entity warnings already logged this scene (at most kMaxEntityWarnings2D)
+    std::unordered_set<std::string> warnedFixed;  // fixed-key warnings already logged this scene (a handful of keys)
 };
 
 // The casters of the frame: every enabled ShadowCaster2D of an active entity this camera draws, as world segments.
@@ -95,7 +99,10 @@ void casters_in_reach(const CasterSet& set, float px, float py, float radius, st
 std::uint64_t cast_casters(const CasterSet& set, const std::vector<std::uint32_t>& bodies, float px, float py,
                            float radius, float* dist, bool* cut = nullptr);
 
-// Logs `message` once per `key` for the life of the renderer (at most 64 keys).
-void warn_once(ContourCache& c, const std::string& key, const std::string& message);
+// Logs `message` once per `key` until reset_warnings (the renderer calls it when the scene changes). A fixed key (the default)
+// is never refused; a per-entity key (`perEntity`, one per caster or texture) shares kMaxEntityWarnings2D places, so a scene
+// with thousands of bad casters cannot fill the log, and cannot push a fixed warning out either.
+void warn_once(ContourCache& c, const std::string& key, const std::string& message, bool perEntity = false);
+void reset_warnings(ContourCache& c);
 
 }  // namespace fa::render

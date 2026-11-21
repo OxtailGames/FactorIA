@@ -81,6 +81,20 @@ nor uploads its row, frame after frame (the frame still reads each caster's tran
 casters but touches no pixel); a moving caster recomputes only the rows of the lights it reaches. A row is computed on the
 CPU, 1024 angles each time its key changes.
 
+## A caster partly in reach
+
+A light reads a caster when its bounding box touches the light's disc (radius). What a row then takes from that caster:
+
+- Only the segments whose nearest point lies inside the disc count. The part of an outline outside the disc is ignored, and a
+  shadow starts at most at the radius, where the light is already zero, so nothing is drawn past it.
+- A light inside a caster's outline is not blocked by it (like a light inside a solid tile), whatever part of it is in reach.
+- When the row's work cap is reached in the middle of a caster, the segments tested before the cut, in the order of the
+  outline, still shade; the ones after it, and every caster after it in entity order, block nothing for that light. A ray whose
+  far face was not reached starts its shadow at the near face. The same cut is made on every run and machine, and one warning
+  per scene says so.
+- The same rule holds for the 512 casters a light reads and the 2048 a frame reads: the casters after the cap (in entity
+  order) are not read at all, never half of one.
+
 ## Costs and caps
 
 All caps count work and never time, so a scene gives the same picture on a slow machine as on a fast one. The cap on a frame's
@@ -94,15 +108,15 @@ cached costs nothing), so a scene that moves many casters through many lights is
 | Casters one light's row reads | 512, in entity order | the others do not block that light, one warning |
 | Outlines of one sprite | 16 | the smaller ones block nothing |
 | Alpha pixels one contour reads | 512 x 512 | the region is reduced by blocks |
-| Segment x angle tests of one light's row | 1,048,576 (about 100 times a box in a light's view) | the casters after it (in entity order) do not block that light, one warning |
+| Segment x angle tests of one light's row | 1,048,576 (about 13,000 boxes that fill 10 degrees of the light's view; a light reads at most 512 casters, so boxes alone never reach it) | the casters after it (in entity order) do not block that light, one warning |
 | Lights of a frame | 256 | the ones ranked last are left out of the frame, one warning per scene |
 
 A caster is rasterised into the angles of the row it covers, so the cost of a row is the number of (segment, angle) pairs: a
-box that fills 10 degrees of a light's view is about 100 texels, however many casters are in the scene, and a caster outside a light's
-disc costs the bounding-box test only. Measured in a Debug build (-O1) on one Mac (Apple M5, Metal), 100 boxes and 64 lights of radius 120, a 320 x 180 frame read back
-to the CPU, the numbers move by a millisecond from run to run: about 4 ms a frame with `size` 3 and every light moving (the 64
-rows computed again each frame), about 2 ms with the same lights still, about 1 ms with the lights still and `size` 0. So a
-row costs about 30 microseconds, and the penumbra about 1 ms for 64 lights that cover 240 x 240 pixels each. Two things grow a
+box that fills 10 degrees of a light's view costs about 80 tests (the `cast_casters` test counts them), however many casters are in the scene, and a caster outside a light's
+disc costs the bounding-box test only. Measured in a Debug build (`-O1 -g1`, not a Release one) on one Mac (Apple M5, Metal), 100 boxes and 64 lights of radius 120, a 320 x 180 frame read back
+to the CPU, the numbers move by a millisecond or two from run to run: about 6 to 7 ms a frame with `size` 3 and every light moving (the 64
+rows computed again each frame), about 3 to 4 ms with the same lights still, about 1 ms with the lights still and `size` 0. So a
+row costs about 50 microseconds, and the penumbra about 2 to 3 ms for 64 lights that cover 240 x 240 pixels each. Two things grow a
 row's cost: a light that reaches many large casters, and a sprite with a very detailed contour (use a polygon). A game that moves dozens of
 casters through dozens of lights every frame is the case to measure with `factoria call perf.measure` on the target hardware.
 
@@ -113,7 +127,7 @@ float render target; a GPU ray cast is a possible follow-up for scenes with hund
 
 - `render.supports` rows `2dSoftShadows` and `2dShadowCasters` are true wherever the renderer draws (they need nothing a
   backend might lack).
-- Warnings, each once per scene or per renderer: a `spriteAlpha` caster without a `Sprite`, a texture whose alpha cannot be read,
+- Warnings, each once per scene (a scene change lets them show again; the per-caster and per-texture ones share 64 places a scene, the others are never pushed out): a `spriteAlpha` caster without a `Sprite`, a texture whose alpha cannot be read,
   a polygon over 256 points, more than 2048 casters, a light that reaches more than 512 casters, a row over its work cap, more than 256 lights.
 - A caster on a hidden layer (an entity the camera's mask does not draw) casts no shadow in that camera's view, like a tile map.
 - Determinism: nothing in the rows depends on time or randomness; the same scene gives the same row on every run.
