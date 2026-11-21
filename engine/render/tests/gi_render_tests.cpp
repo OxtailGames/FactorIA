@@ -1,11 +1,11 @@
-// M73-P5d-1: the realtime GI's grid on the GPU (docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"). Nothing is shaded with it
-// yet (P5d-2), so the tests read the blocks of the probes in the atlas's band back and look at what a capture left in them:
+// M73-P5d-1: the realtime GI's grid on the GPU (docs/design/ARCHITECTURE_PROBES.md, "Realtime GI: the data side"). The shading is tested in
+// gi_shading_tests.cpp; these tests read the blocks of the probes in the atlas's band back and look at what a capture left in them:
 //   - a red wall on one side and a green one on the other: the probes near a wall are tinted by it, the one in the middle is not;
 //   - the depth map holds the distance of the wall and maxDistance where nothing is;
 //   - the budget of probes a frame is respected and every probe is captured in the end;
 //   - two renderers given the same scene leave the same bytes in the blocks;
 //   - a probe inside a closed box is reported invalid, the one outside it is not;
-//   - a scene without a RealtimeGI costs nothing (no atlas, no grid), and one with it draws the same picture (nothing shades with it yet).
+//   - a scene without a RealtimeGI costs nothing (no atlas, no grid), and one with it draws the same picture when it has no lit mesh.
 // The tolerances hold on llvmpipe and WARP as well as on a real GPU; no golden image is compared.
 #include "test_util.h"
 
@@ -406,7 +406,7 @@ TEST_CASE("realtime GI: a scene without a RealtimeGI costs nothing and one with 
     }
     CHECK(report["captures"].get<double>() > 0.0);
     const Image during = o.picture(w);
-    CHECK(during.rgba == before.rgba);  // nothing shades with the grid yet
+    CHECK(during.rgba == before.rgba);  // the scene has unlit meshes only: the grid changes nothing of them
 
     // The component goes: the grid and its blocks go with it, no probe is captured any more, the picture is the same.
     w.destroy_immediate(gi);

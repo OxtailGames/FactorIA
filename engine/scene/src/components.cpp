@@ -2375,7 +2375,8 @@ void register_builtin_components(TypeRegistry& r) {
          "blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit "
          "the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without "
          "this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the "
-         "game runs. This is the data side: the mesh shaders read the grid from M73.5d-2 on, until then the commands "
+         "game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the "
+         "sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands "
          "render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene "
          "shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\".",
          "3D")
@@ -2400,12 +2401,12 @@ void register_builtin_components(TypeRegistry& r) {
                "error). 32 sees small bright lights better and costs about four times as much.")
         .range(16, 32)
         .field("intensity", &RealtimeGI::intensity,
-               "0..16: multiplies the light the grid gives to the meshes (read by the shading, M73.5d-2). Changing "
+               "0..16: multiplies the light the grid gives to the meshes of every lit mesh the grid covers. Changing "
                "it does not capture again. Default 1.")
         .range(0, 16)
         .field("bounce", &RealtimeGI::bounce,
                "0..1: how much of the grid's own light the captures see, that is how many bounces the light makes "
-               "(0 = one bounce, 1 = as many as the frames allow). Used by the shading from M73.5d-2. Default 1.")
+               "(0 = one bounce, 1 = as many as the frames allow). Meshes drawn on screen always see the grid at full strength. Default 1.")
         .range(0, 1)
         .field("hysteresis", &RealtimeGI::hysteresis,
                "0..0.99: the share of a probe's old value that a new capture keeps. 0.9 (default) takes a tenth of "

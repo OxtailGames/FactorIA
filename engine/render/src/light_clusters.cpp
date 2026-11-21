@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 
+#include "fa/render/gi.h"
 #include "render_jobs.h"
 
 namespace fa::render {
@@ -227,8 +228,9 @@ int light_texture_rows(std::size_t texels) {
 
 void pack_light_texture(const std::vector<LightData>& lights, int directional, const ClusterCamera& camera,
                         const ClusterLists* lists, LightTexture& out, const std::vector<LocalShadowRecord>* shadows,
-                        const DecalPack* decals) {
-    if (!lists) decals = nullptr;  // the decals are found through the clusters
+                        const DecalPack* decals, const float* gi, int giCount) {
+    if (!lists) decals = nullptr;
+    if (!gi || giCount <= 0) giCount = 0;  // the decals are found through the clusters
     if (decals && (decals->records.empty() || decals->lists.first.size() != lists->first.size())) decals = nullptr;
     out.width = kLightTextureWidth;
     out.stride = kLightTexels;
@@ -250,6 +252,12 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         decalBase + kDecalHeaderTexels + (decals ? decals->records.size() * kDecalTexels : 0);
     const std::size_t decalIndexTexels = decals ? (decals->lists.indices.size() + 3) / 4 : 0;
     out.usedTexels = decals ? decalIndexBase + decalIndexTexels : decalBase;
+    // The realtime GI records come last, so a view without a grid has the texels it had before.
+    out.giBase = -1;
+    if (giCount > 0) {
+        out.giBase = static_cast<long long>(out.usedTexels);
+        out.usedTexels += std::size_t(giCount) * 4;
+    }
     out.height = light_texture_rows(std::max<std::size_t>(out.usedTexels, 1));
     out.texels.assign(std::size_t(out.width) * std::size_t(out.height) * 4, 0.0f);
     float* t = out.texels.data();
@@ -277,6 +285,10 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         }
         for (std::size_t i = 0; i < lights.size(); ++i)
             t[(std::size_t(out.shadowBase) + i) * 4 + 1] = std::max(lights[i].contactLength, 0.0f);
+    }
+    if (giCount > 0) {
+        float* r = t + std::size_t(out.giBase) * 4;
+        for (std::size_t i = 0; i < std::size_t(giCount) * std::size_t(kGiRecordFloats); ++i) r[i] = gi[i];
     }
     out.uniforms = ClusterUniforms{};
     out.uniforms.info[2] = float(directional);

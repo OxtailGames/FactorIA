@@ -10,7 +10,7 @@ the frames, and the files of a baked probe; and how the lit meshes read the atla
 **State after P3c.** Probes are captured (or loaded from a baked page) into the atlas, listed by `render.probes`, and read by the mesh
 fragment shader at view 14 (the sky is the atlas' entry 0): each draw reflects up to two probes picked on the CPU plus the sky, with
 box projection and roughness levels. The sky's prefiltered cube is only the source the "sky-env" pass copies into entry 0. "What the
-meshes read" says how; "What P5d-2 can use" what the next package may build on.
+meshes read" says how; "What another source of tiles can use" what a new tile may build on.
 
 ## Where the code is
 
@@ -207,7 +207,9 @@ the specular IBL, the clear coat, sheen and anisotropy layers and `fa_sky_light`
 SH coefficients of the sky and the probes by the same shares and evaluates once.
 
 **The diffuse precedence** (`fa_indirect_diffuse`): the lightmap texel; else the baked light probes (M73.4d) over the coverage they
-have, mixed with `fa_ambient_light(n)` (the reflection probes' SH and the sky's) for the rest; else `fa_ambient_light(n)`. A lightmapped
+have, mixed with `fa_realtime_or_ambient(n)` for the rest; else `fa_realtime_or_ambient(n)`: the ready `RealtimeGI` grids over the share
+they cover (the first grid that reaches the fragment takes its cover, the next ones what is left), then `fa_ambient_light(n)` (the reflection
+probes' SH and the sky's) for the rest. See "Realtime GI: the shading". A lightmapped
 surface keeps its specular reflection of the probes (a lightmap holds no direction), and `fa_baked_keep` (the baked direct lights a mixed
 light must not add again) is untouched: the probes add no direct light, so there is nothing to subtract.
 
@@ -218,9 +220,9 @@ loop over the probes of the scene per mesh on the scene build (the job split doe
 **The editor.** `tools/editor/src/viewport.cpp` draws the box of a selected ReflectionProbe (a perspective view only), and the
 Inspector's `render.probes {entity}` is the way to ask which probes a mesh reflects.
 
-## What P5d-2 can use
+## What another source of tiles can use
 
-- The atlas is one image at fragment view 14 with the unit's sampler 10: anything that stores a map in it as a tile (the GI grid of P5d-1)
+- The atlas is one image at fragment view 14 with the unit's sampler 10: anything that stores a map in it as a tile (the GI grid)
   is read by the same functions given the tile's origin and resolution. `fa_probe_radiance(origin, res, dir, roughness)` and
   `fa_probe_sh_coef(origin, res, k)` take ANY tile, not only a ReflectionProbe's. The binding needs no change: P6b's transmission
   keeps its own unit (view 28).
@@ -282,8 +284,7 @@ on the state of the grid, so the same scene gives the same order on every machin
 **Hysteresis and multi-bounce.** The first capture of a probe replaces its block. The next ones are blended into it by the hardware: the passes
 output the new value with alpha = `1 - hysteresis` (pipeline blend src-alpha, one-minus-src-alpha, colour only), so there is no read of the old
 value and no ping-pong image. Multi-bounce needs no extra pass: a capture draws the scene with the lighting the meshes have at that frame, and
-when P5d-2 makes the meshes read the grid, the next capture of a probe sees the grid's earlier light (times `bounce`). In P5d-1 only the
-hysteresis, the stored `bounce` field and the data exist; the bounce is not visible.
+the meshes read the grid ("Realtime GI: the shading"), so the next capture of a probe sees the grid's earlier light (times `bounce`).
 
 **Nothing per frame on the CPU.** The data is produced and stays on the GPU. The command `render.gi_grid` reads the band back (the meta
 texels) once per call, to count the probes that are inside geometry; the frame never reads it.
@@ -310,36 +311,44 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
 - Row 10, column 9: the meta texel: r = the fraction of the 16 x 16 directions whose first hit is a back face, g = 1 once the probe has been captured (0 before: the
   atlas is cleared to 0), b and a unused. A probe with `r > backfaceTolerance` is INVALID: it is inside geometry and must not be used (weight 0).
 
-### What P5d-2 must do
+## Realtime GI: the shading (M73-P5d-2)
 
-1. **Upload the grids.** `GiGrid::layout` is the CPU truth; `gi_pack_record(layout, baseBlock, ready, out[16])` packs the record of a grid as four
-   vec4: `[0]` origin.xyz, spacing; `[1]` nx, ny, nz, count; `[2]` baseBlock, blocksPerRow (102), maxDistance, intensity; `[3]` bounce,
-   backfaceTolerance, ready (1 once every probe has been captured), 0. `GiGrid::dirty` says the record changed (the layout key or the readiness).
-   Put the records (up to `kGiMaxGrids` = 8, 16 floats each, plus the grid count) in a row of the light data texture (fragment view 24, RGBA32F) or in
-   a uniform block; the mesh fragment stage has no free texture unit (16 of 16) and none is needed: the blocks are in the atlas, which P3c binds at view
-   14 (`ProbeSystem::atlas.tex` with `ProbeGpu::sampler()`, clamp and linear; a bilinear tap of a block's interior never leaves it: the depth map has its border and the SH texels are read by `texelFetch`
-   or with the centre of the texel).
-2. **Pick the grid of a point**: the first record whose box (origin - 0.5 spacing .. origin + (n - 1 + 0.5) spacing, per axis) holds the point, with `ready == 1`; a point
-   outside every box gets the sky and the reflection probes as before. `gi_neighbours(layout, p)` is the CPU reference of the next step.
-3. **The eight probes around a point**: `g = (p - origin) / spacing` clamped to `[0, n - 1]` per axis; `i0 = min(floor(g), n - 2)` (an axis of one layer
-   uses the same probe twice), `f = g - i0`; the probe at `(i0 + (dx, dy, dz))` has index `x + nx * (y + ny * z)` and the trilinear weight
-   `prod(dx ? f : 1 - f)`; the block of probe `i` is `baseBlock + i`, its texel origin `((block % 102) * 10, 1024 + (block / 102) * 11)`, divided by the atlas size
-   (1024 x 1156) for the uv.
-4. **Weigh each of the eight.** Drop the invalid ones (`meta.r > backfaceTolerance`) and the ones not captured (`meta.g < 0.5`). With `d` the distance from the
-   probe to the shaded point (pushed a little along the normal and the view vector, a "bias" of about 0.2 x spacing): the Chebyshev weight above from the depth map
-   texel of the direction `normalize(p - probePosition)` (`gi_depth_uv(dir)` is the texel coordinate inside the block in texel units, bilinear taps at texel centres; it is `oct_encode`
-   of the direction, mapped to 1 + (e * 0.5 + 0.5) * 8 - 0.5), a smooth "backface" weight `max(0.0001, (dot(dir, normal) + 1) / 2)^2`, and the trilinear weight; normalise the weights. A
-   point where every weight is 0 falls back to the sky's light.
-5. **Light.** `irradiance = sum(w_i * sh_irradiance(sh_i, normal)) * intensity`: add it to the ambient of the mesh (replace the sky's
-   diffuse where the grid reaches, as the light probes of M73.4d do with `SceneSettings`), times the albedo and the ambient occlusion. Specular still comes from
-   the reflection probes and the sky.
-6. **Bounce.** The captures see the grid through the same shading, so the bounce comes by itself. `bounce` (0..1) is in the record: the shading of a CAPTURE
-   (a view job of a `gi:` face) should multiply the grid's light by it (0 = a capture ignores the grid, no feedback; the picture of a camera uses 1), which
-   needs a way to tell the shader that the draw belongs to a capture (a uniform of the view, not a new texture unit). Keep `ready` at 0 until every probe
-   has been captured once, so a grid that is filling does not flash.
-7. **The cost rule.** A world without a `RealtimeGI` must keep drawing the bytes of today's shaders: select the GI variant of the mesh template only while a grid exists, as the
-   light probes do.
-8. Flip the `realtimeGI` row of `render.supports` (`render_features.cpp`) and the test that requires its `why` once a mesh is shaded with it.
+**Records.** `gi_build_records` (renderer_gi.cpp) packs the ready grids' records (`gi_pack_record`, four vec4 each, at most `kGiMaxGrids`) into
+`GiSystem::records`; `pack_light_texture` (light_clusters.cpp) writes them into the light data texture after the decals (`LightTexture::giBase`,
+the first texel of the region). The fragment's `fa_gi` (a vec4 of the fs params block, mirrored in `mesh_full_common.glsl`) holds `x` = that first
+texel, `y` = the number of records and `z` = 1 while a capture is drawn. The block grew by one vec4, from 832 to 848 bytes as the backends'
+reflection reports it (the fixtures' `size`). A grid that is not ready has no record, so a grid that is filling changes nothing: a test compares the frames of
+the first cycle with the frames of a world without the component, byte for byte, and the frame of a world without any `RealtimeGI` is the one of
+before (`fa_gi.y` is 0, one branch). No texture unit and no draw call are added: the records are in the light texture and the blocks in the probe atlas
+(fragment view 14, sampler 10, the same `fa_atlas_size()` for the texel coordinates).
+
+**The pixel** (`fa_gi_grid`, mesh_common.glsl). The grid's box is the lattice of its probes: `edge` is the distance from the point to the nearest face of
+the lattice grown by half a spacing, in spacings, and `box = smoothstep(0, 1, 2 * edge)`: the grid answers fully inside the probes and fades to 0 over the
+half spacing outside them. So a surface that lies on the face of the box (a floor at the height of the lowest probes) gets nothing from the grid: the
+box must reach past the surfaces it lights. The eight probes around the point are the ones of `gi_neighbours` (an axis of one layer reads the same
+probe twice). For each probe, with the point pushed by `0.2 x spacing` along `0.8 n + 0.2 v` (the bias keeps a surface from seeing itself in the
+probe's depth map): weight = trilinear x `back^2` (with `back = max(0.0001, (dot(-dir, n) + 1) / 2)`, `dir` from the probe to the point: a probe behind the
+surface counts little) x `cheb^3` (Chebyshev with the normalised moments and the point's `distance / maxDistance`; 1 when the point is nearer than the
+mean); a probe that is not captured or has `meta.r > backfaceTolerance` is skipped. The SH are blended with the normalised weights and evaluated
+with `fa_sh_eval` (irradiance / pi, the units of a sky's), times `intensity`. `cover = box x smoothstep(0, 0.02, wsum)`: where the probes see the point
+little the grid hands over to what follows. The first grid takes `cover`, the next ones the share that is left; `fa_realtime_or_ambient` gives the rest
+to `fa_ambient_light(n)`. `fa_indirect_diffuse` skips all of it where a lightmap texel or a baked-probe coverage of 1 answers. The loops' bounds are
+read from the record (`8 + int(r3.w)`, with `r3.w` = 0): a driver that unrolled the eight probes with nine coefficients each made the shader of a
+clip (discard) material too large for Apple's Metal compiler, which crashed; the bounds are not constants on purpose.
+
+**Bounce.** A capture frame has `Frame::noProbes` and `fa_gi.z` = 1: its shading multiplies the grid's light by the grid's `bounce`; the frame of a camera
+uses 1. The record is the same for both (there is no second set of records and no extra unit). `bounce` 0 makes a capture ignore the grid (one bounce:
+the direct light and the sky), 1 lets every refresh of a probe add one more bounce. A probe that is refreshed blends the new picture into its old one by
+`hysteresis`, so the series converges.
+
+**Where each part is tested** (`engine/render/tests/gi_shading_tests.cpp`): a white floor beside a red wall turns red when the grid becomes ready and not
+before; a thin white divider (a grid that sees it keeps the light of the near probes from the surface behind it, a grid with the divider in `hideTags`
+leaks), along the six axes (so a flipped octahedral map or a swapped axis fails: the depth runs toward +Y and -Y as well); `bounce` 0 against 1 in the
+probe's SH; the order (a lightmapped mesh and a mesh with baked-probe coverage never read the grid); a point outside the box, or a world whose grid is
+gone, is drawn as without the component. The GPU tests ran on Metal; the GL, D3D11, llvmpipe and WARP paths were not run on the host that wrote them.
+
+**Limits.** The depth moments are half floats: `g` (the mean of squares of values 0..1) loses precision near 0, so a probe very close to a surface has
+a noisy variance and may leak a little or darken a little. A grid answers for up to eight records over a pixel; a ninth is not read.
 
 ## Limits and what is not verified
 

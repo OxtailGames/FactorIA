@@ -249,9 +249,13 @@ std::vector<FeatureDef> build_table() {
          "never the specular light (M73.5).",
          nullptr},
         {"realtimeGI", "half",
-         "Realtime global illumination from a probe grid updated over a few frames, no ray tracing (M73.5). The data "
-         "side is done (RealtimeGI is captured into the probe atlas, render.gi_grid lists it); no mesh is shaded with "
-         "it until M73-P5d-2, so this stays planned."}};
+         "Realtime global illumination from a probe grid updated over a few frames, no ray tracing: a RealtimeGI "
+         "component is captured into the probe atlas a few probes a frame and the lit meshes inside its box are "
+         "shaded with it (the light of the eight probes around each pixel, with a visibility test so light does not "
+         "leak through walls), bouncing between captures; it fills the diffuse light where no lightmap and no baked "
+         "light probe reaches. It needs RGBA16F render targets that blend; render.gi_grid says which grids the "
+         "meshes read (docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\").",
+         nullptr}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
