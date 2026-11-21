@@ -378,6 +378,51 @@ TEST_CASE("realtime GI: a probe inside a closed box is reported invalid and the 
     CHECK(meta(outside, 0) < 0.05f);
 }
 
+TEST_CASE("realtime GI: an entity that moves a little keeps its captured probes, a big move captures them again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!half_float_gi(g)) {
+        MESSAGE("this GPU has no half-float render targets: not run");
+        return;
+    }
+    Own o(g);
+    REQUIRE(o.ok);
+    World w;
+    dark_world(w);
+    const Entity e = add_gi(w, {4, 0, 4}, 2.0f, 9);  // 3 x 1 x 3 probes, all in one frame
+    run_frames(o, w, 3);
+    {
+        const Json report = o.r.gi_report();
+        const Json* grid = grid_json(report, w.id_of(e));
+        REQUIRE(grid != nullptr);
+        if ((*grid)["state"] == "unsupported") {
+            MESSAGE("this GPU cannot blend into RGBA16F: not run");
+            return;
+        }
+        CHECK((*grid)["state"] == "ready");
+    }
+    w.get<Transform>(e)->position.x = 0.4f;  // under half a spacing
+    o.frame(w);
+    {
+        const Json report = o.r.gi_report();
+        const Json* grid = grid_json(report, w.id_of(e));
+        REQUIRE(grid != nullptr);
+        CHECK((*grid)["state"] == "ready");
+        CHECK((*grid)["captured"] == 9);
+    }
+    w.get<Transform>(e)->position.x = 3.0f;  // more than half a spacing from where the grid was laid out
+    {
+        // The first frame after the move captures all 9 again (probesPerFrame 9): lower it to see the restart.
+        w.get<RealtimeGI>(e)->probesPerFrame = 1;
+        o.frame(w);
+        const Json report = o.r.gi_report();
+        const Json* grid = grid_json(report, w.id_of(e));
+        REQUIRE(grid != nullptr);
+        CHECK((*grid)["state"] == "updating");
+        CHECK((*grid)["captured"].get<int>() < 9);
+    }
+}
+
 TEST_CASE("realtime GI: a scene without a RealtimeGI costs nothing and one with it draws the same picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -456,5 +501,6 @@ TEST_CASE("realtime GI: a grid that is wrong says what is wrong, and a GPU witho
         REQUIRE(grid != nullptr);
         CHECK((*grid)["state"] == "unsupported");
         CHECK((*grid)["message"].get<std::string>().find("RGBA16F") != std::string::npos);
+        CHECK(report["atlas"]["height"] == kProbeAtlasSize);  // no band of blocks where no grid can use it
     }
 }

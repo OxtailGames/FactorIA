@@ -667,7 +667,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{probes: [], atlas: null} while no ReflectionProbe has been drawn. With `entity` (a mesh), the result also "
          "has `mesh: {probes: [{entity, share}], sky}`: which probes that mesh reflected in the last frame and "
          "how much of its reflection each holds (0..1, steps of 1/32; the probes and the sky add up to 1). "
-         "Errors: `unavailable` without graphics; `invalid_argument` for an `entity` without a MeshRenderer. "
+         "Errors: `unavailable` without graphics; `invalid_argument` for an `entity` that is not a string or has no "
+         "MeshRenderer. "
          "Example: render.probes {} or render.probes {\"entity\": \"sphere\"}. What each state means: "
          "docs/rendering/RENDERING_PROBES.md, the render.probes item." FA_COMMAND_DETAILS
          "`state`: \"ready\"; \"pending\" (waiting for its first capture); \"capturing\" (facesDone of 6 faces drawn); "
@@ -691,7 +692,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             const bool one = a.is_object() && a.contains("entity") && !a["entity"].is_null();
             if (one && !a["entity"].is_string())
                 throw CommandError(
-                    "invalid_arguments",
+                    "invalid_argument",
                     std::string("render.probes: `entity` is a string (the mesh's id or name), got ") +
                         a["entity"].type_name() + ".",
                     "Pass \"entity\": \"sphere\", or leave `entity` out. scene.list_entities shows the ids.");
@@ -704,7 +705,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                 throw CommandError("unavailable",
                                    "No renderer: the engine runs with graphics=false, so no probes are captured.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
-            engine.render_now();
+            // The renderer keeps the picks of one mesh only (the one asked about); the first ask for a mesh draws a frame that keeps them.
+            if (one && !I.renderer->probe_watch_mesh(named))
+                engine.redraw(1);
+            else
+                engine.render_now();
             Json j = I.renderer->probe_report();
             if (j.empty()) j = Json::object({{"probes", Json::array()}, {"atlas", Json()}});
             if (one) j["mesh"] = I.renderer->probe_mesh_report(named);
@@ -720,7 +725,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, "
          "invalid: [{index, position}] (up to 64)}]}. `state` is \"updating\" (probes not captured yet), \"ready\", "
          "\"invalid\" (`message` names the field and the fix), \"noRoom\" (more than `probeLimit` probes), "
-         "\"failed\" (retried after 30 frames) or \"unsupported\" (no RGBA16F blending). `invalidProbes` counts "
+         "\"failed\" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay "
+         "until the next capture succeeds) or \"unsupported\" (no RGBA16F blending). `invalidProbes` counts "
          "the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call "
          "this to look, not every frame. Nothing is shaded with the grid yet (M73-P5d-2). {grids: [], atlas: null} "
          "while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} "
