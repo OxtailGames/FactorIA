@@ -516,7 +516,7 @@ Realtime global illumination without ray tracing: a grid of probes over an axis-
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `size` | vec3 | `[20.0,6.0,20.0]` | [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20]. |
+| `size` | vec3 | `[20.0,6.0,20.0]` | [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20]. |
 | `offset` | vec3 | `[0.0,0.0,0.0]` | [x, y, z] metres: where the box's centre is relative to the entity's world position. Default [0, 0, 0]. |
 | `spacing` | float | `2.0` | Metres between two probes, 0.25..100. The count along an axis is floor(size / spacing) + 1; halving the spacing makes eight times the probes in a box, and the grid may have at most 1224 probes. 1 to 3 m is usual for rooms. Default 2. Range 0.25..100.0. |
 | `probesPerFrame` | int | `2` | 1..32: how many probes this grid refreshes a frame; each one draws the scene six times at `resolution`, so this is the grid's cost. A grid of 100 probes at 2 a frame is refreshed in 50 frames. All grids together refresh at most 32 a frame. Default 2. Range 1..32. |
@@ -18535,7 +18535,7 @@ declare module "factoria" {
    */
   export interface RealtimeGIComponent {
     /**
-     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. Default [20, 6, 20].
+     * [x, y, z] metres: the box the grid fills, axis-aligned in the world, centred on the entity's world position + offset. 0 on an axis makes one layer of probes on that axis. The grid answers fully inside the probe lattice and fades out over the outer half spacing, so the box must extend past the surfaces it lights. Default [20, 6, 20].
      * @since unreleased
      */
     get size(): Vec3;

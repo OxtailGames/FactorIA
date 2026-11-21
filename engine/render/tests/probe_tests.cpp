@@ -491,6 +491,14 @@ TEST_CASE("probe manifest: JSON round trip, and an error that names the pointer 
     bad = j;
     bad["hash"] = 5;
     CHECK_FALSE(probe_manifest_from_json(bad, "x").ok());
+    // A manifest without a hash (or with a null one) is rejected at /hash, not read with an empty page name.
+    bad = j;
+    bad.erase("hash");
+    auto noHash = probe_manifest_from_json(bad, "room.probe.json");
+    REQUIRE_FALSE(noHash.ok());
+    CHECK(noHash.error().message.find("room.probe.json/hash") != std::string::npos);
+    bad["hash"] = nullptr;
+    CHECK_FALSE(probe_manifest_from_json(bad, "x").ok());
     for (const char* page :
          {"/etc/room.hdr", "C:/room.hdr", "../room.hdr", "probes/../../room.hdr", "probes\\room.hdr"}) {
         bad = j;

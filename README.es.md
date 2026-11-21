@@ -197,7 +197,7 @@ Lee primero [CLAUDE.md](CLAUDE.md) y [docs/design/ARCHITECTURE.md](docs/design/A
 
 - [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión (dividido en páginas: el archivo las enumera).
 - [docs/design/BUILDING.md](docs/design/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas (dividido en páginas: el archivo las enumera).
-- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md), [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
+- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/CUSTOM_SHADERS_KINDS.md](docs/design/CUSTOM_SHADERS_KINDS.md), [docs/design/CUSTOM_SHADERS_FULL.md](docs/design/CUSTOM_SHADERS_FULL.md), [docs/design/CUSTOM_SHADERS_PACKAGES.md](docs/design/CUSTOM_SHADERS_PACKAGES.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
 - [feedback/ROADMAP.md](feedback/ROADMAP.md) y [CHANGELOG.md](CHANGELOG.md).
 
 ## Licencia

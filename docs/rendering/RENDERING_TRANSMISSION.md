@@ -60,6 +60,7 @@ its place only in the opaque phase). Cost: one split of the main pass, one copy 
 - **Opaque objects in front of the glass can leak.** The refracted read is a screen-space lookup: where it lands on an object that is nearer than the glass
   (a hand holding a bottle), that object's colour shows through the glass. A thin `thickness` keeps the offset small.
 - **Thickness is in world metres.** It is not scaled by the entity's `Transform.scale`, and there is no thickness texture.
+- **Unlit meshes get no transmission**: a mesh with `MeshRenderer.unlit` (or a material with `"lighting": "unlit"`) is drawn with its colour, whatever its `transmission` says: no copy of the picture is made for it, and `render.material_cost` reports the feature off.
 - **Full shaders and a custom lighting get no transmission**: a mesh with a `full` material (docs/shaders/SHADERS_FULL.md) or whose material replaces the
   lighting draws as an ordinary mesh (the `transmission` field is read only by the standard shading, the `fa_surface` hook can set the new `Surface` fields:
   [SHADERS_LIGHTING.md](../shaders/SHADERS_LIGHTING.md)).
@@ -69,10 +70,10 @@ its place only in the opaque phase). Cost: one split of the main pass, one copy 
 
 ### When the copy cannot be made
 
-If the shader of the copy or one of its images cannot be created (a GPU that refuses the atlas), the camera's transmissive draws are blended plainly: the mesh keeps
+If the shader of the copy, its pipeline for the picture's format or one of its images cannot be created (a GPU that refuses the atlas), the camera's transmissive draws are blended plainly: the mesh keeps
 its reflections and darkens what is behind it by what it lets through (tinted by the attenuation), with no refraction and no blur. `transmissionPlain` counts those
 cameras, the log says so once per picture size, and the frame is otherwise the normal one. `render.supports {"feature":"transmission"}` answers true on every GPU
-(the glass is always drawn, plainly in the worst case); `game.render_stats` tells which of the two happened.
+(the glass is always drawn, plainly in the worst case); `game.render_stats` tells which of the two happened. A format the GPU makes no copy pipeline for is found out before any image is acquired, so a camera that cannot copy does not take and give back its images every frame.
 
 ## The material cost view
 

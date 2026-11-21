@@ -39,7 +39,9 @@ Json feature(const char* name, const char* field, bool active, const char* cost,
 Json material_cost_report(const MeshRenderer& mr, const MeshAsset* mesh, const MaterialAsset* material, int targetW,
                           int targetH) {
     const bool full = material && material->full;
-    const bool transmissive = mesh ? mesh_is_transmissive(mr, *mesh, material) : (!full && positive(mr.transmission));
+    const bool transmissive =
+        mesh ? mesh_is_transmissive(mr, *mesh, material)
+             : (!full && !mr.unlit && !(material && material->lighting == "unlit") && positive(mr.transmission));
     const bool blended = mesh ? mesh_is_blended(mr, *mesh, material)
                               : (transmissive || (material ? material->alphaMode == "blend" : mr.color.a < 0.999f));
     // The copy: a pass for each reduced half (levels - 1), one that writes the atlas, and the second half of the main pass.

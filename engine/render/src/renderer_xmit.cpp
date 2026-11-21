@@ -170,6 +170,9 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
     const XmitLayout lay = xmit_layout(w, h);
     if (lay.levels < 1 || !ready() || !game.texView.id) return false;
     const sg_pixel_format fmt = gpu.scene_format();
+    // The copy pipeline first: a format the GPU makes none for gives the copy up before the images are acquired (and
+    // released again) every frame.
+    if (pipeline(TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1}).id == 0) return false;
     out.atlas = targets.pool.acquire(desc_of(lay.atlasW, lay.atlasH, fmt, "transmission-atlas"));
     bool ok = out.atlas != 0;
     for (int k = 1; ok && k < lay.levels; ++k) {
