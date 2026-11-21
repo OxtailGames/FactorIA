@@ -17,6 +17,7 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on twelve pages (`docs.read rendering-2d-shadows`, `rendering-2d-emission`, `rendering-2d-water`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
+- 2D global illumination (`GlobalIllumination2D`, M74): a player can switch it Off, Low, Medium or High from the Graphics tab of the menu kit's options (the "2D lighting" button writes `enabled` and `quality` of every `GlobalIllumination2D` of the scene and of scenes loaded later, docs/MENUS.md); where `render.supports` says `2dGlobalIllumination` is not available the scene is drawn without it whatever the setting.
 - [2D emission and light masks (M74.2)](rendering/RENDERING_2D_EMISSION.md): `Sprite.emissive` and the bloom, `lightLayers`, `Light2D.cookie`, the rim light and the normal maps generated from a sprite.
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.

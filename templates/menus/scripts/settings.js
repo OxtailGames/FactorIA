@@ -24,6 +24,9 @@ export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia",
 /** The qualities of the "Effects quality" row of the graphics tab, best first. "high" leaves the game's own screen effects as they are. */
 export const GRAPHICS_QUALITIES = ["high", "medium", "low", "off"];
 
+/** The choices of the "2D lighting" row of the graphics tab, off first: they set GlobalIllumination2D.enabled and .quality. */
+export const LIGHTING_QUALITIES = ["off", "low", "medium", "high"];
+
 /** The main screen effects the graphics tab switches one by one: `id` is the key in settings.graphics.effects, `field` the PostProcess field. */
 export const GRAPHICS_EFFECTS = [
   { id: "bloom", field: "bloomEnabled" },
@@ -69,7 +72,8 @@ function defaults() {
     textSpeed: system.reduceMotion ? 0 : 45, // dialogue text reveal in characters per second (TEXT_SPEEDS), 0 = a whole line at once
     // Screen effects (PostProcess): quality is one of GRAPHICS_QUALITIES; effects holds only the switches the player touched
     // (GRAPHICS_EFFECTS id -> true / false, which win over the quality); hdr is null (the scene's SceneSettings.hdrOutput) or the player's choice.
-    graphics: { quality: "high", effects: {}, hdr: null },
+    // lighting2d is null (every GlobalIllumination2D keeps the scene's own enabled and quality) or the player's choice, one of LIGHTING_QUALITIES.
+    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null },
   };
 }
 
@@ -178,6 +182,37 @@ export function applyPostProcess(s = load()) {
   if (s.graphics.hdr !== null && world.settings) world.settings.hdrOutput = s.graphics.hdr ? "auto" : "off";
 }
 
+/** The entities of the scene that have a GlobalIllumination2D (the renderer uses the first). */
+export function lightingEntities() {
+  return world.entities().filter((e) => e.has("GlobalIllumination2D"));
+}
+
+/**
+ * Puts the player's "2D lighting" choice (settings.graphics.lighting2d) on every GlobalIllumination2D of the scene: "off" sets enabled to false,
+ * low / medium / high set enabled to true and quality. null (the player never chose) writes nothing, so the scene keeps its own values.
+ * A scene without a GlobalIllumination2D gets none; the choice applies to the scenes that have one.
+ */
+export function applyLighting2D(s = load()) {
+  const choice = s.graphics.lighting2d;
+  if (!LIGHTING_QUALITIES.includes(choice)) return;
+  for (const e of lightingEntities()) {
+    const gi = e.get("GlobalIllumination2D");
+    if (choice === "off") {
+      if (gi.enabled) gi.enabled = false;
+    } else {
+      if (!gi.enabled) gi.enabled = true;
+      if (gi.quality !== choice) gi.quality = choice;
+    }
+  }
+}
+
+/** What the "2D lighting" row shows: the player's choice, else the scene's own GlobalIllumination2D (its quality, or "off" when disabled), else "off". */
+export function lightingShown(s = load()) {
+  if (LIGHTING_QUALITIES.includes(s.graphics.lighting2d)) return s.graphics.lighting2d;
+  const gi = lightingEntities()[0]?.get("GlobalIllumination2D");
+  return gi && gi.enabled ? gi.quality : "off";
+}
+
 /** Whether the effect `id` of GRAPHICS_EFFECTS is on now in the scene (in any of its PostProcess components; false when the scene has none). */
 export function effectOn(id) {
   const field = GRAPHICS_EFFECTS.find((e) => e.id === id)?.field;
@@ -189,6 +224,7 @@ export function applyScene(s = load()) {
   applyColorFilter(s);
   applySubtitles(s);
   applyPostProcess(s);
+  applyLighting2D(s);
 }
 
 /** Whether the effects are turned down now: the player's choice, else the system's "reduce motion". Your own particles and screen effects check this, not `s.reducedEffects` (null until the player chooses). */
