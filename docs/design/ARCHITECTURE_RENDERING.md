@@ -174,7 +174,7 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   one with a `LightSample l`, and its `ambient(i, s, ambientColor)` once (`FA_HAS_AMBIENT`); or the snippet defines
   `lighting(i, s)` (`FA_HAS_LIGHTING`), the whole loop, and the template declares `fa_light_count()`, `fa_light(n, i)`,
   `fa_light_unshadowed()`, `fa_light_shadow()` and `fa_sky_light()` before the snippet (stubs in the shadow and prepass
-  programs); the cap of 1024 lights (32 directional) and their order are `select_lights`' (CUSTOM_SHADERS.md, P14); a fragment reads the lights of its cluster (ARCHITECTURE_RENDERING_LIGHTING.md, "Clustered lights").
+  programs); the cap of 1024 lights (32 directional) and their order are `select_lights`' (CUSTOM_SHADERS_PACKAGES.md, P14); a fragment reads the lights of its cluster (ARCHITECTURE_RENDERING_LIGHTING.md, "Clustered lights").
 - *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
   params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
   `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, `prepass`, `prepass_skin`, plus `shadow`, `shadow_skin`

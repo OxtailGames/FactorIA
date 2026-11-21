@@ -48,7 +48,8 @@ M73.2a (cascades of the sun); M73.2b (point and spot) adds tiles to the same atl
   Dynamic indexing of a `vec4` by a variable does not cross SPIRV-Cross to every target, so the split lookup is a ternary helper.
 - **The filters.** `pcf` takes 16 taps of the Vogel disk (radius 1.5 texels), `pcss` a 16-tap blocker search (radius from the light's
   angular size, `tan(0.05 * shadowSoftness)`), then 24 taps sized by the penumbra (1.5..16 texels), `hard` one tap. The disk is turned by
-  interleaved gradient noise of the pixel (fixed, no time input). A slope-scaled plane term keeps a tilted receiver from shadowing
+  interleaved gradient noise of the pixel (fixed, no time input): the first tap's direction is `(cos phi, sin phi)` and each next tap turns that
+  direction by the golden angle with a fixed rotation, not a `cos` and `sin` per tap. A slope-scaled plane term keeps a tilted receiver from shadowing
   itself across the kernel. The bias is in metres (`shadowBias`; 0 = 1.5 texels of the cascade), and the normal offset likewise.
 - **The two templates.** The mesh template and the full-shader template include the same block and name the image through the
   macros `FA_SHADOW_TEX` / `FA_SHADOW_SMP`. `fa_shadow_coord` of the full template is now the world position (`vec4(world, 1)`);
@@ -77,7 +78,7 @@ off).
   (the first 32 in drawing order stay, that is the lowest `sortOrder`), 131072 list entries per view; what is lost is in `stats.decalClusterClipped`. A view with decals
   and no lights builds the clusters with no light spheres.
 - **The decal region of `fa_light_data`**: view 24 has one texel cursor in a fixed order, `lights | clusters | light indices | shadow
-  region (M73.2b, only with local shadows) | decal region`, and every base is passed by uniform, never assumed (`shadowBase` as
+  region (M73.2b and M73.2c: with local shadows or with a contact shadow) | decal region`, and every base is passed by uniform, never assumed (`shadowBase` as
   `fa_shadow_lcfg.x - 1`, the decals' at `fa_counts.y`; `usedTexels` is the end of the last region). The decal region starts at texel `fa_counts.y`: header texel (count, atlas width, atlas
   height, first texel of the decal indices); texel 1 `.x` the colour mode (below); then 7 texels per decal (`kDecalTexels`): the three rows of
   `world -> box`, the albedo rectangle in atlas uv (`x0, y0, x1, y1`; empty when there is no albedo), the normal rectangle, the tint
@@ -112,7 +113,7 @@ off).
   the normal map's texels back (`fa_dc_to_srgb`), because a normal map holds data, not colour. The mips of mode 2 are built in linear space.
 - **Backends.** Only `texelFetch` on the RGBA32F data (as the lights) and one filtered 2D lookup per tile (`textureLod`): nothing a
   GL, GLES3, WebGL2, D3D11 or Metal driver lacks, and no `float32` target is needed (`render.supports decals` is true wherever the renderer
-  draws). The tile uv is clamped to 0..1 of the tile and the mip level to 0..4 (a 16 px gutter keeps four mips inside the cell), so the
+  draws). The tile uv is clamped to 0..1 of the tile and the mip level to 0..3 (`kDecalMaxLod`; a 16 px gutter keeps a bilinear tap of level 3 inside the cell), so the
   filter never reads a neighbour. The golden `3d_decals.png` was made on Metal; the other backends are compared with it by CI.
 - **Stats** (`RenderStats`): `decals` (decals drawn, summed over the frame's views), `decalsDropped` (over 256, no albedo in the atlas, or no
   atlas), `decalClusterClipped` (list entries lost).
