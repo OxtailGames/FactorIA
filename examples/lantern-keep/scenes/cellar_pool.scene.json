@@ -1,0 +1,220 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.16, 0.17, 0.24, 1.0],
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [640.0, 360.0, 0.0]
+        },
+        "Camera": {
+          "clearColor": [0.03, 0.03, 0.07, 1.0]
+        }
+      }
+    },
+    {
+      "id": "wall",
+      "name": "Cellar wall",
+      "components": {
+        "Transform": {
+          "position": [640.0, 360.0, 0.0]
+        },
+        "Sprite": {
+          "size": [1280.0, 720.0],
+          "color": [0.2, 0.19, 0.27, 1.0],
+          "layer": -30,
+          "lit": true
+        }
+      }
+    },
+    {
+      "id": "basin_floor",
+      "name": "Bottom of the pool",
+      "components": {
+        "Transform": {
+          "position": [640.0, 40.0, 0.0]
+        },
+        "Sprite": {
+          "size": [1280.0, 80.0],
+          "color": [0.16, 0.2, 0.2, 1.0],
+          "layer": 2,
+          "lit": true
+        }
+      }
+    },
+    {
+      "id": "ledge",
+      "name": "Stone ledge above the pool",
+      "components": {
+        "Transform": {
+          "position": [640.0, 316.0, 0.0]
+        },
+        "Sprite": {
+          "size": [1280.0, 32.0],
+          "color": [0.42, 0.34, 0.3, 1.0],
+          "layer": 1,
+          "lit": true
+        }
+      }
+    },
+    {
+      "id": "pillar",
+      "name": "Pillar between the lanterns",
+      "components": {
+        "Transform": {
+          "position": [640.0, 500.0, 0.0]
+        },
+        "Sprite": {
+          "size": [56.0, 360.0],
+          "color": [0.3, 0.27, 0.34, 1.0],
+          "layer": 0,
+          "lit": true
+        },
+        "ShadowCaster2D": {
+          "shape": "box",
+          "size": [56.0, 360.0]
+        }
+      }
+    },
+    {
+      "id": "lantern_left",
+      "name": "Lantern left",
+      "components": {
+        "Transform": {
+          "position": [300.0, 470.0, 0.0]
+        },
+        "Sprite": {
+          "size": [26.0, 40.0],
+          "color": [1.0, 0.82, 0.45, 1.0],
+          "layer": 0,
+          "emissive": [1.0, 0.72, 0.3, 1.0],
+          "emissiveIntensity": 2.0
+        },
+        "Light2D": {
+          "color": [1.0, 0.75, 0.4, 1.0],
+          "intensity": 1.2,
+          "radius": 380.0,
+          "castShadows": true,
+          "size": 14.0
+        }
+      }
+    },
+    {
+      "id": "lantern_right",
+      "name": "Lantern right",
+      "components": {
+        "Transform": {
+          "position": [900.0, 470.0, 0.0]
+        },
+        "Sprite": {
+          "size": [26.0, 40.0],
+          "color": [1.0, 0.82, 0.45, 1.0],
+          "layer": 0,
+          "emissive": [1.0, 0.72, 0.3, 1.0],
+          "emissiveIntensity": 2.0
+        },
+        "Light2D": {
+          "color": [1.0, 0.75, 0.4, 1.0],
+          "intensity": 1.2,
+          "radius": 380.0,
+          "castShadows": true,
+          "size": 14.0
+        }
+      }
+    },
+    {
+      "id": "pool",
+      "name": "Cellar pool",
+      "components": {
+        "Transform": {
+          "position": [640.0, 190.0, 0.0]
+        },
+        "Water2D": {
+          "size": [760.0, 220.0],
+          "tint": [0.08, 0.3, 0.42, 0.5],
+          "reflection": 0.7,
+          "refraction": 5.0,
+          "waveAmplitude": 2.5,
+          "waveLength": 70.0,
+          "waveSpeed": 0.6,
+          "layer": 10
+        }
+      }
+    },
+    {
+      "id": "fish",
+      "name": "Fish under the surface",
+      "components": {
+        "Transform": {
+          "position": [520.0, 200.0, 0.0]
+        },
+        "Sprite": {
+          "size": [48.0, 18.0],
+          "color": [0.9, 0.45, 0.25, 1.0],
+          "layer": 5
+        }
+      }
+    },
+    {
+      "id": "brazier",
+      "name": "Brazier",
+      "components": {
+        "Transform": {
+          "position": [1100.0, 352.0, 0.0]
+        },
+        "Sprite": {
+          "size": [60.0, 40.0],
+          "color": [0.22, 0.2, 0.22, 1.0],
+          "layer": 3,
+          "lit": true
+        },
+        "ShadowCaster2D": {
+          "shape": "box",
+          "size": [60.0, 40.0]
+        }
+      }
+    },
+    {
+      "id": "brazier_fire",
+      "name": "Brazier fire",
+      "components": {
+        "Transform": {
+          "position": [1100.0, 392.0, 0.0]
+        },
+        "Sprite": {
+          "size": [34.0, 44.0],
+          "color": [1.0, 0.55, 0.15, 1.0],
+          "layer": 4,
+          "emissive": [1.0, 0.5, 0.1, 1.0],
+          "emissiveIntensity": 2.5
+        },
+        "Light2D": {
+          "color": [1.0, 0.5, 0.2, 1.0],
+          "intensity": 1.4,
+          "radius": 300.0,
+          "size": 10.0
+        }
+      }
+    },
+    {
+      "id": "heat_haze",
+      "name": "Heat haze over the brazier",
+      "components": {
+        "Transform": {
+          "position": [1100.0, 470.0, 0.0]
+        },
+        "DistortionZone2D": {
+          "size": [130.0, 170.0],
+          "strength": 3.0,
+          "layer": 20
+        }
+      }
+    }
+  ]
+}

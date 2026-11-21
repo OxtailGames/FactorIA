@@ -546,6 +546,7 @@ struct Water2D {
     float waveAmplitude = 2.0f;  // world units
     float waveLength = 64.0f;    // world units
     float waveSpeed = 1.0f;      // waves per second
+    std::int32_t layer = 10;     // draw order: the water shows what is drawn before it (lower layers)
     std::string material;        // optional sprite material (M72)
 };
 
@@ -553,7 +554,8 @@ struct Water2D {
 struct DistortionZone2D {
     Vec2 size{128.0f, 128.0f};
     float strength = 1.0f;
-    std::string material;  // sprite material ("" = the built-in ripple)
+    std::int32_t layer = 20;  // draw order: the zone bends what is drawn before it (lower layers)
+    std::string material;     // sprite material ("" = the built-in ripple)
 };
 
 // Where a ParticleEmitter's particles are born, how they leave, what they bounce on and what trail they leave: see

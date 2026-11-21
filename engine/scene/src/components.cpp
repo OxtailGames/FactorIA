@@ -985,8 +985,10 @@ void register_builtin_components(TypeRegistry& r) {
          "Water2D",
          "A rectangle of water: it reflects what is above its surface, refracts what is below it and waves "
          "along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the "
-         "surface. Sprites and shapes behind and above it show in the reflection. Give `material` a sprite material "
-         "(M72) to replace the built-in look.",
+         "surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on "
+         "lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is "
+         "drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/"
+         "RENDERING_2D_WATER.md).",
          "2D")
         .field("size", &Water2D::size,
                "[width, height] of the water area in world units, before the entity's scale; both above 0. The top "
@@ -1012,6 +1014,9 @@ void register_builtin_components(TypeRegistry& r) {
                "How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). "
                "0 = frozen. Default 1.")
         .range(-100, 100)
+        .field("layer", &Water2D::layer,
+               "Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so "
+               "what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.")
         .asset_field("material", &Water2D::material, "material",
                      "Optional sprite material (*.material.json of kind \"sprite\", docs/SHADERS.md) that replaces "
                      "the built-in water look; the area is its quad. Empty (default) = the built-in water.");
@@ -1029,6 +1034,9 @@ void register_builtin_components(TypeRegistry& r) {
                "How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled "
                "by the material when there is one). 0 = no distortion. Default 1.")
         .range(0, 100)
+        .field("layer", &DistortionZone2D::layer,
+               "Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a "
+               "higher layer is not bent. Default 20.")
         .asset_field("material", &DistortionZone2D::material, "material",
                      "Sprite material (*.material.json of kind \"sprite\", docs/SHADERS.md) that makes the "
                      "displacement. Empty (default) = the built-in ripple.");

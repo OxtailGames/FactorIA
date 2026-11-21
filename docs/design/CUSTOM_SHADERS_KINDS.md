@@ -29,8 +29,9 @@ generated top file with the built-in source modulo the user block; the render te
   a mesh material uses views from 6 and samplers from 2, and a second set at 10.. and 6.. for the textures of its `vertex()`; a
   sprite has its second set at views 8.. and samplers 7.. (`kMaterialSpriteVsFirstView`, `kMaterialSpriteVsFirstSampler`),
   declared as `fa_vs_<name>` the way a mesh's are, so a sprite `vertex()` samples a material texture at mip 0). Since M74 views 12
-  (`fx_emissive_tex`, the emissive map of an item) and 13 (`fx_cookie_tex`, the cookie atlas of the 2D lights) are the engine's too, after
-  the material's two sets, so they never move a material's slots; the buffers still start at 16.
+  (`fx_emissive_tex`, the emissive map of an item), 13 (`fx_cookie_tex`, the cookie atlas of the 2D lights) and 14 (`fa_scene_tex`, the
+  picture of `fa_scene_color`, declared only by a program whose snippet calls it) are the engine's too, after the material's two sets,
+  so they never move a material's slots; the buffers still start at 16.
   `fa_time` and
   `fa_target` are members of the fragment block `quad_fs_params`, and `fa_time` of the vertex block `vs_params`: the renderer
   fills them for a material's draws, and in the engine's own programs they stay zero and unread (the lean program has no

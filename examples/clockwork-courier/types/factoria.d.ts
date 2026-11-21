@@ -6701,7 +6701,7 @@ declare module "factoria" {
     resolutionScale: number;
   }
   /**
-   * A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface. Sprites and shapes behind and above it show in the reflection. Give `material` a sprite material (M72) to replace the built-in look.
+   * A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/RENDERING_2D_WATER.md).
    * 
    * Category: 2D
    * @since unreleased
@@ -6745,6 +6745,11 @@ declare module "factoria" {
      */
     waveSpeed: number;
     /**
+     * Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.
+     * @since unreleased
+     */
+    layer: number;
+    /**
      * Optional sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that replaces the built-in water look; the area is its quad. Empty (default) = the built-in water. (asset path: material)
      * @since unreleased
      */
@@ -6768,6 +6773,11 @@ declare module "factoria" {
      * @since unreleased
      */
     strength: number;
+    /**
+     * Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a higher layer is not bent. Default 20.
+     * @since unreleased
+     */
+    layer: number;
     /**
      * Sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that makes the displacement. Empty (default) = the built-in ripple. (asset path: material)
      * @since unreleased
@@ -12233,8 +12243,8 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean; size?: number; lightLayers?: number; cookie?: string; cookieRotationDeg?: number; cookieScale?: number };
     ShadowCaster2D: { shape?: "spriteAlpha" | "polygon" | "box"; points?: Float32Array; size?: Vec2Like; alphaThreshold?: number; selfShadow?: boolean; lightLayers?: number; enabled?: boolean };
     GlobalIllumination2D: { enabled?: boolean; quality?: "low" | "medium" | "high"; intensity?: number; bounce?: number; range?: number; resolutionScale?: number };
-    Water2D: { size?: Vec2Like; tint?: ColorLike; reflection?: number; refraction?: number; waveAmplitude?: number; waveLength?: number; waveSpeed?: number; material?: string };
-    DistortionZone2D: { size?: Vec2Like; strength?: number; material?: string };
+    Water2D: { size?: Vec2Like; tint?: ColorLike; reflection?: number; refraction?: number; waveAmplitude?: number; waveLength?: number; waveSpeed?: number; layer?: number; material?: string };
+    DistortionZone2D: { size?: Vec2Like; strength?: number; layer?: number; material?: string };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: Float32Array; outline?: boolean; outlineDetail?: number };
@@ -12885,10 +12895,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

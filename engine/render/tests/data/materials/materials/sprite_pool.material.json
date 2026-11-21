@@ -1,0 +1,16 @@
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Test fixture: a Water2D / DistortionZone2D material that shows the picture drawn so far, tinted; every field of the components is a param.",
+  "shader": "shaders/sprite_pool.fragment.glsl",
+  "params": {
+    "size": { "type": "vec2", "default": [1.0, 1.0], "doc": "The area's width and height in world units (Water2D.size after the entity's scale)." },
+    "tint": { "type": "color", "default": [0.0, 0.0, 1.0, 0.5], "doc": "Water2D.tint." },
+    "reflection": { "type": "float", "default": 0.0, "doc": "Water2D.reflection (unused by this fixture, checked by the test)." },
+    "refraction": { "type": "float", "default": 0.0, "doc": "Water2D.refraction in pixels." },
+    "waveAmplitude": { "type": "float", "default": 0.0, "doc": "Water2D.waveAmplitude." },
+    "waveLength": { "type": "float", "default": 1.0, "doc": "Water2D.waveLength." },
+    "waveSpeed": { "type": "float", "default": 0.0, "doc": "Water2D.waveSpeed." },
+    "strength": { "type": "float", "default": 0.0, "doc": "DistortionZone2D.strength." }
+  }
+}

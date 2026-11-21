@@ -15,7 +15,7 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on eleven pages (`docs.read rendering-2d-emission`, `rendering-2d-shadows`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on twelve pages (`docs.read rendering-2d-shadows`, `rendering-2d-emission`, `rendering-2d-water`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
 - [2D emission and light masks (M74.2)](rendering/RENDERING_2D_EMISSION.md): `Sprite.emissive` and the bloom, `lightLayers`, `Light2D.cookie`, the rim light and the normal maps generated from a sprite.
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
@@ -27,6 +27,7 @@ This page has the render targets, the post-processing stack, the depth and norma
 - [Reflection probes (M73)](rendering/RENDERING_PROBES.md): the `ReflectionProbe` component, realtime and baked captures, `probe.bake`, `render.probes`, the atlas and its limits.
 - [Light probes and mixed lights](rendering/RENDERING_LIGHT_PROBES.md): `LightProbeGroup`, how the bake stores light for moving objects, what receives it, and what a light of each mode does to each receiver.
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
+- [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
