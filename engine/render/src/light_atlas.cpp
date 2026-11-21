@@ -361,6 +361,33 @@ void LightAtlas::request(LightAtlasKind kind, const std::string& path) {
     if (path.empty()) return;
     LightAtlasKey k{kind, path};
     if (keys_.insert(k).second) dirty_ = true;
+    lastUse_[k] = tick_;
+}
+
+void LightAtlas::end_requests() {
+    ++tick_;
+    if (keys_.empty() || (tick_ & 31u) != 0) return;
+    bool forgot = false;
+    for (auto it = keys_.begin(); it != keys_.end();) {
+        if (tick_ - lastUse_[*it] > kKeyIdleTicks) {
+            lastUse_.erase(*it);
+            tiles_.erase(*it);
+            it = keys_.erase(it);
+            forgot = true;
+        } else {
+            ++it;
+        }
+    }
+    if (!forgot) return;
+    dirty_ = true;
+    if (keys_.empty() && !needLtc_ &&
+        view_.id) {  // nothing left to show: the image goes (after the frame that used it)
+        retired_.push_back({image_, view_});
+        image_ = {};
+        view_ = {};
+        layout_ = {};
+        dirty_ = false;
+    }
 }
 
 bool LightAtlas::invalidate(const std::string& path) {

@@ -312,8 +312,14 @@ TEST_CASE("ltc generated header (slow): the committed engine/render/src/ltc_tabl
     REQUIRE(committedText.ok());
     std::string have = committedText.value();
     have.erase(std::remove(have.begin(), have.end(), '\r'), have.end());  // a checkout on Windows may have CRLF
-    CHECK_MESSAGE(have == produced,
-                  "run tools/ltc/generate_ltc.sh and commit engine/render/src/ltc_tables.h (table hash now "
-                      << table_hash(table.value()) << ")");
+    // Compared into a bool: a failing CHECK(have == produced) would print both texts (2 x 370 KB). Say where the first difference is.
+    const bool same = have == produced;
+    std::size_t at = 0;
+    while (!same && at < have.size() && at < produced.size() && have[at] == produced[at]) ++at;
+    const std::size_t line =
+        std::size_t(std::count(have.begin(), have.begin() + std::ptrdiff_t(std::min(at, have.size())), '\n')) + 1;
+    CHECK_MESSAGE(same,
+                  "run tools/ltc/generate_ltc.sh and commit engine/render/src/ltc_tables.h (first difference at line "
+                      << line << ", table hash now " << table_hash(table.value()) << ")");
     CHECK(table_hash(table.value()) == fa::ltc_tables::kHash);
 }

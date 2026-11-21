@@ -2198,7 +2198,8 @@ void register_builtin_components(TypeRegistry& r) {
                "light. It needs SceneSettings.contactShadows on, a GPU that can render the depth prepass "
                "(render.supports contactShadows) and a mesh that receives shadows; it multiplies the light's "
                "shadow, so it also works with a light that has castShadows off. A directional light, a spot and a "
-               "point light have it (an area light marches from its centre). Screen space: only what is in the "
+               "point light have it (an area light marches toward the point of its emitter that lights the pixel). "
+               "Screen space: only what is in the "
                "picture casts it, not thin objects or things off screen, and transparent meshes neither cast nor "
                "receive it. Custom lighting() hooks get it inside fa_light(n, i) and fa_light_shadow(n, i).")
         .range(0, 10);

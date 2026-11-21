@@ -326,3 +326,16 @@ TEST_CASE("light atlas: a point light's cookie cube has six face tiles that cont
     CHECK(std::abs(at(4, kCookieTile - 1, 128) - at(4, kCookieTile - 2, 128)) < 0.2f);
     CHECK(bake_cookie_cube_tile(img) == t);  // deterministic
 }
+
+TEST_CASE("light atlas: a key nobody asked for in a long while is forgotten, one asked for again is kept") {
+    LightAtlas atlas;
+    atlas.request(LightAtlasKind::Cookie, "a.png");
+    atlas.request(LightAtlasKind::Cookie, "b.png");
+    CHECK(atlas.key_count() == 2);
+    for (std::uint64_t i = 0; i < LightAtlas::kKeyIdleTicks / 2; ++i) atlas.end_requests();
+    atlas.request(LightAtlasKind::Cookie, "b.png");  // b is still in use, a is not
+    for (std::uint64_t i = 0; i < LightAtlas::kKeyIdleTicks / 2 + 64; ++i) atlas.end_requests();
+    CHECK(atlas.key_count() == 1);
+    for (std::uint64_t i = 0; i < 2 * LightAtlas::kKeyIdleTicks; ++i) atlas.end_requests();
+    CHECK(atlas.key_count() == 0);
+}

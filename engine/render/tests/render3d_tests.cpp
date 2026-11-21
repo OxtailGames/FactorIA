@@ -314,6 +314,28 @@ TEST_CASE("lights over the limit: the most relevant ones are kept") {
     CHECK(g.renderer.stats().lightMaxPerCluster == 40);
 }
 
+TEST_CASE(
+    "clustered lights: the frustum cull keeps a light outside the view whose range reaches in, with few lights too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 0, 10}, {0, 0, 0});
+    add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xd0d0d0), {20, 1, 20});
+    // Far to the side, outside the view: the first reaches into it, the second does not.
+    Entity reaching = add_light(w, LightType::Point, {60, 0, 0}, {0, 0, 0}, 1.0f);
+    w.get<Light>(reaching)->range = 100.0f;
+    Entity outside = add_light(w, LightType::Point, {-60, 0, 0}, {0, 0, 0}, 1.0f);
+    w.get<Light>(outside)->range = 2.0f;
+    g.render(w);
+    CHECK(g.renderer.stats().lights == 1);
+    CHECK(g.renderer.stats().lightsCulled == 1);
+    // With only the reaching light nothing is culled.
+    w.destroy(outside);
+    g.render(w);
+    CHECK(g.renderer.stats().lights == 1);
+    CHECK(g.renderer.stats().lightsCulled == 0);
+}
+
 TEST_CASE("clustered lights: 256 coloured point lights over a floor, every one reaches the shader (golden)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
