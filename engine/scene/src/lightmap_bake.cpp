@@ -837,9 +837,9 @@ void sh_basis(Vec3 d, float y[9]) {
 ShL2 sh_project_cube(int size, const float* rgb) {
     // The faces as the cube map specification lays them out (+X -X +Y -Y +Z -Z; row 0 is the top of the face): the direction of a
     // texel is fwd + u * right + v * up, u and v in -1..1 at its centre, and its solid angle is proportional to (1 + u^2 + v^2)^-1.5.
-    static const float kFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-    static const float kRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
-    static const float kUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+    static const float kFaceFwd[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const float kFaceRight[6][3] = {{0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}, {1, 0, 0}, {-1, 0, 0}};
+    static const float kFaceUp[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
     double sum[9][3] = {};
     double weight = 0.0;
     const std::size_t faceTexels = std::size_t(size) * std::size_t(size);
@@ -848,7 +848,7 @@ ShL2 sh_project_cube(int size, const float* rgb) {
             for (int x = 0; x < size; ++x) {
                 const double u = (2.0 * x + 1.0) / size - 1.0, v = 1.0 - (2.0 * y + 1.0) / size;
                 double d[3];
-                for (int i = 0; i < 3; ++i) d[i] = kFwd[f][i] + u * kRight[f][i] + v * kUp[f][i];
+                for (int i = 0; i < 3; ++i) d[i] = kFaceFwd[f][i] + u * kFaceRight[f][i] + v * kFaceUp[f][i];
                 const double len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
                 const double w = 1.0 / (len * len * len);
                 float basis[9];
