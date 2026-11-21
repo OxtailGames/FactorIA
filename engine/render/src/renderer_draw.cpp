@@ -2568,7 +2568,8 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     const Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
     if (!s.on) return;
-    gi2d.note_gi_asked();
+    if (framePost)
+        gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)
     if (!Gi2dSystem::float_targets_ok()) {
         if (!gi2d.warned_unsupported) {
             gi2d.warned_unsupported = true;
@@ -2597,7 +2598,8 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     if (!why.empty()) {
         // Once per reason: another quality, range or size says so again.
         if (gi2d.budget_warn_once(why)) {
-            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.", why);
+            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.{}", why,
+                    gi2d.lastWasLimit ? Gi2dSystem::budget_limit_note() : "");
         }
         return;
     }

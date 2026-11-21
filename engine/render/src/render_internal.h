@@ -220,6 +220,7 @@ struct TextureAsset {
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
     // A picture something draws into every frame (a camera's render target or view, a compute image): its contents change
     // under the same view id, so a copy of it made once is stale (the 2D light cookie atlas copies it every frame).
+    // (Probes and GI faces are marked too, though a cookie cannot reach them today.)
     bool live = false;
     sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
     std::size_t bytes = 0;                          // GPU memory of all mip levels
@@ -1361,6 +1362,13 @@ private:
         const GeneratedNormal* entry;
     };
     std::unordered_map<std::string, std::vector<GeneratedNormalMemo>> generatedNormalMemo_;
+
+public:
+    // The most strengths (and kinds) of generated normal maps one picture path keeps; more are answered with the closest one made.
+    static constexpr int kMaxNormalVariants = 8;
+    std::size_t generated_normal_count() const { return generatedNormals_.size(); }
+
+private:
     struct VideoTexture {
         std::weak_ptr<VideoDecoder> decoder;
         std::unique_ptr<TextureAsset> tex;

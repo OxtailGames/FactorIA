@@ -86,6 +86,38 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
     CHECK(groot[1] >= 0.0f);
     CHECK(groot[1] + groot[3] <= 720.0f);
     CHECK(gback[1] + gback[3] <= 720.0f);
+    // The state where all three notes show (a Sprite, no PostProcess, no GlobalIllumination2D, HDR unavailable): the longest note,
+    // in each language, stays inside its section and above the Back button.
+    const auto eval = [&](const std::string& code) {
+        fa::Json cmd = {{"command", "script.eval"}, {"args", {{"code", code}}}};
+        return fa::cli::run_command_json(session->registry(), cmd);
+    };
+    const auto set_language = [&](const std::string& lang) {
+        fa::Json cmd = {{"command", "i18n.set_language"}, {"args", {{"language", lang}}}};
+        return fa::cli::run_command_json(session->registry(), cmd);
+    };
+    REQUIRE(
+        eval("world.find('screen_fx')?.destroy(); world.spawn({ id: 'a_sprite', components: { Sprite: {} } }); "
+             "import('scripts/settings.js').then((m) => { m.overrideRenderSupports(() => false); return 1; })")["ok"] ==
+        true);
+    engine.step(3);
+    for (const char* lang : {"en", "es", "ar"}) {
+        INFO("language " << lang);
+        REQUIRE(set_language(lang)["ok"] == true);
+        engine.step(5);
+        const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+        REQUIRE(st["ok"] == true);
+        const std::vector<float> sbox = rect_of(st, "graphics_section"), snote = rect_of(st, "graphics_note"),
+                                 sback = rect_of(st, "options_back");
+        CHECK(snote[3] > gnote[3]);  // taller than the one-note state above: the three notes really show
+        CHECK(snote[1] + snote[3] <= sbox[1] + sbox[3] + 0.5f);
+        CHECK(snote[1] + snote[3] <= sback[1] + 0.5f);
+    }
+    REQUIRE(eval("world.find('a_sprite')?.destroy(); import('scripts/settings.js').then((m) => { "
+                 "m.overrideRenderSupports(null); "
+                 "return 1; })")["ok"] == true);
+    REQUIRE(set_language("ar")["ok"] == true);
+    engine.step(5);
     // Back to the Video tab, which the golden shows.
     REQUIRE(
         command(

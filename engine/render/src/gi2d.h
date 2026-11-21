@@ -268,10 +268,18 @@ public:
     bool warned_unsupported = false, warned_dropped = false;
     std::vector<std::string> budgetWhys;
     // True the first time `why` is seen since the last reset (the caller logs it); bounded, so reasons that keep changing cannot grow it.
+    static constexpr std::size_t kMaxBudgetWhys = 16;
+    // The sentence to add to the warning when the last stored reason filled the list (the later ones are not logged).
+    static const char* budget_limit_note() {
+        return " Further budget reasons are not logged until the GI images are freed.";
+    }
+    bool lastWasLimit = false;  // set by budget_warn_once when it stored the last reason that fits
     bool budget_warn_once(const std::string& why) {
-        if (std::find(budgetWhys.begin(), budgetWhys.end(), why) != budgetWhys.end() || budgetWhys.size() >= 16)
+        if (std::find(budgetWhys.begin(), budgetWhys.end(), why) != budgetWhys.end() ||
+            budgetWhys.size() >= kMaxBudgetWhys)
             return false;
         budgetWhys.push_back(why);
+        lastWasLimit = budgetWhys.size() == kMaxBudgetWhys;
         return true;
     }
     // A job of this frame has an enabled GlobalIllumination2D. begin_frame(false) resets the warnings when the frame before had none, so a
@@ -280,6 +288,7 @@ public:
     void reset_warnings() {
         warned_unsupported = warned_dropped = false;
         budgetWhys.clear();
+        lastWasLimit = false;
     }
 
 private:
