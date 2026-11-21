@@ -249,9 +249,14 @@ export default class Options extends Behaviour {
       hdr.value = hdrAvailable && (s.graphics.hdr ?? world.settings?.hdrOutput === "auto");
       const note = world.find("graphics_note");
       const none = !hasPost;
-      const noLight = settings.lightingEntities().length === 0; // the 2D lighting button has nothing to change in this scene
+      // the 2D lighting button has nothing to change in a 2D scene without a GlobalIllumination2D (a 3D scene never shows this note)
+      const noLight = settings.lightingEntities().length === 0 && settings.lightingRelevant(s);
       note.active = none || noLight || !hdrAvailable;
-      note.get("Text").text = i18n.t(none ? "options.gfx.note" : noLight ? "options.gfx.lightNote" : "options.gfx.hdrNote");
+      const lines = [];
+      if (none) lines.push(i18n.t("options.gfx.note"));
+      if (noLight) lines.push(i18n.t("options.gfx.lightNote"));
+      if (!hdrAvailable) lines.push(i18n.t("options.gfx.hdrNote"));
+      note.get("Text").text = lines.join(" ");
     } finally {
       this.syncing = false;
     }
