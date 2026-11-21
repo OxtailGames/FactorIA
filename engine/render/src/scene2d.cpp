@@ -324,7 +324,6 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[3] = l.radius;
             c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
             c.data.shadowSize = std::isfinite(l.size) ? std::max(l.size, 0.0f) : 0.0f;
-            c.data.shadowLayers = l.lightLayers;
             if (!l.cookie.empty()) {
                 // A cookie that cannot be loaded is logged by the assets (with suggestions); the light then shines without it.
                 TextureAsset* ct = f.assets->texture(l.cookie);

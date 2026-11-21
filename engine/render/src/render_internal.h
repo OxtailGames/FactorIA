@@ -144,8 +144,8 @@ constexpr int kMaxLights2D = 256;
 // minimum of 224). The same loop shades every lit visual when the light buffer cannot be used (a perspective camera, or a
 // GPU that can render to neither a half-float nor an 8-bit target).
 constexpr int kDirectLights2D = 16;
-// Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture); the rest shine
-// through walls.
+// Point lights with castShadows that get a shadow row (one row of kShadowAngles distances in a data texture): every light a
+// frame holds (a frame shades at most kMaxLights2D).
 constexpr int kMaxShadowLights2D = kMaxLights2D;
 constexpr int kShadowAngles = 1024;
 
@@ -161,9 +161,9 @@ struct Light2DData {
     float pos[4];
     float color[4];
     float extra[4] = {-1.0f, 0.0f, 0.0f, 0.0f};
-    // Soft shadows (M74.1): Light2D.size in world units (0 = hard edges) and Light2D.lightLayers, which casters and tiles block it.
+    // Soft shadows (M74.1): Light2D.size in world units (0 = hard edges). `layers` (Light2D.lightLayers) also picks the casters
+    // and tiles that block the light.
     float shadowSize = 0.0f;
-    std::int32_t shadowLayers = -1;
     std::int32_t layers = -1;
     TextureAsset* cookieTex = nullptr;
     float cookieRot = 0.0f;

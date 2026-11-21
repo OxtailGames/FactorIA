@@ -15,7 +15,7 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on ten pages (`docs.read rendering-2d-emission`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on eleven pages (`docs.read rendering-2d-emission`, `rendering-2d-shadows`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
 - [2D emission and light masks (M74.2)](rendering/RENDERING_2D_EMISSION.md): `Sprite.emissive` and the bloom, `lightLayers`, `Light2D.cookie`, the rim light and the normal maps generated from a sprite.
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
