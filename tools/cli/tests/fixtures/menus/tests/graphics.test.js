@@ -141,9 +141,37 @@ test("graphics tab: the cycle starts from what the scene shows (disabled shows O
 
 test("graphics tab: a scene without a GlobalIllumination2D says the lighting button has no effect there", () => {
   const pad = openGraphics();
+  world.spawn({ id: "a_sprite", components: { Sprite: {} } }); // a 2D scene
   pad.tap("DpadDown"); // Effects quality
   pad.tap("A"); // a graphics change refreshes the tab
   const note = world.find("graphics_note");
   expect(note.active).toBe(true);
-  expect(note.get("Text").text).toBe(i18n.t("options.gfx.lightNote"));
+  expect(note.get("Text").text).toContain(i18n.t("options.gfx.lightNote"));
+});
+
+test("graphics tab: a scene with no sprites and no saved lighting choice (a 3D scene) shows no lighting note", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  const pad = openGraphics();
+  expect(settings.lightingRelevant()).toBe(false);
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A");
+  expect(world.find("graphics_note").get("Text").text).not.toContain(i18n.t("options.gfx.lightNote"));
+});
+
+test("graphics tab: the lighting note and the HDR note show together when both apply", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "a_sprite", components: { Sprite: {} } });
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A");
+  const text = world.find("graphics_note").get("Text").text;
+  expect(text).toContain(i18n.t("options.gfx.lightNote"));
+  if (!settings.renderSupports("hdrOutput")) expect(text).toContain(i18n.t("options.gfx.hdrNote"));
+});
+
+test("graphics settings: a scene's own High shows as Medium where High is not offered", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "high" } } });
+  const shown = settings.lightingShown();
+  expect(shown).toBe(settings.lightingChoices().includes("high") ? "high" : "medium");
+  expect(settings.lightingChoices().includes(shown)).toBe(true);
 });
