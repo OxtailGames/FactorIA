@@ -18,6 +18,7 @@
 #include "fa/core/engine_version.h"
 #include "fa/core/image_float.h"
 #include "fa/render/probe.h"
+#include "fa/scene/components.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
 
@@ -334,6 +335,47 @@ TEST_CASE("realtime probe: the atlas tile holds the same capture as the synchron
     std::vector<float> after;
     REQUIRE(renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, after, &error));
     CHECK(after == px);
+}
+
+TEST_CASE("realtime probe: a probe whose tile was wiped by a new atlas is not sampled until it is captured again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!half_float_probes(g)) {
+        MESSAGE("this GPU has no half-float render targets: not run");
+        return;
+    }
+    Own o(g);
+    REQUIRE(o.ok);
+    World w;
+    const Entity probe = build_room(w, ProbeMode::Realtime, ProbeUpdate::TimeSliced);
+    o.r.probe_set_budget(1);  // one face a frame: six frames a capture
+    int frames = 0;
+    while (!renderer_probe_tile_valid(o.r, probe.bits()) && frames++ < 40) o.frame(w);
+    REQUIRE(renderer_probe_tile_valid(o.r, probe.bits()));
+    o.frame(w);
+    CHECK(renderer_probe_volume_count(o.r) == 1);
+
+    // A RealtimeGI makes the atlas taller: it is made again and empty.
+    Entity gie = make(w, "gi", {20, 0, 0});
+    auto& gi = w.add<RealtimeGI>(gie);
+    gi.size = {2, 0, 2};
+    gi.spacing = 2.0f;
+    gi.resolution = 16;
+    o.frame(w);
+    CHECK_FALSE(renderer_probe_tile_valid(o.r, probe.bits()));
+    o.frame(w);
+    CHECK(renderer_probe_volume_count(o.r) == 0);  // absent from the volumes while its tile is empty
+    frames = 0;
+    while (!renderer_probe_tile_valid(o.r, probe.bits()) && frames++ < 60) o.frame(w);
+    REQUIRE(renderer_probe_tile_valid(o.r, probe.bits()));
+    o.frame(w);
+    CHECK(renderer_probe_volume_count(o.r) == 1);
+    ProbeTile tile;
+    REQUIRE(renderer_probe_tile(o.r, probe.bits(), tile));
+    std::vector<float> px;
+    std::string error;
+    REQUIRE(renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, px, &error));
+    check_colors(px, 4, 128, 0, 0, 128, 0.08f);  // the capture, not black
 }
 
 TEST_CASE("realtime probe: the time slice draws at most the budget of faces a frame and finishes in order") {
@@ -751,4 +793,17 @@ TEST_CASE("baked probe: the page of a manifest is uploaded to the atlas, a chang
     REQUIRE(renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, half, &error));
     const Rgb red2 = sample(half, 4, 128, 0, 0, 128, {1, 0, 0});
     CHECK(std::fabs(red2.r - 0.5f) < 0.06f);
+
+    // The tile is given back (no bakedMap) and the same map returns to the same tile: it is uploaded again, not left empty.
+    w.get<ReflectionProbe>(probe)->bakedMap.clear();
+    o.frame(w);
+    CHECK_FALSE(renderer_probe_tile_valid(o.r, probe.bits()));
+    w.get<ReflectionProbe>(probe)->bakedMap = path;
+    for (int i = 0; i < 2; ++i) o.frame(w);
+    CHECK(renderer_probe_tile_valid(o.r, probe.bits()));
+    ProbeTile again;
+    REQUIRE(renderer_probe_tile(o.r, probe.bits(), again));
+    REQUIRE(renderer_read_probe_atlas(o.r, again.x + kProbeBorder, again.y + kProbeBorder, 128, 128, half, &error));
+    const Rgb red3 = sample(half, 4, 128, 0, 0, 128, {1, 0, 0});
+    CHECK(std::fabs(red3.r - 0.5f) < 0.06f);
 }

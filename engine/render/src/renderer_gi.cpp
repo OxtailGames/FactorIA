@@ -111,8 +111,12 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
             gr.base = -1;
             continue;
         }
+        const std::optional<int> base = g.blocks.acquire(gr.id, layout.value().count);
+        // Every probe is captured again (and the grid is not "ready" until they are) when the layout changed, the atlas was made again, the
+        // grid's blocks are not where they were, or the entity moved half a spacing.
         const bool changed = !gr.valid || gr.layout.key != layout.value().key || atlasRemade ||
-                             gr.last.size() != std::size_t(layout.value().count);
+                             gr.last.size() != std::size_t(layout.value().count) || (base && *base != gr.base) ||
+                             gi_layout_moved(layout.value(), gr.anchor);
         gr.valid = true;
         gr.layout = layout.value();
         gr.probesPerFrame = c->probesPerFrame;
@@ -121,9 +125,9 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
             gr.retry.assign(std::size_t(gr.layout.count), 0);
             gr.serial = gr.captured = 0;
             gr.cycles = 0;
-            gr.dirty = true;
+            gr.anchor = gr.layout.origin;
+            gr.failed = false;
         }
-        const std::optional<int> base = g.blocks.acquire(gr.id, gr.layout.count);
         if (!base) {
             gr.base = -1;
             gr.state = "noRoom";
@@ -132,7 +136,7 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
             continue;
         }
         gr.base = *base;
-        gr.message.clear();
+        if (!gr.failed) gr.message.clear();
     }
     for (auto it = g.grids.begin(); it != g.grids.end();) {
         if (it->second.seen) {
@@ -174,6 +178,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
             }
             if (!ok) {
                 gr.retry[std::size_t(probe)] = g.frame + std::uint64_t(kGiRetryFrames);
+                gr.failed = true;
+                gr.failFrame = g.frame;
                 gr.state = "failed";
                 gr.message =
                     "the images of a capture could not be created (out of GPU memory?); the probe is tried again later";
@@ -229,6 +235,8 @@ void Renderer::Impl::gi_finish() {
             if (skipping) {
                 gr.last[std::size_t(job.probe)] = job.first ? 0 : gr.last[std::size_t(job.probe)];
                 gr.retry[std::size_t(job.probe)] = g.frame + std::uint64_t(kGiRetryFrames);
+                gr.failed = true;
+                gr.failFrame = g.frame;
                 gr.state = "failed";
                 gr.message = "the scratch cube maps of a capture could not be created (out of GPU memory?)";
             }
@@ -241,10 +249,8 @@ void Renderer::Impl::gi_finish() {
         const float blend = job.first ? 1.0f : std::clamp(1.0f - gr.layout.hysteresis, 0.01f, 1.0f);
         ps.gpu.filter_gi(gpu, ps.atlas, kGiScratchSlot, gr.base + job.probe, gr.layout.resolution, blend,
                          gr.layout.maxDistance, &calls);
-        if (job.first) {
-            ++gr.captured;
-            gr.dirty = true;
-        }
+        if (job.first) ++gr.captured;
+        gr.lastCaptureFrame = g.frame;
         ++gr.lastFrameCaptures;
         ++captured;
         ++g.totalCaptures;
@@ -252,9 +258,13 @@ void Renderer::Impl::gi_finish() {
     for (auto& [id, gr] : g.grids) {
         if (!gr.valid || gr.base < 0) continue;
         gr.cycles = gr.layout.count > 0 ? gr.serial / std::uint64_t(gr.layout.count) : 0;
-        if (gr.state != "failed" || gr.captured == gr.layout.count) {
+        // A failure stays visible (state and message, to render.gi_grid) until a capture finishes after it.
+        if (gr.failed && gr.lastCaptureFrame > gr.failFrame) gr.failed = false;
+        if (gr.failed) {
+            gr.state = "failed";
+        } else {
             gr.state = gr.captured >= gr.layout.count ? "ready" : "updating";
-            if (gr.state == "ready") gr.message.clear();
+            gr.message.clear();
         }
     }
     g.perFrame.push_back(captured);
@@ -267,6 +277,18 @@ void Renderer::Impl::gi_finish() {
 }
 
 // ---- the report -----------------------------------------------------------------------------------------------------------------
+
+Renderer::GiProgress Renderer::gi_progress(Entity grid) const {
+    GiProgress out;
+    if (!initialized()) return out;
+    const auto& grids = impl_->probes.gi.grids;
+    const auto it = grids.find(grid.bits());
+    if (it == grids.end() || !it->second.valid) return out;
+    out.known = true;
+    out.captured = it->second.captured;
+    out.count = it->second.layout.count;
+    return out;
+}
 
 Json Renderer::gi_report() {
     if (!initialized()) return Json::object();

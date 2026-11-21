@@ -58,12 +58,16 @@ struct GiLayout {
     int resolution = 16;  // texels per side of a capture face
     float maxDistance = 30.0f, nearPlane = 0.1f;
     float intensity = 1.0f, bounce = 1.0f, hysteresis = 0.9f, backfaceTolerance = 0.25f;
-    // The part of the layout that decides where the probes are: when it changes every probe is captured again.
+    // The part of the layout that decides what the probes are (spacing, counts, resolution, distances, tags; NOT the origin: see
+    // gi_layout_moved): when it changes every probe is captured again.
     std::uint64_t key = 0;
 };
 // Checks the component and lays the grid out (the box centred on `worldPosition` + offset, probes spacing apart, the grid centred in the
 // box). An error names the entity, the JSON pointer of the field, what is wrong and how to fix it.
 Result<GiLayout> gi_layout(const RealtimeGI& component, Vec3 worldPosition, const std::string& entityId);
+// True when the grid's origin is half a spacing or more from `anchor` (the origin it was last laid out at) on any axis: the grid is laid out
+// again and every probe captured again. A smaller move only carries the origin along: the probes are captured at the new place in turn.
+bool gi_layout_moved(const GiLayout& grid, Vec3 anchor);
 int gi_axis_count(double extent, double spacing);  // floor(extent / spacing) + 1, 1 for an extent of 0
 Vec3 gi_probe_position(const GiLayout& grid, int index);
 

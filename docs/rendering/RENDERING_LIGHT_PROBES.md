@@ -96,6 +96,7 @@ or a light that moves reaches the walls in the time a cycle of the probes takes.
    (16 or 32). The probes are refreshed in a fixed order, the ones never captured first and then the one captured longest ago, so the same scene
    gives the same result on every run; a grid of n probes at b a frame is refreshed every ceil(n / b) frames.
 3. `hysteresis` (default 0.9) is the share of the old value a new capture keeps: more is calmer and slower to follow a change.
+   The atlas holds half floats, so a blend of 1 % (0.99) cannot move a value it is within about 2 % of: it settles that close to a steady target, not on it.
    `nearExclusion` and `maxDistance` are the near and far planes of the captures; `showTags` and `hideTags` leave things out of them (the
    player, particles) as on a Camera.
 4. Look at it with `factoria call render.gi_grid`: per grid the probe count, `captured` and `progress` (how many probes have a first capture),

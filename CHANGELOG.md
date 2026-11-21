@@ -23,6 +23,10 @@ Older versions, one file per minor version with its patch releases: [0.32](chang
   band of 132 rows added to the probe atlas (no texture unit). The probes are refreshed in a fixed order, the longest ago first, within `probesPerFrame` (32
   for all grids), and everything stays on the GPU. New command `render.gi_grid` lists each grid's probe count, progress, memory and the probes inside geometry.
   A scene without a `RealtimeGI` costs nothing. docs/rendering/RENDERING_LIGHT_PROBES.md and docs/design/ARCHITECTURE_PROBES.md.
+- **Realtime GI and probe fixes (M73-P5d-2b):** a reflection probe whose tile was emptied (a RealtimeGI made the atlas taller, the tile moved or was evicted) is no longer sampled
+  until it is captured again, so meshes stop reflecting black for a few frames. A `RealtimeGI` grid keeps its captured probes when its entity moves less than half a spacing (a larger move or other
+  `showTags` / `hideTags` lays it out again), and a failed capture stays visible in `render.gi_grid` until the next one succeeds. The atlas no longer grows by 132 rows on a GPU without RGBA16F blending,
+  `render.probes {entity}` keeps the picks of that one mesh only, and a selected `RealtimeGI` draws its probe box and probe points in the editor's perspective viewport.
 - **Glass and liquids (M73.6b):** `MeshRenderer.transmission` (0..1), `thickness` (metres), `attenuationColor` and `attenuationDistance` now draw: the mesh
   shows what is behind it, refracted by its `ior` and `thickness`, blurred by its `roughness`, tinted by `color` and by the Beer-Lambert attenuation of its
   volume. glTF models bring them (`KHR_materials_transmission`, `_volume`, `_ior`; the textures are not used and the import says so). When a visible draw is

@@ -265,8 +265,9 @@ it yet (P5d-2). The user's side is in [RENDERING_LIGHT_PROBES.md](../rendering/R
 
 **The band.** The probe atlas of P3b is 1024 x 1024; while any `RealtimeGI` is active it is 1024 x 1156: a BAND of 132 rows under the square
 holds the probes' blocks, so no texture unit is added (the atlas is the one image P3c binds at fragment view 14). An atlas made without the band
-is made again once (the reflection probes capture again, the sky's entry is written again). RGBA8 atlases (a GPU that cannot render to half
-floats) mean the GI is "unsupported": the band would not hold distances above 1.
+is made again once (the reflection probes capture again, the sky's entry is written again; a probe is not sampled until its tile is captured again: `ProbeEntry::tileValid`,
+cleared when a tile moves, is evicted or the atlas is made again). RGBA8 atlases (a GPU that cannot render to half
+floats) mean the GI is "unsupported": the band would not hold distances above 1, so such an atlas is not made taller.
 
 **The capture.** One probe is six face jobs of the frame graph, as in "The capture", with the component's `resolution` (16 or 32), `nearExclusion` as the
 near plane and `maxDistance` as the far plane, `Sky` as the clear (the sky lights the room) and the component's tags. Each face also draws the BACK faces
@@ -304,7 +305,7 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
   `maxDistance` 255, and a half float's precision at 900 is 0.5). To decode: `mean = r * maxDistance` (metres), `variance = max(g - r * r, 0) *
   maxDistance^2` (metres squared; `maxDistance` is in the grid's record). The visibility test is Chebyshev's with those: a point at distance `d` from the
   probe is lit by it with weight `variance / (variance + (d - mean)^2)` when `d > mean`, else 1. Or normalise the point's distance too (`d / maxDistance`) and
-  use r and g as they are, with the variance `max(g - r * r, 0)`. The hysteresis blends the normalised values.
+  use r and g as they are, with the variance `max(g - r * r, 0)`. The hysteresis blends the normalised values (with 0.99 and half floats a block converges to about 2 % of a steady value: the 1 % step is below the rounding of the stored value).
 - Row 10, columns 0..8: the nine coefficients of the SH of the light that reaches the probe: RADIANCE SH in the order of `ShL2` (lightmap_bake.h), RGB in r,
   g, b, no `intensity` applied. The cosine convolution is the one of `sh_irradiance` (bands scaled 1, 2/3, 1/4; `fa_sh_eval` in mesh_common.glsl
   does the same for the sky), and the result is the diffuse light in the units of a sky's (irradiance / pi).
@@ -317,7 +318,7 @@ owns a run of consecutive blocks, `baseBlock`; probe `i` of the grid is block `b
 `GiSystem::records`; `pack_light_texture` (light_clusters.cpp) writes them into the light data texture after the decals (`LightTexture::giBase`,
 the first texel of the region). The fragment's `fa_gi` (a vec4 of the fs params block, mirrored in `mesh_full_common.glsl`) holds `x` = that first
 texel, `y` = the number of records and `z` = 1 while a capture is drawn. The block grew by one vec4, from 832 to 848 bytes as the backends'
-reflection reports it (the fixtures' `size`). A grid that is not ready has no record, so a grid that is filling changes nothing: a test compares the frames of
+reflection reports it (the fixtures' `size`). A grid that is not ready has no record (its `ready` is 0 again whenever it is captured again: a new layout, a new atlas, other blocks; the layout key holds what the probes are and not the origin, so a grid moved by less than half a spacing keeps its probes and keeps shading while they are captured at the new place), so a grid that is filling changes nothing: a test compares the frames of
 the first cycle with the frames of a world without the component, byte for byte, and the frame of a world without any `RealtimeGI` is the one of
 before (`fa_gi.y` is 0, one branch). No texture unit and no draw call are added: the records are in the light texture and the blocks in the probe atlas
 (fragment view 14, sampler 10, the same `fa_atlas_size()` for the texel coordinates).
