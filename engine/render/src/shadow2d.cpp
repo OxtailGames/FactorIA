@@ -29,8 +29,8 @@ constexpr float kTexelsPerRad = float(kShadowAngles) / kTwoPi;
 // ---------------------------------------------------------------------------------------------------------------------
 
 struct Grid {
-    int W = 0, H = 0;       // padded size in samples
-    std::vector<float> f;   // alpha - threshold, in 0..255 units; inside when > 0
+    int W = 0, H = 0;      // padded size in samples
+    std::vector<float> f;  // alpha - threshold, in 0..255 units; inside when > 0
     float at(int x, int y) const { return f[std::size_t(y) * std::size_t(W) + std::size_t(x)]; }
 };
 
@@ -40,8 +40,8 @@ Vec2 edge_point(const Grid& g, std::uint32_t id) {
     const bool vertical = (id & 1u) != 0;
     const std::uint32_t cell = id >> 1;
     const int x = int(cell % std::uint32_t(g.W)), y = int(cell / std::uint32_t(g.W));
-    const float fa = g.at(x, y), fb = vertical ? g.at(x, y + 1) : g.at(x + 1, y);
-    const float t = fa / (fa - fb);  // one of them is above 0, the other not: the denominator is not 0
+    const float va = g.at(x, y), vb = vertical ? g.at(x, y + 1) : g.at(x + 1, y);
+    const float t = va / (va - vb);  // one of them is above 0, the other not: the denominator is not 0
     // Sample (x, y) of the padded grid is the centre of pixel (x - 1, y - 1).
     const float px = float(x) - 0.5f, py = float(y) - 0.5f;
     return vertical ? Vec2{px, py + t} : Vec2{px + t, py};
@@ -65,22 +65,22 @@ float polygon_area(const std::vector<Vec2>& p) {
 std::vector<Vec2> simplify_loop(const std::vector<Vec2>& p, float eps) {
     const std::size_t n = p.size();
     if (n <= 3) return p;
-    std::size_t far = 0;
+    std::size_t farIdx = 0;
     float best = -1;
     for (std::size_t i = 1; i < n; ++i) {
         const float dx = p[i].x - p[0].x, dy = p[i].y - p[0].y;
         const float d = dx * dx + dy * dy;
         if (d > best) {
             best = d;
-            far = i;
+            farIdx = i;
         }
     }
     std::vector<char> keep(n, 0);
-    keep[0] = keep[far] = 1;
+    keep[0] = keep[farIdx] = 1;
     struct Range {
         std::size_t lo, hi;  // indices into the cyclic list; hi may be n (= point 0 again)
     };
-    std::vector<Range> stack{{0, far}, {far, n}};
+    std::vector<Range> stack{{0, farIdx}, {farIdx, n}};
     while (!stack.empty()) {
         const Range r = stack.back();
         stack.pop_back();
@@ -260,6 +260,11 @@ ContourLoops contour_from_alpha(const std::uint8_t* alpha, int w, int h, float t
 // Casters of a frame
 // ---------------------------------------------------------------------------------------------------------------------
 
+void warn_once(ContourCache& c, const std::string& key, const std::string& message) {
+    if (c.warned.size() >= 64 || !c.warned.insert(key).second) return;
+    FA_WARN("render", "{}", message);
+}
+
 namespace {
 
 struct Hasher {
@@ -269,11 +274,6 @@ struct Hasher {
         for (std::size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 1099511628211ull;
     }
 };
-
-void warn_once(ContourCache& c, const std::string& key, const std::string& message) {
-    if (c.warned.size() >= 64 || !c.warned.insert(key).second) return;
-    FA_WARN("render", "{}", message);
-}
 
 // A closed polygon (local points, +y up) as segments of the world, through `m`.
 struct Builder {
@@ -326,9 +326,12 @@ struct Builder {
 // The alpha channel of a texture file, kept while it is used (budget: 32 MB of planes).
 const ContourCache::Alpha& alpha_plane(ContourCache& c, const TextureAsset& tex, const std::string& key,
                                        std::string& problem) {
+    // `problem` is the reason the pixels cannot be read, kept in the cached plane so a later region of the same texture
+    // reports it too.
     auto it = c.planes.find(key);
     if (it != c.planes.end()) {
         it->second.used = c.tick;
+        problem = it->second.problem;
         return it->second;
     }
     ContourCache::Alpha plane;
@@ -350,16 +353,19 @@ const ContourCache::Alpha& alpha_plane(ContourCache& c, const TextureAsset& tex,
         for (std::size_t i = 0; i < plane.a.size(); ++i) plane.a[i] = img->rgba[i * 4 + 3];
         plane.ok = true;
     }
-    if (c.planeBytes + plane.a.size() > (std::size_t(32) << 20)) {  // over budget: forget the least recently used planes
+    if (c.planeBytes + plane.a.size() >
+        (std::size_t(32) << 20)) {  // over budget: forget the least recently used planes
         while (!c.planes.empty() && c.planeBytes + plane.a.size() > (std::size_t(32) << 20)) {
             auto oldest = c.planes.begin();
             for (auto p = c.planes.begin(); p != c.planes.end(); ++p)
-                if (p->second.used < oldest->second.used || (p->second.used == oldest->second.used && p->first < oldest->first))
+                if (p->second.used < oldest->second.used ||
+                    (p->second.used == oldest->second.used && p->first < oldest->first))
                     oldest = p;
             c.planeBytes -= oldest->second.a.size();
             c.planes.erase(oldest);
         }
     }
+    plane.problem = problem;
     c.planeBytes += plane.a.size();
     return c.planes.emplace(key, std::move(plane)).first->second;
 }
@@ -391,7 +397,7 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
         } else if (sc.shape == ShadowCaster2DShape::Polygon) {
             std::size_t n = sc.points.size() / 2;
             if (n > std::size_t(kMaxCasterSegments2D)) {
-                warn_once(cache, std::format("poly{}", e.index),
+                warn_once(cache, std::format("poly{}", world.id_of(e)),
                           std::format("ShadowCaster2D on '{}' has {} polygon points; at most {} are used (the rest are "
                                       "cut). Hint: simplify the outline, or split it into several casters",
                                       world.id_of(e), n, kMaxCasterSegments2D));
@@ -403,10 +409,11 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
         } else {
             const Sprite* s = world.get<Sprite>(e);
             if (!s) {
-                warn_once(cache, std::format("nospr{}", e.index),
-                          std::format("ShadowCaster2D on '{}' has shape spriteAlpha but the entity has no Sprite, so it "
-                                      "blocks no light. Hint: add a Sprite, or set shape to box or polygon",
-                                      world.id_of(e)));
+                warn_once(
+                    cache, std::format("nospr{}", world.id_of(e)),
+                    std::format("ShadowCaster2D on '{}' has shape spriteAlpha but the entity has no Sprite, so it "
+                                "blocks no light. Hint: add a Sprite, or set shape to box or polygon",
+                                world.id_of(e)));
             } else {
                 TextureAsset* tex = s->texture.empty() || !f.assets ? nullptr : f.assets->texture(s->texture);
                 Rect r = s->region;
@@ -421,19 +428,24 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                 Vec2 pivot = s->pivot;
                 if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e); anim && tex) {
                     auto sheet = f.sheets.find(s->texture);
-                    if (sheet == f.sheets.end())
-                        sheet = f.sheets.emplace(s->texture, assets::sheet(s->texture)).first;
-                    pivot = sprite_effective_pivot(*s, *anim, resolve_sprite_animator(*anim, s->texture, sheet->second));
+                    if (sheet == f.sheets.end()) sheet = f.sheets.emplace(s->texture, assets::sheet(s->texture)).first;
+                    pivot =
+                        sprite_effective_pivot(*s, *anim, resolve_sprite_animator(*anim, s->texture, sheet->second));
                 }
                 const float bx0 = -pivot.x * size.x, bx1 = bx0 + size.x, by0 = -pivot.y * size.y, by1 = by0 + size.y;
                 bool boxed = true;
                 if (tex) {
                     // Region in whole pixels of the file, inside the texture.
                     const int tw = tex->width, th = tex->height;
-                    const int rx = std::clamp(int(std::floor(std::clamp(r.x, 0.0f, float(tw)))), 0, tw);
-                    const int ry = std::clamp(int(std::floor(std::clamp(r.y, 0.0f, float(th)))), 0, th);
-                    const int rw = std::clamp(int(std::ceil(std::clamp(r.w, 0.0f, float(tw)))), 0, tw - rx);
-                    const int rh = std::clamp(int(std::ceil(std::clamp(r.h, 0.0f, float(th)))), 0, th - ry);
+                    // The pixels the rectangle touches: floor of its first edge, ceil of its far edge (a fractional x
+                    // with a fractional width no longer shifts the crop by a texel).
+                    const float fx0 = std::clamp(r.x, 0.0f, float(tw)), fy0 = std::clamp(r.y, 0.0f, float(th));
+                    const float fx1 = std::clamp(r.x + r.w, fx0, float(tw)),
+                                fy1 = std::clamp(r.y + r.h, fy0, float(th));
+                    const int rx = std::clamp(int(std::floor(fx0)), 0, tw);
+                    const int ry = std::clamp(int(std::floor(fy0)), 0, th);
+                    const int rw = std::clamp(int(std::ceil(fx1)) - rx, 0, tw - rx);
+                    const int rh = std::clamp(int(std::ceil(fy1)) - ry, 0, th - ry);
                     const int thr = int(std::lround(std::clamp(sc.alphaThreshold, 0.0f, 1.0f) * 255.0f));
                     const std::string planeKey = std::format("{}#{}", tex->path, tex->image.id);
                     const std::string key = std::format("{}|{},{},{},{}|{}", planeKey, rx, ry, rw, rh, thr);
@@ -448,21 +460,24 @@ void gather_shadow_casters(World& world, Frame& f, ContourCache& cache, CasterSe
                                 std::memcpy(&crop[std::size_t(y) * std::size_t(rw)],
                                             &plane.a[std::size_t(ry + y) * std::size_t(plane.w) + std::size_t(rx)],
                                             std::size_t(rw));
-                            entry.loops = contour_from_alpha(crop.data(), rw, rh, float(thr) / 255.0f, kMaxCasterSegments2D);
+                            entry.loops =
+                                contour_from_alpha(crop.data(), rw, rh, float(thr) / 255.0f, kMaxCasterSegments2D);
                             ++cache.contoursMade;
                         } else {
                             entry.fallbackBox = true;
                             if (problem.empty()) problem = "the image file is smaller than the texture the GPU holds";
-                            warn_once(cache, std::format("alpha{}", key),
+                            warn_once(cache, std::format("alpha{}", planeKey),
                                       std::format("ShadowCaster2D on '{}' could not read the alpha of '{}': {}. The "
                                                   "sprite's rectangle blocks light instead. Hint: use shape polygon or "
                                                   "box for this sprite, or keep the texture file in the project",
                                                   world.id_of(e), s->texture, problem));
                         }
                         entry.used = cache.tick;
-                        if (cache.contours.size() >= 4096) {  // forget what was not used this frame
+                        if (cache.contours.size() >= 4096) {  // forget what was not used these two frames
                             for (auto c = cache.contours.begin(); c != cache.contours.end();)
                                 c = c->second.used + 1 < cache.tick ? cache.contours.erase(c) : std::next(c);
+                            if (cache.contours.size() >= 4096)
+                                cache.contours.clear();  // a hard bound: they are made again
                         }
                         it = cache.contours.emplace(key, std::move(entry)).first;
                     }
@@ -516,7 +531,7 @@ void casters_in_reach(const CasterSet& set, float px, float py, float radius, st
 }
 
 std::uint64_t cast_casters(const CasterSet& set, const std::vector<std::uint32_t>& bodies, float px, float py,
-                           float radius, float* dist) {
+                           float radius, float* dist, bool* cut) {
     struct Dir {
         float c, s;
     };
@@ -533,6 +548,10 @@ std::uint64_t cast_casters(const CasterSet& set, const std::vector<std::uint32_t
     std::vector<float> near1(std::size_t(kShadowAngles), kInf), near2(std::size_t(kShadowAngles), kInf);
     std::vector<std::uint16_t> touched;
     for (std::uint32_t bi : bodies) {
+        if (work >= kMaxRowWork2D) {
+            if (cut) *cut = true;
+            break;
+        }
         const ShadowBody& body = set.bodies[bi];
         const ShadowSegment* segs = &set.segs[body.first];
         // A light inside the outline is not blocked by it (like a light inside a solid tile): even-odd, ray towards +x.
@@ -546,6 +565,11 @@ std::uint64_t cast_casters(const CasterSet& set, const std::vector<std::uint32_t
         if (crossings & 1) continue;
         touched.clear();
         for (std::uint32_t k = 0; k < body.count; ++k) {
+            if (work >=
+                kMaxRowWork2D) {  // a body is cut in the middle of its segments: what it found so far still counts
+                if (cut) *cut = true;
+                break;
+            }
             const ShadowSegment& s = segs[k];
             const float ax = s.ax - px, ay = s.ay - py, bx = s.bx - px, by = s.by - py;
             const float ex = bx - ax, ey = by - ay;

@@ -23,9 +23,11 @@ namespace fa::render {
 struct Frame;
 
 // Caps (deterministic work counts: a result never depends on how fast the machine is). Normal use is 10x below each.
-constexpr int kMaxShadowCasters2D = 2048;       // casters a frame reads; the others (in entity order) cast no shadow
-constexpr int kMaxCasterSegments2D = 256;       // segments of one caster (a contour is simplified to fit; a polygon is cut)
-constexpr int kMaxCasterBodiesPerLight = 512;   // casters one light's row reads (in entity order)
+constexpr int kMaxShadowCasters2D = 2048;  // casters a frame reads; the others (in entity order) cast no shadow
+constexpr int kMaxCasterSegments2D = 256;  // segments of one caster (a contour is simplified to fit; a polygon is cut)
+constexpr int kMaxCasterBodiesPerLight = 512;  // casters one light's row reads (in entity order)
+constexpr std::uint64_t kMaxRowWork2D =
+    1u << 20;  // segment x angle tests of one light's row; the casters after it (in entity order) are skipped
 constexpr int kMaxContourLoops2D = 16;          // closed outlines kept from one sprite
 constexpr int kMaxContourPixels2D = 512 * 512;  // alpha pixels one contour reads; a larger region is reduced by blocks
 
@@ -60,6 +62,7 @@ struct ContourCache {
     struct Alpha {
         int w = 0, h = 0;
         bool ok = false;
+        std::string problem;  // why the pixels cannot be read (empty when ok)
         std::vector<std::uint8_t> a;
         std::uint64_t used = 0;
     };
@@ -68,12 +71,12 @@ struct ContourCache {
         std::uint64_t used = 0;
         bool fallbackBox = false;  // the alpha could not be read: the sprite's rectangle stands in
     };
-    std::unordered_map<std::string, Alpha> planes;   // alpha channel per texture file (key: path + image id)
+    std::unordered_map<std::string, Alpha> planes;    // alpha channel per texture file (key: path + image id)
     std::unordered_map<std::string, Entry> contours;  // key: path + image id + region + threshold
     std::uint64_t tick = 0;
-    std::uint64_t contoursMade = 0;                  // for tests: how many contours were really extracted
+    std::uint64_t contoursMade = 0;  // for tests: how many contours were really extracted
     std::size_t planeBytes = 0;
-    std::unordered_set<std::string> warned;          // messages already logged (once per renderer)
+    std::unordered_set<std::string> warned;  // messages already logged (once per renderer)
 };
 
 // The casters of the frame: every enabled ShadowCaster2D of an active entity this camera draws, as world segments.
@@ -88,7 +91,11 @@ void casters_in_reach(const CasterSet& set, float px, float py, float radius, st
 // which the casters in `bodies` start to shadow the ray: the near side of an outline when it has selfShadow, otherwise the
 // far side of the first outline the ray enters (its own face stays lit, like the face of a tile). A caster that holds the
 // light inside its outline does not block that light. Returns the work done (segment/angle pairs tested), for tests.
+// Stops at kMaxRowWork2D tests (a count, never time) and sets `*cut` when it did: the result is the same on every machine.
 std::uint64_t cast_casters(const CasterSet& set, const std::vector<std::uint32_t>& bodies, float px, float py,
-                           float radius, float* dist);
+                           float radius, float* dist, bool* cut = nullptr);
+
+// Logs `message` once per `key` for the life of the renderer (at most 64 keys).
+void warn_once(ContourCache& c, const std::string& key, const std::string& message);
 
 }  // namespace fa::render

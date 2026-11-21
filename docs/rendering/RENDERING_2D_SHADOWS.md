@@ -33,26 +33,32 @@ blocked by that caster (a lamp held in a hand, a torch in a brazier).
 
 ### How a sprite's contour is made
 
-The first frame a `spriteAlpha` caster is drawn, the engine reads the alpha of the texture's file, runs marching squares on the
-pixels above the threshold (inside the `region` when the sprite has one), and simplifies each outline with Douglas-Peucker to
+The first frame a `spriteAlpha` caster is drawn, the engine reads the alpha of the texture's file (decoding the image and tracing
+the contour is done on the frame thread, so that first frame can take a few milliseconds per new texture: a texture of several
+megapixels more), runs marching squares on the pixels above the threshold (inside the `region` when the sprite has one), and simplifies each outline with Douglas-Peucker to
 at most 256 segments in all (a closed outline of about 0.6 px accuracy; a bigger region is reduced by blocks first, so the
 accuracy is coarser for a texture over 512 x 512 pixels). Holes are kept (a ring blocks only its ring), at most 16 outlines per
 sprite, the biggest first, and specks under 1 px2 are dropped.
 
 The contour is cached per texture, region and threshold (the flips mirror the same contour), so a thousand copies of a prop
-make it once, and a sprite that moves, turns, scales or flips makes no new one. The cache keeps up to 4096 contours and 32 MB of
-alpha planes, then drops the least recently used. A texture that is reloaded gets a new GPU image and so makes a new contour.
+make it once, and a sprite that moves, turns, scales or flips makes no new one. A `SpriteAnimator` writes each frame's rectangle
+into `Sprite.region` before the casters are read, so the contour follows the frame: every frame of a sheet gets its own contour,
+made the first time it is shown. The cache keeps at most 4096 contours (the ones not used in the last two frames go first; if all
+are in use the cache is emptied and they are made again) and up to 32 MB of alpha planes, then drops the least recently used
+plane; a plane in use is read again from the file after it was dropped, and the planes (the alpha of every texture read, up to 32
+MB) stay in memory for the life of the renderer. A texture that is reloaded gets a new GPU image and so makes a new contour.
 
 When the alpha cannot be read, the sprite's rectangle blocks light instead and one warning names the reason and the fix: the
 texture is packed in an atlas by an export (its pixels are not in a file any more), it is a render target or a generated
-texture, it is over 16 million pixels, or the file is missing. Use `box` or `polygon` for those sprites.
+texture, it is over 16 million pixels, or the file is missing. The warning comes once per texture, whichever region asked first.
+Use `box` or `polygon` for those sprites.
 
 ## Soft shadows: Light2D.size
 
 `size` is the radius, in world units, of the light source. 0 (default) is a point: a hard edge (softened by about one pixel, as the tiles always were). Above 0 the shadow gets a penumbra that grows with the distance past the occluder, like the shadow of a
 post under a street lamp: sharp where the occluder touches the floor, wide far from it. The transition is about
-`2 x size x (d - b) / b` world units wide, where `b` is the distance from the light to the occluder and `d` the distance to the
-point being shaded (the half-width of the blur is limited to 0.7 radians of the light's view). A box 20 units from a light of `size` 4 shades the floor
+`2 x size x (d - b) / b` world units wide, where `b` is the distance from the light to the far face of the occluder as the
+shadow row stores it (the distance at which the shadow starts) and `d` the distance to the point being shaded (the half-width of the blur is limited to 0.7 radians of the light's view). A box 20 units from a light of `size` 4 shades the floor
 100 units past it with a transition about 40 units wide, and the floor right behind it with a sharp one.
 
 Each pixel looks for the occluders around its direction (12 reads of the shadow row), takes their mean distance `b`, and averages
@@ -67,7 +73,7 @@ Every `Light2D` with `castShadows` that reaches a solid tile or a caster and is 
 the old limit of 32 shadowed lights is gone, and the limit is now the 256 lights of a frame (`kMaxLights2D`, see
 [PERFORMANCE.md](../PERFORMANCE.md), "2D lights"). The rows are one RGBA8 image of 1024 angles x up to 256 rows
 (`stats.lights2dShadowed` counts them), so the atlas needs nothing a GPU lacks. When a frame has more lights in view than 256
-the ones ranked last are left out of the frame altogether, and one warning per scene says how many.
+the ones ranked last are left out of the frame altogether (lit or shadowed), and one warning per scene says how many.
 
 A light's row is cached under a key of the light's position and radius, its layers and every occluder in its reach (tile edits and
 the outline of each caster). A light that does not move, in a scene whose occluders in its reach do not move, neither recomputes
@@ -77,7 +83,9 @@ CPU, 1024 angles each time its key changes.
 
 ## Costs and caps
 
-All caps count work and never time, so a scene gives the same picture on a slow machine as on a fast one.
+All caps count work and never time, so a scene gives the same picture on a slow machine as on a fast one. The cap on a frame's
+total work is the product of the per-light cap and the 256 lights: there is no separate per-frame budget (a row that is
+cached costs nothing), so a scene that moves many casters through many lights is measured, not capped.
 
 | What | Cap | Beyond it |
 | --- | --- | --- |
@@ -86,7 +94,8 @@ All caps count work and never time, so a scene gives the same picture on a slow 
 | Casters one light's row reads | 512, in entity order | the others do not block that light, one warning |
 | Outlines of one sprite | 16 | the smaller ones block nothing |
 | Alpha pixels one contour reads | 512 x 512 | the region is reduced by blocks |
-| Shadowed lights of a frame | 256 | the ones ranked last shine through walls, one warning per scene |
+| Segment x angle tests of one light's row | 1,048,576 (about 100 times a box in a light's view) | the casters after it (in entity order) do not block that light, one warning |
+| Lights of a frame | 256 | the ones ranked last are left out of the frame, one warning per scene |
 
 A caster is rasterised into the angles of the row it covers, so the cost of a row is the number of (segment, angle) pairs: a
 box that fills 10 degrees of a light's view is about 100 texels, however many casters are in the scene, and a caster outside a light's
@@ -105,7 +114,7 @@ float render target; a GPU ray cast is a possible follow-up for scenes with hund
 - `render.supports` rows `2dSoftShadows` and `2dShadowCasters` are true wherever the renderer draws (they need nothing a
   backend might lack).
 - Warnings, each once per scene or per renderer: a `spriteAlpha` caster without a `Sprite`, a texture whose alpha cannot be read,
-  a polygon over 256 points, more than 2048 casters, a light that reaches more than 512 casters, more than 256 lights.
+  a polygon over 256 points, more than 2048 casters, a light that reaches more than 512 casters, a row over its work cap, more than 256 lights.
 - A caster on a hidden layer (an entity the camera's mask does not draw) casts no shadow in that camera's view, like a tile map.
 - Determinism: nothing in the rows depends on time or randomness; the same scene gives the same row on every run.
 - `renderStats().lights2dShadowed` is the number of rows a frame made or reused; a light with `castShadows` that reaches
