@@ -75,9 +75,9 @@
       "chromatic": "Chromatic aberration",
       "outline": "Outlines",
       "hdr": "HDR output",
-      "note": "This scene has no screen effects; your choices apply to the scenes that do.",
-      "hdrNote": "HDR output needs an HDR display and a graphics backend that can show it.",
-      "lightNote": "This scene has no 2D lighting; the 2D lighting button applies to the scenes that do."
+      "note": "No screen effects here; your choice applies to scenes that have them.",
+      "hdrNote": "HDR needs an HDR display and a capable graphics backend.",
+      "lightNote": "No 2D lighting here; the button applies to scenes that have it."
     },
     "volume": {
       "master": "Master",

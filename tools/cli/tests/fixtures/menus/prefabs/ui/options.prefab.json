@@ -343,7 +343,7 @@
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",
                 "align": "start",
-                "maxWidth": 560,
+                "maxWidth": 660,
                 "layer": 302
               }
             }

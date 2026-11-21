@@ -158,20 +158,34 @@ test("graphics tab: a scene with no sprites and no saved lighting choice (a 3D s
   expect(world.find("graphics_note").get("Text").text).not.toContain(i18n.t("options.gfx.lightNote"));
 });
 
-test("graphics tab: the lighting note and the HDR note show together when both apply", () => {
+test("graphics tab: the three notes show together when none of them is avoided (2D scene, no PostProcess, no GI, no HDR)", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  settings.overrideRenderSupports(() => false);
+  try {
+    const pad = openGraphics();
+    world.find("screen_fx").destroy(); // no PostProcess
+    world.spawn({ id: "a_sprite", components: { Sprite: {} } });
+    pad.tap("DpadDown"); // Effects quality
+    pad.tap("A");
+    const text = world.find("graphics_note").get("Text").text;
+    for (const key of ["note", "lightNote", "hdrNote"]) expect(text).toContain(i18n.t(`options.gfx.${key}`));
+  } finally {
+    settings.overrideRenderSupports(null);
+  }
+});
+
+test("graphics tab: no Sprite but a saved lighting choice still shows the lighting note", () => {
+  storage.set("settings", { graphics: { lighting2d: "low" } });
   const pad = openGraphics();
-  world.spawn({ id: "a_sprite", components: { Sprite: {} } });
+  expect(settings.lightingRelevant()).toBe(true);
   pad.tap("DpadDown"); // Effects quality
   pad.tap("A");
-  const text = world.find("graphics_note").get("Text").text;
-  expect(text).toContain(i18n.t("options.gfx.lightNote"));
-  if (!settings.renderSupports("hdrOutput")) expect(text).toContain(i18n.t("options.gfx.hdrNote"));
+  expect(world.find("graphics_note").get("Text").text).toContain(i18n.t("options.gfx.lightNote"));
 });
 
 test("graphics settings: a scene's own High shows as Medium where High is not offered", () => {
   storage.set("settings", { volume: { music: 0.3 } });
   world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "high" } } });
-  const shown = settings.lightingShown();
-  expect(shown).toBe(settings.lightingChoices().includes("high") ? "high" : "medium");
-  expect(settings.lightingChoices().includes(shown)).toBe(true);
+  for (const p of ["ios", "android", "web"]) expect(settings.lightingShown(settings.load(), p)).toBe("medium");
+  for (const p of ["windows", "macos", "linux"]) expect(settings.lightingShown(settings.load(), p)).toBe("high");
 });
