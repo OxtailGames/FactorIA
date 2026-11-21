@@ -36,8 +36,10 @@ Every turn of yours sends your whole context again, so a package costs its numbe
 
 Before you report, check what reviews of earlier packages kept finding:
 - Perf budgets. When the package changes an example's scenes, models or scripts, or the renderer, run
-  `factoria call --project examples/<name> perf.measure` with the factoria you built and compare `drawCalls` and
-  `entities` with every runner entry of `tools/cli/tests/perf/<name>.perf.json`. Those two are the same on every
+  `factoria call --no-graphics --project examples/<name> perf.check '{"file":"<repo>/tools/cli/tests/perf/<name>.perf.json"}'`
+  with the factoria you built (it measures the scene, frames and input the budget file names, like the
+  `example_<name>_perf` test; a bare `perf.measure` measures the start scene, which is often another one) and compare
+  `drawCalls` and `entities` with every runner entry of that file. Those two are the same on every
   runner, and your machine's own `example_<name>_perf` test passes with `no_baseline`, so only this shows what CI
   will find. A change you meant: update both fields in every runner entry and say why in the commit. CPU time and
   memory are measured by CI only.
