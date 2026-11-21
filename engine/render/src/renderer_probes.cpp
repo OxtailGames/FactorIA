@@ -397,8 +397,9 @@ void Renderer::Impl::probes_plan(World& world) {
             specs.push_back(ProbeSpec{en.id, en.update, en.importance, en.resolution});
             if (moved && en.captures > 0) movedAgain.push_back(en.id);
         } else {
-            const bool stale =
-                en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) || en.uploadedGain != en.gain;
+            // `moved`: a tile that was given back and comes back (even at the same place) holds nothing until the page is uploaded again.
+            const bool stale = moved || en.bakedSerial != bake->serial || !same_tile(en.uploadedTile, en.tile) ||
+                               en.uploadedGain != en.gain;
             if (stale) {
                 ps.uploads.push_back(en.id);
                 en.state = "pending";

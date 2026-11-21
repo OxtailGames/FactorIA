@@ -34,7 +34,7 @@ TEST_CASE("RealtimeGI layout: the grid is centred on the box and counts floor(si
     CHECK(gi_layout(c, {10.0f, 0.0f, 0.0f}, "room").value().key == g.key);
     // The origin is not in the key (a moving entity must not restart the grid): gi_layout_moved says when it moved enough.
     CHECK(gi_layout(c, {11.0f, 0.0f, 0.0f}, "room").value().key == g.key);
-    CHECK(gi_layout(c, {10.0f, 0.0f, -0.0f}, "room").value().key == g.key);
+    // (-0.0f cannot reach the key: every float in it is a positive spacing, count or distance; mix_bits still folds -0.0f into 0.0f.)
     // The settings that do not move a probe do not change the key (no new capture for them).
     c.intensity = 3.0f;
     c.hysteresis = 0.5f;

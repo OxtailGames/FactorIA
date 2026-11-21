@@ -793,4 +793,17 @@ TEST_CASE("baked probe: the page of a manifest is uploaded to the atlas, a chang
     REQUIRE(renderer_read_probe_atlas(o.r, tile.x + kProbeBorder, tile.y + kProbeBorder, 128, 128, half, &error));
     const Rgb red2 = sample(half, 4, 128, 0, 0, 128, {1, 0, 0});
     CHECK(std::fabs(red2.r - 0.5f) < 0.06f);
+
+    // The tile is given back (no bakedMap) and the same map returns to the same tile: it is uploaded again, not left empty.
+    w.get<ReflectionProbe>(probe)->bakedMap.clear();
+    o.frame(w);
+    CHECK_FALSE(renderer_probe_tile_valid(o.r, probe.bits()));
+    w.get<ReflectionProbe>(probe)->bakedMap = path;
+    for (int i = 0; i < 2; ++i) o.frame(w);
+    CHECK(renderer_probe_tile_valid(o.r, probe.bits()));
+    ProbeTile again;
+    REQUIRE(renderer_probe_tile(o.r, probe.bits(), again));
+    REQUIRE(renderer_read_probe_atlas(o.r, again.x + kProbeBorder, again.y + kProbeBorder, 128, 128, half, &error));
+    const Rgb red3 = sample(half, 4, 128, 0, 0, 128, {1, 0, 0});
+    CHECK(std::fabs(red3.r - 0.5f) < 0.06f);
 }
