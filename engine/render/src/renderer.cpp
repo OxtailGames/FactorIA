@@ -1054,7 +1054,6 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.renderScale = renderScale;
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
-    fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
     fr.warnedGradientStops = &warnedGradientStops;
     fr.shadowCache = &shadowCache;
@@ -1109,7 +1108,7 @@ void Renderer::Impl::render(World& world, float dt) {
         warnedLights2d = false;
         warnedCookies2d = false;
         warnedLightBuffers2d = false;
-        warnedShadows2d = false;
+        reset_warnings(shadowCache.contours);  // the 2D shadow warnings may show again in the new scene
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;

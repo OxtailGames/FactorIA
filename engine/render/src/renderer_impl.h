@@ -292,12 +292,11 @@ struct Renderer::Impl {
     bool postBypass = false;     // Renderer::set_post_bypass: draw without any post-processing stack (the editor's A/B)
     bool warnedCameras = false;  // the "more cameras than the limit" warning, once per scene
     bool warnedLights2d = false;        // the "more Light2D in view than the budget" warning, once per scene
-    bool warnedShadows2d = false;       // the "more shadow casters than the budget" warning, once per scene
     bool warnedSpriteMesh = false;      // the "too many mesh cells" warning, once per scene
     bool warnedGradientStops = false;   // the "malformed gradientStops" warning, once per scene
     bool warnedCookies2d = false;       // the "more cookies than the atlas holds" warning, once per scene (M74)
     bool warnedLightBuffers2d = false;  // the "more light layer sets than light buffers" warning, once per scene (M74)
-    std::string lights2dScene;          // the scene path warnedLights2d and warnedShadows2d belong to
+    std::string lights2dScene;          // the scene path the 2D warnings of this renderer belong to
     // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
     // needs it, at lightScale of the target's size; kept while the size and the format stay.
     Target lightTarget;
