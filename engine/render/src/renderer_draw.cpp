@@ -2565,10 +2565,21 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     const float ppu = vis.w > 0.0f ? float(double(ctx.camPx.w) / double(vis.w)) : 0.0f;
     const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
     if (!geom.valid) return;
+    // The cascades' counts for the quality, against the platform's budget (a phone or a browser has the smaller one): over it, no field at all.
+    const sg_backend backend = sg_query_backend();
+    const bool mobile = backend == SG_BACKEND_GLES3 || backend == SG_BACKEND_METAL_IOS;
+    const Gi2dCascadePlan cascadePlan = gi2d_cascade_plan(s.quality, geom, mobile);
+    if (!cascadePlan.ok) {
+        if (!gi2d.warned_budget) {
+            gi2d.warned_budget = true;
+            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.", cascadePlan.why);
+        }
+        return;
+    }
     int slot = 0;
     for (const auto& c : jobContexts)
         if (c.get() != &ctx && static_cast<const DrawContext*>(c.get())->gi2d.active) ++slot;
-    Gi2dField* field = gi2d.acquire(slot, geom);
+    Gi2dField* field = gi2d.acquire(slot, geom, cascadePlan);
     if (!field) return;
     field->settings = s;
     field->job = ctx.plan.name;
@@ -3173,6 +3184,14 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     const sg_view cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
+    // M74-P3b: the irradiance of the 2D GI cascades, added to the lit quads of the camera's own world group (not the coverage image's).
+    const bool giOn = ctx.gi2d.active && ctx.gi2d.cascadePasses > 0 && ctx.gi2d.irradianceView.id && !format &&
+                      ctx.gi2d.intensity > 0.0f;
+    const sg_view giTexBound = giOn ? ctx.gi2d.irradianceView : assets->white()->view;
+    if (giOn) {
+        std::memcpy(litUniforms.gi_xf, ctx.gi2d.xf, sizeof(litUniforms.gi_xf));
+        litUniforms.gi_p[0] = ctx.gi2d.intensity;
+    }
     // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
     // (the size of the image the pass draws into: the game target's, or `passW` x `passH` for a smaller one)
     const float targetInv[2] = {1.0f / float(std::max(1, passW > 0 ? passW : physW)),
@@ -3310,6 +3329,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             b.views[VIEW_quad_shadow_tex] = shadowTexBound;
             b.views[VIEW_quad_fx_emissive_tex] = (qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view();
             b.views[VIEW_quad_fx_cookie_tex] = cookieTexBound;
+            b.views[VIEW_quad_fx_gi_tex] = giTexBound;
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -3873,6 +3893,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (cookieRes.valid()) reads.push_back(cookieRes);
+        if (ctx.gi2d.active && ctx.gi2d.cascadePasses > 0) reads.push_back(ctx.gi2d.irradiance);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
         if (ctx.physMainOn) reads.push_back(skyLutRes);

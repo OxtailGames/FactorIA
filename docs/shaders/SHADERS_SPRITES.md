@@ -94,8 +94,8 @@ not depend on anything the lean program has not: `i.mode` is 0 in it.
 **Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
 0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
 to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh; the vertex stage reads them at views 8 to 11 and samplers 7
-to 10), the params block is binding 5 (4 in the vertex stage). Views 12 and 13 are the engine's too (M74): the emissive map of an item
-and the atlas of the 2D light cookies (`fx_emissive_tex`, `fx_cookie_tex`); a material never uses them, they sit after its eight. The
+to 10), the params block is binding 5 (4 in the vertex stage). Views 12, 13 and 14 are the engine's too (M74): the emissive map of an item,
+the atlas of the 2D light cookies and the irradiance of the 2D global illumination (`fx_emissive_tex`, `fx_cookie_tex`, `fx_gi_tex`); a material never uses them, they sit after its eight. The
 fragment block `quad_fs_params` also holds the emission (`fx_emit`, `fx_emit_uv`), the rim light (`fx_rim`, `fx_rim_uv`) and the lights'
 cookies (`light_cookie`, `light_cookie_xf`), which are names of the engine's program like the rest (a param or a texture cannot take
 them). `s.color` on arrival already includes the item's emission (`Sprite.emissive`, in the scene's HDR range) and the rim light of a
