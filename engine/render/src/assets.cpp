@@ -350,7 +350,7 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
         }
         r.kind = PreparedTextureRef::Kind::Image;
         r.name = std::move(name);
-        r.image = std::move(*decoded);
+        r.image = std::make_shared<const Image>(std::move(*decoded));
         return r;
     }
     if (img.uri) {
@@ -363,7 +363,7 @@ PreparedTextureRef image_ref(const cgltf_image& img, const std::string& dir) {
                 if (decoded) {
                     r.kind = PreparedTextureRef::Kind::Image;
                     r.name = "<gltf-data-uri>";
-                    r.image = std::move(*decoded);
+                    r.image = std::make_shared<const Image>(std::move(*decoded));
                     return r;
                 }
             }
@@ -668,7 +668,7 @@ private:
                 const bool packed = r.name.rfind("<gltf-layers:", 0) == 0;
                 if (packed)
                     if (auto it = packedTextures_.find(r.name); it != packedTextures_.end()) return it->second;
-                TextureAsset* t = assets_.make_texture(r.name, r.image, true);
+                TextureAsset* t = assets_.make_texture(r.name, *r.image, true);
                 embeddedBytes_ += t->bytes;
                 if (packed) packedTextures_[r.name] = t;
                 return t;
@@ -2080,10 +2080,31 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
     }
 }
 
+bool Assets::reloaded_any_of(std::uint64_t since, const std::set<std::string>& paths) const {
+    if (since >= reloadGeneration_) return false;
+    if (since < reloadLogBase_) return true;
+    for (std::size_t i = std::size_t(since - reloadLogBase_); i < reloadLog_.size(); ++i)
+        for (const std::string& p : reloadLog_[i])
+            if (!p.empty() && paths.count(p)) return true;
+    return false;
+}
+
 void Assets::reload(const std::string& pathIn) {
     ++reloadGeneration_;
     std::string path = fs::normalize(pathIn);
     if (path.empty()) path = pathIn;
+    {
+        constexpr std::size_t kReloadLogMax = 1024;
+        if (reloadLog_.size() >=
+            kReloadLogMax) {  // the oldest half goes: a query that reaches back past it answers "yes"
+            reloadLog_.erase(reloadLog_.begin(), reloadLog_.begin() + std::ptrdiff_t(kReloadLogMax / 2));
+            reloadLogBase_ += kReloadLogMax / 2;
+        }
+        std::array<std::string, 2> entry{path, {}};
+        if (fs::extension(path) == kTextureTwinExtension)
+            entry[1] = path.substr(0, path.size() - std::strlen(kTextureTwinExtension));
+        reloadLog_.push_back(std::move(entry));
+    }
     auto t = textures_.find(path);
     if (t == textures_.end() && fs::extension(path) == kTextureTwinExtension)  // the twin of a texture changed
         t = textures_.find(path.substr(0, path.size() - std::strlen(kTextureTwinExtension)));

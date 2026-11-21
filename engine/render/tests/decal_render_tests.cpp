@@ -4,6 +4,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
+
+#include "render_internal.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -257,4 +261,31 @@ TEST_CASE("decals: a decal with only a tint is still drawn when every decal text
     // The box face and the sphere top are as if there were no decal on them.
     CHECK(differing(bare, img, 96, 62, 134, 104) == 0);
     CHECK(differing(bare, img, 175, 60, 222, 105) == 0);
+}
+
+TEST_CASE("decals: only the reload of a texture the atlas holds asks for a rebuild, and the atlas counts in the "
+          "texture bytes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    const std::set<std::string> known = {"assets/a.png", "assets/b.png"};
+    const std::uint64_t before = assets.reload_generation();
+    CHECK_FALSE(assets.reloaded_any_of(before, known));
+    assets.reload("assets/other.png");
+    assets.reload("scripts/game.js");
+    CHECK(assets.reload_generation() == before + 2);
+    CHECK_FALSE(assets.reloaded_any_of(before, known));  // neither is in the atlas
+    assets.reload("assets/b.png");
+    CHECK(assets.reloaded_any_of(before, known));
+    CHECK_FALSE(assets.reloaded_any_of(assets.reload_generation(), known));  // nothing since the last generation
+    // A log that no longer reaches back to the asked generation answers "yes": a doubt rebuilds.
+    for (int i = 0; i < 3000; ++i) assets.reload("assets/other.png");
+    CHECK(assets.reloaded_any_of(before + 1, known));
+    // The atlas is texture memory: drawing decals makes the renderer's texture bytes include it.
+    if (!g.renderer.supports("decals")) return;
+    write_textures();
+    World w;
+    make_scene(w, true);
+    g.render(w);
+    CHECK(g.renderer.texture_bytes() > 0);
 }
