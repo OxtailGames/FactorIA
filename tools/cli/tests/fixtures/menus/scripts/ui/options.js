@@ -202,6 +202,14 @@ export default class Options extends Behaviour {
         this.changeGraphics();
       });
     }
+    // 2D lighting (GlobalIllumination2D): Off, Low, Medium, High. The first click moves on from what the scene shows.
+    ui.on("click", "gfx_light", () => {
+      const all = settings.LIGHTING_QUALITIES;
+      s.graphics.lighting2d = all[(all.indexOf(settings.lightingShown(s)) + 1) % all.length];
+      settings.applyLighting2D(s);
+      settings.save(s);
+      this.refreshGraphics();
+    });
     // HDR output only where the window's display can show it (render.supports hdrOutput); the row is greyed out otherwise.
     ui.on("change", "gfx_hdr", (e) => {
       if (this.syncing || !settings.renderSupports("hdrOutput")) return;
@@ -233,6 +241,7 @@ export default class Options extends Behaviour {
     try {
       const hasPost = settings.postProcessEntities().length > 0; // one scan of the scene per refresh
       world.find("gfx_quality").get("Button").text = i18n.t("options.gfx.quality", { quality: i18n.t(`options.gfx.q.${s.graphics.quality}`) });
+      world.find("gfx_light").get("Button").text = i18n.t("options.gfx.light", { quality: i18n.t(`options.gfx.lq.${settings.lightingShown(s)}`) });
       for (const effect of settings.GRAPHICS_EFFECTS) world.find(this.gfxRow(effect.id)).get("Toggle").value = this.effectShown(effect.id, hasPost);
       const hdr = world.find("gfx_hdr").get("Toggle");
       const hdrAvailable = settings.renderSupports("hdrOutput");

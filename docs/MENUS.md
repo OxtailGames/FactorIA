@@ -89,9 +89,11 @@ What the command does, file by file; do it by hand when you want to see each fil
    The Graphics tab (the last one) lets the player pick the quality of the screen effects (`high` leaves the game's own look,
    `medium` turns off the costly ones: SSAO, SSR, depth of field, motion blur, sun shafts, radial blur; `low` also bloom, film grain,
    lens distortion and sharpen; `off` all the optional ones) and switch bloom, film grain, vignette, chromatic aberration and
-   outlines one by one, plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
+   outlines one by one, a "2D lighting" button (Off, Low, Medium, High: it sets `enabled` and `quality` of every `GlobalIllumination2D`
+   of the scene and of the scenes loaded later, saved as `settings.graphics.lighting2d`; until the player chooses it is `null`, the
+   scene keeps its own values and the button shows them; the kit offers every level on every platform), plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
    otherwise). It writes the `PostProcess` fields of the scene's cameras and volumes (exposure, tonemap, grading, the colour filter
-   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr}`) in the same `settings` storage entry, and
+   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr, lighting2d}`) in the same `settings` storage entry, and
    `settings.applyScene()` puts it on every scene that starts. Choosing a quality clears the switches the player touched; a
    switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
    `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player

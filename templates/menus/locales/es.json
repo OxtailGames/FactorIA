@@ -62,6 +62,13 @@
         "low": "baja",
         "off": "desactivados"
       },
+      "light": "Iluminación 2D: {quality}",
+      "lq": {
+        "off": "desactivada",
+        "low": "baja",
+        "medium": "media",
+        "high": "alta"
+      },
       "bloom": "Bloom",
       "grain": "Grano de película",
       "vignette": "Viñeta",
