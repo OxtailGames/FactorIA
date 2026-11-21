@@ -19,7 +19,8 @@ What the budget is:
 | --- | --- | --- |
 | Cameras drawn per frame (`Camera.viewport`, split screen) | 8: the lowest `depth`s | the others are not drawn, one warning |
 | Lights that shade a frame (`lights2d`) | 256: directional first, then the point lights whose radius reaches the camera view | the rest is counted in `lights2dDropped`, one warning per scene |
-| Lights that cast shadows (`lights2dShadowed`) | 32, the ones ranked first, and only lights with a solid tile of an `occludesLight` Tilemap within their radius | the others shine through walls, one warning per scene |
+| Lights that cast shadows (`lights2dShadowed`) | 256 (the lights a frame shades), and only lights with a solid tile of an `occludesLight` Tilemap or a `ShadowCaster2D` within their radius | the lights over 256 are left out of the frame, one warning per scene |
+| `ShadowCaster2D` read per frame, and per light | 2048 per frame in entity order; 512 per light's row; 256 segments each | the others block no light, one warning |
 | Lights on a lit sprite or tile WITH a normal map | the first 16 of the order above (its shading depends on each light's direction) | the others still light flat surfaces |
 
 The `maxLights` budget of `perf.json` counts `lights + lights2d` of one frame (see above): set it to the lights the game
@@ -42,6 +43,14 @@ That is roughly 0.01 ms per light of this size (it grows with the covered pixels
 as big as the screen costs more), and roughly 0.03 ms per shadow-casting light. The rays of a shadow are traced on the CPU
 (1024 per light); the result is kept while the light, its radius and the tiles around it stay the same, so only a light that
 moves, or whose surroundings were edited, pays for its rays again. A still light costs its pixels, not its rays.
+
+`ShadowCaster2D` and `Light2D.size` (docs/rendering/RENDERING_2D_SHADOWS.md) add two costs, both zero in a scene that uses
+neither. A caster joins the tiles in the row of every light whose radius reaches it, rasterised into the angles it covers: a
+row of a light reaching a few boxes costs tens of microseconds, and 100 casters with 64 lights that all move every frame
+(every row computed again) cost about 2 ms more than the same scene still, on the Mac above. A sprite's contour is made once per
+texture, region and threshold (marching squares and simplification, on the first frame it is drawn, over at most 512 x 512
+pixels). `size` above 0 makes the light's pixels read the row up to 44 times instead of twice (12 where nothing blocks it): about
+1 ms for 64 lights of radius 120 on the same Mac, so give a size to the lights that matter and keep the others at 0.
 
 Advice for phones, tablets and the web (fill-rate bound GPUs):
 
