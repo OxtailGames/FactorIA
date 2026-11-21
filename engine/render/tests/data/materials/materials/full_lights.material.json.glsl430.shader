@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
   "engine": "0.32.0",
-  "template": "26464fc4f0156798f051141dabd7d8611900aa98ee6aafc1e1d138e30acccf17",
+  "template": "d771dbfa71335fbc7ae5653ec3a7c2bb0062d7bf677ea922d6db676983a42cc0",
   "slang": "glsl430",
   "params": [
     "base"

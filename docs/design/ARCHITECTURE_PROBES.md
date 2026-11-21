@@ -207,7 +207,7 @@ the specular IBL, the clear coat, sheen and anisotropy layers and `fa_sky_light`
 SH coefficients of the sky and the probes by the same shares and evaluates once.
 
 **The diffuse precedence** (`fa_indirect_diffuse`): the lightmap texel; else the baked light probes (M73.4d) over the coverage they
-have, mixed with `fa_realtime_or_ambient(n)` for the rest; else `fa_realtime_or_ambient(n)`: the ready `RealtimeGI` grids over the share
+have, mixed with `fa_ambient_light(n)` for the rest; else `fa_realtime_or_ambient(n)`: the ready `RealtimeGI` grids over the share
 they cover (the first grid that reaches the fragment takes its cover, the next ones what is left), then `fa_ambient_light(n)` (the reflection
 probes' SH and the sky's) for the rest. See "Realtime GI: the shading". A lightmapped
 surface keeps its specular reflection of the probes (a lightmap holds no direction), and `fa_baked_keep` (the baked direct lights a mixed
@@ -332,9 +332,12 @@ surface counts little) x `cheb^3` (Chebyshev with the normalised moments and the
 mean); a probe that is not captured or has `meta.r > backfaceTolerance` is skipped. The SH are blended with the normalised weights and evaluated
 with `fa_sh_eval` (irradiance / pi, the units of a sky's), times `intensity`. `cover = box x smoothstep(0, 0.02, wsum)`: where the probes see the point
 little the grid hands over to what follows. The first grid takes `cover`, the next ones the share that is left; `fa_realtime_or_ambient` gives the rest
-to `fa_ambient_light(n)`. `fa_indirect_diffuse` skips all of it where a lightmap texel or a baked-probe coverage of 1 answers. The loops' bounds are
-read from the record (`8 + int(r3.w)`, with `r3.w` = 0): a driver that unrolled the eight probes with nine coefficients each made the shader of a
-clip (discard) material too large for Apple's Metal compiler, which crashed; the bounds are not constants on purpose.
+to `fa_ambient_light(n)`. `fa_indirect_diffuse` skips all of it where a lightmap texel or any baked-probe coverage answers: a pixel the baked probes
+reach only partly mixes them with the ambient light as before, not with the grid. The probe loop's bound is read from the record (`8 + int(r3.w)`,
+with `r3.w` = 0), the nine coefficients are nine unrolled reads multiplied by the basis (no array), and `fa_indirect_diffuse` calls the grid
+from one place only: Apple's Metal compiler (the AGX service) crashed on the pipeline of a clip (discard) graph material with the grid's code at two
+call sites, or with its result blended into the baked SH after the fact; those shapes are avoided on purpose, and a change to this code must
+build such a material on Metal (the editor autotest section G3 does).
 
 **Bounce.** A capture frame has `Frame::noProbes` and `fa_gi.z` = 1: its shading multiplies the grid's light by the grid's `bounce`; the frame of a camera
 uses 1. The record is the same for both (there is no second set of records and no extra unit). `bounce` 0 makes a capture ignore the grid (one bounce:

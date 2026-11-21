@@ -1656,12 +1656,13 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
     ctx.fuScene.fa_cl_info[1] = ctx.fuScene.fa_cl_info[2] = ctx.fuScene.fa_cl_info[3] = 0.0f;
     ctx.fuScene.fa_counts[1] = 0.0f;
     ctx.fuScene.fa_ambient[3] = 0.0f;  // the light table's stride: 0 = 4 texels per light
-    for (int c = 0; c < 4; ++c) ctx.fuScene.fa_gi[c] = 0.0f;  // no realtime GI grid (its records come with the table, below)
+    for (int c = 0; c < 4; ++c)
+        ctx.fuScene.fa_gi[c] = 0.0f;  // no realtime GI grid (its records come with the table, below)
     // The records of the ready realtime GI grids (renderer_gi.cpp): packed after everything else, so a frame without one is unchanged.
     const GiSystem& gis = probes.gi;
     const int giCount = int(gis.records.size() / std::size_t(kGiRecordFloats));
-    if ((lights.empty() && ctx.decals.empty() && giCount == 0) || (ctx.opaque.empty() && ctx.blended.empty()) || ctx.camPx.w < 1 ||
-        ctx.camPx.h < 1)
+    if ((lights.empty() && ctx.decals.empty() && giCount == 0) || (ctx.opaque.empty() && ctx.blended.empty()) ||
+        ctx.camPx.w < 1 || ctx.camPx.h < 1)
         return;
     int directional = 0;
     while (directional < int(lights.size()) && lights[std::size_t(directional)].rank < 2) ++directional;

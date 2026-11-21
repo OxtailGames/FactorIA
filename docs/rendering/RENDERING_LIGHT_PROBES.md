@@ -81,7 +81,7 @@ around it are (so light does not leak through them), and a capture is blended in
 **What the meshes read.** Every lit mesh whose point lies inside the probes of a ready grid gets its diffuse ambient light from the eight probes
 around it: the light each one keeps, weighted by how near it is, by whether the probe faces the surface and by a visibility test against the walls
 between (so a thin wall keeps the light of a room from leaking through it). The order of the diffuse light is: the lightmap texel; the baked light probes over the share
-they cover; the `RealtimeGI` grid; the reflection probes' light and the sky or `ambientLight`. A grid fades out over half a spacing outside its
+they cover (the rest of that pixel is the reflection probes' light and the sky or `ambientLight`, never the grid); else the `RealtimeGI` grid; else the reflection probes' light and the sky or `ambientLight`. A grid fades out over half a spacing outside its
 probes (a floor lying on the face of the box gets no light from it: let the box reach beyond the surfaces to light), and a grid that is not ready
 (it says `updating` in `render.gi_grid`, until every probe has been captured once) changes nothing: the frame is the one of a scene without it.
 `intensity` multiplies what the meshes take from the grid. The reflections stay the sky's and the reflection probes'. Because a capture draws the scene with
