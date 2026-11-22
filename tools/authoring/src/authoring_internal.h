@@ -41,8 +41,7 @@ void register_project_secret_commands(
 
 void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
-// big_world_commands.cpp: foliage.* (M75 stubs that fail with
-// not_built until their package lands); it also calls register_terrain3d_commands.
+// big_world_commands.cpp: registers the big-world authoring commands (terrain3d_commands.cpp, foliage_commands.cpp).
 void register_big_world_commands(Engine& engine, Engine::Impl& impl);
 // tilemap_split_commands.cpp: tilemap.split_cells (a tilemap cut into the chunk cells of a streamed 2D world).
 void register_tilemap_split_commands(Engine& engine, Engine::Impl& impl);
@@ -51,5 +50,7 @@ void register_world_split_commands(Engine& engine, Engine::Impl& impl);
 // terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
 // terrain.undo, terrain.redo.
 void register_terrain3d_commands(Engine& engine, Engine::Impl& impl);
+// foliage_commands.cpp: foliage.scatter, foliage.paint, foliage.clear, foliage.restore (called by register_big_world_commands).
+void register_foliage_commands(Engine& engine, Engine::Impl& impl);
 
 }  // namespace fa

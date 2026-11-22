@@ -12226,14 +12226,14 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"); `foliage.paint`, `foliage.scatter` and `foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.restore` puts a previous file back (the undo of the three).
    * 
    * Category: 3D
    * @since unreleased
    */
   export interface FoliageComponent {
     /**
-     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
+     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     meshes: any;
@@ -12279,7 +12279,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (M75.6, docs/BIG_WORLDS_TERRAIN.md, "Foliage").
    * 
    * Category: 3D
    * @since unreleased
