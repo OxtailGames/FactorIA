@@ -6,7 +6,8 @@
 // y * width + x), vertices `cellSize` metres apart. Heights are changed in place.
 //
 // Determinism. Both functions give the same result for the same input and parameters on every thread count and on every
-// platform that follows IEEE 754 (only + - * / and sqrt on floats; the engine builds with floating point contraction off):
+// platform that follows IEEE 754 (only + - * / and sqrt on floats, plus fa::det::tan for the talus angle; the engine
+// builds with floating point contraction off):
 //  - Thermal erosion is a Jacobi step (every cell reads the heights of the previous iteration and writes its own new
 //    height), run on the jobs system in chunks of rows: the result does not depend on the number of threads.
 //  - Hydraulic erosion is SERIAL, on purpose: droplets change the heights the next droplet reads, so any split of the
@@ -32,9 +33,8 @@
 namespace fa {
 
 inline constexpr int kMaxHeightfieldSide = 16384;  // the longest side of a heightfield, in samples
-// The most cells of a heightfield (2^28: 16384 x 16384, a 1 GB float buffer).
-inline constexpr std::uint64_t kMaxHeightfieldCells = std::uint64_t(1) << 28;
-// The most extra memory erode_thermal allocates (three float buffers of the grid's size); checked before it allocates.
+// The most extra memory erode_thermal allocates (three float buffers of the grid's size, 12 bytes a cell: about 9400 x 9400
+// cells at most, less than the side cap allows); checked before it allocates.
 inline constexpr std::uint64_t kMaxErosionScratchBytes = std::uint64_t(1) << 30;
 // The most cell updates of one erode_thermal call: cells x iterations (2^30, about half a minute on one thread).
 inline constexpr std::uint64_t kMaxThermalWork = std::uint64_t(1) << 30;
@@ -96,10 +96,15 @@ Json thermal_params_schema();  // a JSON Schema with a description on every fiel
 std::uint64_t thermal_work(int width, int height, const ThermalErosionParams& params);
 
 // Thermal erosion in place. Each pass, a cell whose drop to a neighbour (8 directions; the drop is divided by the distance
-// to the neighbour) is steeper than tan(talusAngle) gives `strength / 2` of its largest excess to its lower neighbours in
-// proportion to their excess; nothing leaves the grid. The steepest slope therefore never grows, and the sum of the heights is
-// kept. Errors, before any change: a grid that is not 2 x 2 to kMaxHeightfieldSide, a `heights` size that is not width *
-// height, a cellSize that is not finite and > 0, a height that is not finite (with its position), invalid params, a work or
+// to the neighbour) is steeper than tan(talusAngle) offers `strength / 2` of its largest excess to its lower neighbours
+// in proportion to their excess. A receiver takes at most half the way up to its lowest donor (when its donors offer more,
+// each gives proportionally less, and loses only what was taken), so no cell ever ends higher than the donors that fed it
+// or lower than its own lowest neighbour: no height leaves the range of its 3 x 3 neighbourhood, a pit or a spike never
+// overshoots, and the steepest slope never rises above the steepest one the grid started with (tests: pit, spike and
+// checkerboard; between two passes it may wobble a little while it falls). Nothing leaves the grid and the
+// sum of the heights is kept. `strength` is how much of the excess a cell offers per pass: 1 is the fastest, lower smooths
+// more slowly. Errors, before any change: a grid that is not 2 x 2 to kMaxHeightfieldSide, a `heights` size that is not
+// width * height, a cellSize that is not finite and > 0, a height that is not finite (with its position), invalid params, a work or
 // memory cap (kMaxThermalWork, kMaxErosionScratchBytes).
 Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalErosionParams& params);
 

@@ -159,7 +159,7 @@ Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalE
             "Erode the terrain in tiles with a margin of a few cells, or resample it to fewer samples.");
     if (auto r = check_finite(field, "erode_thermal"); !r) return r.error();
 
-    std::vector<float> moved, esum, other;
+    std::vector<float> moved, esum, other;  // ratio, accept, the next heights
     try {
         moved.assign(std::size_t(cells), 0.0f);
         esum.assign(std::size_t(cells), 0.0f);
@@ -184,13 +184,17 @@ Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalE
     const double cs2 = double(field.cellSize) * double(field.cellSize);
     const std::size_t grain = row_grain(w);
 
+    // Per cell: `ratio` = what a donor gives per unit of excess, `accept` = the share (0..1) of what its donors offer that
+    // a receiver takes (so it never ends higher than the midpoint to its lowest donor). A donor loses exactly what its
+    // receivers take, so the volume is kept and no cell leaves the height range of its 3 x 3 neighbourhood.
     float* src = field.heights.data();
     float* dst = other.data();
-    float* mv = moved.data();
-    float* es = esum.data();
+    float* ratio = moved.data();
+    float* accept = esum.data();
+    std::vector<double> rowMoved(std::size_t(h), 0.0);
     double movedTotal = 0;
     for (int it = 0; it < params.iterations; ++it) {
-        // Pass 1: what each cell gives away and the sum of its excesses over the stable drop.
+        // Pass 1: each cell's give-per-excess ratio: strength/2 of its largest excess, shared by the excesses.
         auto r1 = jobs::parallel_for("erosion.thermal.give", std::size_t(h), grain, [&](const jobs::Chunk& c) {
             for (std::size_t j = c.begin; j < c.end; ++j) {
                 for (int i = 0; i < w; ++i) {
@@ -206,34 +210,64 @@ Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalE
                             if (e > emax) emax = e;
                         }
                     }
-                    mv[idx] = emax > 0.0f ? give * emax : 0.0f;
-                    es[idx] = sum;
+                    ratio[idx] = emax > 0.0f ? give * emax / sum : 0.0f;
                 }
             }
         });
         if (!r1) return r1.error();
-        for (std::size_t i = 0; i < std::size_t(cells); ++i) movedTotal += double(mv[i]);
-        // Pass 2: every cell gathers what its neighbours give it.
-        auto r2 = jobs::parallel_for("erosion.thermal.take", std::size_t(h), grain, [&](const jobs::Chunk& c) {
+        // Pass 2: how much of the offered inflow each cell accepts: at most half the way up to its lowest donor.
+        auto r2 = jobs::parallel_for("erosion.thermal.accept", std::size_t(h), grain, [&](const jobs::Chunk& c) {
             for (std::size_t j = c.begin; j < c.end; ++j) {
                 for (int i = 0; i < w; ++i) {
                     const std::size_t idx = j * std::size_t(w) + std::size_t(i);
                     const float hc = src[idx];
-                    float gain = 0.0f;
+                    float offered = 0.0f, lowest = 0.0f;
+                    bool any = false;
                     for (int k = 0; k < 8; ++k) {
                         const int nx = i + kDx[k], ny = int(j) + kDy[k];
                         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
                         const std::size_t n = std::size_t(ny) * std::size_t(w) + std::size_t(nx);
-                        const float m = mv[n];
-                        if (!(m > 0.0f)) continue;
+                        if (!(ratio[n] > 0.0f)) continue;
                         const float e = (src[n] - hc) - thr[k];
-                        if (e > 0.0f) gain += m * e / es[n];
+                        if (!(e > 0.0f)) continue;
+                        offered += ratio[n] * e;
+                        if (!any || src[n] < lowest) lowest = src[n];
+                        any = true;
                     }
-                    dst[idx] = (hc - mv[idx]) + gain;
+                    const float room = any ? 0.5f * (lowest - hc) : 0.0f;
+                    accept[idx] = (any && offered > room) ? room / offered : 1.0f;
                 }
             }
         });
         if (!r2) return r2.error();
+        // Pass 3: every cell loses what its receivers accept and gathers what it accepts from its donors.
+        auto r3 = jobs::parallel_for("erosion.thermal.take", std::size_t(h), grain, [&](const jobs::Chunk& c) {
+            for (std::size_t j = c.begin; j < c.end; ++j) {
+                double rowSum = 0.0;
+                for (int i = 0; i < w; ++i) {
+                    const std::size_t idx = j * std::size_t(w) + std::size_t(i);
+                    const float hc = src[idx];
+                    float lose = 0.0f, gain = 0.0f;
+                    for (int k = 0; k < 8; ++k) {
+                        const int nx = i + kDx[k], ny = int(j) + kDy[k];
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                        const std::size_t n = std::size_t(ny) * std::size_t(w) + std::size_t(nx);
+                        const float down = (hc - src[n]) - thr[k];
+                        if (down > 0.0f) lose += down * accept[n];
+                        if (ratio[n] > 0.0f) {
+                            const float up = (src[n] - hc) - thr[k];
+                            if (up > 0.0f) gain += ratio[n] * up;
+                        }
+                    }
+                    gain *= accept[idx];
+                    dst[idx] = (hc - ratio[idx] * lose) + gain;
+                    rowSum += double(gain);
+                }
+                rowMoved[j] = rowSum;
+            }
+        });
+        if (!r3) return r3.error();
+        for (int j = 0; j < h; ++j) movedTotal += rowMoved[std::size_t(j)];
         std::swap(src, dst);
     }
     if (src != field.heights.data()) std::copy(src, src + std::size_t(cells), field.heights.data());

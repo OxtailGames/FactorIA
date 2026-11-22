@@ -157,16 +157,18 @@ is deliberately untouched: its outputs are baked into fixtures.
   Tileable noise (a wrapping period) is not offered; tile by origin instead.
 - **Erosion.** A `HeightfieldView` (`span<float>`, width, height, cellSize in metres) is changed in place and an
   `ErosionResult` reports the work done, the volume before and after (`sum of heights * cellSize^2`) and the volume moved.
-  `erode_thermal(field, ThermalErosionParams{iterations, talusAngle, strength})` is a Jacobi step in two passes (what each cell
-  gives to its lower neighbours, then what each cell receives), run on the jobs system in rows: thread-count independent, and
-  the total height is conserved (nothing leaves the grid). `erode_hydraulic(field, HydraulicErosionParams, ErosionMasks)` is the
+  `erode_thermal(field, ThermalErosionParams{iterations, talusAngle, strength})` is a Jacobi step in three passes (what each cell
+  offers to its lower neighbours, how much of its inflow each receiver accepts, then the transfers), run on the jobs system in
+  rows: thread-count independent. A receiver accepts at most half the way up to its lowest donor and donors lose only what
+  was accepted, so no height leaves the range of its 3 x 3 neighbourhood (a pit or a spike never overshoots, the steepest slope
+  never rises above the initial one) and the total height is conserved (nothing leaves the grid). `erode_hydraulic(field, HydraulicErosionParams, ErosionMasks)` is the
   droplet model (inertia, capacity, deposition, erosion, evaporation, gravity, brush `radius`, `maxLifetime`). It is SERIAL on
   purpose: droplets change the heights the next droplet reads, so a split over threads would make the result depend on the
   order they run; droplets come from a PCG stream seeded with `seed`. A droplet drops what it carries when it ends, so the
   volume is conserved up to float rounding. The optional masks (`flow`, `erosion`, `deposition`, each empty or
   width * height floats, cleared first) are for painting splat layers. Slopes are rise over run, so `cellSize` matters.
 - **Caps** are work counts, never time: `kMaxThermalWork` (cells x iterations, 2^30), `kMaxHydraulicSteps` (droplets x
-  `maxLifetime`, 2^28), `kMaxErosionScratchBytes` (the three buffers of the thermal pass, 1 GB, computed in 64 bits with
+  `maxLifetime`, 2^28), `kMaxErosionScratchBytes` (the three buffers of the thermal pass, 1 GB: about 9400 x 9400 cells, computed in 64 bits with
   saturation before anything is allocated) and `kMaxHeightfieldSide`. An out-of-range request is refused up front with the
   numbers and a hint, and no height changes; a non-finite height is refused with its x, y.
 - Tests: `engine/core/tests/test_noise.cpp` and `test_erosion.cpp` (ranges, seeds, continuity, tiling, thread-count

@@ -120,6 +120,67 @@ TEST_CASE("thermal erosion: a spike spreads into a cone no steeper than the talu
     CHECK(std::fabs(r->volumeAfter - 50.0) < 1e-3);
 }
 
+namespace {
+
+// One pass at a time: the steepest slope never rises above the initial one (it may wobble a little while it falls) and
+// no height leaves the initial range (up to float rounding).
+void check_no_overshoot(std::vector<float> v, int w, int h, float strength, int passes, const char* what) {
+    float lo0 = 1e9f, hi0 = -1e9f;
+    for (float x : v) lo0 = std::min(lo0, x), hi0 = std::max(hi0, x);
+    ThermalErosionParams p;
+    p.iterations = 1;
+    p.talusAngle = 20.0f;
+    p.strength = strength;
+    const float slope0 = max_slope(v, w, h, 1.0f);
+    float slope = slope0;
+    for (int it = 0; it < passes; ++it) {
+        INFO(what << ", strength " << strength << ", pass " << it);
+        auto r = erode_thermal(view(v, w, h), p);
+        REQUIRE(r.ok());
+        const float next = max_slope(v, w, h, 1.0f);
+        CHECK(next <= slope0 * 1.0001f);
+        if (it == 0) CHECK(next < slope0 * 0.9f);  // the first pass already flattens the worst slope
+        slope = next;
+        for (float x : v) {
+            REQUIRE(x <= hi0 + 1e-3f);
+            REQUIRE(x >= lo0 - 1e-3f);
+        }
+    }
+    CHECK(slope < slope0 * 0.25f);
+}
+
+}  // namespace
+
+TEST_CASE("thermal erosion: a pit, a spike and a checkerboard never overshoot, whatever the strength") {
+    const int w = 21, h = 21;
+    for (float strength : {0.5f, 1.0f}) {
+        std::vector<float> pit(std::size_t(w) * h, 100.0f);
+        pit[10 * w + 10] = 0.0f;
+        check_no_overshoot(pit, w, h, strength, 60, "pit");
+
+        std::vector<float> spike(std::size_t(w) * h, 0.0f);
+        spike[10 * w + 10] = 100.0f;
+        check_no_overshoot(spike, w, h, strength, 60, "spike");
+
+        std::vector<float> checker(std::size_t(w) * h, 0.0f);
+        for (int j = 0; j < h; ++j)
+            for (int i = 0; i < w; ++i) checker[std::size_t(j) * w + i] = ((i + j) & 1) ? 100.0f : 0.0f;
+        check_no_overshoot(checker, w, h, strength, 60, "checkerboard");
+    }
+    // The pit in particular: after one pass it is filled to at most halfway, never above the plateau it was cut into.
+    std::vector<float> pit(std::size_t(w) * h, 100.0f);
+    pit[10 * w + 10] = 0.0f;
+    ThermalErosionParams p;
+    p.iterations = 1;
+    p.talusAngle = 35.0f;
+    p.strength = 0.5f;
+    auto r = erode_thermal(view(pit, w, h), p);
+    REQUIRE(r.ok());
+    CHECK(pit[10 * w + 10] <= 50.0f + 1e-3f);
+    CHECK(pit[10 * w + 10] > 20.0f);
+    CHECK(std::fabs(r->volumeAfter - r->volumeBefore) < 1e-2);
+}
+
 TEST_CASE("thermal erosion: flat ground is left alone, and the result does not depend on the threads") {
     std::vector<float> flat(30 * 30, 12.5f);
     const std::vector<float> flat0 = flat;
@@ -150,15 +211,15 @@ TEST_CASE("thermal erosion: bad input is refused before any change, with a hint"
     CHECK_FALSE(erode_thermal(view(v, 16, 16, 0.0f), p).ok());
     CHECK_FALSE(erode_thermal(view(v, 1, 256), p).ok());
     v[3 * 16 + 5] = std::nanf("");
-    auto nan = erode_thermal(view(v, 16, 16), p);
-    REQUIRE_FALSE(nan.ok());
-    CHECK(nan.error().message.find("x=5, y=3") != std::string::npos);
+    auto nanResult = erode_thermal(view(v, 16, 16), p);
+    REQUIRE_FALSE(nanResult.ok());
+    CHECK(nanResult.error().message.find("x=5, y=3") != std::string::npos);
     v[3 * 16 + 5] = 1.0f;
     p.talusAngle = 90.0f;
-    auto angle = erode_thermal(view(v, 16, 16), p);
-    REQUIRE_FALSE(angle.ok());
-    CHECK(angle.error().message.find("/talusAngle") != std::string::npos);
-    CHECK_FALSE(angle.error().hint.empty());
+    auto angleResult = erode_thermal(view(v, 16, 16), p);
+    REQUIRE_FALSE(angleResult.ok());
+    CHECK(angleResult.error().message.find("/talusAngle") != std::string::npos);
+    CHECK_FALSE(angleResult.error().hint.empty());
     p = {};
     p.strength = 0.0f;
     CHECK_FALSE(erode_thermal(view(v, 16, 16), p).ok());
@@ -166,10 +227,10 @@ TEST_CASE("thermal erosion: bad input is refused before any change, with a hint"
     std::vector<float> big(1024 * 1024, 0.0f);
     p = {};
     p.iterations = kMaxThermalIterations;
-    auto cap = erode_thermal(view(big, 1024, 1024), p);
-    REQUIRE_FALSE(cap.ok());
-    CHECK(cap.error().message.find("cell updates") != std::string::npos);
-    CHECK(cap.error().hint.find("iterations") != std::string::npos);
+    auto capResult = erode_thermal(view(big, 1024, 1024), p);
+    REQUIRE_FALSE(capResult.ok());
+    CHECK(capResult.error().message.find("cell updates") != std::string::npos);
+    CHECK(capResult.error().hint.find("iterations") != std::string::npos);
     CHECK(thermal_work(1024, 1024, p) == std::uint64_t(1024) * 1024 * kMaxThermalIterations);
     CHECK(thermal_work(0, 5, p) == 0);
 }
@@ -290,9 +351,9 @@ TEST_CASE("hydraulic erosion: parameters are validated and read from JSON") {
     REQUIRE(th.ok());
     CHECK(th->talusAngle == 45.0f);
     CHECK_FALSE(thermal_params_from_json(Json::parse(R"({"iteration":4})")).ok());
-    auto round = thermal_params_from_json(thermal_params_to_json(*th));
-    REQUIRE(round.ok());
-    CHECK(*round == *th);
+    auto rounded = thermal_params_from_json(thermal_params_to_json(*th));
+    REQUIRE(rounded.ok());
+    CHECK(*rounded == *th);
 }
 
 TEST_CASE("hydraulic erosion: the work cap is a count of droplet steps, refused up front") {
