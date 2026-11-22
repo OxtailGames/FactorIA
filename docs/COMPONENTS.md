@@ -1684,11 +1684,11 @@ A large landscape: a heightmap drawn as a mesh that coarsens with distance, pain
 
 Not released yet (on main after 0.34.0).
 
-Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"); `foliage.paint`, `foliage.scatter` and `foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).
+Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.restore` puts a previous file back (the undo of the three).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `meshes` | json | `["cube"]` | Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes all the meshes of its rule here. Default ["cube"]. |
+| `meshes` | json | `["cube"]` | Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. |
 | `instances` | asset (any) | `""` | Project-relative data file with the instances (position, yaw, scale, mesh index and up direction of each; little-endian, versioned, up to 2000000 instances, docs/BIG_WORLDS_TERRAIN.md). Loaded in the background and again when the file changes on disk; a missing or invalid file draws nothing and is reported once. "" (default) = no instances, nothing drawn. |
 | `density` | float | `1.0` | 0..1: the share of the instances that are drawn, thinned out in a fixed pseudo-random order by instance index (a quality setting: lowering it only removes instances and raising it brings the same ones back, so nothing flickers). Default 1. Range 0.0..1.0. |
 | `windStrength` | float | `0.0` | Metres the top of an instance sways in the wind, 0..10; the base stays put (the mesh is sheared in its height, so a flat mesh sways its top edge). The phase depends on the instance position. 0 (default) = no wind. Range 0.0..10.0. |
@@ -1702,7 +1702,7 @@ Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU insta
 
 Not released yet (on main after 0.34.0).
 
-The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -4614,7 +4614,9 @@ Remove every instance of a Foliage, or those in a rectangle.
 
 Capabilities: read, state, writeProject
 
-Will empty the Foliage's instances file, or only the instances inside `region` ([minX, minZ, maxX, maxZ] world metres). Result: {removed}. Example: foliage.clear {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside `region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo}. Example: foliage.clear {"entity":"grass","region":[0,0,50,50]}
+
+A Foliage with no file, or a file with nothing in the region, changes nothing. `undo` as foliage.scatter.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -4629,31 +4631,54 @@ Add or remove foliage instances by hand in a circle on the ground.
 
 Capabilities: read, state, writeProject
 
-Will add instances (mode "add", `density` per square metre) or remove them (mode "remove") within `radius` metres of `center` and write the instances file back. Result: {added, removed}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+Adds instances (mode "add") within `radius` metres of `center` (world [x, z]) with the placement rules of the ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush to one of Foliage.meshes, `seed` changes the draw. Mode "remove" deletes the instances in the circle (of `mesh` when given). Deterministic. Result: {added, removed, instances, file, undo}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5}
+
+A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), so painting the same spot twice does not stack them. Instances of an added stroke are appended after the existing ones. An empty result changes nothing and says why in `counts.rejected`. The file is created next to the scene when Foliage.instances is empty. `undo` as foliage.scatter. The editor's brush tool is a later package (M75 P6c).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Foliage. |
+| `rule` | string | no | Entity id with the ScatterRule whose placement rules apply (default: the Foliage entity, if it has one). |
 | `mode` | string ["add","remove"] | no | Add instances or remove them. Default "add". |
 | `center` | array | yes | World metres [x, z]. |
 | `radius` | number | yes | Brush radius in metres. |
-| `density` | number | no | Instances per square metre when adding. Default 1. |
+| `density` | number | no | Instances per square metre when adding (default: the rule's density, 0.1 without a rule). |
+| `mesh` | string | no | Limit the brush to this mesh of Foliage.meshes. |
+| `seed` | integer | no | Seed of the draw (default: the rule's seed). The same arguments always give the same instances. |
+
+### `foliage.restore` (modifies state)
+
+Put a Foliage's instances file back: the undo and redo of the foliage.* edits.
+
+Capabilities: read, state, writeProject
+
+Every foliage.scatter, foliage.paint and foliage.clear returns `undo` = {command: "foliage.restore", args}; calling it writes the previous file (base64 `data`, or deletes it when null) and sets Foliage.meshes and Foliage.instances back. Its own result carries the `undo` that goes forward again (redo). Example: pass the `undo` of the last edit as it was returned.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Foliage. |
+| `file` | string | yes | The instances file that was written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `instances` | string | no | The value of Foliage.instances to set ("" = none). |
+| `meshes` | array | yes | The value of Foliage.meshes to set. |
+| `data` | any | yes | Base64 of the whole file to write, or null to delete it. |
 
 ### `foliage.scatter` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Fill a Foliage's instances by a ScatterRule over a terrain.
+Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.
 
 Capabilities: read, state, writeProject
 
-Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's own ScatterRule), place instances on the Terrain it names by density, slope, height and layers, deterministically from its seed, and write the Foliage's `instances` file, with each instance's mesh index into `Foliage.meshes`. It writes into the ONE Foliage entity, whose `meshes` it sets to all the meshes of the rule. `dryRun` only counts. Result: {instances, file}. Example: foliage.scatter {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain (one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes, undo}. Example: foliage.scatter {"entity":"grass"}
+
+More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is refused before anything changes, with the knobs to turn. `undo` is {command: "foliage.restore", args} carrying the previous file (base64) and the previous Foliage.meshes and Foliage.instances: calling it puts them back and returns the redo. The editor's brush is a later package (M75 P6c).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Foliage. |
 | `rule` | string | no | Entity id with the ScatterRule (default: the Foliage entity). |
-| `dryRun` | boolean | no | Only count the instances. Default false. |
+| `dryRun` | boolean | no | Only count the instances: nothing is written or changed. Default false. |
 
 ## fs
 
@@ -23502,14 +23527,14 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"); `foliage.paint`, `foliage.scatter` and `foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.restore` puts a previous file back (the undo of the three).
    * 
    * Category: 3D
    * @since unreleased
    */
   export interface FoliageComponent {
     /**
-     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
+     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     meshes: any;
@@ -23555,7 +23580,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
    * 
    * Category: 3D
    * @since unreleased

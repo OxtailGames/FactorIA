@@ -149,12 +149,14 @@ TEST_CASE("foliage.scatter: every rejection rule") {
     r = p.ok("foliage.scatter", R"({"entity":"l"})");
     CHECK(r["instances"].get<int>() > 50);
     CHECK(r["rejected"]["layer"].get<int>() > 1000);
-    for (const FoliageInstance& in : p.load("l")) CHECK(std::hypot(in.position.x - 20.0f, in.position.z - 20.0f) < 11.0f);
+    for (const FoliageInstance& in : p.load("l"))
+        CHECK(std::hypot(in.position.x - 20.0f, in.position.z - 20.0f) < 11.0f);
     // layer 0 is everywhere else
     p.field("m", R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"layerMask":1})");
     for (const FoliageInstance& in : p.load("l")) (void)in;
     r = p.ok("foliage.scatter", R"({"entity":"m"})");
-    for (const FoliageInstance& in : p.load("m")) CHECK(std::hypot(in.position.x - 20.0f, in.position.z - 20.0f) > 3.0f);
+    for (const FoliageInstance& in : p.load("m"))
+        CHECK(std::hypot(in.position.x - 20.0f, in.position.z - 20.0f) > 3.0f);
 }
 
 TEST_CASE("foliage.scatter: mesh weights, scale, lean and spacing") {
@@ -201,7 +203,8 @@ TEST_CASE("foliage.scatter: the instance cap and the error cases") {
     CHECK(contains(p.refused("foliage.scatter", R"({"entity":"norule"})"), "ScatterRule"));
     p.ok("scene.spawn", R"({"id":"empty","components":{"Foliage":{},"ScatterRule":{"terrain":"g"}}})");
     CHECK(contains(p.refused("foliage.scatter", R"({"entity":"empty"})"), "meshes"));
-    p.ok("scene.spawn", R"({"id":"loose","components":{"Foliage":{},"ScatterRule":{"meshes":[{"mesh":"assets/models/pine.glb"}]}}})");
+    p.ok("scene.spawn",
+         R"({"id":"loose","components":{"Foliage":{},"ScatterRule":{"meshes":[{"mesh":"assets/models/pine.glb"}]}}})");
     CHECK(contains(p.refused("foliage.scatter", R"({"entity":"loose"})"), "No Terrain"));
     CHECK(contains(p.refused("foliage.scatter", R"({"entity":"loose","rule":"nope"})"), "nope"));
 }
@@ -236,12 +239,14 @@ TEST_CASE("foliage.paint: add with spacing against what is there, remove, determ
     Json one = p.ok("foliage.paint", R"({"entity":"f","center":[-20,-20],"radius":4,"mesh":"assets/models/b.glb"})");
     CHECK(one["added"].get<int>() > 0);
     // remove: only mesh b inside the small circle
-    Json rm = p.ok("foliage.paint", R"({"entity":"f","mode":"remove","center":[-20,-20],"radius":4,"mesh":"assets/models/a.glb"})");
+    Json rm = p.ok("foliage.paint",
+                   R"({"entity":"f","mode":"remove","center":[-20,-20],"radius":4,"mesh":"assets/models/a.glb"})");
     CHECK(rm["removed"] == 0);
     rm = p.ok("foliage.paint", R"({"entity":"f","mode":"remove","center":[-20,-20],"radius":4})");
     CHECK(rm["removed"] == one["added"]);
     // errors
-    const std::string e1 = p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":4,"mesh":"assets/models/c.glb"})");
+    const std::string e1 =
+        p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":4,"mesh":"assets/models/c.glb"})");
     CHECK(contains(e1, "/mesh"));
     CHECK(contains(e1, "a.glb"));
     CHECK(contains(p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":-1})"), "radius"));
