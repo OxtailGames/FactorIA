@@ -1,5 +1,5 @@
 // The commands of the big worlds of M75 that write project files (docs/BIG_WORLDS.md): world.split_cells, world.merge_cells,
-// model.generate_lods, model.bake_impostor, terrain.* and foliage.*. M75-P0 registers them so the names, arguments and docs are
+// model.bake_impostor, terrain.* and foliage.*. M75-P0 registers them so the names, arguments and docs are
 // fixed before the packages that build them: each one fails with `not_built` and names the package that fills it in, and changes
 // nothing. The later packages replace the handler and keep the name, the schema and the description (they may only add to them).
 #include "authoring_internal.h"
@@ -61,21 +61,7 @@ void register_big_world_commands(Engine& engine, Engine::Impl& I) {
                "output":{"type":"string","description":"The scene file to write (default: the scene the manifest was made from)."},
                "dryRun":{"type":"boolean","default":false,"description":"Only report what would be written."}},"required":["manifest"]})",
              "M75.3", "world");
-    // levels of detail
-    add_stub(I, "model.generate_lods", "Generate simplified LOD meshes of a model and write them to the project.",
-             "Will simplify a model's meshes to `levels` lower levels of detail (each keeps `ratios[i]` of the "
-             "triangles of the "
-             "level above, within `maxError` metres of the original), write each as a mesh file and fill the "
-             "MeshRenderer.lods "
-             "of every entity that uses the model when `apply` is true. Result: {levels: [{file, triangles, error}]}. "
-             "Example: model.generate_lods {\"model\":\"models/rock.glb\",\"levels\":3}",
-             R"({"type":"object","properties":{
-               "model":{"type":"string","description":"The model or mesh file to simplify (project-relative path)."},
-               "levels":{"type":"integer","minimum":1,"maximum":8,"default":3,"description":"How many lower levels to make."},
-               "ratios":{"type":"array","items":{"type":"number","exclusiveMinimum":0,"maximum":1},"description":"Share of triangles each level keeps of the one above (default 0.5 each)."},
-               "maxError":{"type":"number","minimum":0,"description":"Largest distance in metres a vertex may move (default: none)."},
-               "apply":{"type":"boolean","default":false,"description":"Also fill MeshRenderer.lods of the entities that use the model."}},"required":["model"]})",
-             "M75.1", "assets");
+    // levels of detail: model.generate_lods lives in fa_tooling next to the model documents it edits (assets_model.cpp)
     add_stub(
         I, "model.bake_impostor", "Bake a billboard impostor texture of a model from several views.",
         "Will render the model from `views` directions around it into an atlas of `resolution` pixels per view, write "
@@ -187,7 +173,6 @@ void register_big_world_commands(Engine& engine, Engine::Impl& I) {
              "M75.6", "world");
     declare_command_capabilities(I.commands, {{"world.split_cells", capability_sets::edits_project()},
                                               {"world.merge_cells", capability_sets::edits_project()},
-                                              {"model.generate_lods", capability_sets::edits_project()},
                                               {"model.bake_impostor", capability_sets::edits_project()},
                                               {"terrain.create", capability_sets::edits_project()},
                                               {"terrain.sculpt", capability_sets::edits_project()},
