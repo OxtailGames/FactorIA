@@ -637,7 +637,10 @@ TEST_CASE("foliage.scatter and foliage.clear refuse continueStroke, the history 
     // the entity goes and another one makes the next call: the history of the first one is gone, not kept for ever
     p.ok("scene.destroy", R"({"id":"f"})");
     p.field("other", kOne);
-    p.ok("foliage.scatter", R"({"entity":"other"})");
+    const Json pruned = p.ok("foliage.scatter", R"({"entity":"other"})");
+    REQUIRE(pruned.contains("historiesPruned"));  // the editor takes its undo rows of "f" out quietly
+    CHECK(pruned["historiesPruned"] == Json::array({"f"}));
+    CHECK_FALSE(p.ok("foliage.scatter", R"({"entity":"other"})").contains("historiesPruned"));  // reported once
     p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
     CHECK(contains(p.refused("foliage.undo", R"({"entity":"f"})"), "nothing_to_undo"));
 }

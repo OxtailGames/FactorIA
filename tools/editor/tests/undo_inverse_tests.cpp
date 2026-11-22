@@ -925,6 +925,14 @@ TEST_CASE("undo inverse: foliage rows numbered at or below the steps the history
     REQUIRE(st.size() == 3);                                  // 8 and the destroy were trimmed too
     CHECK(drop_foliage_steps(st, "grass", 7, 8).steps == 0);  // the rows left are 9 and 10: both still work
     CHECK(st.size() == 3);
+    {  // nothing matches: the stack is not rebuilt (its counters and the entries stay as they are)
+        const std::size_t lostBefore = st.lost(), bytesBefore = st.bytes();
+        CHECK(drop_foliage_all(st, "no-such-entity").steps == 0);
+        CHECK(drop_foliage_steps(st, "grass", 7, 0).steps == 0);
+        CHECK(st.lost() == lostBefore);
+        CHECK(st.bytes() == bytesBefore);
+        CHECK(st.size() == 3);
+    }
     const FoliageDrop one = drop_foliage_steps(st, "grass", 7, 9);
     CHECK(one.steps == 1);
     CHECK(one.entries == 1);

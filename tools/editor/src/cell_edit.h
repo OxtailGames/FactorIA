@@ -92,7 +92,8 @@ public:
 
     // ---- dirty
     // Something may have changed and the editor cannot say where: every loaded cell is checked by the next update.
-    void note_edit() { pending_ = true; }
+    // The cells whose root is alive count as unchecked until that update (a root deleted before it is an unsaved change).
+    void note_edit(const World& world);
     // `e` was (or is about to be) edited: its cell is checked by the next update (an entity that is a cell root counts as its own cell),
     // then the other cells one per update, in case the edit reached another one (a reparent). An entity that no longer exists checks them all.
     void note_edit(const World& world, Entity e);

@@ -258,6 +258,13 @@ Entity CellEdit::root_of(std::int32_t i, std::int32_t j) const {
 }
 
 // ------------------------------------------------------------------------------------------------ dirty
+void CellEdit::note_edit(const World& world) {
+    // An edit nobody could attribute: the next update checks every cell, and until then a root that vanishes cannot be judged clean.
+    pending_ = true;
+    for (auto& [k, s] : slots_)
+        if (!s.root.is_null() && world.alive(s.root)) s.unchecked = true;
+}
+
 void CellEdit::note_edit(const World& world, Entity e) {
     if (slots_.empty()) return;
     if (e.is_null() || !world.alive(e)) {
@@ -269,7 +276,9 @@ void CellEdit::note_edit(const World& world, Entity e) {
     sweepLeft_ = slots_.size();  // an entity outside every cell can still have been moved into one
     // The edit may have changed any cell (a reparent), and the sweep reaches them one per update: until a cell's turn comes its
     // `current` is not to be trusted if its root vanishes. A cell root being edited itself (a delete of the root) changes no entity
-    // under it, so that cell stays as checked as it was.
+    // under it, so that cell stays as checked as it was. That is also true when an earlier edit left it unchecked (the flag stays) or
+    // named a child of it (that edit set the flag then): the exclusion never clears a flag, it only skips setting one. An edit that
+    // moves entities INTO a root names those entities (or nothing at all, which note_edit() below covers), never the root.
     for (auto& [k, s] : slots_)
         if (!s.root.is_null() && s.root != e && world.alive(s.root)) s.unchecked = true;
 }
@@ -713,8 +722,17 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
               [](const WorldCell& x, const WorldCell& y) { return x.j != y.j ? x.j < y.j : x.i < y.i; });
     const bool writeIndex = indexChange || indexDirty_;
     if (writeIndex) {
+        // The index on disk may have changed since it was read (world.bake_cell_hlods writes each cell's "hlod"): its HLOD entries are
+        // kept, never overwritten by this copy. A file that cannot be read now leaves the copy as it is.
         WorldIndexOptions opts;
         opts.checkFiles = false;
+        if (auto onDisk = load_world_index(indexPath_, opts); onDisk.ok()) {
+            for (WorldCell& c : next.cells)
+                if (const WorldCell* d = onDisk.value().find(c.i, c.j)) {
+                    c.hlod = d->hlod;
+                    c.hlodMaxDistance = d->hlodMaxDistance;
+                }
+        }
         auto checked = parse_world_index(world_index_to_json(next), indexPath_, opts);
         if (!checked.ok())
             return fail("The index would be invalid after this save: " + checked.error().message + " (" +

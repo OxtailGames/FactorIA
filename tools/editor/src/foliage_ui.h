@@ -4,6 +4,7 @@
 // Lives inside the Editor.
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -41,11 +42,13 @@ struct FoliageUi {
     std::string strokeEntity;   // id of the Foliage the stroke edits
     BrushSettings strokeBrush;  // the settings at the press: a change of the panel mid-stroke does not change it
     FoliageMode strokeMode = FoliageMode::Add;
-    bool strokeInvert = false;  // Ctrl held at the press: add removes and remove adds
+    bool strokeInvert =
+        false;  // Ctrl (Cmd on a Mac: ImGui's io.KeyCtrl) held at the press: add removes and remove adds
     float strokeDensity = 0.5f;
     bool strokeRuleDensity = true;
-    std::string strokeMesh;  // the mesh the stroke is limited to ("" = every one)
-    bool started = false;    // a piece made a step of the Foliage's history: the next ones continue it
+    double strokeCellDensity = 0.1;  // the density the stroke plants at (the slider's, or the rule's): sizes the pieces
+    std::string strokeMesh;          // the mesh the stroke is limited to ("" = every one)
+    bool started = false;            // a piece made a step of the Foliage's history: the next ones continue it
     bool failed =
         false;  // a command refused a piece: the stroke is over, nothing more is sent (and the error shown once)
     bool dirtyBefore = false;  // the editor's dirty flag at the press, which Esc puts back
@@ -68,6 +71,21 @@ struct FoliageCall {
 };
 FoliageCall foliage_stroke_call(const FoliageUi& ui, const std::string& entityId, const std::vector<Vec2>& points,
                                 bool continueStroke);
+
+// foliage.paint refuses a call whose stamps visit more than this many grid cells (kMaxCandidates in tools/authoring foliage_commands.cpp):
+// (2 * radius * sqrt(density) + 2)^2 per stamp, times the stamps of the call.
+inline constexpr double kFoliageCandidateBudget = 16777216.0;  // 2^24
+
+// The grid cells one stamp of radius `radius` at `density` visits (the formula above, with 1 % of margin for the rounding of the
+// arguments). Pure.
+double foliage_stamp_cells(double radius, double density);
+// The most stamps one add piece may carry so that the call stays inside the budget: at most kMaxFoliagePaintPoints (512), at least 1
+// (a single stamp over the budget is refused by the command with its own message: see foliage_max_density). Pure.
+std::size_t foliage_points_per_piece(double radius, double density);
+// The highest density at which ONE stamp of that radius fits the budget (rounded down to 4 digits, the digits the call sends), and the
+// largest radius for a density. Pure.
+double foliage_max_density(double radius);
+double foliage_max_radius(double density);
 
 // Seconds that must pass after a piece before the next one goes: kFoliageMinPieceSeconds, or twice what the last call took when
 // that is more (never above kFoliageMaxPieceSeconds). Pure.
