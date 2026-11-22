@@ -73,7 +73,8 @@ int differing(const Image& a, const Image& b) {
 
 }  // namespace
 
-TEST_CASE("portals on a GPU: an open door shows the next room, a closed one hides it, the stats and the picture say so") {
+TEST_CASE(
+    "portals on a GPU: an open door shows the next room, a closed one hides it, the stats and the picture say so") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CHECK(g.renderer.supports("occlusionPortals"));
@@ -141,7 +142,8 @@ TEST_CASE("portals on a GPU: a culled mesh still casts its shadow, and a camera 
     w.get<OcclusionPortal>(front)->open = false;
     g.render(w);
     CHECK(g.renderer.stats().portalsVisited == 0);
-    CHECK(g.renderer.stats().meshesCulledByArea == 3);  // the cube of A and the two of B: the camera in area 0 reaches nothing else
+    CHECK(g.renderer.stats().meshesCulledByArea ==
+          3);  // the cube of A and the two of B: the camera in area 0 reaches nothing else
     (void)r;
 }
 
@@ -176,7 +178,8 @@ TEST_CASE("portals on a GPU: a scene with no enabled OcclusionArea draws and cou
     }
 }
 
-TEST_CASE("portals on a GPU: a portal that names a missing area, joins an area to itself, or an area with id 0 is reported once") {
+TEST_CASE("portals on a GPU: a portal that names a missing area, joins an area to itself, or an area with id 0 is "
+          "reported once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;

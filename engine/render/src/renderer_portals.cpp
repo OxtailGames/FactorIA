@@ -26,11 +26,12 @@ void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<Mes
         if (!entity_active_in_scope(world, fr.scopeRoot, e)) return;
         if (a.areaId < 1 || a.areaId > 65535) {
             if (warnedPortalEntities.insert({e.bits(), kBadAreaId}).second)
-                FA_WARN("render",
-                        "OcclusionArea.areaId is {} on '{}', but an area id must be 1..65535 (0 is \"outside every area\", "
-                        "the id every mesh in no area has). Hint: give the room an id from 1 up; until then this area is "
-                        "ignored.",
-                        a.areaId, world.id_of(e));
+                FA_WARN(
+                    "render",
+                    "OcclusionArea.areaId is {} on '{}', but an area id must be 1..65535 (0 is \"outside every area\", "
+                    "the id every mesh in no area has). Hint: give the room an id from 1 up; until then this area is "
+                    "ignored.",
+                    a.areaId, world.id_of(e));
             return;
         }
         areas.push_back(make_portal_area(a.areaId, world.drawn_matrix(e), a.size, e.bits()));
@@ -57,7 +58,8 @@ void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<Mes
             if (warnedPortalEntities.insert({e.bits(), std::int64_t(id)}).second)
                 FA_WARN("render",
                         "OcclusionPortal on '{}' names area {}, but no OcclusionArea has that areaId. {} Hint: set "
-                        "OcclusionPortal.areaA/areaB to the areaId of an OcclusionArea (0 = outside every area); this portal "
+                        "OcclusionPortal.areaA/areaB to the areaId of an OcclusionArea (0 = outside every area); this "
+                        "portal "
                         "connects nothing until then.",
                         world.id_of(e), id, did_you_mean(std::to_string(id), ids));
         }

@@ -44,7 +44,8 @@ struct PortalBox {
 struct PortalWalk {
     std::vector<std::int32_t> reached;  // the area ids the camera can see, sorted, the start included
     int portalsVisited = 0;             // distinct portals the walk went through
-    bool capped = false;                // the depth or step cap was reached (the caller then culls nothing: a cut walk would hide what is visible)
+    bool capped =
+        false;  // the depth or step cap was reached (the caller then culls nothing: a cut walk would hide what is visible)
 };
 
 // The area that holds `p`: the one of the smallest volume (then the lowest entity bits); 0 when none holds it.
