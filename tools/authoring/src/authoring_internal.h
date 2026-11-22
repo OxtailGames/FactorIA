@@ -44,5 +44,7 @@ void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_comm
 // big_world_commands.cpp: world.split_cells, world.merge_cells, model.bake_impostor, terrain.*, foliage.* (M75
 // stubs that fail with not_built until their package lands).
 void register_big_world_commands(Engine& engine, Engine::Impl& impl);
+// tilemap_split_commands.cpp: tilemap.split_cells (a tilemap cut into the chunk cells of a streamed 2D world).
+void register_tilemap_split_commands(Engine& engine, Engine::Impl& impl);
 
 }  // namespace fa
