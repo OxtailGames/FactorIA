@@ -1195,6 +1195,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "lodCrossFades counts the meshes drawn in the main view as one level of a dithered LOD cross-fade, summed "
          "over the cameras (a fading entity counts two; probe and GI captures do not count; "
          "MeshRenderer.lodCrossFade, LodGroup.crossFade). "
+         "hlodProxies counts the HLOD proxy meshes drawn in the main view, summed over the cameras (a LodGroup "
+         "past its hlodThreshold draws its hlodProxy instead of its children; one fading out counts too). "
          "occluders (the Occluders rasterised), occlusionTests (the meshes tested against them) and meshesOccluded "
          "(the ones hidden behind them and left out of the main pass, also in meshesCulled) count the CPU occlusion "
          "culling of docs/BIG_WORLDS_LOD.md: 0 when no enabled Occluder is in the scene. "

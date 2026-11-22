@@ -174,3 +174,31 @@ TEST_CASE("lod: going back during a fade reverses it where it is, and a third le
     CHECK(c.from == 1);
     CHECK(c.t == doctest::Approx(0.1f));
 }
+
+TEST_CASE("lod: the HLOD proxy is reached past hlodThreshold in the unit of the mode, and never without a proxy") {
+    LodGroup g;
+    g.hlodProxy = "block.hlod.glb";
+    g.hlodThreshold = 100.0f;
+    CHECK_FALSE(lod_hlod_reached(g, 99.9f));
+    CHECK(lod_hlod_reached(g, 100.0f));  // at the threshold: the proxy has taken over
+    CHECK(lod_hlod_reached(g, 1e9f));
+    CHECK_FALSE(lod_hlod_reached(g, std::numeric_limits<float>::quiet_NaN()));
+    LodGroup s;
+    s.mode = LodMode::ScreenSize;
+    s.hlodProxy = "block.hlod.glb";
+    s.hlodThreshold = 0.05f;
+    CHECK_FALSE(lod_hlod_reached(s, 0.5f));
+    CHECK_FALSE(lod_hlod_reached(s, 0.05f));  // not BELOW the threshold yet
+    CHECK(lod_hlod_reached(s, 0.049f));
+    CHECK(lod_hlod_reached(s, 0.0f));
+    // no proxy, or a threshold that is not above 0: the group is its children
+    g.hlodProxy.clear();
+    CHECK_FALSE(lod_hlod_reached(g, 1e9f));
+    g.hlodProxy = "block.hlod.glb";
+    g.hlodThreshold = 0.0f;
+    CHECK_FALSE(lod_hlod_reached(g, 1e9f));
+    g.hlodThreshold = -5.0f;
+    CHECK_FALSE(lod_hlod_reached(g, 1e9f));
+    // the proxy's level is past every child's
+    CHECK(kHlodLevel > kMaxLodThresholds);
+}

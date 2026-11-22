@@ -317,6 +317,12 @@ std::vector<FeatureDef> build_table() {
          "the fade's duration, each on the pixels the other leaves (a screen-space dither, no texture), so a change "
          "of level does not pop. Every backend (M75.1); a mesh with a full-shader material switches at once.",
          nullptr},
+        {"hlod", "",
+         "The HLOD proxy of a LodGroup (LodGroup.hlodProxy, hlodThreshold; world.bake_hlod makes the mesh): past the "
+         "threshold the group draws that one mesh instead of every child under it, with the same dithered cross-fade "
+         "as a level switch, and the proxy casts the shadow. The proxy of a streamed cell that is not loaded is not "
+         "drawn (a later package). Every backend (M75 P1d).",
+         nullptr},
         {"impostors", "",
          "Impostors: a mesh far away (MeshRenderer.impostor beyond impostorDistance) is drawn as one camera-facing "
          "card that shows a baked atlas of the model (model.bake_impostor), blending the nearest three of its views "

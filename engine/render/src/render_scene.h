@@ -6,8 +6,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "fa/scene/world.h"
@@ -127,6 +129,11 @@ struct SceneMesh {
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
     bool liveTextures = false;
     std::vector<std::string> targets;  // the names of the render targets this mesh shows (only when asked for)
+    // The HLOD proxy of a LodGroup (M75 P1d): a mesh made for the group (`mr` is one of the scene's own default MeshRenderers, `entity` the group's)
+    // that stands for its whole subtree. 0 = an ordinary MeshRenderer; else 1 + the index in lod_groups() of the group it belongs to (set once the
+    // groups are known). A camera draws it only where hlod_proxy_shown says so.
+    std::uint32_t hlodGroup = 0;
+    bool hlodProxy = false;  // the mesh is a proxy (hlodGroup is set for it by build_lod_groups)
 };
 
 // A LodGroup of the scene (M75.1) with the sphere that bounds the meshes of its whole subtree, in world space.
@@ -137,6 +144,8 @@ struct SceneLodGroup {
                 0};  // the group entity's position: the distance of a group is measured to it, as of a MeshRenderer
     float radius = 0.0f;  // of the sphere around the boxes of every mesh of the subtree; 0 = the subtree draws no mesh
     int children = 0;
+    bool proxy =
+        false;  // LodGroup.hlodProxy is set and its mesh was read: the proxy is a mesh of the scene (SceneMesh::hlodGroup)
 };
 
 class RenderScene {
@@ -170,6 +179,7 @@ public:
         built_ = false;
         lodGroups_.clear();
         lodChains_.clear();
+        hlodRenderers_.clear();
         anyLods_ = false;
     }
     // Frames (builds of the whole world or of a subtree) whose sort keys did not fit (SortKeyTable limits): their opaque
@@ -192,7 +202,13 @@ private:
     std::vector<SceneLodGroup> lodGroups_;
     std::vector<std::uint32_t> lodChains_;
     std::vector<std::uint32_t> meshOf_;  // build_lod_groups' scratch: entity index -> index in meshes_
+    std::vector<std::uint32_t>
+        proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
+    std::deque<MeshRenderer>
+        hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
+    std::unordered_set<std::string> hlodWarned_;  // "<entity bits>|<path>" of a proxy already reported as unreadable
     bool anyLods_ = false;
+    void add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot);
     void build_lod_groups(World& world, Entity scopeRoot);
     Entity scope_;
     bool built_ = false;
