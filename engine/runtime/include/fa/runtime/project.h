@@ -86,7 +86,7 @@ struct LocalizationParse {
 // "did you mean".
 LocalizationParse parse_localization(const Json& section);
 
-// "world": {"floatingOrigin": {...}} (docs/BIG_WORLDS.md, "Floating origin"): when the anchor (the camera or a named entity) is
+// "world": {"floatingOrigin": {...}} (docs/BIG_WORLDS_STREAMING.md, "Floating origin"): when the anchor (the camera or a named entity) is
 // farther than `threshold` metres from the world origin, the engine moves the origin to the anchor, rounded to a multiple of
 // `step`, and shifts every Transform by the opposite so nothing moves on screen, which keeps float precision at 100 km and more.
 // Engine::Impl::auto_rebase_origin applies it after each fixed tick and `world.rebase` does the same on demand (engine_origin.cpp).

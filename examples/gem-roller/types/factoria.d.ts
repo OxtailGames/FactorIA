@@ -596,7 +596,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS_STREAMING.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -7757,7 +7757,7 @@ declare module "factoria" {
      */
     materialColors: any;
     /**
-     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's diameter over the height of the view at that distance), below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn from M75.1; until then only `distance` entries change what is drawn. Returns a plain-object COPY; assign a new value to write.
+     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's diameter over the height of the view at that distance), below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The camera of the main view chooses the level, and the shadows and the probe and GI captures draw the level it chose; a split-screen camera chooses for its own view. With lodCrossFade above 0 the switch fades (see lodCrossFade). Returns a plain-object COPY; assign a new value to write.
      * @since 0.16.0
      */
     lods: any;
@@ -7881,22 +7881,22 @@ declare module "factoria" {
      */
     decalLayer: number;
     /**
-     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the diameter of the mesh's world-space bounding sphere divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. No effect yet: M75.1 draws it.
+     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the diameter of the mesh's world-space bounding sphere divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. The distance d is the one to the entity's origin; the sphere's diameter is the diagonal of the mesh's box (the full-detail mesh) times the entity's largest scale. Drawn by the 3D renderer.
      * @since unreleased
      */
     lodMode: "distance" | "screenSize";
     /**
-     * Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; `renderer.supports` lodCrossFade says whether the GPU backend can.
+     * Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the change does not pop. 0 (default) = a hard switch. 0..5. During the fade both levels are drawn, each on a complementary screen-space dither (two draws of the entity; renderStats.lodCrossFades counts them), so a mesh fades by dissolving, with no blending and no sorting. A mesh switches at once, with no fade, when its material is a full shader, a custom material that is not alphaMode "clip" (only the engine's own program and a clip material have the dither), or when it has subsurface scattering. The shadow passes draw the new level only. An entity that is fading is drawn on its own, outside the instanced batch of its mesh. The fade lasts lodCrossFade seconds of the frame delta and is never part of the simulation; going back to the first level during a fade turns it round where it stands. `renderer.supports` lodCrossFade is true on every backend.
      * @since unreleased
      */
     lodCrossFade: number;
     /**
-     * Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes next to its atlas): a ring of pictures of the model that a camera-facing quad shows from impostorDistance on, for trees and other things that are far away. "" (default) = none. No effect yet: M75.1 draws it; `model.bake_impostor` is not built yet either. (asset path: any)
+     * Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes next to its atlas): a ring of pictures of the model that a camera-facing quad shows from impostorDistance on, for trees and other things that are far away. "" (default) = none. No effect yet: a later M75 package draws it; `model.bake_impostor` is not built yet either. (asset path: any)
      * @since unreleased
      */
     impostor: string;
     /**
-     * Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). 0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` warns. 0..100000. No effect yet: M75.1 draws it.
+     * Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). 0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` warns. 0..100000. No effect yet: a later M75 package draws it.
      * @since unreleased
      */
     impostorDistance: number;
@@ -11979,14 +11979,14 @@ declare module "factoria" {
     customPasses: any;
   }
   /**
-   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, "Levels of detail"); the fields are saved and checked today.
+   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the meshes of the other children and their descendants are skipped; lights, particles and the rest of a skipped child are not touched). The camera of the main view chooses the level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS_LOD.md, "Levels of detail").
    * 
    * Category: 3D
    * @since unreleased
    */
   export interface LodGroupComponent {
     /**
-     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the diameter of the world-space bounding sphere of the whole group (every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is a fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object.
+     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the diameter of the world-space bounding sphere of the whole group (every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is a fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. The distance d is the one to the group entity's origin.
      * @since unreleased
      */
     mode: "distance" | "screenSize";
@@ -11997,7 +11997,7 @@ declare module "factoria" {
     get thresholds(): Float32Array;
     set thresholds(value: Float32Array | readonly number[]);
     /**
-     * Seconds a switch between two levels fades over (a dithered cross-fade, no pop). 0 (default) = a hard switch. 0..5.
+     * Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh whose material is a full shader or a custom material that is not alphaMode "clip", or that has subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See MeshRenderer.lodCrossFade.
      * @since unreleased
      */
     crossFade: number;
@@ -12013,7 +12013,7 @@ declare module "factoria" {
     hlodThreshold: number;
   }
   /**
-   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS.md, "Occlusion"); the fields are saved and checked today.
+   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS_LOD.md, "Occlusion"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
@@ -12048,7 +12048,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "Occlusion").
    * 
    * Category: 3D
    * @since unreleased
@@ -12067,7 +12067,7 @@ declare module "factoria" {
     areaId: number;
   }
   /**
-   * An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "Occlusion").
    * 
    * Category: 3D
    * @since unreleased
@@ -12096,7 +12096,7 @@ declare module "factoria" {
     open: boolean;
   }
   /**
-   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS.md, "Streaming").
+   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "Streaming").
    * 
    * Category: World
    * @since unreleased
@@ -12124,7 +12124,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS.md, "Streaming").
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS_STREAMING.md, "Streaming").
    * 
    * Category: World
    * @since unreleased
@@ -12167,7 +12167,7 @@ declare module "factoria" {
     cameraUnloadRadius: number;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. The renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer: each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the holes are cut out of the surface, its shadow and its collider, and a ray passes through them. `render.supports` lists the limits of the GPU ("limits"). docs/BIG_WORLDS_TERRAIN.md, "Terrain (M75.5)".
    * 
    * Category: 3D
    * @since unreleased
@@ -12195,17 +12195,17 @@ declare module "factoria" {
      */
     heightOffset: number;
     /**
-     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Not drawn yet (planned): only layer 0 is. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 2 project-relative RGBA PNG paths (each its own size, 16 to 4096 a side): channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Drawn: the weights of the 8 channels are normalised to add up to 1 at every pixel and blended bilinearly. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     splatMaps: any;
     /**
-     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the plain terrain. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size (at most 4096 x 4096), and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). A size that differs from the first layer's is an error naming both sizes ("/layers/3/albedo"); a texture that is missing or unreadable is said once and that layer stays a neutral grey (albedo) or flat (normal). Mipmaps are made. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     layers: any;
     /**
-     * Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a side, so a 513-sample terrain has a 512 x 512 mask; other sizes are resampled nearest): where a pixel is 128 or more the cell is a hole, a cave mouth or a well. The physics collider cuts the holes today (a ray, a ball or a character passes through them); the renderer still draws those cells (planned). terrain.holes cuts and fills them and writes this file (255 = hole). "" (default) = no holes. (asset path: texture)
+     * Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a side, so a 513-sample terrain has a 512 x 512 mask; other sizes are resampled nearest): where a pixel is 128 or more the terrain is cut open (no surface, no shadow, no collider; a ray, a ball or a character passes through; `terrain_sample` and `terrain_height_at` report no ground there): a cave mouth, a well. At a coarse level of detail a hole is decided per quad of cells, so a far hole can be a little larger or smaller. terrain.holes cuts and fills them and writes this file (255 = hole). "" (default) = no holes. (asset path: texture)
      * @since unreleased
      */
     holes: string;
@@ -12226,7 +12226,7 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS_TERRAIN.md, "Foliage"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
@@ -12279,7 +12279,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS.md, "Foliage").
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
    * 
    * Category: 3D
    * @since unreleased
@@ -13305,7 +13305,7 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; terrainTiles the Terrain tiles drawn in the main pass and terrainTriangles their triangles, also counted in triangles but not in meshes; occluders, occlusionTests and meshesOccluded count the CPU occlusion culling of M75.2 (the Occluders rasterised, the meshes tested, the ones hidden; 0 with no enabled Occluder); lodCrossFades, impostors, foliageInstances and foliageInstancesCulled are the other big-world counters of M75 and stay 0 until M75.1 and M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; terrainTiles the Terrain tiles drawn in the main pass and terrainTriangles their triangles, also counted in triangles but not in meshes; occluders, occlusionTests and meshesOccluded count the CPU occlusion culling of M75.2 (the Occluders rasterised, the meshes tested, the ones hidden; 0 with no enabled Occluder); lodCrossFades counts the meshes drawn as one level of a dithered LOD cross-fade, over every camera (an entity fading from one level to another counts two); impostors, foliageInstances and foliageInstancesCulled are the other big-world counters of M75 and stay 0 until M75.6 draws them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
     renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; occluders: number; occlusionTests: number; meshesOccluded: number; lodCrossFades: number; impostors: number; terrainTiles: number; terrainTriangles: number; foliageInstances: number; foliageInstancesCulled: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };

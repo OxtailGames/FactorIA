@@ -43,7 +43,7 @@ struct ModelLodSpec {
     double uvWeight = 0.5;    // the same for texture coordinates: a collapse that smears a UV seam costs more
 };
 // An automatic chain of LODs (the `lodChain` object of gameReady): `levels` copies, each keeping a share of the one above, drawn by the
-// MeshRenderer in lodMode screenSize at the given screen sizes. Defaults documented in docs/BIG_WORLDS.md, "Automatic LOD chain".
+// MeshRenderer in lodMode screenSize at the given screen sizes. Defaults documented in docs/BIG_WORLDS_LOD.md, "Automatic LOD chain".
 inline constexpr int kLodChainMaxLevels = 7;  // kMaxLodThresholds - 1: the levels besides the full mesh
 struct ModelLodChain {
     bool enabled = false;

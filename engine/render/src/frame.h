@@ -54,6 +54,9 @@ struct Frame {
     // The capture of a RealtimeGI grid's own probe (renderer_gi.cpp): its meshes see the grid's light times the grid's `bounce`. Every other
     // frame (a camera, a ReflectionProbe's capture) sees the grid at full strength.
     bool giCapture = false;
+    // A probe or GI capture (M75.1): it has no camera that picks levels of detail, it draws the levels the first main camera of the frame
+    // picked (and no cross-fade).
+    bool lodFollowMain = false;
     int targetW = 0, targetH = 0;
     float dt = 0;
     float time = 0;  // World::time(): what a material's fa_time reads in its 2D draws

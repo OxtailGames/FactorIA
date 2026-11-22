@@ -680,7 +680,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 TEST_CASE(
     "features: the big-world rows of M75 are false and say planned (M75) until the package that draws them lands") {
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
-    for (const char* name : {"lodCrossFade", "impostors", "occlusionGpu", "foliage"}) {
+    for (const char* name : {"impostors", "occlusionGpu", "foliage"}) {
         CAPTURE(name);
         REQUIRE(find_feature(name) >= 0);
         CHECK(feature_table()[std::size_t(find_feature(name))].kind == FeatureKind::Engine);
@@ -690,6 +690,16 @@ TEST_CASE(
         CHECK(why.find("planned (M75)") != std::string::npos);
         CHECK_FALSE(
             supported(gpu(FeatureBackend::Gles3, false, false, false), name, &why));  // false whatever the reason
+    }
+}
+
+TEST_CASE("features: lodCrossFade is drawn on every backend (M75-P1a)") {
+    REQUIRE(find_feature("lodCrossFade") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("lodCrossFade"))].kind == FeatureKind::Engine);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK_MESSAGE(supported(gpu(b, false, false, false), "lodCrossFade", &why), why);
     }
 }
 
@@ -922,7 +932,14 @@ TEST_CASE("features: the headless backend has no GPU and says no to everything")
 }
 
 TEST_CASE("features: the report lists every feature with a status and the backends it can run on") {
-    const Json r = feature_report(gpu(FeatureBackend::Metal, true, true, true, true), "metal");
+    FeatureEnv env = gpu(FeatureBackend::Metal, true, true, true, true);
+    env.maxTextureSize = 16384;
+    env.maxArrayLayers = 2048;
+    env.maxArrayTextureSize = 8192;
+    const Json r = feature_report(env, "metal");
+    CHECK(r["limits"]["maxTextureSize"] == 16384);
+    CHECK(r["limits"]["maxArrayLayers"] == 2048);
+    CHECK(r["limits"]["maxArrayTextureSize"] == 8192);
     CHECK(r["backend"] == "metal");
     CHECK(r["backendLabel"] == "Metal");
     REQUIRE(r["features"].size() == feature_names().size());

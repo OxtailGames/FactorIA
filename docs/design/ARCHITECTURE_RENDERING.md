@@ -386,7 +386,7 @@ origin added in double (`fit_cascade(.., origin)`, `gi2d_geometry(.., originX, o
 the texel size; height-fog bases are absolute heights and are used as `base - origin.y`. State rebuilt each frame needs nothing. A
 new cache of a world position in the renderer must be shifted there. Tests: `origin_render_tests.cpp`.
 
-## Terrain (M75-P5a)
+## Terrain (M75-P5a, P5d)
 
 `render/src/renderer_terrain.{h,cpp}` (`TerrainRenderer`, a member of `Renderer::Impl`) draws the `Terrain` component through the ordinary mesh
 pipeline. `terrain_lod.{h,cpp}` is the CPU half and is free of any GPU call (so tests read it): the quadtree bounds (`TerrainTileBounds`,
@@ -396,19 +396,80 @@ twin of the vertex shader's formula (`terrain_vertex_raw`), which the tests comp
 by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
 
 - *Material.* `TerrainRenderer::material()` builds an in-memory `MaterialAsset` (kind mesh, `instanceVec4` 2, textures `height` nearest,
-  `albedo`, `normal`) with the three programs of the shader (main, shadow, prepass), so `mesh_pipeline`, `shadow_pipeline` and `prepass_pipeline`
-  draw it unchanged. Its patch is one `MeshAsset` of a 33 x 33 vertex grid (`<terrain-patch>`).
+  `albedo`, `normal`, `control`) with the three programs of the shader (main, shadow, prepass), so `mesh_pipeline`, `shadow_pipeline` and
+  `prepass_pipeline` draw it unchanged. Its patch is one `MeshAsset` of a 33 x 33 vertex grid (`<terrain-patch>`); a terrain with a holes
+  mask uses the split patch (`<terrain-patch-split>`: 4 vertices of its own per cell, 32 x 32 cells) instead.
+- *Layers (P5d).* `albedo` and `normal` are `SG_IMAGETYPE_ARRAY` textures (`make_array_image`, one slice per layer, a mip chain made on the
+  CPU) built by `update_layers` from `load_terrain_layer_images` (fa_scene: the size checks and the teaching errors) and OWNED by the
+  `Entry`, never cached `TextureAsset*` from `Assets` (a clear or reload would leave them dangling; the entry follows
+  `Assets::reload_generation()` and each file's version through a key). `control` is one RGBA8 array of 2 or 3 slices (splat map 0, splat
+  map 1 when there is one, then the holes: R = 255 in a hole) made from the planes of `TerrainHeights` when `holesVersion` or a
+  `splat[m].version` moved; it takes ONE sampler because the terrain's fragment program already reads 15 of the 16 units. Where there
+  is no array a 1 x 1 dummy array is bound (a stage must have every texture it declares). The per-layer values are in the 8 `fa_t_layer`
+  vec4 of the block, `fa_t_tex` has the counts and the colour-space fix of the albedo (`albedoFix`, applied after the fetch: 0 as sampled, 1 the shader decodes
+  sRGB to linear (a linear scene whose GPU gave no sRGB texture format), 2 it encodes linear back to sRGB (a gamma scene, an sRGB format)).
+- *Holes (P5d).* Cut in the vertex stage, in all three programs: `vertex()` fetches the holes slice at the middle cell of the quad of the
+  vertex and, in a hole, moves all four vertices of the quad to one (degenerate triangles). A `discard` in the terrain's fragment program
+  does not compile on Metal (its fragment program is at the compiler's size limit: with a `discard` AND dynamic shading writes the GPU
+  compiler of macOS fails with `METAL_CREATE_RPS_FAILED`), and this way the shadow and prepass need no copy of it. At a coarse level the
+  middle cell of the quad decides: a documented approximation. `mesh_common.glsl` is not touched.
 - *Items.* `gather_meshes` calls `TerrainRenderer::gather` before the `render.mesh_frustum` job: per terrain it brings the RG8 height texture up
-  to date (re-created whole when `TerrainHeights::version` changed; nothing on a frame without edits), runs `render.terrain_select` (one job
+  to date (a sculpt copies only its rectangle: `copy_rect` writes a transient staging buffer and runs `sg_copy_buffer_to_image` outside a pass,
+  once a frame per terrain, after `Gpu::begin_transient_writes()`; the first sculpt makes the texture again as a `copy_dst` one, the whole
+  texture, which cannot carry initial data; a backend or a state that cannot copy re-creates it whole; nothing on a frame without edits), runs `render.terrain_select` (one job
   chunk per terrain) and appends one opaque `MeshItem` per node (`terrain` = its `TerrainDraw`, `terrainNode` = the instance data: first
-  column, first row, step, level, morph start and end). `TerrainDraw` (kept in `DrawContext::terrainDraws`, a deque) holds the eight vec4 block
-  and the three textures; its hash is the items' `paramsHash`, so draws of two terrains or cameras never share a batch.
+  column, first row, step, level, morph start and end). `TerrainDraw` (kept in `DrawContext::terrainDraws`, a deque) holds the sixteen vec4 block
+  and the four textures; its hash is the items' `paramsHash`, so draws of two terrains or cameras never share a batch.
   `pack_instance_extras` copies `terrainNode` for these items, `material_inputs` the draw's block and textures.
+- *Sort key.* Terrain items carry `kTerrainSortKey` with `keyed = true` (mesh_batch.h), so `build_batches` orders them like any keyed item
+  and the batches of one terrain stay together.
 - *Stats.* The main pass counts a terrain batch in `terrainTiles` / `terrainTriangles`, not in `meshes` or the material counters.
 - *Limits.* The height texture is RG8 (r high byte, g low byte) because R16 unorm is not portable on GLES3; it is read with `texelFetch` through
-  a nearest sampler. A grid larger than `sg_query_limits().max_image_size_2d` is reported once and skipped. Entries not asked for during 120
+  a nearest sampler. A grid larger than `sg_query_limits().max_image_size_2d` is reported once (with the largest side that fits) and skipped; the layer arrays
+  need `max_image_array_layers` and `max_image_size_array`, a terrain whose layers do not fit gets no layer arrays (neutral grey, one message), and `render.supports` reports the
+  three numbers as `limits` (`FeatureEnv`). Entries not asked for during 120
   frames free their texture. The collider is in `engine/physics/src/heightfield3d.cpp` (`update_heightfield` for a `Terrain3D`), reading the
   same `TerrainHeights`.
+
+## Levels of detail (M75-P1a)
+
+The user page is docs/BIG_WORLDS_LOD.md, "Levels of detail". The selection is pure and lives in `engine/scene/{include/fa/scene,src}/lod.{h,cpp}`
+(`lod_level_of` for a `MeshRenderer`, `lod_group_level` for a `LodGroup`, `lod_screen_size`, and the cross-fade state `LodFadeState` with
+`lod_fade_step` / `lod_fade_amount`; `lod_mesh` stays the bit-identical distance function). `engine/render/src/renderer_lod.{h,cpp}`
+(`LodFades`, a member of `Renderer::Impl`) holds the render-only state.
+
+- *Scene.* `RenderScene` keeps a flag (`has_lods()`: some mesh has `lods` or some `LodGroup` exists); a scene without either skips every
+  LOD step in `gather_meshes` (the cost of that is one branch). It also lists the `LodGroup`s with the sphere of their subtree and gives each
+  mesh the chain of groups above it (`SceneMesh::chainFirst/chainCount`, `lod_chains()`), so the gather asks only "does every group above show my child".
+- *Selection per camera.* `gather_meshes` runs once per camera job. The first `camera:*` job of the frame is the main view: it `remember`s
+  its picks in `LodFades` (`main_pick`). The shadow passes use the items of the main view's list, so they draw what it chose. Probe and GI captures
+  set `Frame::lodFollowMain` (`probe_face_frame`): they read `main_pick`, never fade, and are not counted. A target, `CameraView` or split-screen
+  job has its own `plan.name`, so it steps its own fade slots with its own distance and field of view.
+- *Fade state.* A slot per (camera name hash, entity bits, kind) holds a `LodFadeState`; it advances once per gather by `Frame::dt`, a new entity
+  starts settled, and `end_frame` drops the slots nobody asked about that frame (a destroyed or hidden entity, a camera that went away).
+- *Drawing.* A fading entity makes two `MeshItem`s: the level fading in has `lodFade = +a`, the one fading out `-a`
+  (`a = t` clamped to [1/256, 255/256], so the sign survives and the dither never degenerates). `fill_fs` writes it into `fa_mesh_fs_params.fa_gi.w`
+  and `fa_lod_dither()` of `mesh_common.glsl` (interleaved gradient noise on `gl_FragCoord`, `discard` below / above `a`) is called at the
+  end of the main and depth-prepass fragment code (after the alpha clip), no sampler. The function and its calls exist only under
+  `FA_LOD_DITHER` or `FA_ALPHA_CLIP`: the engine's own programs get four variants for it, `mesh_lod`, `mesh_skin_lod` (`fs_lod`) and
+  `prepass_lod`, `prepass_skin_lod` (`prepass_fs_lod`), which `Gpu::mesh_pipeline` / `prepass_pipeline` pick with their `lod` argument for an
+  item with `lodFade != 0` and no material (made on first use, `Gpu::builtin_shader`). A custom material only dithers when it is
+  `alphaMode "clip"` (`FA_ALPHA_CLIP` is defined for its programs and the dither goes after the clip's own `discard`). The programs of every
+  other draw have no `discard`, because a fragment shader with one (even behind a uniform branch) loses the early depth test and hidden
+  surface removal of a tile-based GPU. The two draws are complementary, and the prepass dithers the same way, so what it writes is what the
+  main pass shows. `lodFade` is part of `material_key` (main pass) and `order_key`, and breaks the tie of the keyed draw sort, so a fading
+  item leaves its instanced batch; `same_shadow_material` ignores it. The shadow shader never dithers: the item fading out (`lodFade < 0`)
+  is skipped in the shadow cull and the one fading in casts solid.
+- *What does not fade* (`canFade` in `gather_meshes`): a full-shader material (`material->full`, `mesh_full_common.glsl`), a custom material
+  that is not `alphaMode "clip"`, and a mesh with subsurface scattering (`subsurface_of(mr)[0] > 0`, whose extra pass has no variant) switch
+  at once (the outgoing level is dropped). A mesh under a fading `LodGroup` also switches its own `lods` at once.
+- *Stats.* `RenderStats::lodCrossFades` counts the visible items with `lodFade != 0` of every main-view job; a capture does not count.
+- *Cost.* A scene without `lods` and `LodGroup` draws with the same programs as before (no `discard` in them) and one flag check per gather.
+  With `crossFade` 0 `LodFades::step` keeps no slot; the main camera's picks are kept for the captures (`remember`) only where the world has a
+  `ReflectionProbe` or a `RealtimeGI`; `RenderScene::build_lod_groups` finds the meshes of a group through a flat table indexed by entity.
+  The four variants add about 120 KB of GLSL ES and 155 KB of WGSL (source embedded) to the player. The mesh template changed (its hash), so
+  the twin fixtures of the renderer's tests were regenerated (`FA_UPDATE_FIXTURES=1`). `LodFades` drops every slot when the world or its
+  scene generation changes (entity ids repeat from one scene to the next).
 
 ## PostProcess (M71)
 

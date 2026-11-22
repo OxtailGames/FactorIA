@@ -1,4 +1,4 @@
-// Floating origin, engine side (docs/BIG_WORLDS.md "Floating origin"): when and how a rebase runs. World::rebase, Physics::origin_shifted
+// Floating origin, engine side (docs/BIG_WORLDS_STREAMING.md "Floating origin"): when and how a rebase runs. World::rebase, Physics::origin_shifted
 // and Audio::origin_shifted do the shifting of what each owns; this file calls them in one step and tells the scripts.
 #include "engine_impl.h"
 #include "fa/scene/camera_query.h"

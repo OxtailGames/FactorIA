@@ -1,4 +1,4 @@
-// The terrain commands (M75.5, docs/BIG_WORLDS.md "Terrain" and "Terrain commands"): terrain.create, terrain.sculpt,
+// The terrain commands (M75.5, docs/BIG_WORLDS_TERRAIN.md "Terrain" and "Terrain commands"): terrain.create, terrain.sculpt,
 // terrain.paint, terrain.holes, terrain.generate, terrain.save, terrain.undo and terrain.redo.
 //
 // The edits are live: a command changes the TerrainHeights of the world's TerrainStore (fa/scene/terrain.h) in memory, as ONE
@@ -466,7 +466,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
         } else {
             TerrainSample smp;
             if (!terrain_sample(I.world, tg.entity, s.stamps[0].x, s.stamps[0].z, smp))
-                bad("/height", "The first stamp is outside the terrain, so there is no surface to flatten to",
+                bad("/height",
+                    "The first stamp is outside the terrain or in a hole, so there is no surface to flatten to",
                     "Pass 'height' (world metres) or start the stroke on the terrain.");
             worldY = smp.height;
         }
