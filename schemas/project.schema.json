@@ -307,6 +307,43 @@
         }
       }
     },
+    "world": {
+      "type": "object",
+      "description": "Big-world settings (docs/BIG_WORLDS.md).",
+      "properties": {
+        "floatingOrigin": {
+          "type": "object",
+          "description": "Floating origin (planned, M75.4; saved and checked today, no effect yet): when the anchor is farther than `threshold` metres from the world origin, the engine moves the origin to the anchor (rounded to a multiple of `step`) and shifts every Transform the other way, so nothing moves on screen and float precision holds at 100 km and more.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true turns the floating origin on. Default false: the world origin never moves."
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 16,
+              "maximum": 10000000,
+              "default": 2048,
+              "description": "Metres between the anchor and the origin beyond which the origin moves. Default 2048."
+            },
+            "step": {
+              "type": "integer",
+              "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576],
+              "default": 256,
+              "description": "Metres: the origin only moves in multiples of this. An integer power of two (1, 2, 4 ... 1048576), so a move is exact in a float at any distance, and at most `threshold`. Default 256, or the largest power of two at most `threshold` when `threshold` is below 256."
+            },
+            "anchor": {
+              "type": "string",
+              "pattern": "^(camera|entity:.+)$",
+              "default": "camera",
+              "description": "What is measured from the origin: \"camera\" (the active 3D camera) or \"entity:<id>\" (the entity with that id, e.g. \"entity:player\"). Default \"camera\"."
+            }
+          }
+        }
+      }
+    },
     "storage": {
       "type": "object",
       "description": "Save storage settings (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\").",

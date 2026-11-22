@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <type_traits>
+
 #include "fa/core/math.h"
 
 using namespace fa;
@@ -114,4 +116,37 @@ TEST_CASE("math: misc helpers") {
     CHECK(approx_equal(length(normalize(Vec3{3, 4, 0})), 1.0f));
     CHECK(Color::hex(0xff8000).g > 0.49f);
     CHECK(Color::rgba8(255, 0, 0).to_rgba8() == 0xff0000ffu);
+}
+
+TEST_CASE("math: DVec3 keeps the digits a float loses far from the origin") {
+    const DVec3 far{100000000.0, 2.0, -3.0};  // 100 000 km: a float has no room for the half metre
+    const DVec3 a = far + DVec3{0.5, 0, 0};
+    CHECK(a.x == 100000000.5);
+    CHECK((a - far).x == 0.5);
+    CHECK(float(a.x) == float(far.x));  // the float lost the half metre ...
+    CHECK(to_vec3(a - far).x == 0.5f);  // ... the difference of the doubles does not
+    const DVec3 s = (DVec3{1, 2, 3} * 2.0) + (-DVec3{1, 1, 1});
+    CHECK(s == DVec3{1, 3, 5});
+    CHECK(2.0 * DVec3{1, 2, 3} == DVec3{2, 4, 6});
+    DVec3 acc{1, 1, 1};
+    acc += DVec3{1, 2, 3};
+    acc -= DVec3{0, 1, 0};
+    CHECK(acc == DVec3{2, 2, 4});
+    CHECK(length(DVec3{3, 4, 0}) == 5.0);
+    CHECK(length_sq(DVec3{1, 2, 2}) == 9.0);
+    CHECK(distance(DVec3{1, 1, 1}, DVec3{4, 5, 1}) == 5.0);
+    CHECK(dot(DVec3{1, 2, 3}, DVec3{4, 5, 6}) == 32.0);
+    CHECK(DVec3{}.x == 0.0);
+}
+
+TEST_CASE("math: DVec3 and Vec3 convert only by name, to_dvec3 exactly and to_vec3 by rounding") {
+    const Vec3 v{1.5f, -2.25f, 1024.0f};
+    CHECK(to_vec3(to_dvec3(v)) == v);
+    const DVec3 d = to_dvec3(v);
+    CHECK(d.x == 1.5);
+    CHECK(d.y == -2.25);
+    CHECK(d.z == 1024.0);
+    CHECK(to_vec3(DVec3{0.1, 0, 0}).x == 0.1f);
+    static_assert(!std::is_convertible_v<Vec3, DVec3>);
+    static_assert(!std::is_convertible_v<DVec3, Vec3>);
 }
