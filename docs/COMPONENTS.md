@@ -1643,6 +1643,22 @@ Makes the world around this entity load and unload as it moves: a streamed scene
 | `priority` | int | `0` | -100..100: when two anchors want cells loaded, the anchor with the higher priority gets its cells first. Default 0. Range -100..100. |
 | `enabled` | bool | `true` | false = this anchor loads nothing and keeps nothing loaded. |
 
+### StreamedWorld
+
+Not released yet (on main after 0.34.0).
+
+Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear `world.cellLoaded` and `world.cellUnloaded` (docs/BIG_WORLDS.md, "Streaming").
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `world` | asset (any) | `""` | Project-relative path of the world index, a *.world.json file. Read once when the scene starts (or when this field changes). "" (default) = nothing is streamed. |
+| `enabled` | bool | `true` | true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded. |
+| `maxLoadsInFlight` | int | `2` | 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs and uploadBudgetMB; headless runs and tests count 4 units a frame). Default 2. Range 1..16. |
+| `maxAppliesPerFrame` | int | `1` | 1..16: how many ready cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add). With a window the frame's loadBudgetMs also stops it after the first one that went past. Default 1. Range 1..16. |
+| `keepLoaded` | bool | `false` | Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). Default false. |
+| `cameraLoadRadius` | float | `0.0` | Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor. Range 0.0..1000000.0. |
+| `cameraUnloadRadius` | float | `0.0` | Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius. Range 0.0..1000000.0. |
+
 ## 3D
 
 ### Terrain
@@ -11051,11 +11067,12 @@ List the cells of the streamed world and which are loaded.
 
 Capabilities: read
 
-Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: {min, max}, state: "unloaded" | "loading" | "loaded" | "unloading", entities, distance}]}, sorted by distance to the nearest StreamingAnchor. `state` filters the list. Read-only. Example: world.cells {"state":"loaded"} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, "Streaming"): {world, dimension, cellSize, total, matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: "unloaded" | "queued" | "loading" | "loaded" | "unloading", entities (under the cell's root, 0 unless loaded), distance (metres on the plane to the nearest enabled StreamingAnchor, null with none), sizeBytes?, failed?}]}, sorted by distance (cells with no distance last, then by [j, i]). `state` keeps one state, `limit` caps the list (default 1000; `total` and `matching` count them all). Reads the index at once when the streamer has not (a StreamedWorld with a wrong index answers `error`). Read-only. Example: world.cells {"state":"loaded"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `state` | string ["unloaded","loading","loaded","unloading"] | no | Only the cells in this state. |
+| `state` | string ["unloaded","queued","loading","loaded","unloading"] | no | Only the cells in this state. |
+| `limit` | integer | no | The most cells to list (default 1000). |
 
 ### `world.merge_cells` (modifies state)
 
@@ -11123,7 +11140,7 @@ Read what the world streaming is doing: loads in flight, budget, cells loaded.
 
 Capabilities: read
 
-Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, frameBudgetMs, pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player are in. Read-only. Result: the fields above. Example: world.stream_status {} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+Returns {enabled, world, cellsTotal, cellsLoaded, cellsLoading (jobs started and not applied yet), cellsQueued, cellsUnloading, inFlight, waitingToApply (read and parsed, not added to the world yet), anchors (enabled StreamingAnchor entities, and the camera with cameraLoadRadius), loadsStarted, loadsCancelled, cellsApplied, unloadsDone, bytesLoaded, appliedThisFrame, unloadedThisFrame, unitsThisFrame (the BackgroundLoader units of the last frame), maxLoadsInFlight, maxAppliesPerFrame, budget: {mode: "units" (exact, the same on every machine) | "timed", units | ms}, pending: [ids of the cells loading, then the queued ones, in the order they will be applied], lastError}. A game or a test waits until the cells around the player are in (pending empty and cellsUnloading 0). Read-only. Example: world.stream_status {}
 
 
 ## Scripting API (TypeScript declarations)
@@ -11722,7 +11739,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -23240,6 +23257,49 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear `world.cellLoaded` and `world.cellUnloaded` (docs/BIG_WORLDS.md, "Streaming").
+   * 
+   * Category: World
+   * @since unreleased
+   */
+  export interface StreamedWorldComponent {
+    /**
+     * Project-relative path of the world index, a *.world.json file. Read once when the scene starts (or when this field changes). "" (default) = nothing is streamed. (asset path: any)
+     * @since unreleased
+     */
+    world: string;
+    /**
+     * true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs and uploadBudgetMB; headless runs and tests count 4 units a frame). Default 2.
+     * @since unreleased
+     */
+    maxLoadsInFlight: number;
+    /**
+     * 1..16: how many ready cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add). With a window the frame's loadBudgetMs also stops it after the first one that went past. Default 1.
+     * @since unreleased
+     */
+    maxAppliesPerFrame: number;
+    /**
+     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). Default false.
+     * @since unreleased
+     */
+    keepLoaded: boolean;
+    /**
+     * Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor.
+     * @since unreleased
+     */
+    cameraLoadRadius: number;
+    /**
+     * Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius.
+     * @since unreleased
+     */
+    cameraUnloadRadius: number;
+  }
+  /**
    * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
    * 
    * Category: 3D
@@ -23704,6 +23764,7 @@ declare module "factoria" {
     OcclusionArea: OcclusionAreaComponent;
     OcclusionPortal: OcclusionPortalComponent;
     StreamingAnchor: StreamingAnchorComponent;
+    StreamedWorld: StreamedWorldComponent;
     Terrain: TerrainComponent;
     Foliage: FoliageComponent;
     ScatterRule: ScatterRuleComponent;
@@ -23774,6 +23835,7 @@ declare module "factoria" {
     OcclusionArea: { size?: Vec3Like; areaId?: number };
     OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
     StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
+    StreamedWorld: { world?: string; enabled?: boolean; maxLoadsInFlight?: number; maxAppliesPerFrame?: number; keepLoaded?: boolean; cameraLoadRadius?: number; cameraUnloadRadius?: number };
     Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
     Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
     ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };

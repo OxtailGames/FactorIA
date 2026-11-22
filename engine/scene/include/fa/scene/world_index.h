@@ -32,16 +32,18 @@
 namespace fa {
 
 inline constexpr const char* kWorldIndexFormat = "factoria.world/1";
-inline constexpr std::int64_t kMaxWorldCells = 262144;       // cells in one index (512 x 512)
-inline constexpr std::int64_t kMaxWorldCoord = 1000000;      // |i| and |j| of a cell coordinate
-inline constexpr double kMaxWorldCellSize = 1.0e6;           // metres
-inline constexpr double kMinWorldCellSize = 0.5;             // metres
+inline constexpr std::int64_t kMaxWorldCells = 262144;   // cells in one index (512 x 512)
+inline constexpr std::int64_t kMaxWorldCoord = 1000000;  // |i| and |j| of a cell coordinate
+inline constexpr double kMaxWorldCellSize = 1.0e6;       // metres
+inline constexpr double kMinWorldCellSize = 0.5;         // metres
 
 enum class WorldDimension : std::int32_t { D3, D2 };
 
 struct WorldCell {
-    std::int32_t i = 0, j = 0;  // the coordinate: i along the first axis of the plane (x), j along the second (z in 3d, y in 2d)
-    std::string scene;          // project-relative scene file
+    std::int32_t
+        i = 0,
+        j = 0;  // the coordinate: i along the first axis of the plane (x), j along the second (z in 3d, y in 2d)
+    std::string scene;              // project-relative scene file
     Vec3 boundsMin{}, boundsMax{};  // 3d: [x, y, z]; 2d: [x, y] with z 0. Absolute.
     std::int64_t sizeBytes = -1;    // -1 = not given
     std::string id() const { return std::to_string(i) + "," + std::to_string(j); }  // "3,-2"
@@ -72,7 +74,8 @@ struct WorldIndexIssue {
 
 struct WorldIndexOptions {
     bool checkFiles = true;  // every scene file exists (through fa::fs; the paths are project-relative)
-    std::int64_t maxFileChecks = -1;  // with more cells than this the files are not checked (a warning says so); -1 = always check
+    std::int64_t maxFileChecks =
+        -1;  // with more cells than this the files are not checked (a warning says so); -1 = always check
 };
 
 // Checks and reads an index. `issues` (may be null) gets every problem found, errors and warnings. The result is an error when there

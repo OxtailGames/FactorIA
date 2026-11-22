@@ -152,7 +152,8 @@ struct ScanResult {
 
 // The scan of a job (a decode job, or the thread that takes it): reads the roots and the text files they point at, in
 // breadth-first order, into the warm set, and lists the binary files. Touches nothing but fa::fs and the asset manifest.
-ScanResult scan_files(const std::vector<std::string>& roots, bool isScene, bool keepRoot, BackgroundLoader::Shared& sh) {
+ScanResult scan_files(const std::vector<std::string>& roots, bool isScene, bool keepRoot,
+                      BackgroundLoader::Shared& sh) {
     ScanResult out;
     std::set<std::string> seen;
     std::vector<std::string> pending;  // text files whose references are still to be found

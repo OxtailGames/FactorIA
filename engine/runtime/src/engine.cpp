@@ -291,7 +291,9 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.on_scene_load();
     physics.reset();
-    if (streamer) streamer->reset();  // the cells of the old scene go with it; their loads stop and nothing is applied to the new one
+    if (streamer)
+        streamer
+            ->reset();  // the cells of the old scene go with it; their loads stop and nothing is applied to the new one
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
     currentScene = path;
@@ -695,7 +697,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_sprite_animators(world, float(fixedDt * scale));
             world.particles().update(world, float(fixedDt * scale));
         }
-        if (streamer) streamer->update();  // the cells to load and unload around the StreamingAnchors, from where they are after this step
+        if (streamer)
+            streamer
+                ->update();  // the cells to load and unload around the StreamingAnchors, from where they are after this step
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();
@@ -860,7 +864,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.commands.set_job_owner(&I.jobOwner);
         // Background loading: its IO thread runs only when the pool has worker threads (fa/core/background_io.h).
         I.loader = std::make_unique<BackgroundLoader>(&I.jobOwner, I.traceOwner);
-        I.streamer = std::make_unique<WorldStreamer>(I.world, *I.loader);  // the cells of a StreamedWorld (world_streamer.h)
+        I.streamer =
+            std::make_unique<WorldStreamer>(I.world, *I.loader);  // the cells of a StreamedWorld (world_streamer.h)
     }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));

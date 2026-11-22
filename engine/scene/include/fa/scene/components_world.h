@@ -89,13 +89,14 @@ struct StreamingAnchor {
 // A world cut into cells that load and unload around the StreamingAnchor entities (the index file lists the cells). Put it on ONE
 // entity of the scene (the streamer uses the first enabled one). M75.3.
 struct StreamedWorld {
-    std::string world;                      // the index: a project-relative *.world.json
-    bool enabled = true;                    // false: no cell is loaded and the loaded ones are unloaded
-    std::int32_t maxLoadsInFlight = 2;      // cells being read at once (each is a BackgroundLoader job)
-    std::int32_t maxAppliesPerFrame = 1;    // cells added to (or removed from) the world per frame, on the main thread
-    bool keepLoaded = false;                // debug: every cell stays loaded, whatever the anchors say
-    float cameraLoadRadius = 0.0f;          // metres; above 0 the active camera is an anchor with this load radius (0 = it is not)
-    float cameraUnloadRadius = 0.0f;        // metres; 0 = 1.25 times cameraLoadRadius
+    std::string world;                    // the index: a project-relative *.world.json
+    bool enabled = true;                  // false: no cell is loaded and the loaded ones are unloaded
+    std::int32_t maxLoadsInFlight = 2;    // cells being read at once (each is a BackgroundLoader job)
+    std::int32_t maxAppliesPerFrame = 1;  // cells added to (or removed from) the world per frame, on the main thread
+    bool keepLoaded = false;              // debug: every cell stays loaded, whatever the anchors say
+    float cameraLoadRadius =
+        0.0f;  // metres; above 0 the active camera is an anchor with this load radius (0 = it is not)
+    float cameraUnloadRadius = 0.0f;  // metres; 0 = 1.25 times cameraLoadRadius
 };
 
 // The visual and collision terrain: a heightmap drawn with GPU LOD and splat-mapped material layers. M75.5. The component is

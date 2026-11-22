@@ -76,19 +76,28 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
              "M75.4");
     I.commands.add(
         {"world.cells", "List the cells of the streamed world and which are loaded.",
-         "Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, \"Streaming\"): {world, dimension, cellSize, total, "
-         "matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: \"unloaded\" | \"queued\" | \"loading\" | "
-         "\"loaded\" | \"unloading\", entities (under the cell's root, 0 unless loaded), distance (metres on the plane to the nearest enabled "
-         "StreamingAnchor, null with none), sizeBytes?, failed?}]}, sorted by distance (cells with no distance last, then by [j, i]). `state` "
-         "keeps one state, `limit` caps the list (default 1000; `total` and `matching` count them all). Reads the index at once when the "
-         "streamer has not (a StreamedWorld with a wrong index answers `error`). Read-only. Example: world.cells {\"state\":\"loaded\"}",
+         "Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, \"Streaming\"): {world, "
+         "dimension, cellSize, total, "
+         "matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: \"unloaded\" | \"queued\" "
+         "| \"loading\" | "
+         "\"loaded\" | \"unloading\", entities (under the cell's root, 0 unless loaded), distance (metres on the plane "
+         "to the nearest enabled "
+         "StreamingAnchor, null with none), sizeBytes?, failed?}]}, sorted by distance (cells with no distance last, "
+         "then by [j, i]). `state` "
+         "keeps one state, `limit` caps the list (default 1000; `total` and `matching` count them all). Reads the "
+         "index at once when the "
+         "streamer has not (a StreamedWorld with a wrong index answers `error`). Read-only. Example: world.cells "
+         "{\"state\":\"loaded\"}",
          parse_schema(R"({"type":"object","properties":{
                "state":{"type":"string","enum":["unloaded","queued","loading","loaded","unloading"],"description":"Only the cells in this state."},
                "limit":{"type":"integer","minimum":1,"maximum":100000,"description":"The most cells to list (default 1000)."}}})"),
          true, "world"},
         [&I](const Json& args) -> Json {
-            if (!I.streamer) throw CommandError("not_running", "world.cells needs a running engine.", "Start the engine (Engine::init) first.");
-            const std::string state = args.contains("state") && args["state"].is_string() ? args["state"].get<std::string>() : std::string();
+            if (!I.streamer)
+                throw CommandError("not_running", "world.cells needs a running engine.",
+                                   "Start the engine (Engine::init) first.");
+            const std::string state =
+                args.contains("state") && args["state"].is_string() ? args["state"].get<std::string>() : std::string();
             std::size_t limit = 1000;
             if (args.contains("limit") && args["limit"].is_number()) {
                 const double v = args["limit"].get<double>();
@@ -96,23 +105,32 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
             }
             Json out = I.streamer->cells(state, limit);
             if (out.contains("error"))
-                throw CommandError("no_streamed_world", out["error"].get<std::string>(),
-                                   "Put a StreamedWorld component with `world` set to a <name>.world.json on an entity of the scene "
-                                   "(docs.read BIG_WORLDS, \"Streaming\"), then call this again.");
+                throw CommandError(
+                    "no_streamed_world", out["error"].get<std::string>(),
+                    "Put a StreamedWorld component with `world` set to a <name>.world.json on an entity of the scene "
+                    "(docs.read BIG_WORLDS, \"Streaming\"), then call this again.");
             return out;
         });
     I.commands.add(
         {"world.stream_status", "Read what the world streaming is doing: loads in flight, budget, cells loaded.",
-         "Returns {enabled, world, cellsTotal, cellsLoaded, cellsLoading (jobs started and not applied yet), cellsQueued, cellsUnloading, "
-         "inFlight, waitingToApply (read and parsed, not added to the world yet), anchors (enabled StreamingAnchor entities, and the camera "
-         "with cameraLoadRadius), loadsStarted, loadsCancelled, cellsApplied, unloadsDone, bytesLoaded, appliedThisFrame, "
-         "unloadedThisFrame, unitsThisFrame (the BackgroundLoader units of the last frame), maxLoadsInFlight, maxAppliesPerFrame, "
-         "budget: {mode: \"units\" (exact, the same on every machine) | \"timed\", units | ms}, pending: [ids of the cells loading, then "
-         "the queued ones, in the order they will be applied], lastError}. A game or a test waits until the cells around the player are in "
+         "Returns {enabled, world, cellsTotal, cellsLoaded, cellsLoading (jobs started and not applied yet), "
+         "cellsQueued, cellsUnloading, "
+         "inFlight, waitingToApply (read and parsed, not added to the world yet), anchors (enabled StreamingAnchor "
+         "entities, and the camera "
+         "with cameraLoadRadius), loadsStarted, loadsCancelled, cellsApplied, unloadsDone, bytesLoaded, "
+         "appliedThisFrame, "
+         "unloadedThisFrame, unitsThisFrame (the BackgroundLoader units of the last frame), maxLoadsInFlight, "
+         "maxAppliesPerFrame, "
+         "budget: {mode: \"units\" (exact, the same on every machine) | \"timed\", units | ms}, pending: [ids of the "
+         "cells loading, then "
+         "the queued ones, in the order they will be applied], lastError}. A game or a test waits until the cells "
+         "around the player are in "
          "(pending empty and cellsUnloading 0). Read-only. Example: world.stream_status {}",
          parse_schema(R"({"type":"object","properties":{}})"), true, "world"},
         [&I](const Json&) -> Json {
-            if (!I.streamer) throw CommandError("not_running", "world.stream_status needs a running engine.", "Start the engine (Engine::init) first.");
+            if (!I.streamer)
+                throw CommandError("not_running", "world.stream_status needs a running engine.",
+                                   "Start the engine (Engine::init) first.");
             Json out = I.streamer->status();
             const bool exact = I.replaying || !((I.windowed && !I.cfg.editorMode) || I.cfg.timedLoads);
             out["budget"] = exact ? Json::object({{"mode", "units"}, {"units", BackgroundLoader::kFixedUnitsPerFrame}})
