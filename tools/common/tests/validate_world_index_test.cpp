@@ -81,7 +81,7 @@ std::string chunk_scene(const std::string& tileset, int tileW, double x, double 
     return R"({"format":"factoria.scene/1","entities":[{"name":"ground","components":{"Transform":{"position":[)" +
            std::to_string(x) + "," + std::to_string(y) + R"(,0]},"Tilemap":{"tileset":")" + tileset +
            R"(","tileSize":[)" + std::to_string(tileW) + "," + std::to_string(tileW) +
-           R"(],"columns":4,"width":2,"height":2,"tiles":[1,1,1,1]}}]})";
+           R"(],"columns":4,"width":2,"height":2,"tiles":[1,1,1,1]}}}]})";
 }
 
 std::string index2d(const std::string& cells) {
