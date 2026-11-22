@@ -183,7 +183,8 @@ TEST_CASE("foliage file: a count past the most one file holds is refused before 
     CHECK(has(e, std::to_string(count)));
 }
 
-TEST_CASE("foliage file: a mesh index past Foliage.meshes names the instance, the byte and the count the file was written for") {
+TEST_CASE("foliage file: a mesh index past Foliage.meshes names the instance, the byte and the count the file was "
+          "written for") {
     std::vector<FoliageInstance> in = sample(5, 3);
     in[2].mesh = 0;
     in[4].mesh = 2;
@@ -243,7 +244,5 @@ TEST_CASE("foliage file: the writer refuses what the reader would refuse, with t
         REQUIRE_FALSE(r.ok());
         CHECK(has(r.error().message, "/instances/0"));
     }
-    SUBCASE("no meshes") {
-        CHECK_FALSE(encode_foliage({}, 0).ok());
-    }
+    SUBCASE("no meshes") { CHECK_FALSE(encode_foliage({}, 0).ok()); }
 }

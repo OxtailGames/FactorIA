@@ -148,7 +148,7 @@ TEST_CASE("foliage: chunks outside the view are culled whole and counted") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string file = foliage_path("foliage_cull.foliage");
-    std::vector<FoliageInstance> in = block(6, 6, 2.0f, -8.0f);  // 36 in front of the camera
+    std::vector<FoliageInstance> in = block(6, 6, 2.0f, -8.0f);            // 36 in front of the camera
     const std::vector<FoliageInstance> behind = block(6, 6, 2.0f, 60.0f);  // 36 well behind it, in other chunks
     in.insert(in.end(), behind.begin(), behind.end());
     write_instances(file, in);
@@ -274,7 +274,8 @@ TEST_CASE("foliage: castShadows keeps the casters just outside the picture for t
     CHECK(st.foliageInstances == 0);
 }
 
-TEST_CASE("foliage: a missing file draws nothing and says so; the file appearing, or Foliage.instances changing, loads it") {
+TEST_CASE(
+    "foliage: a missing file draws nothing and says so; the file appearing, or Foliage.instances changing, loads it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string file = foliage_path("foliage_late.foliage");

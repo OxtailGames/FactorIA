@@ -17,14 +17,15 @@ namespace fa::render {
 
 namespace {
 
-constexpr std::size_t kMaxMeshes = 16;  // Foliage.meshes, kMaxScatterMeshes
+constexpr std::size_t kMaxMeshes = 16;    // Foliage.meshes, kMaxScatterMeshes
 constexpr std::uint64_t kStatEvery = 30;  // frames between two looks at the instances file's size and time
 
 // True when the whole box (local space, carried by `m` = viewProj * model) is inside the clip volume: its instances need no test of their own.
 bool box_fully_inside(const Mat4& m, bool z01, Vec3 lo, Vec3 hi) {
     for (int c = 0; c < 8; ++c) {
         const Vec4 p = m * Vec4{(c & 1) ? hi.x : lo.x, (c & 2) ? hi.y : lo.y, (c & 4) ? hi.z : lo.z, 1.0f};
-        if (!(p.w > 0.0f) || p.x < -p.w || p.x > p.w || p.y < -p.w || p.y > p.w || p.z < (z01 ? 0.0f : -p.w) || p.z > p.w)
+        if (!(p.w > 0.0f) || p.x < -p.w || p.x > p.w || p.y < -p.w || p.y > p.w || p.z < (z01 ? 0.0f : -p.w) ||
+            p.z > p.w)
             return false;
     }
     return true;
@@ -116,15 +117,19 @@ void FoliageRenderer::adopt(Entry& en, const std::string& entityId) {
     }
     en.data.reset();
     en.failed = true;
-    const std::string what = load->error.empty() ? std::format("foliage file '{}' was not read (the job was cancelled)", en.file) : load->error;
+    const std::string what = load->error.empty()
+                                 ? std::format("foliage file '{}' was not read (the job was cancelled)", en.file)
+                                 : load->error;
     const std::string said = load->hint.empty() ? what : what + " Hint: " + load->hint;
     if (said != en.warned) {
         en.warned = said;
-        FA_WARN("render", "Foliage.instances on '{}': {} Nothing is drawn for it until the file is fixed.", entityId, said);
+        FA_WARN("render", "Foliage.instances on '{}': {} Nothing is drawn for it until the file is fixed.", entityId,
+                said);
     }
 }
 
-FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<MeshItem>& out, std::vector<char>& blended) {
+FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<MeshItem>& out,
+                                                std::vector<char>& blended) {
     Counts counts;
     if (!view.world || !view.assets) return counts;
     World& world = *view.world;
@@ -218,7 +223,8 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
         if (en.keptDensity != density || en.kept.size() != data.chunks.size()) {
             en.keptDensity = density;
             en.kept.resize(data.chunks.size());
-            for (std::size_t i = 0; i < data.chunks.size(); ++i) en.kept[i] = foliage_kept_count(data, data.chunks[i], density);
+            for (std::size_t i = 0; i < data.chunks.size(); ++i)
+                en.kept[i] = foliage_kept_count(data, data.chunks[i], density);
         }
         const std::uint32_t below = foliage_keep_below(density);
         ++counts.entities;
@@ -290,7 +296,8 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
             bool inView = box_in_frustum(view.viewProj, view.z01, lo, hi, model);
             if (inView && view.occlusion && view.occlusion->hidden(lo, hi, model)) {
                 inView = false;
-                if (f.castShadows) c.shadowOnly = true;  // behind an Occluder, but its shadow can fall in the picture
+                if (f.castShadows)
+                    c.shadowOnly = true;  // behind an Occluder, but its shadow can fall in the picture
                 else {
                     counts.culled += int(kept);
                     continue;
@@ -329,9 +336,11 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
                     ++counts.culled;
                     continue;
                 }
-                const std::size_t g = std::size_t(p.mesh) * 2 + ((dist >= lodDistance && !en.lodNames[p.mesh].empty()) ? 1 : 0);
+                const std::size_t g =
+                    std::size_t(p.mesh) * 2 + ((dist >= lodDistance && !en.lodNames[p.mesh].empty()) ? 1 : 0);
                 Group& gr = prepare(g);
-                if (!grpBlended[g] && gr.item.mesh) grpBlended[g] = mesh_is_blended(en.mrs[g], *gr.item.mesh, nullptr) ? 1 : 2;
+                if (!grpBlended[g] && gr.item.mesh)
+                    grpBlended[g] = mesh_is_blended(en.mrs[g], *gr.item.mesh, nullptr) ? 1 : 2;
                 Mat4 m = model * foliage_local_matrix(p);
                 if (wind > 0.0f) {
                     float dx = 0.0f, dz = 0.0f;
@@ -346,7 +355,8 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
                     }
                 }
                 bool visible = !c.shadowOnly;
-                if (visible && !c.inside) visible = box_in_frustum(view.viewProj, view.z01, gr.item.bmin, gr.item.bmax, m);
+                if (visible && !c.inside)
+                    visible = box_in_frustum(view.viewProj, view.z01, gr.item.bmin, gr.item.bmax, m);
                 if (!visible && !f.castShadows) {
                     ++counts.culled;
                     continue;
@@ -375,10 +385,12 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
     });
     if (capped && !capWarned_) {
         capWarned_ = true;
-        FA_WARN("render",
-                "A camera is asked to draw more than {} Foliage instances at once: the farthest chunks are left out (the nearest are kept). "
-                "Hint: lower Foliage.fadeEnd or density, or split the foliage over several entities that are far apart.",
-                kFoliageMaxItems);
+        FA_WARN(
+            "render",
+            "A camera is asked to draw more than {} Foliage instances at once: the farthest chunks are left out (the "
+            "nearest are kept). "
+            "Hint: lower Foliage.fadeEnd or density, or split the foliage over several entities that are far apart.",
+            kFoliageMaxItems);
     }
     return counts;
 }

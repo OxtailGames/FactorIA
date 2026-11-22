@@ -45,7 +45,8 @@ inline std::size_t foliage_file_bytes(std::size_t count) { return kFoliageHeader
 // The bytes of the file for `instances`; `meshCount` is the number of meshes of the Foliage they are for (every `mesh` must be below
 // it, at most 65535). Errors (with the index of the instance, as a JSON-pointer-like path) for a non-finite number, a scale that is
 // not above 0, a mesh index past meshCount or more than kMaxFoliageInstances instances.
-Result<std::vector<std::uint8_t>> encode_foliage(const std::vector<FoliageInstance>& instances, std::uint32_t meshCount);
+Result<std::vector<std::uint8_t>> encode_foliage(const std::vector<FoliageInstance>& instances,
+                                                 std::uint32_t meshCount);
 
 // The instances of a file's bytes. `meshes` = Foliage.meshes.size(): an instance whose mesh index is not below it is an error. `file` is
 // only used in the messages ("" = the bytes are not from a file). Every error names the byte offset, what is wrong and how to fix it:
@@ -57,6 +58,7 @@ Result<std::vector<FoliageInstance>> decode_foliage(const std::uint8_t* data, st
 // Reads `path` (through fa::fs: the project, a pack) and decodes it.
 Result<std::vector<FoliageInstance>> read_foliage(std::string_view path, std::size_t meshes);
 // Encodes and writes `path` (creates the folders; the caller checks that the path may be written, fs::check_writable).
-Result<void> write_foliage(std::string_view path, const std::vector<FoliageInstance>& instances, std::uint32_t meshCount);
+Result<void> write_foliage(std::string_view path, const std::vector<FoliageInstance>& instances,
+                           std::uint32_t meshCount);
 
 }  // namespace fa

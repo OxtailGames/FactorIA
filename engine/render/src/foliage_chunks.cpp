@@ -115,7 +115,7 @@ void foliage_sway(float strength, float frequency, float time, float x, float z,
     const float phase = 0.21f * x + 0.17f * z;
     const float w = kTwoPi * frequency * time;
     const float s = 0.75f * std::sin(w + phase) + 0.25f * std::sin(2.7f * w + 2.3f * phase + 1.0f);  // -1..1
-    dx = strength * s * 0.894f;                                                                     // the wind blows along (2, 1)
+    dx = strength * s * 0.894f;  // the wind blows along (2, 1)
     dz = strength * s * 0.447f;
 }
 
