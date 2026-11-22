@@ -67,6 +67,12 @@ public:
     // the start burst and `seed` behave the same on every run. Queued bursts are dropped with it.
     void clear() { states_.clear(); }
 
+    // The world moved by -offset (World::rebase): every particle, trail point and remembered emitter position of the emitters that
+    // simulate in world space (worldSpace on, not screen space) moves by -offset, so particles stay where they are in the world and
+    // the emitter's velocity (what inheritVelocity reads) does not jump. Emitters that simulate in their own space or on the screen
+    // are left alone.
+    void shift(World& world, Vec3 offset);
+
     // Live particles over all emitters (what the stats of a draw count, for tests).
     std::size_t particle_count() const;
 

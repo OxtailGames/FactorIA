@@ -147,6 +147,31 @@ TEST_CASE("doppler: the pitch glides (no jump), and a teleport gives no shift") 
     CHECK(voice_of(fx.audio)["pitch"].get<float>() == 1.0f);
 }
 
+TEST_CASE("doppler: a floating-origin rebase does not change the pitch (no spike, no teleport)") {
+    Fixture fx;
+    Scene sc;
+    Entity s = sc.source("src", {2000, 0, 0}, [](AudioSource& a) { a.dopplerLevel = 1.0f; });
+    sc.move(sc.listener, {1500, 0, 0});
+    for (int i = 0; i < 3; ++i) tick(fx, sc);
+    for (int i = 1; i <= 60; ++i) {
+        sc.move(s, {2000.0f - 2.0f * float(i), 0, 0});
+        tick(fx, sc);
+    }
+    const float settled = voice_of(fx.audio)["pitch"].get<float>();
+    REQUIRE(settled > 1.3f);
+    // What the engine does at the end of a fixed step: the world shifts, then audio shifts what it remembers.
+    sc.world.rebase({1280, 0, 0});
+    fx.audio.origin_shifted({1280, 0, 0});
+    float worst = 0.0f;
+    for (int i = 61; i <= 90; ++i) {
+        sc.move(s, {sc.world.world_position(s).x - 2.0f, 0, 0});
+        tick(fx, sc);
+        worst = std::max(worst, std::fabs(voice_of(fx.audio)["pitch"].get<float>() - settled));
+    }
+    CHECK(worst < 0.02f);
+    CHECK(sc.world.absolute_position(s).x == doctest::Approx(2000.0 - 180.0));
+}
+
 TEST_CASE("doppler: audio.play at a position uses the velocity it is given, and the listener's") {
     Fixture fx;
     Scene sc;

@@ -87,6 +87,9 @@ public:
     static bool pre_solve(b2ShapeId a, b2ShapeId b, b2Manifold* m, void* ctx);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
+    // The world's origin moved (World::rebase ran): every Box2D body moves by -offset (world units; Box2D works in metres) with its
+    // sleeping state, velocity and contacts kept (physics2d.cpp).
+    void origin_shifted(World& world, Vec3 offset);
 
 private:
     struct LocalShape {
@@ -293,6 +296,10 @@ public:
     Json nav_info(World& world);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
+    // The world's origin moved (World::rebase ran: the Transforms are already shifted): moves every position the 3D world keeps by
+    // -offset, so bodies, contacts, joints, the broad phase and the navigation grids agree with the Transforms again and nothing
+    // wakes, rebuilds or re-bakes (physics3d_origin.cpp).
+    void origin_shifted(World& world, Vec3 offset);
 
 private:
     static constexpr int kMaxPts = 4;  // contact points of a manifold (reduced to at most 4: see reduce_manifold)

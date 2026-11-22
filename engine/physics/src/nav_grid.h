@@ -59,6 +59,8 @@ public:
     void build(const NavParams& params, std::vector<NavEntry>& entries);
 
     const NavParams& params() const { return p_; }
+    // The world's origin moved: the bounds, every span height and the footprints move by -offset (nothing is rebuilt).
+    void shift(Vec3 offset);
     int span_count() const { return int(spans_.size()); }  // baked (static) spans
     int total_count() const {
         return int(spans_.size() + dyn_.size());

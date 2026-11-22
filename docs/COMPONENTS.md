@@ -11053,11 +11053,11 @@ Read an entity's position in double precision: the floating origin plus its loca
 
 Capabilities: read
 
-Will return {entity, position: [x, y, z] (the origin plus the entity's world position, in doubles), origin: [x, y, z], local: [x, y, z] (the entity's world position in the engine's float space)} so a game far from the origin still knows where things are. Read-only. Example: world.absolute_position {"entity":"player"} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+Returns {entity, position: [x, y, z] (the origin plus the entity's world position, added in double: the number that does not change when a floating-origin rebase shifts the origin, exact to about a micrometre at 10 000 km), origin: [x, y, z], local: [x, y, z] (the entity's world position in the engine's float space, what scripts and the editor read)}. Without floating origin the origin is [0, 0, 0] and position equals local. Read-only. Example: world.absolute_position {"entity":"player"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `entity` | string | yes | Entity id. |
+| `entity` | string | yes | The entity id (or name). |
 
 ### `world.cells`
 
@@ -11098,7 +11098,7 @@ Read the floating origin: where the world's origin is, in double precision.
 
 Capabilities: read
 
-Will return {enabled, origin: [x, y, z] (metres, doubles: the world position of the engine's local (0, 0, 0)), rebases (how many times the origin moved since the scene loaded), threshold, step, anchor} from the project's `world.floatingOrigin` settings and the running world. Read-only. Result (one shape, also when the floating origin is off, then enabled is false and origin [0, 0, 0]): {enabled, origin, rebases, threshold, step, anchor}. Example: world.origin {} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+Returns {enabled, origin: [x, y, z] (metres, doubles: the world position of the engine's local (0, 0, 0)), rebases (how many times the origin moved since the scene loaded), threshold, step, anchor} from the project's `world.floatingOrigin` settings and the running world. Read-only. Result: {enabled, origin, rebases, threshold, step, anchor, anchorPosition (the anchor's local position, null when there is none)}. Example: world.origin {}
 
 ### `world.rebase` (modifies state)
 
@@ -11108,11 +11108,12 @@ Move the floating origin now, shifting every entity so the camera is near (0, 0,
 
 Capabilities: read, state
 
-Will move the origin to `offset` (double metres, world space) or to the position of `entity`, shifting every Transform, physics body, audio source and particle by the difference in one step, so nothing visible changes. It does what the engine does by itself when the anchor goes past `world.floatingOrigin.threshold`, on demand, for tests and cutscenes. Without `offset` and `entity` it centres on the project's anchor. Fails when floating origin is not enabled in the project. Result: {origin, shifted (entities moved)}. Example: world.rebase {"offset":[5000,0,0]} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+Moves the origin to `origin` (double metres, world space: the NEW origin, not a delta; `offset` is the old name of the same argument and still works) or to the position of `entity`, shifting every root Transform, physics body, audio source, navigation grid and particle by the difference in one step, so nothing visible changes. The difference is rounded to a whole multiple of `world.floatingOrigin.step` on each axis (so every shifted position is exact in float and the origin stays exact in double): the origin ends up at the nearest multiple of the step, and `shift` says by how much it moved. It does what the engine does by itself when the anchor goes past `world.floatingOrigin.threshold`, on demand, for tests and cutscenes. Without `origin` and `entity` it centres on the project's anchor. Fails when floating origin is not enabled in the project (set world.floatingOrigin.enabled in factoria.json), when `origin` (or `offset`) and `entity` are both given, and when the shift is more than 16777216 steps (a float cannot hold it exactly): shift in several rebases. Scripts hear one `originShifted` event. Result: {origin, shift (the amount subtracted from every position, [x, y, z]: the `offset` of the `originShifted` event), shifted (root entities moved), rebases}. Example: world.rebase {"origin":[5000,0,0]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `offset` | array | no | The new origin: world metres [x, y, z] as doubles. |
+| `origin` | array | no | The new origin (not a delta): world metres [x, y, z] as doubles, rounded to the step. |
+| `offset` | array | no | Deprecated alias of `origin` (it is the new origin, not a delta, and not the `offset` of the originShifted event). |
 | `entity` | string | no | Centre the origin on this entity's world position (an entity id). |
 
 ### `world.split_cells` (modifies state)
@@ -11497,9 +11498,14 @@ declare module "factoria" {
      */
     position: Vec3;
     /**
-     * World-space position (get/set).
+     * World-space position (get/set). With a floating origin (factoria.json floatingOrigin) it is relative to the world's current origin, so its value changes by -offset when the origin shifts: use absolutePosition for a place that must stay the same.
      */
     worldPosition: Vec3;
+    /**
+     * The world position in double precision, from the world's fixed zero: game.origin + worldPosition. It does not change when a floating-origin rebase shifts the origin (the entity did not move in the world), so keep this, not worldPosition, when a script remembers a place across frames (a waypoint, a spawn point, a saved position). To use it again: subtract game.origin and write the result to worldPosition. Without a floating origin it equals worldPosition. Example: const home = player.absolutePosition;
+     * @since unreleased
+     */
+    readonly absolutePosition: [number, number, number];
     /**
      * Live view of a component, or null if the entity lacks it.
      */
@@ -13768,6 +13774,16 @@ declare module "factoria" {
      * factoria.json contents.
      */
     readonly project: Readonly<Json>;
+    /**
+     * The world's origin as [x, y, z] doubles: [0, 0, 0] until a floating-origin rebase moved it (factoria.json floatingOrigin, or the world.rebase command). The positions the scripts read (worldPosition, a Transform.position of a root) are relative to it; entity.absolutePosition adds it back. Example: const abs = [p.x + game.origin[0], p.y + game.origin[1], p.z + game.origin[2]].
+     * @since unreleased
+     */
+    readonly origin: [number, number, number];
+    /**
+     * Listens for the floating origin moving (factoria.json floatingOrigin when the player or the camera gets far from the zero, or the world.rebase command). fn gets { offset, origin }: offset is how far the origin moved, in doubles (every position of a root entity, the physics, the audio and the particles already moved by -offset when fn runs) and origin is the new origin. Fires once per rebase, on the fixed step that rebased. Positions a script keeps in variables (a Vec3 copied from worldPosition, a waypoint list, a timer's target) are NOT shifted: subtract offset from them here, or keep entity.absolutePosition and convert when you use it. Running tweens of a root entity's position follow the shift on their own. Listeners end with the scene, like world.on. Example: game.on("originShifted", ({ offset }) => { waypoint.x -= offset[0]; waypoint.y -= offset[1]; waypoint.z -= offset[2]; });
+     * @since 0.3.0
+     */
+    on(event: "originShifted", fn: (shift: { readonly offset: readonly [number, number, number]; readonly origin: readonly [number, number, number] }) => void): () => void;
     readonly screenSize: Vec2;
     /**
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).

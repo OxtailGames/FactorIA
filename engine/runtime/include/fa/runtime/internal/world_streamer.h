@@ -17,11 +17,12 @@
 //   soon a result is ready, and an exact budget waits for it): the same inputs load the same cells in the same order.
 //
 //   POSITIONS. The plane of the world is XZ for a "3d" index and XY for a "2d" one. The radii are measured on that plane between the
-//   ABSOLUTE position of the anchor (the floating origin plus its local position; the origin counts as 0 until M75.4, see
+//   ABSOLUTE position of the anchor (World::absolute_position: the floating origin plus its local position, in doubles; see
 //   absolute_plane_position) and the cell's bounds (absolute too): the height of an anchor never matters.
 //
-//   A cell's entities are children of a ROOT entity "cell <i>,<j>" (id "cell_<i>_<j>", EntityInfo::streamedCell) at the origin of
-//   the world: their positions in the cell's scene are world positions. Unloading destroys the root (and so its subtree) on the main
+//   A cell's entities are children of a ROOT entity "cell <i>,<j>" (id "cell_<i>_<j>", EntityInfo::streamedCell) at the ABSOLUTE
+//   (0, 0, 0) (local position World::to_local(0): minus the floating origin): the positions in the cell's scene are ABSOLUTE, and an
+//   additive load_scene under a parent leaves placing to the parent, so the cell's entities land at their absolute position. Unloading destroys the root (and so its subtree) on the main
 //   thread; the physics world drops its bodies at its next sync. Events: "cellLoaded" and "cellUnloaded" ({world, id, coord, ...}).
 #pragma once
 
@@ -138,9 +139,8 @@ private:
     mutable bool warnedMultiple_ = false;
 };
 
-// The ABSOLUTE position on the plane of the world of a local position: the floating origin (docs/BIG_WORLDS.md, M75.4) plus the
-// local position, on the plane axes of the index (x and z for "3d", x and y for "2d"). The origin is 0 until the floating origin is
-// built: this is the one place that changes then.
-void absolute_plane_position(const WorldIndex& index, Vec3 local, double& a, double& b);
+// The ABSOLUTE position on the plane of the world of a local position: the floating origin `origin` (World::origin(), docs/BIG_WORLDS.md
+// "Floating origin") plus the local position, added in doubles, on the plane axes of the index (x and z for "3d", x and y for "2d").
+void absolute_plane_position(const WorldIndex& index, const DVec3& origin, Vec3 local, double& a, double& b);
 
 }  // namespace fa

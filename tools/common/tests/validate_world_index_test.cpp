@@ -12,7 +12,8 @@ using namespace fa::testing;
 namespace {
 
 std::string index_text(const std::string& cells) {
-    return R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[)" + cells + "]}";
+    return R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[)" +
+           cells + "]}";
 }
 
 const char* kCell00 = R"({"coord":[0,0],"scene":"cells/0_0.scene.json","bounds":{"min":[0,0,0],"max":[100,10,100]}})";
@@ -27,7 +28,8 @@ std::vector<ValidationIssue> issues_of(const ValidationReport& r, const std::str
 
 }  // namespace
 
-TEST_CASE("project.validate: a world index with a missing cell file, a duplicate coordinate and bounds outside their cell is an error "
+TEST_CASE("project.validate: a world index with a missing cell file, a duplicate coordinate and bounds outside their "
+          "cell is an error "
           "with the file and pointers") {
     AssetsProject p;
     write_all(p.file("cells/0_0.scene.json"), R"({"format":"factoria.scene/1","entities":[]})");
@@ -39,9 +41,9 @@ TEST_CASE("project.validate: a world index with a missing cell file, a duplicate
     std::string all;
     for (const ValidationIssue& e : found) all += e.pointer + " | " + e.message + " | " + e.hint + "\n";
     INFO(all);
-    CHECK(all.find("/cells/1/scene") != std::string::npos);  // cells/1_0.scene.json does not exist
+    CHECK(all.find("/cells/1/scene") != std::string::npos);        // cells/1_0.scene.json does not exist
     CHECK(all.find("cells/0_0.scene.json") != std::string::npos);  // the "did you mean" names the file that exists
-    CHECK(all.find("/cells/2/coord") != std::string::npos);  // the duplicate
+    CHECK(all.find("/cells/2/coord") != std::string::npos);        // the duplicate
 
     // a good index (every file there) has no error of its own
     write_all(p.file("cells/1_0.scene.json"), R"({"format":"factoria.scene/1","entities":[]})");
@@ -61,8 +63,8 @@ TEST_CASE("project.validate: every cell file of a big index is checked, with no 
     for (int i = 0; i < 5000; ++i) {  // more than the runtime's eager check (4096 cells)
         if (i) cells += ",";
         const std::string n = std::to_string(i);
-        cells += R"({"coord":[)" + n + R"(,0],"scene":"cells/c)" + n + R"(.scene.json","bounds":{"min":[)" + std::to_string(i * 100) +
-                 R"(,0,0],"max":[)" + std::to_string(i * 100 + 50) + R"(,1,50]}})";
+        cells += R"({"coord":[)" + n + R"(,0],"scene":"cells/c)" + n + R"(.scene.json","bounds":{"min":[)" +
+                 std::to_string(i * 100) + R"(,0,0],"max":[)" + std::to_string(i * 100 + 50) + R"(,1,50]}})";
     }
     write_all(p.file("worlds/big.world.json"), index_text(cells));
     const ValidationReport report = validate_project(p.dir);
