@@ -19,6 +19,7 @@
 #include "fa/core/crash.h"
 #include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
+#include "fa/scene/terrain.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
 #include "fa/platform/local_date.h"
@@ -662,6 +663,7 @@ bool Editor::boot(const std::string& dirIn) {
     selection_.clear();
     play_ = PlayState::Edit;
     dirty_ = false;
+    cells_.reset();
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
     layoutBuilt_ = false;
@@ -830,6 +832,7 @@ void Editor::install_command_overrides() {
             undo_.clear();
             redo_.clear();
             dirty_ = false;
+            cells_.reload(world());
             return Json::object(
                 {{"ok", ok}, {"scene", scenePath_}, {"messages", err.empty() ? Json::array() : Json::array({err})}});
         });
@@ -843,7 +846,7 @@ void Editor::on_event(const sapp_event* e) {
             sapp_cancel_quit();
             return;
         }
-        if (dirty_ && engine_ && !autotest_) {
+        if (engine_ && !autotest_ && has_unsaved_work()) {
             sapp_cancel_quit();
             showQuitDialog_ = true;
         }
@@ -1098,6 +1101,11 @@ void Editor::on_frame(double dt) {
         }
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
+        if (play_ == PlayState::Edit) {
+            cells_.refresh(world());
+            cells_.update(world(),
+                          ImGui::IsMouseDown(ImGuiMouseButton_Left));  // a drag is checked when the button is up
+        }
         ai_drain_events();
         ai_asset_notify_other_chats();
         ai_review_tick();
@@ -1137,12 +1145,57 @@ void Editor::on_frame(double dt) {
 
 // ------------------------------------------------------------------------------------------
 // Scene / play mode
-void Editor::restore_scene(const Json& snapshot) {
+Json Editor::snapshot_state() {
+    Json s = snapshot_scene(world());
+    if (cells_.loaded_count() > 0 && !cells_.suspended()) s["$cells"] = cells_.capture(world());
+    return s;
+}
+
+void Editor::restore_scene(const Json& snapshot, bool withCells) {
     if (!engine_) return;
+    // The cells loaded for editing (cell_edit.h): the snapshot's own, else what is loaded now, else their files. Without `withCells`
+    // (Play) they are forgotten for now: the world is replaced and the game streams by distance.
+    Json snapCells, keep;
+    const bool hasCells = snapshot.is_object() && snapshot.contains("$cells");
+    if (hasCells) snapCells = snapshot["$cells"];
+    if (withCells) keep = cells_.capture(world());
     // Straight from the in-memory snapshot: no temp file, and the engine's current scene path (engine.info,
     // game.state, scene.save, scene.reload) keeps pointing at the scene being edited.
+    // The terrains' samples, holes and splat maps are not in a scene snapshot, and loading a scene forgets every terrain in memory:
+    // an undo of an unrelated edit, Play and Stop would silently take back the strokes the user has not saved yet (and the history
+    // their Ctrl+Z needs). The terrains with edits or history are held across the load and given back to the entities that come
+    // back with the same id and the same heightmap file.
+    struct KeptTerrain {
+        std::string id, heightmap;
+        std::shared_ptr<TerrainHeights> heights;
+    };
+    std::vector<KeptTerrain> kept;
+    for (Entity e : world().terrain().entities()) {
+        const Terrain3D* t = world().alive(e) ? world().get<Terrain3D>(e) : nullptr;
+        const std::shared_ptr<TerrainHeights> h = t ? world().terrain().find(e) : nullptr;
+        if (h && (h->any_unsaved() || h->undo_depth() > 0 || h->redo_depth() > 0))
+            kept.push_back({world().id_of(e), t->heightmap, h});
+    }
     std::string err;
-    if (!engine_->load_scene_json(snapshot, "editor snapshot", &err)) notify("Scene restore failed: " + err, 2);
+    bool ok;
+    if (hasCells) {
+        Json scene = snapshot;
+        scene.erase("$cells");
+        ok = engine_->load_scene_json(scene, "editor snapshot", &err);
+    } else {
+        ok = engine_->load_scene_json(snapshot, "editor snapshot", &err);
+    }
+    if (!ok) notify("Scene restore failed: " + err, 2);
+    if (withCells)
+        cells_.restore(world(), snapCells, keep);
+    else
+        cells_.suspend();
+    // After the cells: a Terrain3D inside a loaded cell is made again by cells_.restore, so its entity exists only now.
+    for (KeptTerrain& k : kept) {
+        const Entity e = world().find_by_id(k.id);
+        const Terrain3D* t = e.is_null() ? nullptr : world().get<Terrain3D>(e);
+        if (t && t->heightmap == k.heightmap) world().terrain().adopt(e, k.heightmap, std::move(k.heights));
+    }
 }
 
 // The game's accessibility choices for the game feel effects (feel.reduceMotion / feel.reducedEffects) belong to one Play session: a
@@ -1172,6 +1225,9 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
+    if (play_ == PlayState::Edit && command_edits_scene(name, args)) {
+        if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) cells_.note_edit();
+    }
     // The Review window reads the sheets again (a sheet made, picked or cleaned up by the AI, the Console or the window itself).
     if (name.rfind("review.", 0) == 0 || name == "assets.pick") {
         review_.listDirty = true;
@@ -1219,6 +1275,7 @@ void Editor::sync_scene_path() {
     undo_.clear();
     redo_.clear();
     dirty_ = false;
+    cells_.reset();
 }
 
 bool Editor::open_scene(const std::string& path) {
@@ -1235,6 +1292,7 @@ bool Editor::open_scene(const std::string& path) {
     redo_.clear();
     selection_.clear();
     dirty_ = false;
+    cells_.reset();
     notify("Opened " + path);
     return true;
 }
@@ -1246,14 +1304,22 @@ bool Editor::save_scene_now() {
         return false;
     }
     std::vector<PrefabExpanded> expanded;
-    auto r = save_scene_file(world(), scenePath_, false, nullptr, &expanded);
-    if (!r) {
-        notify("Save failed: " + r.error().to_string(), 2);
+    // The scene's own file is written only when the scene itself changed: a session that edited one cell writes that cell's file
+    // (and the index when its bounds changed) and leaves the rest of the project's files alone.
+    if (dirty_ || !cells_.any_dirty() || has_unsaved_terrain()) {
+        auto r = save_scene_file(world(), scenePath_, false, nullptr, &expanded);
+        if (!r) {
+            notify("Save failed: " + r.error().to_string(), 2);
+            return false;
+        }
+        dirty_ = false;
+        notify("Saved " + scenePath_);
+    }
+    if (cells_.any_dirty() && !cells_save(false, 0, 0)) {
+        project_files_changed();
         return false;
     }
-    dirty_ = false;
     project_files_changed();
-    notify("Saved " + scenePath_);
     if (!expanded.empty()) {
         std::string ids;
         for (std::size_t i = 0; i < expanded.size() && i < 3; ++i) ids += (i ? ", " : "") + expanded[i].id;
@@ -1270,7 +1336,7 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
     if (play_ != PlayState::Edit) stop();
     // What is on screen now; with keepUndo it becomes the first Ctrl+Z step, so nothing is lost silently.
     Json before;
-    if (keepUndo) before = snapshot_scene(world());
+    if (keepUndo) before = snapshot_state();
     std::string err;
     if (!engine_->load_scene(scenePath_, &err)) {
         notify("Reload failed: " + err, 2);
@@ -1281,6 +1347,8 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
     redo_.clear();
     if (keepUndo) undo_.push_back(std::move(before));
     dirty_ = false;
+    cells_.reload(
+        world());  // the loaded cells are read again from their files too (a dirty scene or cell was asked about first)
     notify("Reloaded " + scenePath_);
 }
 
@@ -1297,9 +1365,11 @@ void Editor::play() {
     if (!engine_ || play_ == PlayState::Playing) return;
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
-        playSnapshot_ = snapshot_scene(world());
-        engine_->begin_load_trace();   // the session's loading section and first-use order start with the scene's load
-        restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
+        cells_.update(world(), false);
+        playSnapshot_ = snapshot_state();
+        engine_->begin_load_trace();  // the session's loading section and first-use order start with the scene's load
+        restore_scene(playSnapshot_,
+                      false);  // fresh instantiate: scripts and physics start clean; the game streams its cells
         engine_->set_play_world(
             true);  // a command that writes scene data (lightmap.bake_status apply) skips it: Stop throws it away
         reset_feel_choices();
@@ -1325,9 +1395,10 @@ void Editor::step_once() {
     if (!engine_) return;
     if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
-        playSnapshot_ = snapshot_scene(world());
+        cells_.update(world(), false);
+        playSnapshot_ = snapshot_state();
         engine_->begin_load_trace();
-        restore_scene(playSnapshot_);
+        restore_scene(playSnapshot_, false);
         engine_->set_play_world(true);
         reset_feel_choices();
         engine_->input().discard_pending_edges();
@@ -1350,7 +1421,7 @@ void Editor::stop() {
     play_ = PlayState::Edit;
     stepPending_ = 0;
     engine_->set_play_world(false);
-    restore_scene(playSnapshot_);
+    restore_scene(playSnapshot_);  // the cells loaded for editing come back from the snapshot
     playSnapshot_ = Json();
     reset_feel_choices();
 }
@@ -1425,8 +1496,9 @@ bool Editor::begin_edit(const std::string& key) {
     lastEditKey_ = key;
     lastEditKind_ = UndoEntry::Kind::Snapshot;
     dirty_ = true;
+    cells_.note_edit();
     if (coalesce) return false;
-    undo_.push_back(UndoEntry::snapshot(snapshot_scene(world())));  // the stack drops the oldest beyond its caps
+    undo_.push_back(UndoEntry::snapshot(snapshot_state()));  // the stack drops the oldest beyond its caps
     redo_.clear();
     return true;
 }
@@ -1440,6 +1512,7 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
     lastEditKey_ = key;
     lastEditKind_ = UndoEntry::Kind::Command;
     dirty_ = true;
+    cells_.note_edit();
     if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
     return true;
 }
@@ -1450,7 +1523,7 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
 // nothing.
 bool Editor::run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward) {
     Json before;
-    if (cmds.size() > 1) before = snapshot_scene(world());
+    if (cmds.size() > 1) before = snapshot_state();
     for (const UndoCommand& c : cmds) {
         const CommandResult r = engine_->commands().call(c.cmd, c.args);
         after_command(c.cmd, c.args, r);
@@ -1508,12 +1581,14 @@ void Editor::step_history(bool forward) {
         const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
         if (ok) to.push_back(std::move(entry));
         dirty_ = true;
+        cells_.note_edit();
         return;
     }
-    to.push_back(UndoEntry::snapshot(snapshot_scene(world())));
+    to.push_back(UndoEntry::snapshot(snapshot_state()));
     UndoEntry s = from.take_back();
     restore_scene(s.data);
     dirty_ = true;
+    cells_.note_edit();
     lastEditKey_.clear();
 }
 
@@ -1560,10 +1635,10 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {
-        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,   showAi_,
-        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_, showImage_,
-        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,  showLevelGen_,
-        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_};
+        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,     showAi_,
+        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_,   showImage_,
+        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,    showLevelGen_,
+        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_,  showTerrainTool_, showCells_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1572,10 +1647,10 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {
-        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,   &showAi_,
-        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_, &showImage_,
-        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,  &showLevelGen_,
-        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_};
+        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,     &showAi_,
+        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_,   &showImage_,
+        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,    &showLevelGen_,
+        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_,  &showTerrainTool_, &showCells_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1778,6 +1853,7 @@ void Editor::build_ui() {
         if (showGraph_) draw_graph_panel();
         if (showSceneSettings_) draw_scene_settings_panel();
         if (showLightmap_) draw_lightmap_panel();
+        if (showCells_) draw_cells_panel();
         if (showMusic_)
             draw_music_panel();
         else if (music_.preview && music_.preview->playing())
@@ -1787,6 +1863,10 @@ void Editor::build_ui() {
             draw_bone_tools_panel();
         else if (bone_.tool != BoneTool::Off)
             bone_cancel_chain(), bone_.tool = BoneTool::Off;
+        if (showTerrainTool_)
+            draw_terrain_tool_panel();
+        else if (terrain_.stroke.active())
+            terrain_stroke_end();  // the panel was closed (View menu) with the mouse down: the stroke ends as the release would
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
@@ -1815,17 +1895,23 @@ void Editor::build_ui() {
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
     if (ImGui::BeginPopupModal("Unsaved changes##quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Scene '%s' has unsaved changes.", scenePath_.c_str());
+        ImGui::Text("Scene '%s' has unsaved changes%s.", scenePath_.c_str(),
+                    dirty() ? "" : " (terrain edits that are not written yet)");
         if (ImGui::Button("Save and quit")) {
-            save_scene_now();
-            dirty_ = false;
+            const bool saved =
+                save_scene_now();  // a failed save (a toast says why) keeps the editor open: nothing is lost
             showQuitDialog_ = false;
             ImGui::CloseCurrentPopup();
-            sapp_request_quit();
+            if (saved) {
+                dirty_ = false;
+                sapp_request_quit();
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Discard and quit")) {
             dirty_ = false;
+            cells_.reset();  // the loaded cells' changes are given up too, or the quit would ask again
+            forget_unsaved_terrain();
             showQuitDialog_ = false;
             ImGui::CloseCurrentPopup();
             sapp_request_quit();
@@ -1926,7 +2012,7 @@ void Editor::draw_toolbar() {
                           menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
     ImGui::SameLine();
     if (ImGui::Button("Reload")) {
-        if (dirty_)
+        if (has_unsaved_work())
             showReloadConfirm_ = true;
         else
             reload_scene_from_disk();
@@ -2026,7 +2112,7 @@ void Editor::draw_status_bar() {
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();
-        ImGui::Text("%s%s", scenePath_.c_str(), dirty_ ? " *" : "");
+        ImGui::Text("%s%s", scenePath_.c_str(), has_unsaved_work() ? " *" : "");
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();

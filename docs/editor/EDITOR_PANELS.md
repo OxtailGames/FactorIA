@@ -291,6 +291,72 @@ commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so t
 - **Errors.** A refused start (no mesh to light, a bad option, a manifest outside the project, a bake already running) or a failed one (a file
   that is open in another program cannot be replaced on Windows) is shown in the panel with what to change; nothing is half written.
 
+## Terrain tool
+
+View > Terrain tool opens a panel (a tab next to Inspector) and, while one of its three modes is on and an entity with a `Terrain`
+component is selected, the viewport paints on the terrain instead of selecting and moving: the gizmo is off and a click and drag is a
+brush stroke. Click the mode again to leave it. It works in edit mode only (the brush changes the scene; Stop the game first). The
+tool is the editor's face of `terrain.sculpt`, `terrain.paint` and `terrain.holes` (docs/BIG_WORLDS_TERRAIN.md, "Terrain"): every stroke is
+those commands, so a script or the AI can do the same.
+
+- **Sculpt.** Raise, Lower, Smooth, Flatten. Raise and Lower take an `amount` in metres (the change at the middle of the brush for
+  one stamp at full strength; the stamps are a quarter of the radius apart, so the ground under the brush gets several). Hold Ctrl
+  while you stroke to do the other one (Raise lowers, Lower raises). Flatten levels to the height under your first click (the
+  default) or to a height you type; **Pick from the terrain** (or Alt+click) takes that height from the ground under the next click.
+- **Paint.** The layers of `Terrain.layers` as a list with their albedo texture's thumbnail and file name; pick one and stroke. A
+  terrain with no layers says to add them in the Inspector. The first stroke makes the splat map and sets `Terrain.splatMaps`.
+- **Holes.** Cut or Fill (Ctrl swaps them). The first cut sets `Terrain.holes`. A brush smaller than a cell can miss every cell. The brush aims at the surface as if no cell were cut, so a hole can be aimed at and filled again.
+- **Brush.** Radius in metres (never more than half the terrain or about 900 samples), strength 0 to 1 and falloff 0 to 1 (1 fades from
+  the middle to the edge, 0 is a hard edge). With the mouse over the viewport: `[` and `]` make the radius smaller and bigger, Shift+`[`
+  and Shift+`]` change the strength, Esc takes the stroke you are drawing back.
+- **The cursor.** A ring of the brush's radius lies on the terrain under the mouse, following its relief (yellow for sculpt, blue for
+  paint, red for holes); a second, fainter ring inside it shows where the effect is at full strength (radius times one minus falloff).
+- **A stroke is one undo step.** While the mouse is down the stamps (one every radius / 4 along the path) go to the terrain as the mouse
+  moves, so you see the ground change. They are sent as a few command calls that share ONE step of the terrain's own history
+  (`continueStroke`): a call per frame would push the 64 steps of that history out in a second. When you let go the editor records one
+  undo entry that runs `terrain.undo` (Ctrl+Z; the whole stroke goes back, sample for sample) and `terrain.redo` (Ctrl+Shift+Z, Ctrl+Y),
+  and marks the scene as changed. A stroke stops at 20000 stamps.
+- **Saving.** The terrain's files (heightmap, holes image, splat maps) are not in the scene file; Save writes them after it. If one
+  cannot be written (a folder where the file goes, a file open in another program) a toast says which and why, nothing is marked as
+  saved and every edit is still in memory. Closing the editor, reloading the scene and opening another one ask first when a terrain has
+  edits not written yet, even if the scene itself is clean (a terrain changed by a command from the Console or the AI counts too).
+- **What an undo does not do.** Ctrl+Z of another edit (a moved entity), Play and Stop reload the scene from a snapshot; a terrain with
+  unsaved edits or history is kept across that, so those edits and their Ctrl+Z are not lost. The terrain's history keeps 64 steps: once
+  the 65th is made the oldest stroke can no longer be undone and its Ctrl+Z says so. The `Terrain.holes` and `Terrain.splatMaps` paths a
+  first stroke sets are not taken back by Undo (the data is).
+
+The brush itself (settings, stamps along the mouse path, the ring, the ray to the ground) is the editor's shared `brush.h`, which the
+other viewport brush tools use too.
+
+## Cells panel
+
+View > Cells edits the cells of a streamed world (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"). It works when the open scene has a
+`StreamedWorld` whose index can be read, in Edit mode: while the game plays it only says so.
+
+- **Nothing streams in Edit mode.** The engine is paused, so no anchor loads or unloads a cell: a cell is in the scene only when you load it, and an
+  edited cell is never lost by the distance to the camera. The editor has no free camera, so "around the view" means around the scene's camera
+  (the one the viewport draws through).
+- **The list** shows every loaded cell and the nearest ones of the index (at most 200 rows, nearest first): the cell, its state (not loaded, loaded with
+  its entity count, unsaved, "(new)" when Save will add it to the index) and the distance to it. Load puts the cell in the scene under its root entity
+  `cell_<i>_<j>`; Unload removes it (a cell with unsaved changes asks: Save and unload, Discard changes and unload, Cancel); Select selects the root,
+  which the Hierarchy and Inspector then show and the grid draws thicker.
+- **Load around the view** loads the cells within N cells of the camera (the drag box, 0 to 8; 0 is the cell under the camera), nearest first. One click loads at
+  most 64 cells and says how many more were in range; at most 256 cells are loaded at once. **Unload clean** unloads every loaded cell without unsaved changes.
+  **Read the index again** reads the index file again (a tool changed it); the loaded cells stay loaded.
+- **Save cells** writes each unsaved cell to its own file, and the index only when a cell was added or a cell's height bounds grew; the toolbar's Save and
+  Ctrl+S do the same, together with the open scene. An entity whose position is now in another cell is written into that cell (see "Editing a streamed
+  world": no command is needed for it). A failure (a path outside the write rules, a cell file that is not in the index) changes nothing and the panel
+  says why.
+- **Show the grid** draws the cells in the viewport on the plane of the world: green loaded, orange with unsaved changes (the label gets a `*`), grey not
+  loaded; the selected entity's cell is thicker. The Inspector says "Cell i,j" for an entity in a loaded cell, with the unsaved mark, and "Save moves it
+  there" when its position is in another cell.
+- **Undo** works across cells: the editor's snapshots include the loaded cells, and undoing back to the saved state clears the unsaved mark. **Play** streams
+  by distance as the game does and **Stop** brings the cells you had loaded back, with their changes.
+
+**Autotest.** Section W2 writes a 2D world of three cells into the project, loads the one under the camera and checks that nothing else streams, edits an
+entity (only its cell turns unsaved), saves (only that file is written, not the index), moves an entity across the border and saves (it moves to the other
+cell's file), plays (the game streams by distance) and stops (the same cells are back, clean).
+
 ## Scene settings panel
 
 View > Scene settings opens a window with the settings of the open scene, the ones the file keeps under `settings` and the

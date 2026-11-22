@@ -298,6 +298,8 @@ void Editor::draw_viewport() {
     // ---- interaction (edit / paused only; while playing, events go to the game). A click on a gizmo handle starts a drag (see
     // viewport_gizmo.cpp); a click anywhere else selects what is under the cursor: the selection is how the user points at
     // something for the AI.
+    if (terrain_.stroke.active() && !terrain_tool_active())
+        terrain_stroke_end();  // the tool went away mid-stroke: as the release
     if (play_ != PlayState::Playing) {
         bool onHandle = false;
         if (bone_tools_active()) {  // a bone tool owns the clicks: no gizmo handles meanwhile
@@ -305,6 +307,12 @@ void Editor::draw_viewport() {
             gizmoShapes_.clear();
             gizmoHover_ = {};
             onHandle = bone_tools_frame(*r, imgMin, sz, hovered);
+        } else if (
+            terrain_tool_active()) {  // so does a terrain brush: the click paints, it does not drag a handle or select
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = terrain_tool_frame(*r, imgMin, sz, hovered);
         } else {
             onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         }
@@ -416,6 +424,7 @@ void Editor::draw_viewport() {
         r->screen_ray(Vec2{tw * 0.5f, th * 0.5f}, eye, forward);
         draw_probe_gizmos(dl, *r, eye, forward, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
     }
+    draw_cells_overlay(dl, *r, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
     // Every selected entity is outlined: the primary (what the Inspector and the gizmo follow) in yellow, the others in orange.
     // selection_peek(): the set is read every frame, so it is not pruned here; an id that is gone is skipped.
     auto draw_outline = [&](Entity sel, bool isPrimary) {
@@ -506,6 +515,7 @@ void Editor::draw_viewport() {
         }
     }
     bone_tools_draw(dl, *r, imgMin, sz);
+    terrain_tool_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
     if (marquee_.active) {
         dl->AddRectFilled(marquee_.start, marquee_.now, IM_COL32(80, 160, 255, 40));

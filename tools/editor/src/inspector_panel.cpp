@@ -124,6 +124,7 @@ void Editor::draw_inspector_panel() {
     }
     ImGui::Text("%s", tree_label(w.info(e).name, id).c_str());
     if (Entity p = w.parent(e)) ImGui::TextDisabled("child of %s", w.id_of(p).c_str());
+    cells_inspector_line(e);
     inspector_prefab_header(e);
     ImGui::Separator();
 
