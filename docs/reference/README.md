@@ -30,7 +30,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 - [Animator](components/3d.md#animator): Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). _Since 0.2.0._
 - [Decal](components/3d.md#decal): A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. _Since 0.33.0._
-- [Foliage](components/3d.md#foliage): Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of positions, rotations and scales, with wind, a fade-out and LODs. _Not released yet._
+- [Foliage](components/3d.md#foliage): Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. _Not released yet._
 - [IK3D](components/3d.md#ik3d): 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). _Since 0.16.0._
 - [Light](components/3d.md#light): A light source for 3D meshes.
 - [LightProbeGroup](components/3d.md#lightprobegroup): Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). _Since 0.33.0._
@@ -674,6 +674,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain in a circle. _Not released yet._
 - [`terrain.paint`](commands/world.md#terrainpaint-modifies-state): Paint a material layer of a Terrain in a circle. _Not released yet._
 - [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heightmap of a Terrain in a circle. _Not released yet._
+- [`world.absolute_position`](commands/world.md#worldabsolute_position): Read an entity's position in double precision: the floating origin plus its local position. _Not released yet._
 - [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
 - [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
 - [`world.origin`](commands/world.md#worldorigin): Read the floating origin: where the world's origin is, in double precision. _Not released yet._

@@ -65,6 +65,22 @@ TEST_CASE("world.floatingOrigin: off by default, read, kept when saving, and not
     REQUIRE(again.ok());
     CHECK(again->floatingOrigin == loaded->floatingOrigin);
 
+    // `step` left out: the largest power of two that is at most min(256, threshold), so a small threshold alone is valid.
+    const struct {
+        const char* threshold;
+        double step;
+    } defaults[] = {{"128", 128.0}, {"100", 64.0}, {"16", 16.0}, {"2048", 256.0}, {"1000000", 256.0}};
+    for (const auto& d : defaults) {
+        INFO(d.threshold);
+        TempProject p(project_with(std::string(R"(,"world":{"floatingOrigin":{"threshold":)") + d.threshold + "}}"));
+        auto r = load_project(p.dir.generic_string());
+        REQUIRE_MESSAGE(r.ok(), r.error().message);
+        CHECK(r->floatingOrigin.step == d.step);
+    }
+    // A step equal to the threshold is fine, and a power of two up to 2^20 is accepted.
+    TempProject equal(project_with(R"(,"world":{"floatingOrigin":{"threshold":4096,"step":4096}})"));
+    CHECK(load_project(equal.dir.generic_string()).ok());
+
     // Only some keys: the others keep their defaults.
     TempProject some(project_with(R"(,"world":{"floatingOrigin":{"enabled":true}})"));
     auto partial = load_project(some.dir.generic_string());
@@ -84,8 +100,13 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
         {R"({"floatingOrigin":{"enabled":"yes"}})", "/world/floatingOrigin/enabled", ""},
         {R"({"floatingOrigin":{"threshold":"far"}})", "/world/floatingOrigin/threshold", ""},
         {R"({"floatingOrigin":{"threshold":4}})", "/world/floatingOrigin/threshold", "out of range"},
-        {R"({"floatingOrigin":{"step":0}})", "/world/floatingOrigin/step", "out of range"},
-        {R"({"floatingOrigin":{"threshold":100,"step":200}})", "/world/floatingOrigin/step", "above threshold"},
+        {R"({"floatingOrigin":{"step":0}})", "/world/floatingOrigin/step", "not a power of two"},
+        {R"({"floatingOrigin":{"step":100}})", "/world/floatingOrigin/step", "not a power of two"},
+        {R"({"floatingOrigin":{"step":0.5}})", "/world/floatingOrigin/step", "not a power of two"},
+        {R"({"floatingOrigin":{"step":2097152}})", "/world/floatingOrigin/step", "not a power of two"},
+        {R"({"floatingOrigin":{"step":"big"}})", "/world/floatingOrigin/step", ""},
+        {R"({"floatingOrigin":{"threshold":100,"step":128}})", "/world/floatingOrigin/step", "above threshold"},
+        {R"({"flotingOrigin":{}})", "/world/flotingOrigin", "floatingOrigin"},
         {R"({"floatingOrigin":{"anchor":"player"}})", "/world/floatingOrigin/anchor", "neither"},
         {R"({"floatingOrigin":{"anchor":"entity:"}})", "/world/floatingOrigin/anchor", "names no entity"},
         {R"({"floatingOrigin":{"anchor":3}})", "/world/floatingOrigin/anchor", ""},
@@ -97,7 +118,8 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
         auto r = load_project(p.dir.generic_string());
         REQUIRE_FALSE(r.ok());
         CHECK(r.error().message.find(c.pointer) != std::string::npos);
-        CHECK((r.error().message + r.error().hint).find(c.message) != std::string::npos);  // "did you mean" is in the hint
+        CHECK((r.error().message + r.error().hint).find(c.message) !=
+              std::string::npos);  // "did you mean" is in the hint
         CHECK_FALSE(r.error().hint.empty());
     }
     TempProject notObject(project_with(R"(,"world":[])"));
@@ -135,6 +157,7 @@ TEST_CASE("world.* streaming commands: registered, documented, and fail with not
         auto r = e.commands().call(row.name, Json::object());
         REQUIRE_FALSE(r.ok);
         CHECK(r.error["code"] == "not_built");
+        CHECK(r.error.dump().find("planned for a coming version") != std::string::npos);
         CHECK(r.error.dump().find(row.package) != std::string::npos);
         CHECK(r.error.dump().find("BIG_WORLDS") != std::string::npos);
     }

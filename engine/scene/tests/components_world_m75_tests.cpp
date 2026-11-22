@@ -28,8 +28,8 @@ std::string load_messages(const char* sceneText, LoadReport* out = nullptr) {
     const LoadReport report = load_scene(w, Json::parse(sceneText), "world.scene.json");
     std::string text;
     for (const LoadMessage& m : report.messages)
-        text += std::string(m.severity == LoadMessage::Severity::Error ? "error " : "warning ") + m.pointer + ": " + m.message +
-                " " + m.hint + "\n";
+        text += std::string(m.severity == LoadMessage::Severity::Error ? "error " : "warning ") + m.pointer + ": " +
+                m.message + " " + m.hint + "\n";
     if (out) *out = report;
     return text;
 }
@@ -46,14 +46,14 @@ TEST_CASE("m75 world: every new field and component is reflected with a doc stri
         {"OcclusionPortal", {"size", "areaA", "areaB", "open"}},
         {"StreamingAnchor", {"loadRadius", "unloadRadius", "priority", "enabled"}},
         {"Terrain",
-         {"heightmap", "size", "heightScale", "heightOffset", "splatMaps", "layers", "holes", "lodQuality", "castShadows",
-          "collision"}},
+         {"heightmap", "size", "heightScale", "heightOffset", "splatMaps", "layers", "holes", "lodQuality",
+          "castShadows", "collision"}},
         {"Foliage",
-         {"mesh", "instances", "density", "windStrength", "windFrequency", "lodDistance", "fadeStart", "fadeEnd",
+         {"meshes", "instances", "density", "windStrength", "windFrequency", "lodDistance", "fadeStart", "fadeEnd",
           "castShadows"}},
         {"ScatterRule",
-         {"meshes", "density", "minSpacing", "slopeRange", "heightRange", "scaleRange", "alignToNormal", "layerMask", "seed",
-          "terrain"}}};
+         {"meshes", "density", "minSpacing", "slopeRange", "heightRange", "scaleRange", "alignToNormal", "layerMask",
+          "seed", "terrain"}}};
     for (const auto& [type, names] : expected) {
         const TypeInfo* t = TypeRegistry::global().find(type);
         REQUIRE_MESSAGE(t != nullptr, type);
@@ -68,8 +68,8 @@ TEST_CASE("m75 world: every new field and component is reflected with a doc stri
         }
     }
     // The components that are new say, in their own text, which package builds them.
-    for (const char* type : {"LodGroup", "Occluder", "OcclusionArea", "OcclusionPortal", "StreamingAnchor", "Terrain", "Foliage",
-                             "ScatterRule"})
+    for (const char* type : {"LodGroup", "Occluder", "OcclusionArea", "OcclusionPortal", "StreamingAnchor", "Terrain",
+                             "Foliage", "ScatterRule"})
         CHECK_MESSAGE(TypeRegistry::global().find(type)->doc.find("M75.") != std::string::npos, type);
 }
 
@@ -109,7 +109,9 @@ TEST_CASE("m75 world: the defaults keep every scene made before M75 as it was") 
     CHECK(tr.lodQuality == 1.0f);
     CHECK(tr.collision);
     const Foliage fo;
-    CHECK(fo.mesh == "cube");
+    REQUIRE(fo.meshes.is_array());
+    REQUIRE(fo.meshes.size() == 1);
+    CHECK(fo.meshes[0] == "cube");
     CHECK(fo.density == 1.0f);
     CHECK(fo.windStrength == 0.0f);
     CHECK(fo.fadeStart == 80.0f);
@@ -156,7 +158,7 @@ TEST_CASE("m75 world: a scene with every new component saves, loads again and ke
       {"id":"ground","components":{"Terrain":{"heightmap":"terrain/h.png","size":[2048,1024],"heightScale":250,"heightOffset":-10,
           "splatMaps":["terrain/s0.png"],"layers":[{"albedo":"terrain/grass.png","tileSize":3,"roughness":0.8},{"albedo":"terrain/rock.png"}],
           "holes":"terrain/holes.png","lodQuality":2,"castShadows":false,"collision":false}}},
-      {"id":"grass","components":{"Foliage":{"mesh":"assets/grass.glb","instances":"terrain/grass.foliage","density":0.5,
+      {"id":"grass","components":{"Foliage":{"meshes":["assets/grass.glb","assets/flower.glb"],"instances":"terrain/grass.foliage","density":0.5,
           "windStrength":0.2,"windFrequency":1.5,"lodDistance":20,"fadeStart":50,"fadeEnd":60,"castShadows":true},
           "ScatterRule":{"meshes":[{"mesh":"assets/grass.glb","weight":3},{"mesh":"assets/flower.glb"}],"density":2,
           "minSpacing":0.2,"slopeRange":[0,30],"heightRange":[0,500],"scaleRange":[0.5,1.5],"alignToNormal":0.5,
@@ -209,6 +211,8 @@ TEST_CASE("m75 world: a scene with every new component saves, loads again and ke
     const Foliage* fo = again.get<Foliage>(again.find("grass"));
     REQUIRE(fo != nullptr);
     CHECK(fo->fadeEnd == 60.0f);
+    REQUIRE(fo->meshes.size() == 2);
+    CHECK(fo->meshes[1] == "assets/flower.glb");
     CHECK(fo->castShadows);
     const ScatterRule* sr = again.get<ScatterRule>(again.find("grass"));
     REQUIRE(sr != nullptr);
@@ -274,7 +278,7 @@ TEST_CASE("m75 world: contradictions between fields are errors with a pointer, a
       {"id":"a","components":{"StreamingAnchor":{"loadRadius":300,"unloadRadius":300}}},
       {"id":"t","components":{"Terrain":{"size":[0,512],"splatMaps":[1,"a.png","b.png","c.png"],
             "layers":[{"albedo":""},{"normal":"x.png"},3,{"albedo":"a.png","tileSize":0,"roughnes":1}]}}},
-      {"id":"f","components":{"Foliage":{"fadeStart":90,"fadeEnd":50}}},
+      {"id":"f","components":{"Foliage":{"meshes":[3,""],"fadeStart":90,"fadeEnd":50}}},
       {"id":"s","components":{"ScatterRule":{"meshes":[{"mesh":"a.glb","weight":0},{"weight":1},5],
             "slopeRange":[50,10],"scaleRange":[0,1]}}}]})");
     INFO(text);
@@ -297,6 +301,8 @@ TEST_CASE("m75 world: contradictions between fields are errors with a pointer, a
     CHECK(has(text, "Terrain/layers/3/tileSize"));
     CHECK(has(text, "Did you mean 'roughness'"));
     CHECK(has(text, "Foliage/fadeEnd"));
+    CHECK(has(text, "Foliage/meshes/0"));
+    CHECK(has(text, "Foliage/meshes/1"));
     CHECK(has(text, "ScatterRule/meshes/0/weight"));
     CHECK(has(text, "ScatterRule/meshes/1"));
     CHECK(has(text, "ScatterRule/meshes/2"));
@@ -312,7 +318,8 @@ TEST_CASE("m75 world: settings that do nothing are warnings, not errors") {
       {"id":"bush","components":{"MeshRenderer":{"mesh":"assets/b.glb","lodMode":"screenSize","impostorDistance":0.5,
           "lods":[{"mesh":"assets/b1.glb","distance":10}]}}},
       {"id":"door","components":{"OcclusionPortal":{"areaA":2,"areaB":2}}},
-      {"id":"cell","components":{"LodGroup":{"hlodThreshold":100}}}]})", &report);
+      {"id":"cell","components":{"LodGroup":{"hlodThreshold":100}}}]})",
+                                           &report);
     INFO(text);
     CHECK(report.ok());
     CHECK(has(text, "warning /entities/0/components/MeshRenderer/impostorDistance"));
