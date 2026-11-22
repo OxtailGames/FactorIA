@@ -30,6 +30,14 @@ inline constexpr std::size_t kFoliageRecordBytes = 26;
 // One file holds at most this many instances (52 MB on disk, about 64 MB in memory): beyond it use several Foliage entities, which also
 // lets the renderer cull and fade each of them on its own.
 inline constexpr std::uint32_t kMaxFoliageInstances = 2000000;
+// The in-memory undo history of foliage.scatter / paint / clear (foliage.undo, foliage.redo) keeps this many steps and bytes per
+// Foliage entity, and this many bytes over all of them (the least recently edited entity's history goes first). The editor names
+// them in its toasts.
+inline constexpr std::size_t kFoliageHistorySteps = 64;
+inline constexpr std::size_t kFoliageHistoryBytes = std::size_t(128) << 20;
+inline constexpr std::size_t kFoliageHistoryTotalBytes = std::size_t(512) << 20;
+// foliage.paint takes at most this many `points` (stamps) in one call.
+inline constexpr std::size_t kMaxFoliagePaintPoints = 512;
 
 struct FoliageInstance {
     Vec3 position{0, 0, 0};  // metres, in the local space of the Foliage entity

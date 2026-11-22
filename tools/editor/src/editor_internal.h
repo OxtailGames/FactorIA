@@ -64,6 +64,7 @@
 #include "ai_usage.h"
 #include "anim3d_ui.h"
 #include "anim_ui.h"
+#include "foliage_ui.h"
 #include "terrain_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
@@ -310,6 +311,11 @@ public:
                             CoalesceMode mode = CoalesceMode::Replace);
     // Removes the oldest undo entries of terrain `id` whose step the terrain's own history let go (editor_app.cpp).
     void drop_terrain_entries_past_history(const std::string& id);
+    // The foliage counterpart (editor_app.cpp): after_command hands every foliage.* result to note_foliage_result, which takes the
+    // undo and redo rows of steps the foliage history lost out of both lists (`all`: every foliage command of `id`).
+    void note_foliage_result(const Json& args, const CommandResult& r);
+    void drop_foliage_rows(const std::string& id, bool all, std::uint64_t historyId, std::uint64_t lost,
+                           const std::string& why);
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
@@ -869,6 +875,20 @@ public:
     void terrain_stroke_end();
     void terrain_stroke_cancel();
     TerrainUi terrain_;
+    // Foliage tool (foliage_tool.cpp; View > Foliage tool): add or erase the instances of the selected Foliage with the same brush. A
+    // stroke is sent as a few foliage.paint pieces (rate-limited: each rewrites the whole instances file) and is ONE undo step
+    // ([foliage.redo] / [foliage.undo]) pushed at the release.
+    void draw_foliage_tool_panel();
+    bool
+    foliage_tool_active();  // the panel is open, a mode is picked and the selected Foliage has a terrain (edit mode)
+    bool foliage_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);  // true when the click was taken
+    void foliage_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    bool foliage_stroke_active() const;
+    void foliage_stroke_begin(Entity e, Vec2 at);
+    bool foliage_stroke_flush(bool final);
+    void foliage_stroke_end();
+    void foliage_stroke_cancel();
+    FoliageUi foliage_;
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
@@ -1272,7 +1292,7 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false,
          showProject_ = true;
-    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false;
+    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false, showFoliageTool_ = false;
     bool showLevelGen_ = false;
     LevelGenSession levelGen_;
     LevelGenOptions levelGenOpt_;
@@ -1954,6 +1974,7 @@ public:
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
     void at_section_T3(AtScript& at);  // autotest_terrain.cpp
+    void at_section_F3(AtScript& at);  // autotest_foliage.cpp
     void at_section_W2(AtScript& at);  // autotest_cells.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);

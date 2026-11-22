@@ -22,6 +22,7 @@
 #include "fa/core/crash.h"
 #include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
+#include "fa/scene/foliage.h"
 #include "fa/scene/terrain.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -1237,6 +1238,7 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 }
 
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
+    if (engine_ && name.rfind("foliage.", 0) == 0) note_foliage_result(args, r);  // also a refusal: stale_history
     if (!r.ok || !engine_) return;
     if (play_ == PlayState::Edit && command_edits_scene(name, args)) {
         if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
@@ -1594,6 +1596,62 @@ void Editor::drop_terrain_entries_past_history(const std::string& id) {
                1);
 }
 
+// Takes the foliage commands of `id` that `all` / `historyId` / `lost` pick (undo_inverse.h) out of both lists, with a toast that
+// starts with `why` when an undo row went.
+void Editor::drop_foliage_rows(const std::string& id, bool all, std::uint64_t historyId, std::uint64_t lost,
+                               const std::string& why) {
+    FoliageDrop d;
+    for (UndoStack* s : {&undo_, &redo_}) {
+        const FoliageDrop part = all ? drop_foliage_all(*s, id) : drop_foliage_steps(*s, id, historyId, lost);
+        d.steps += part.steps;
+        d.entries += part.entries;
+    }
+    if (d.steps > 0)
+        notify(std::format("{} {} foliage edit{} of '{}' can no longer be undone and {} taken out of the undo list.",
+                           why, d.steps, d.steps == 1 ? "" : "s", id, d.steps == 1 ? "was" : "were"),
+               1);
+}
+
+// Every foliage command passes here (the viewport tool, the Console, the AI and the undo rows themselves). The foliage history
+// lives in memory and forgets: its oldest steps go beyond kFoliageHistorySteps / kFoliageHistoryBytes, all of it when the file or
+// the fields changed outside the foliage commands (historyReset, stale_history) or when the total budget needs room
+// (historiesEvicted). The undo rows of a step that is gone can only answer "nothing_to_undo", so they leave the lists: each
+// foliage.undo / foliage.redo of a row carries its history's id and its absolute step number (finish_undo_plan), and only those
+// numbered `historyLost` or less go. Counting lost steps against the oldest rows instead would drop rows that still work (the
+// editor's own list trims too, and a continued stroke is one step).
+void Editor::note_foliage_result(const Json& args, const CommandResult& r) {
+    const std::string id = args.is_object() && args.contains("entity") && args["entity"].is_string()
+                               ? args["entity"].get<std::string>()
+                               : std::string();
+    const std::string cleared =
+        "The foliage history of this entity was cleared (its file or fields changed outside the foliage commands):";
+    if (!r.ok) {
+        if (!id.empty() && r.error.is_object() && r.error.contains("code") && r.error["code"] == "stale_history")
+            drop_foliage_rows(id, true, 0, 0, cleared);
+        return;
+    }
+    const Json& res = r.result;
+    if (!res.is_object()) return;
+    if (res.contains("historiesEvicted") && res["historiesEvicted"].is_array())
+        for (const Json& other : res["historiesEvicted"])
+            if (other.is_string())
+                drop_foliage_rows(other.get<std::string>(), true, 0, 0,
+                                  std::format("All foliage histories together keep {} MB, so the history of this "
+                                              "entity was cleared:",
+                                              kFoliageHistoryTotalBytes >> 20));
+    const auto number = [&](const char* key) -> std::uint64_t {
+        return res.contains(key) && res[key].is_number_unsigned() ? res[key].get<std::uint64_t>() : 0;
+    };
+    const std::uint64_t historyId = number("historyId");
+    if (id.empty() || historyId == 0) return;  // a dryRun, or a call that changed nothing
+    if (res.contains("historyReset"))
+        drop_foliage_rows(id, true, 0, 0, cleared);
+    else
+        drop_foliage_rows(id, false, historyId, number("historyLost"),
+                          std::format("A Foliage keeps its last {} edits / {} MB in memory:", kFoliageHistorySteps,
+                                      kFoliageHistoryBytes >> 20));
+}
+
 // Runs the commands of a Command entry in order. A list of several commands that fails midway is run back: the scene is
 // put to what it was before the first one (a transient snapshot, never stored), so a step is applied whole or not at
 // all, and the error names the command that failed. A list of one command needs no snapshot: a refused command changes
@@ -1712,10 +1770,10 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {
-        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,     showAi_,
-        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_,   showImage_,
-        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,    showLevelGen_,
-        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_,  showTerrainTool_, showCells_};
+        showViewport_, showHierarchy_,   showInspector_, showConsole_,    showProject_, showAi_,     showFeedback_,
+        showAudio_,    showProfiler_,    showAnimation_, showBoneTools_,  showImage_,   showVector_, showSound_,
+        showMusic_,    showModeler_,     showParticle_,  showLevelGen_,   showPostFx_,  showGraph_,  showSceneSettings_,
+        showLightmap_, showTerrainTool_, showCells_,     showFoliageTool_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1724,10 +1782,11 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {
-        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,     &showAi_,
-        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_,   &showImage_,
-        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,    &showLevelGen_,
-        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_,  &showTerrainTool_, &showCells_};
+        &showViewport_,   &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,     &showAi_,
+        &showFeedback_,   &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_,   &showImage_,
+        &showVector_,     &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,    &showLevelGen_,
+        &showPostFx_,     &showGraph_,     &showSceneSettings_, &showLightmap_,  &showTerrainTool_, &showCells_,
+        &showFoliageTool_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1944,6 +2003,10 @@ void Editor::build_ui() {
             draw_terrain_tool_panel();
         else if (terrain_.stroke.active())
             terrain_stroke_end();  // the panel was closed (View menu) with the mouse down: the stroke ends as the release would
+        if (showFoliageTool_)
+            draw_foliage_tool_panel();
+        else if (foliage_.stroke.active())
+            foliage_stroke_end();
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;

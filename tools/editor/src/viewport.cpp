@@ -300,6 +300,7 @@ void Editor::draw_viewport() {
     // something for the AI.
     if (terrain_.stroke.active() && !terrain_tool_active())
         terrain_stroke_end();  // the tool went away mid-stroke: as the release
+    if (foliage_.stroke.active() && !foliage_tool_active()) foliage_stroke_end();
     if (play_ != PlayState::Playing) {
         bool onHandle = false;
         if (bone_tools_active()) {  // a bone tool owns the clicks: no gizmo handles meanwhile
@@ -313,6 +314,11 @@ void Editor::draw_viewport() {
             gizmoShapes_.clear();
             gizmoHover_ = {};
             onHandle = terrain_tool_frame(*r, imgMin, sz, hovered);
+        } else if (foliage_tool_active()) {  // and the foliage brush: the click paints instances
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = foliage_tool_frame(*r, imgMin, sz, hovered);
         } else {
             onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         }
@@ -323,7 +329,7 @@ void Editor::draw_viewport() {
             const Entity hit = pick_at(design_of(io.MousePos));
             if (!hit.is_null()) {
                 click_in_space(selection_, w.id_of(hit), mods);
-            } else if (terrain_tool_active()) {
+            } else if (terrain_tool_active() || foliage_tool_active()) {
                 // A press that misses the terrain (the sky, off the edge) and every other entity keeps the terrain selected and its
                 // tool on: the empty-space click would clear the selection, and the tool with it.
             } else {
@@ -519,6 +525,7 @@ void Editor::draw_viewport() {
     }
     bone_tools_draw(dl, *r, imgMin, sz);
     terrain_tool_draw(dl, *r, imgMin, sz);
+    foliage_tool_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
     if (marquee_.active) {
         dl->AddRectFilled(marquee_.start, marquee_.now, IM_COL32(80, 160, 255, 40));

@@ -280,8 +280,9 @@ TEST_CASE("foliage.clear: all, or by rectangle") {
 }
 
 TEST_CASE("foliage.scatter: the file of one fixed seed has the same FNV-1a hash on every compiler and CPU") {
-    // The golden: a literal checked on MSVC, x86 GCC and ARM. The candidates, the draws and the quantised numbers are IEEE double
-    // operations, so a change of this value means a platform differs (or the generator changed on purpose: then say why).
+    // The golden: a literal computed on ARM (macOS); CI (MSVC, x86 GCC) is the first check anywhere else. The candidates, the draws
+    // and the quantised numbers are IEEE double operations, so a change of this value means a platform differs (or the generator
+    // changed on purpose: then say why).
     Project p;
     p.field("g1", R"({"meshes":[{"mesh":"assets/models/a.glb","weight":2},{"mesh":"assets/models/b.glb","weight":1}],
                       "density":0.7,"seed":12345,"scaleRange":[0.8,1.4],"minSpacing":0.9,"alignToNormal":0.5})");
@@ -316,12 +317,12 @@ TEST_CASE("foliage.scatter: a Foliage under a transformed parent stores local po
     Json pt = p.ok("foliage.paint", R"({"entity":"kid","center":[0,0],"radius":3,"density":2,"seed":3})");
     CHECK(pt["added"].get<int>() > 10);
     const auto all = p.load("kid");
-    int near = 0;
+    int nearCount = 0;
     for (const FoliageInstance& in : all)
-        if (std::hypot(in.position.x + 10.0f, in.position.z + 5.0f) <= 3.001f) ++near;
-    CHECK(near >= pt["added"].get<int>());
+        if (std::hypot(in.position.x + 10.0f, in.position.z + 5.0f) <= 3.001f) ++nearCount;
+    CHECK(nearCount >= pt["added"].get<int>());
     Json rm = p.ok("foliage.paint", R"({"entity":"kid","mode":"remove","center":[0,0],"radius":3})");
-    CHECK(rm["removed"].get<int>() == near);
+    CHECK(rm["removed"].get<int>() == nearCount);
 }
 
 TEST_CASE("foliage.scatter: alignToNormal leans the instances away from the slope, slopeRange keeps the flat ground") {
@@ -588,4 +589,77 @@ TEST_CASE("foliage commands: registered as real commands in the world category")
         CHECK(info->description.size() < 1500);
     }
     CHECK(p.e.commands().info("foliage.restore") == nullptr);
+}
+
+TEST_CASE("foliage.paint: points is one call with the same placements as the stamps one by one") {
+    Project p;
+    p.field("a", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    p.field("b", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    p.ok("foliage.scatter", R"({"entity":"a"})");
+    p.ok("foliage.scatter", R"({"entity":"b"})");
+    p.ok("foliage.clear", R"({"entity":"a"})");
+    p.ok("foliage.clear", R"({"entity":"b"})");
+    const Json one =
+        p.ok("foliage.paint", R"({"entity":"a","points":[[0,0],[2,0],[4,0],[6,1]],"radius":3,"density":2,"seed":5})");
+    CHECK(one["undoDepth"] == 3);  // scatter, clear and ONE stroke
+    for (const char* c : {"[0,0]", "[2,0]", "[4,0]", "[6,1]"})
+        p.ok("foliage.paint", std::string(R"({"entity":"b","center":)") + c +
+                                  R"(,"radius":3,"density":2,"seed":5,"continueStroke":)" +
+                                  (std::string(c) == "[0,0]" ? "false" : "true") + "}");
+    const auto a = p.load("a"), b = p.load("b");
+    REQUIRE(a.size() == b.size());
+    CHECK(a.size() == one["added"].get<std::size_t>());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        CHECK(a[i].position.x == b[i].position.x);
+        CHECK(a[i].position.z == b[i].position.z);
+    }
+    // remove with points takes the instances of every circle
+    const Json rm = p.ok("foliage.paint", R"({"entity":"a","mode":"remove","points":[[0,0],[6,1]],"radius":3})");
+    CHECK(rm["removed"].get<int>() > 5);
+    CHECK(p.load("a").size() == a.size() - rm["removed"].get<std::size_t>());
+    p.ok("foliage.undo", R"({"entity":"a"})");
+    CHECK(p.load("a").size() == a.size());
+    // the arguments say what is wrong, with a pointer
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","center":[0,0],"points":[[0,0]],"radius":3})"),
+                   "/points"));
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","points":[],"radius":3})"), "/points"));
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","points":[[0,0],[1]],"radius":3})"), "/points/1"));
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","radius":3})"), "/center"));
+}
+
+TEST_CASE("foliage.scatter and foliage.clear refuse continueStroke, the history of a destroyed entity is dropped") {
+    Project p;
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    CHECK(contains(p.refused("foliage.scatter", R"({"entity":"f","continueStroke":true})"), "/continueStroke"));
+    p.ok("foliage.scatter", R"({"entity":"f"})");
+    CHECK(contains(p.refused("foliage.clear", R"({"entity":"f","continueStroke":true})"), "/continueStroke"));
+    CHECK(p.ok("foliage.clear", R"({"entity":"f"})")["undoDepth"] == 2);
+    // the entity goes and another one makes the next call: the history of the first one is gone, not kept for ever
+    p.ok("scene.destroy", R"({"id":"f"})");
+    p.field("other", kOne);
+    p.ok("foliage.scatter", R"({"entity":"other"})");
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    CHECK(contains(p.refused("foliage.undo", R"({"entity":"f"})"), "nothing_to_undo"));
+}
+
+TEST_CASE("foliage commands report historyId and historyLost so the editor can number its undo rows") {
+    Project p;
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    p.field("h", kOne);
+    const Json first = p.ok("foliage.paint", R"({"entity":"f","center":[0,0],"radius":2,"density":1})");
+    const Json other = p.ok("foliage.paint", R"({"entity":"h","center":[0,0],"radius":2,"density":1})");
+    CHECK(first["historyId"].get<int>() > 0);
+    CHECK(first["historyId"] != other["historyId"]);
+    CHECK(first["historyLost"] == 0);
+    Json last = first;
+    for (int i = 1; i < static_cast<int>(kFoliageHistorySteps) + 2; ++i)
+        last = p.ok("foliage.paint", "{\"entity\":\"f\",\"center\":[" + std::to_string(-30 + 2 * (i % 30)) + "," +
+                                         std::to_string(-20 + 6 * (i / 30)) + "],\"radius\":1.5,\"density\":3}");
+    CHECK(last["historyId"] == first["historyId"]);
+    CHECK(last["undoDepth"].get<std::size_t>() == kFoliageHistorySteps);
+    CHECK(last["historyLost"] == 2);  // 66 steps made, the 64 newest kept: the newest is number lost + depth = 66
+    CHECK(last["historyDropped"] == 1);
+    const Json undone = p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(undone["historyLost"] == 2);
+    CHECK(undone["historyId"] == first["historyId"]);
 }
