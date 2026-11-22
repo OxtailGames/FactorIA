@@ -1165,7 +1165,24 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool cullable = !fr.noProbes && !fr.giCapture;
     if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))
         ctx.hiz = hiz_cull(world, fr, meshes);
-    if (cullable && !ctx.hiz && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
+    const bool occluded = cullable && !ctx.hiz && world.any<Occluder>() && occlude_meshes(world, fr, z01, meshes);
+    // The Foliage instances (renderer_foliage.h): after the culling, because the foliage culls its own chunks (with the buffer the
+    // Occluders just filled) and its items are made visible or not by it.
+    if (world.any<Foliage>() || foliage.size() != 0) {
+        FoliageRenderer::View fv;
+        fv.world = &world;
+        fv.scopeRoot = fr.scopeRoot;
+        if (masked) fv.drawn = [&](Entity e) { return fr.mask.draws(world, e); };
+        fv.assets = assets.get();
+        fv.viewProj = fr.cam.viewProj;
+        fv.z01 = z01;
+        fv.camera = fr.cam.position;
+        fv.time = fr.time;
+        fv.serial = frameSerial;
+        fv.occlusion = occluded ? &occlusion : nullptr;
+        const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
+        stats.foliageInstancesCulled += fc.culled;
+    }
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
@@ -1703,7 +1720,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                        });
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
-            if (mi.visible && mi.lodFade != 0.0f && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
+            if (mi.visible && mi.lodFade != 0.0f && !mi.foliage && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
             if (mi.visible && mi.hlod && !ctx.fr.lodFollowMain) ++stats.hlodProxies;
             if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
@@ -3850,6 +3867,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 if (mi.terrain) {  // its nodes are tiles, not meshes
                     stats.terrainTiles += int(batch.mainCount);
                     stats.terrainTriangles += kTerrainTrianglesPerNode * int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (mi.foliage) {  // its instances are not meshes of the scene
+                    stats.foliageInstances += int(batch.mainCount);
                     ++stats.meshBatches;
                 } else if (anyDrawn || !mbu.active) {
                     stats.meshes += int(batch.mainCount);

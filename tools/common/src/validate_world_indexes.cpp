@@ -197,8 +197,9 @@ void check_world_indexes(const std::string& projectDir, std::vector<ValidationIs
             check_tilemap_chunks(rel, index.value(), errors, warnings);
         for (const WorldIndexIssue& issue : issues) {
             ValidationIssue v{rel, issue.pointer, issue.message,
-                              issue.hint.empty() ? "See docs/BIG_WORLDS_STREAMING.md \"Streaming\" and schemas/world.schema.json."
-                                                 : issue.hint};
+                              issue.hint.empty()
+                                  ? "See docs/BIG_WORLDS_STREAMING.md \"Streaming\" and schemas/world.schema.json."
+                                  : issue.hint};
             (issue.error ? errors : warnings).push_back(std::move(v));
         }
     }
