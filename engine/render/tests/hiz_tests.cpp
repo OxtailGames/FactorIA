@@ -1,4 +1,4 @@
-// M75.2: the Hi-Z pyramid and the test of a box against it (src/hiz.h; docs/BIG_WORLDS.md, "Occlusion"). Pure code, no GPU: a wall hides a
+// M75.2: the Hi-Z pyramid and the test of a box against it (src/hiz.h; docs/BIG_WORLDS_LOD.md, "Occlusion"). Pure code, no GPU: a wall hides a
 // box behind it, the camera's move widens the footprint, a cut or a zoom culls nothing, a hole in a cell proves nothing, and a brute-force
 // ray test over hundreds of random boxes and moves finds no box hidden that a ray from the new camera can reach.
 #include <doctest.h>

@@ -1,4 +1,4 @@
-// Renderer::Impl, occlusion culling on the CPU (M75.2; docs/BIG_WORLDS.md, "Occlusion"): the Occluder entities of the world are rasterised
+// Renderer::Impl, occlusion culling on the CPU (M75.2; docs/BIG_WORLDS_LOD.md, "Occlusion"): the Occluder entities of the world are rasterised
 // into a small depth buffer per camera (occlusion.h) and the meshes that survived the frustum test are tested against it. A mesh it proves
 // hidden is left out of the main pass (MeshItem::visible = false); it still casts shadows, because the shadow passes are not culled by it
 // (a shadow can fall into the picture from an object the camera does not see). Sprites, 2D shapes and UI are not occlusion culled.

@@ -31,6 +31,7 @@
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "renderer_env.h"
+#include "renderer_lod.h"
 #include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
@@ -180,7 +181,7 @@ struct Renderer::Impl {
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS.md "Floating origin"). The renderer watches the world it was last
+    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
     // moves what it keeps in world space across frames by the same offset: the cameras the motion vectors reproject from, the 2D GI
     // field's geometry and history, the realtime GI's anchors, the occlusion debug boxes. Everything else is rebuilt from the world each
@@ -579,6 +580,7 @@ struct Renderer::Impl {
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
+    LodFades lodFades;  // the levels of detail the cameras picked and the cross-fades running (renderer_lod.h)
     InstanceParamCache instanceParams;  // the packed per-instance material params of each entity (mesh_batch.h)
     struct JobPlan {
         // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a

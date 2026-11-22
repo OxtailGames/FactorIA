@@ -1,4 +1,4 @@
-// project.validate: the world indexes (*.world.json, docs/BIG_WORLDS.md "Streaming") of the project.
+// project.validate: the world indexes (*.world.json, docs/BIG_WORLDS_STREAMING.md "Streaming") of the project.
 #include <doctest.h>
 
 #include <string>

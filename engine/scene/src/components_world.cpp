@@ -274,7 +274,7 @@ std::vector<WorldProblem> streamed_world_problems(const StreamedWorld& w) {
                 "Set it to the world index, for example \"worlds/town.world.json\" (world.split_cells writes one).");
     else if (!ends_with(w.world, ".world.json"))
         problem(out, false, "/world", "StreamedWorld.world \"" + w.world + "\" does not end in .world.json",
-                "The index is a file named <name>.world.json (docs/BIG_WORLDS.md, \"The world index\").");
+                "The index is a file named <name>.world.json (docs/BIG_WORLDS_STREAMING.md, \"The world index\").");
     if (w.cameraUnloadRadius > 0.0f && !(w.cameraLoadRadius > 0.0f))
         problem(out, false, "/cameraUnloadRadius",
                 "StreamedWorld.cameraUnloadRadius is " + num(w.cameraUnloadRadius) +
@@ -452,11 +452,15 @@ void register_world_components(TypeRegistry& r) {
          "LodGroup",
          "The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The "
          "entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from "
-         "thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn "
-         "as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The "
-         "units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, \"Levels of "
-         "detail\"); the "
-         "fields are saved and checked today.",
+         "thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the "
+         "meshes of the other children and their descendants are skipped; lights, particles and the rest of a "
+         "skipped child are not touched). The camera of the main view chooses the "
+         "level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for "
+         "its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy "
+         "set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a "
+         "cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every "
+         "threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS_LOD.md, \"Levels of "
+         "detail\").",
          "3D")
         .enum_field(
             "mode", &LodGroup::mode, {"distance", "screenSize"},
@@ -465,16 +469,20 @@ void register_world_components(TypeRegistry& r) {
             "(every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in "
             "perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is "
             "a fraction, so a threshold means the same at every resolution; it does change with the field of "
-            "view, the zoom and the size of the object.")
+            "view, the zoom and the size of the object. The distance d is the one to the group entity's origin.")
         .field("thresholds", &LodGroup::thresholds,
                "One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode "
                "distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions "
                "0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the "
                "last children unused. [] (default) = the first child is always drawn.")
         .range(0, 100000)
-        .field("crossFade", &LodGroup::crossFade,
-               "Seconds a switch between two levels fades over (a dithered cross-fade, no pop). 0 (default) = a hard "
-               "switch. 0..5.")
+        .field(
+            "crossFade", &LodGroup::crossFade,
+            "Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are "
+            "drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh "
+            "whose material is a full shader or a custom material that is not alphaMode \"clip\", or that has "
+            "subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See "
+            "MeshRenderer.lodCrossFade.")
         .range(0, 5)
         .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",
                      "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "
@@ -491,7 +499,7 @@ void register_world_components(TypeRegistry& r) {
          "A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a "
          "hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the "
          "objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: "
-         "give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS.md, "
+         "give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"); the fields are saved and checked today.",
          "3D")
         .enum_field("shape", &Occluder::shape, {"box", "mesh"},
@@ -514,7 +522,7 @@ void register_world_components(TypeRegistry& r) {
          "OcclusionArea",
          "A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in "
          "the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside "
-         "every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "
+         "every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\").",
          "3D")
         .field("size", &OcclusionArea::size,
@@ -530,7 +538,7 @@ void register_world_components(TypeRegistry& r) {
          "An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from "
          "the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side "
          "faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect "
-         "yet: M75.2 builds it (docs/BIG_WORLDS.md, \"Occlusion\").",
+         "yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, \"Occlusion\").",
          "3D")
         .field("size", &OcclusionPortal::size,
                "Metres along the entity's local axes before Transform.scale: width, height and depth of the opening's "
@@ -552,7 +560,7 @@ void register_world_components(TypeRegistry& r) {
          "Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the "
          "`world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, "
          "those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A "
-         "scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS.md, "
+         "scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "
          "\"Streaming\").",
          "World")
         .field("loadRadius", &StreamingAnchor::loadRadius,
@@ -583,7 +591,7 @@ void register_world_components(TypeRegistry& r) {
          "enabled "
          "one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and "
          "`world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` "
-         "(world.on(\"cellLoaded\", (data, root) => ...); docs/BIG_WORLDS.md, \"Streaming\").",
+         "(world.on(\"cellLoaded\", (data, root) => ...); docs/BIG_WORLDS_STREAMING.md, \"Streaming\").",
          "World")
         .asset_field("world", &StreamedWorld::world, "any",
                      "Project-relative path of the world index, a *.world.json file. Read once when the scene starts "
@@ -628,7 +636,7 @@ void register_world_components(TypeRegistry& r) {
          "each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the "
          "weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the "
          "holes are cut out of the surface, its shadow and its collider, and a ray passes through them. "
-         "`render.supports` lists the limits of the GPU (\"limits\"). docs/BIG_WORLDS.md, \"Terrain (M75.5)\".",
+         "`render.supports` lists the limits of the GPU (\"limits\"). docs/BIG_WORLDS_TERRAIN.md, \"Terrain (M75.5)\".",
          "3D")
         .asset_field("heightmap", &Terrain3D::heightmap, "any",
                      "Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the "
@@ -694,7 +702,7 @@ void register_world_components(TypeRegistry& r) {
          "positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and "
          "`foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every "
          "instance picks one by index): use several entities for kinds that need different settings (wind, fade). No "
-         "effect yet: M75.6 draws it (docs/BIG_WORLDS.md, \"Foliage\"); the fields are saved and checked today.",
+         "effect yet: M75.6 draws it (docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"); the fields are saved and checked today.",
          "3D")
         .field("meshes", &Foliage::meshes,
                "Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): "
@@ -734,7 +742,7 @@ void register_world_components(TypeRegistry& r) {
          "The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by "
          "`terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The "
          "result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. "
-         "The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS.md, "
+         "The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "
          "\"Foliage\").",
          "3D")
         .field("meshes", &ScatterRule::meshes,

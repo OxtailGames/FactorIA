@@ -1,4 +1,4 @@
-// M75-P4a: the floating origin in a running engine (docs/BIG_WORLDS.md "Floating origin"): the automatic rebase after a fixed tick, the
+// M75-P4a: the floating origin in a running engine (docs/BIG_WORLDS_STREAMING.md "Floating origin"): the automatic rebase after a fixed tick, the
 // `originShifted` event (once per rebase), the commands world.origin / world.rebase / world.absolute_position, tweens that follow, and
 // that two identical runs rebase identically.
 #include <doctest.h>

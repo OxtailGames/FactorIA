@@ -1,4 +1,4 @@
-// M75.3b: tilemap.split_cells cuts a Tilemap into the chunk cells of a streamed 2D world (docs/BIG_WORLDS.md, "Tilemap chunks"),
+// M75.3b: tilemap.split_cells cuts a Tilemap into the chunk cells of a streamed 2D world (docs/BIG_WORLDS_STREAMING.md, "Tilemap chunks"),
 // and the chunks, loaded by the streamer, are the same map: the same tiles at the same absolute places, the same solid cells, no
 // seam in the collision, whatever the floating origin is. No sleeps and no wall-clock asserts: every wait is a frame loop with a
 // cap far above what it needs.
