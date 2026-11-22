@@ -381,9 +381,11 @@ files while frames run. The pieces and who owns what:
   the main thread in the same `tick_background_loads`, which creates the cell's entities (additive `load_scene`, so the world is
   touched on the main thread only) within `maxAppliesPerFrame`, unloads first. The warm files of a finished cell are held until
   the streamer has applied it, then given back (`cancel`). `Kind::SceneLoad` behaves as before: a cell job has no pending
-  scene change, no `remember()` entry and no update for scripts. A scene change (`load_scene_impl`) calls `WorldStreamer::reset`
-  after the old scene is gone: every cell job is cancelled and a result that was already waiting is dropped, so nothing of the
-  old world reaches the new one; `Engine::shutdown` destroys the streamer before the loader.
+  scene change, no `remember()` entry and no update for scripts. A scene change (`load_scene_impl` and `load_scene_json_impl`)
+  calls `WorldStreamer::reset` BEFORE the new scene is loaded (the old entities are still in the world at that moment: the load's own
+  clear removes them, `reset` destroys nothing and sends no event): every cell job is cancelled and the streamer forgets its cells, so a
+  result that finishes later matches no cell and is dropped, and nothing of the old world reaches the new one; `Engine::shutdown`
+  destroys the streamer before the loader.
 - **Lifetime**: a cancelled job's queued items become orphans the loader frees once the IO thread let go of them; a decode
   still running finishes on its worker and is dropped. `Engine::shutdown` stops the loader (`cancel_all`: the IO thread lets
   go of this engine's files), then waits for its jobs owner (the decodes still running), then destroys the loader; nothing

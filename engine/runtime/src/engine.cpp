@@ -390,7 +390,8 @@ void Engine::Impl::tick_background_loads() {
         replayLoadUnits.reset();
     }
     // The cells of a streamed world: the loader's finished cell jobs are added to the world now (within the streamer's budget).
-    if (streamer && (streamer->busy() || !f.cells.empty())) streamer->apply(f.cells, f.units);
+    // Every frame, also when idle: it resets the per-frame counters of world.stream_status.
+    if (streamer) streamer->apply(f.cells, f.units);
     if (!loaderBusy) return;
     for (const BackgroundLoader::SceneReady& ready :
          f.scenes) {  // its files are ready: the switch happens at the end of this frame

@@ -582,8 +582,8 @@ void register_world_components(TypeRegistry& r) {
          "named \"cell i,j\" and, when the anchors move away, destroys that root. Put it on ONE entity (the first "
          "enabled "
          "one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and "
-         "`world.stream_status` say what is loaded; scripts hear `world.cellLoaded` and `world.cellUnloaded` "
-         "(docs/BIG_WORLDS.md, \"Streaming\").",
+         "`world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` "
+         "(world.on(\"cellLoaded\", (data, root) => ...); docs/BIG_WORLDS.md, \"Streaming\").",
          "World")
         .asset_field("world", &StreamedWorld::world, "any",
                      "Project-relative path of the world index, a *.world.json file. Read once when the scene starts "
@@ -594,17 +594,18 @@ void register_world_components(TypeRegistry& r) {
         .field("maxLoadsInFlight", &StreamedWorld::maxLoadsInFlight,
                "1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. "
                "Each cell is a BackgroundLoader job, so its files also share the frame's load budget "
-               "(project loadBudgetMs and uploadBudgetMB; headless runs and tests count 4 units a frame). Default 2.")
+               "(project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.")
         .range(1, 16)
         .field(
             "maxAppliesPerFrame", &StreamedWorld::maxAppliesPerFrame,
-            "1..16: how many ready cells are added to the scene, plus cells removed from it, in one frame, on the main "
-            "thread (a cell with thousands of entities costs milliseconds to add). With a window the frame's "
-            "loadBudgetMs also stops it after the first one that went past. Default 1.")
-        .range(1, 16)
+            "1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main "
+            "thread "
+            "(a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the "
+            "frame's load budget limits the reading, not this. Default 1.")
+        .range(1, 64)
         .field("keepLoaded", &StreamedWorld::keepLoaded,
                "Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole "
-               "world). "
+               "world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. "
                "Default false.")
         .field(
             "cameraLoadRadius", &StreamedWorld::cameraLoadRadius,

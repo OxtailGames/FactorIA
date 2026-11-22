@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -215,21 +217,27 @@ TEST_CASE("streaming: a load that is no longer wanted is cancelled, and nothing 
     eval(e,
          "globalThis.loaded = []; globalThis.unloaded = [];"
          "world.on('cellLoaded', (d) => loaded.push(d.id)); world.on('cellUnloaded', (d) => unloaded.push(d.id)); 0");
-    e.step(1);  // the first tick started the two best cells ([0, 0] and [1, 0]); the third waits for a free place
+    // maxLoadsInFlight 3 starts all three wanted cells at the first fixed tick, and maxAppliesPerFrame 1 adds at most ONE of them in
+    // that frame whatever the loader finished in it: at least two jobs are still in flight (or parsed and waiting) after step(1).
+    streamed(e).maxLoadsInFlight = 3;
+    streamed(e).maxAppliesPerFrame = 1;
+    e.step(1);
     Json s = call(e, "world.stream_status");
-    CHECK(s["loadsStarted"].get<int>() == 2);
-    CHECK(s["cellsQueued"].get<int>() == 1);
-    // The anchor leaves before anything was applied beyond the first cell.
+    CHECK(s["loadsStarted"].get<int>() == 3);
+    CHECK(s["cellsApplied"].get<int>() <= 1);
+    CHECK(s["cellsLoading"].get<int>() >= 2);
+    // The anchor leaves: the next fixed tick cancels them before they can be applied.
     move(e, "anchor", 5000, 0, 5000);
     settle(e);
     s = call(e, "world.stream_status");
     CHECK(s["cellsLoaded"].get<int>() == 0);
-    CHECK(s["loadsCancelled"].get<int>() >= 1);
-    CHECK(s["loadsStarted"].get<int>() == 2);  // the queued cell never started
+    CHECK(s["loadsCancelled"].get<int>() >= 2);
+    CHECK(s["loadsStarted"].get<int>() == 3);
     CHECK(s["cellsApplied"].get<int>() <= 1);
     CHECK(eval(e, "loaded.length").get<int>() == s["cellsApplied"].get<int>());
     CHECK(eval(e, "unloaded.length").get<int>() == s["unloadsDone"].get<int>());
     CHECK(s["cellsApplied"].get<int>() == s["unloadsDone"].get<int>());  // what was applied was unloaded again
+    CHECK(s["loadsStarted"].get<int>() == s["cellsApplied"].get<int>() + s["loadsCancelled"].get<int>());
     for (const char* id : {"floor_0_0", "floor_1_0", "floor_0_1"})
         CHECK_FALSE(e.world().alive(e.world().find_by_id(id)));
     e.shutdown();
@@ -437,5 +445,85 @@ TEST_CASE("streaming: world.cells lists the index with states, sorted by distanc
     CHECK(s["anchors"].get<int>() == 1);
     CHECK(s["bytesLoaded"].get<int>() > 0);
     CHECK(s["lastError"] == "");
+    e.shutdown();
+}
+
+TEST_CASE("streaming: a cell whose file is broken is tried again after a fixed number of ticks, and the error goes "
+          "when it loads") {
+    StreamProject p;
+    const std::string good = [&] {
+        std::ifstream in(p.dir / "cells/1_0.scene.json", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }();
+    p.write("cells/1_0.scene.json", "{ this is not json");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    settle(e);
+    CHECK(ids_in_state(e, "loaded") == Ids{"0,0", "0,1"});
+    Json s = call(e, "world.stream_status");
+    CHECK(s["lastError"].get<std::string>().find("cell 1,0") != std::string::npos);
+    const Json listed = call(e, "world.cells", Json::object({{"state", "unloaded"}}));
+    bool failedFlag = false;
+    for (const Json& c : listed["cells"])
+        if (c["id"] == "1,0") failedFlag = c.contains("failed") && c["failed"] == true;
+    CHECK(failedFlag);
+    const int started = s["loadsStarted"].get<int>();
+    // Mend the file. It is not tried again at once (a fixed number of ticks must pass), but it is, and then the error is gone.
+    p.write("cells/1_0.scene.json", good);
+    e.step(5);
+    CHECK(call(e, "world.stream_status")["loadsStarted"].get<int>() == started);
+    bool loaded = false;
+    for (int f = 0; f < 1000 && !loaded; ++f) {  // 120 ticks are needed: the cap is far above
+        e.step(1);
+        loaded = e.world().alive(e.world().find_by_id("floor_1_0"));
+    }
+    REQUIRE(loaded);
+    settle(e);
+    s = call(e, "world.stream_status");
+    CHECK(s["lastError"] == "");
+    CHECK(s["loadsStarted"].get<int>() == started + 1);
+    CHECK(ids_in_state(e, "loaded") == Ids{"0,0", "0,1", "1,0"});
+    e.shutdown();
+}
+
+TEST_CASE("streaming: an anchor at a position that is not a number loads nothing and does not break the streamer") {
+    StreamProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    move(e, "anchor", nan, 0, nan);
+    e.step(5);
+    Json s = call(e, "world.stream_status");
+    CHECK(s["anchors"].get<int>() == 0);
+    CHECK(s["cellsLoaded"].get<int>() == 0);
+    CHECK(s["loadsStarted"].get<int>() == 0);
+    move(e, "anchor", std::numeric_limits<float>::infinity(), 0, 50);
+    e.step(5);
+    CHECK(call(e, "world.stream_status")["cellsLoaded"].get<int>() == 0);
+    move(e, "anchor", 50, 0, 50);  // back to a real position: the cells come
+    settle(e);
+    CHECK(ids_in_state(e, "loaded") == Ids{"0,0", "0,1", "1,0"});
+    e.shutdown();
+}
+
+TEST_CASE("streaming: the per-frame counters of world.stream_status go back to 0 in a frame where nothing happens") {
+    StreamProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    bool sawApply = false;
+    for (int f = 0; f < 60; ++f) {
+        e.step(1);
+        const Json s = call(e, "world.stream_status");
+        sawApply = sawApply || s["appliedThisFrame"].get<int>() > 0;
+    }
+    CHECK(sawApply);
+    e.step(1);
+    const Json s = call(e, "world.stream_status");
+    CHECK(s["appliedThisFrame"].get<int>() == 0);
+    CHECK(s["unloadedThisFrame"].get<int>() == 0);
+    CHECK(s["unitsThisFrame"].get<int>() == 0);
     e.shutdown();
 }

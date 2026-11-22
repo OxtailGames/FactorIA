@@ -12109,7 +12109,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear `world.cellLoaded` and `world.cellUnloaded` (docs/BIG_WORLDS.md, "Streaming").
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS.md, "Streaming").
    * 
    * Category: World
    * @since unreleased
@@ -12126,17 +12126,17 @@ declare module "factoria" {
      */
     enabled: boolean;
     /**
-     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs and uploadBudgetMB; headless runs and tests count 4 units a frame). Default 2.
+     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.
      * @since unreleased
      */
     maxLoadsInFlight: number;
     /**
-     * 1..16: how many ready cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add). With a window the frame's loadBudgetMs also stops it after the first one that went past. Default 1.
+     * 1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the frame's load budget limits the reading, not this. Default 1.
      * @since unreleased
      */
     maxAppliesPerFrame: number;
     /**
-     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). Default false.
+     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. Default false.
      * @since unreleased
      */
     keepLoaded: boolean;
