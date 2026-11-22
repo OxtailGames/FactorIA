@@ -104,7 +104,7 @@ Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one u
 
 Capabilities: read, state, writeProject
 
-Sets the cells of the terrain's holes mask whose centre is within `radius` world metres of `center` (or of the `points` of a stroke): mode "cut" makes them holes, "fill" closes them. A hole is neither drawn nor collided: the physics collider follows the edit at once. The mask has one byte per CELL (cells x cells, 1 = hole) and is saved as an 8-bit greyscale PNG (255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller than a cell can miss every cell centre. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, rect, bounds, undoDepth}. Example: terrain.holes {"entity":"ground","center":[0,0],"radius":3}
+Sets the cells of the terrain's holes mask whose centre is within `radius` world metres of `center` (or of the `points` of a stroke): mode "cut" makes them holes, "fill" closes them. A hole is neither drawn nor collided: the physics collider follows the edit at once. The mask has one byte per CELL (cells x cells, 1 = hole) and is saved as an 8-bit greyscale PNG (255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller than a cell can miss every cell centre. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, rect, bounds, continued?, undoDepth}. `continueStroke` adds the call to the newest undo step (a stroke sent in pieces is one step). Example: terrain.holes {"entity":"ground","center":[0,0],"radius":3}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -113,6 +113,7 @@ Sets the cells of the terrain's holes mask whose centre is within `radius` world
 | `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
 | `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
 | `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `continueStroke` | boolean | no | Add this call to the terrain's newest undo step instead of making a new one: a stroke sent in pieces (a brush that applies live while the mouse is down) is still ONE undo step. The newest step must be an edit of the same command and nothing may have been undone since; otherwise an error. The first piece is sent without it. Default false. |
 | `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
 
 ## `terrain.paint` (modifies state)
@@ -123,7 +124,7 @@ Paint a material layer of a Terrain with a brush (splat maps, live, one undo ste
 
 Capabilities: read, state, writeProject
 
-Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `radius` world metres of `center` (or along `points`) by `strength` with a smooth falloff and lowers the others in proportion, so the 8 weights of every texel always add up to 255 (renormalised). Layer L is channel L % 4 (r, g, b, a) of splat map L / 4. The maps are created on the first paint (assets/terrain/<name>.splat0.png and .splat1.png, RGBA8 linear, `splatResolution` texels per side, default the terrain's cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, undoDepth}. Example: terrain.paint {"entity":"ground","layer":1,"center":[10,10],"radius":8}
+Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `radius` world metres of `center` (or along `points`) by `strength` with a smooth falloff and lowers the others in proportion, so the 8 weights of every texel always add up to 255 (renormalised). Layer L is channel L % 4 (r, g, b, a) of splat map L / 4. The maps are created on the first paint (assets/terrain/<name>.splat0.png and .splat1.png, RGBA8 linear, `splatResolution` texels per side, default the terrain's cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, continued?, undoDepth}. `falloff` narrows the fade and `continueStroke` adds the call to the newest undo step (a stroke sent in pieces is one step). Example: terrain.paint {"entity":"ground","layer":1,"center":[10,10],"radius":8}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -132,7 +133,9 @@ Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `rad
 | `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
 | `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
 | `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `continueStroke` | boolean | no | Add this call to the terrain's newest undo step instead of making a new one: a stroke sent in pieces (a brush that applies live while the mouse is down) is still ONE undo step. The newest step must be an edit of the same command and nothing may have been undone since; otherwise an error. The first piece is sent without it. Default false. |
 | `strength` | number | no | How much of the layer's weight a stamp reaches at the middle of the brush. Default 0.5. |
+| `falloff` | number | no | The share of the radius the brush fades over: 1 fades from the middle to the edge (the default), 0.25 keeps the full effect up to 75% of the radius, 0 is a hard edge. Default 1. |
 | `splatResolution` | integer | no | Texels per side of splat maps that do not exist yet (default: the terrain's cells, at most 1024). Existing maps keep their size. |
 | `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
 
@@ -173,7 +176,7 @@ Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one
 
 Capabilities: read, state, writeProject
 
-Edits the samples of the terrain's heightmap within `radius` world metres of `center` (or of every point of `points`, a stroke) with the brush `tool`: raise or lower by `amount` metres x `strength` at the middle of the brush, smooth toward the mean of the neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. The effect fades smoothly to nothing at the edge of the circle. The edit is live in memory (the renderer and the physics collider follow it) and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a scene save. Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, rect (sample indices), bounds ([minX, minZ, maxX, maxZ] world), undoDepth, unsaved, undo}. Example: terrain.sculpt {"entity":"ground","tool":"raise","center":[100,50],"radius":20,"amount":5}
+Edits the samples of the terrain's heightmap within `radius` world metres of `center` (or of every point of `points`, a stroke) with the brush `tool`: raise or lower by `amount` metres x `strength` at the middle of the brush, smooth toward the mean of the neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. The effect fades smoothly to nothing at the edge of the circle (`falloff` makes the fade narrower). The edit is live in memory (the renderer and the physics collider follow it) and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a scene save. Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, rect (sample indices), bounds ([minX, minZ, maxX, maxZ] world), continued?, undoDepth, unsaved, undo}. `continueStroke` adds the call to the newest undo step (a stroke sent in pieces is one step). Example: terrain.sculpt {"entity":"ground","tool":"raise","center":[100,50],"radius":20,"amount":5}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -182,7 +185,9 @@ Edits the samples of the terrain's heightmap within `radius` world metres of `ce
 | `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
 | `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
 | `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `continueStroke` | boolean | no | Add this call to the terrain's newest undo step instead of making a new one: a stroke sent in pieces (a brush that applies live while the mouse is down) is still ONE undo step. The newest step must be an edit of the same command and nothing may have been undone since; otherwise an error. The first piece is sent without it. Default false. |
 | `strength` | number | no | How much of the brush applies per stamp (0 nothing, 1 all). Default 0.5. |
+| `falloff` | number | no | The share of the radius the brush fades over: 1 fades from the middle to the edge (the default), 0.25 keeps the full effect up to 75% of the radius, 0 is a hard edge. Default 1. |
 | `amount` | number | no | raise and lower: metres a stamp changes the height at the middle of the brush when strength is 1. Default 1. |
 | `height` | number | no | flatten: the world y to flatten to (default: the surface under the first stamp). |
 | `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
