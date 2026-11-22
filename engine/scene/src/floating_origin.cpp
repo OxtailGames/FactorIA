@@ -46,16 +46,20 @@ Result<void> check_rebase_offset(const DVec3& offset, double step, const std::st
                          "Give three finite numbers, in metres."};
         const double steps = v[i] / step;
         if (steps != std::floor(steps))
-            return Error{std::format("{}: {} on {} is not a whole multiple of the step {} (world.floatingOrigin.step). A shift by "
-                                     "anything else would round every position it moves and make the origin inexact.",
-                                     pointer, v[i], axis[i], step),
-                         std::format("Use {} (the nearest multiple), or change the step in factoria.json.",
-                                     std::round(steps) * step)};
+            return Error{
+                std::format(
+                    "{}: {} on {} is not a whole multiple of the step {} (world.floatingOrigin.step). A shift by "
+                    "anything else would round every position it moves and make the origin inexact.",
+                    pointer, v[i], axis[i], step),
+                std::format("Use {} (the nearest multiple), or change the step in factoria.json.",
+                            std::round(steps) * step)};
         if (std::fabs(steps) > kMaxRebaseSteps)
-            return Error{std::format("{}: {} on {} is {} steps of {}: a float cannot hold more than 16777216 steps exactly, so the "
-                                     "shift would lose precision.",
-                                     pointer, v[i], axis[i], std::fabs(steps), step),
-                         "Shift in several smaller rebases, or raise world.floatingOrigin.step."};
+            return Error{
+                std::format(
+                    "{}: {} on {} is {} steps of {}: a float cannot hold more than 16777216 steps exactly, so the "
+                    "shift would lose precision.",
+                    pointer, v[i], axis[i], std::fabs(steps), step),
+                "Shift in several smaller rebases, or raise world.floatingOrigin.step."};
     }
     return {};
 }
