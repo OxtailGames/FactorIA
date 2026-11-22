@@ -375,6 +375,17 @@ rasterised per band of rows, the cell being the maximum over the triangles. Caps
 
 
 
+## The floating origin (M75.4b)
+`render/src/renderer_origin.cpp`: `Renderer::Impl::watch_world` (called by `update()` and `render_world()`: one pointer compare when
+nothing changed) registers `origin_shifted` with `World::on_origin_shifted` for the world it is given, and removes it from the world it
+leaves (`World::lifetime()` expires with the world, so a renderer never touches a dead one, in either order of destruction).
+`origin_shifted` runs on the main thread between frames and moves the state that holds world positions across frames: `prevViewProj`
+(times a translation by the offset), `Gi2dSystem::shift` (field geometry and history origin), the realtime GI `anchor` and layout
+origin, the occlusion debug boxes, and re-collects `lastCams`. Where a position is snapped, the snap is in ABSOLUTE space with the
+origin added in double (`fit_cascade(.., origin)`, `gi2d_geometry(.., originX, originY)`), so a shift lands on whole texels whatever
+the texel size; height-fog bases are absolute heights and are used as `base - origin.y`. State rebuilt each frame needs nothing. A
+new cache of a world position in the renderer must be shifted there. Tests: `origin_render_tests.cpp`.
+
 ## Terrain (M75-P5a)
 
 `render/src/renderer_terrain.{h,cpp}` (`TerrainRenderer`, a member of `Renderer::Impl`) draws the `Terrain` component through the ordinary mesh

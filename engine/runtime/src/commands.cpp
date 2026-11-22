@@ -610,7 +610,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             }
             SpawnedSkip skip;
             std::vector<PrefabExpanded> expanded;
-            auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded);
+            auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded,
+                                     caller_capabilities().has(Capability::WriteAnywhere));
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
             if (I.currentScene.empty()) I.currentScene = path;
