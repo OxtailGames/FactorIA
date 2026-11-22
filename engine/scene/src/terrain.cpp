@@ -534,13 +534,13 @@ Result<TerrainLayerImages> load_terrain_layer_images(const Terrain3D& t, std::st
 // ---- sampling ----
 
 bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float localX, float localZ, float& height,
-                          float& dhdx, float& dhdz) {
+                          float& dhdx, float& dhdz, bool ignoreHoles) {
     if (!h.valid() || !(t.size.x > 0.0f) || !(t.size.y > 0.0f)) return false;
     const float cells = float(h.samples - 1);
     const float u = (localX / t.size.x + 0.5f) * cells, v = (localZ / t.size.y + 0.5f) * cells;
     if (!(u >= 0.0f && u <= cells && v >= 0.0f && v <= cells)) return false;  // also NaN
     const int c = std::min(int(u), h.samples - 2), r = std::min(int(v), h.samples - 2);
-    if (h.hole(c, r)) return false;  // a hole has no ground
+    if (!ignoreHoles && h.hole(c, r)) return false;  // a hole has no ground
     const float fu = u - float(c), fv = v - float(r);
     const float k = t.heightScale / kTerrainRawMax;
     const float h00 = float(h.at(c, r)) * k, h01 = float(h.at(c + 1, r)) * k, h10 = float(h.at(c, r + 1)) * k,
@@ -561,7 +561,8 @@ bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float loc
     return true;
 }
 
-bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out) {
+bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out,
+                    bool ignoreHoles) {
     const Terrain3D* t = world.get<Terrain3D>(terrain);
     if (!t) return false;
     auto heights = world.terrain().heights(world, terrain);
@@ -570,7 +571,7 @@ bool terrain_sample(const World& world, Entity terrain, float worldX, float worl
     const Mat4 inv = m.inverse();
     const Vec3 local = inv.transform_point({worldX, m.translation().y, worldZ});
     float y, dx, dz;
-    if (!terrain_local_sample(*heights, *t, local.x, local.z, y, dx, dz)) return false;
+    if (!terrain_local_sample(*heights, *t, local.x, local.z, y, dx, dz, ignoreHoles)) return false;
     const Vec3 world3 = m.transform_point({local.x, y, local.z});
     out.height = world3.y;
     // The normal of the surface y = f(x, z) is (-dx, 1, -dz); normals move with the inverse transpose of the matrix.
@@ -583,9 +584,10 @@ bool terrain_sample(const World& world, Entity terrain, float worldX, float worl
     return true;
 }
 
-bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height) {
+bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height,
+                       bool ignoreHoles) {
     TerrainSample s;
-    if (!terrain_sample(world, terrain, worldX, worldZ, s)) return false;
+    if (!terrain_sample(world, terrain, worldX, worldZ, s, ignoreHoles)) return false;
     height = s.height;
     return true;
 }

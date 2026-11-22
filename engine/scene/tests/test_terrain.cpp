@@ -184,6 +184,26 @@ TEST_CASE("terrain_local_sample: the triangles of the collider (diagonal from (r
     CHECK(terrain_local_sample(h, t, -16.0f, -16.0f, y, dx, dz));
 }
 
+TEST_CASE(
+    "terrain_local_sample: ignoreHoles reads the surface of a cut cell (the editor's brush aims there to fill it)") {
+    TerrainHeights h;
+    h.samples = 33;
+    h.data.assign(33 * 33, 0);
+    h.holes.assign(32 * 32, 0);
+    h.holes[5 * 32 + 5] = 1;  // the cell at column 5, row 5 is cut
+    Terrain3D t;
+    t.size = {32.0f, 32.0f};
+    t.heightScale = 10.0f;
+    t.heightOffset = 2.0f;
+    float y = 0.0f, dx = 0.0f, dz = 0.0f;
+    const float x = -16.0f + 5.5f, z = -16.0f + 5.5f;
+    CHECK_FALSE(terrain_local_sample(h, t, x, z, y, dx, dz));
+    REQUIRE(terrain_local_sample(h, t, x, z, y, dx, dz, true));
+    CHECK(y == doctest::Approx(2.0f));
+    // outside the grid there is no surface either way
+    CHECK_FALSE(terrain_local_sample(h, t, 16.5f, 0.0f, y, dx, dz, true));
+}
+
 TEST_CASE("terrain_sample: through the transform of the entity, with the normal of the surface") {
     const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_scene").value();
     GrayImage16 g;

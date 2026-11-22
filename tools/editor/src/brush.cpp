@@ -100,7 +100,8 @@ bool brush_ray_box(Vec3 origin, Vec3 dir, Vec3 lo, Vec3 hi, float& t0, float& t1
 bool brush_ray_ground(Vec3 origin, Vec3 dir, float t0, float t1, int steps, const BrushSurface& surface, Vec3& hit) {
     if (!surface || !(t1 >= t0)) return false;
     const int n = std::clamp(steps, 1, 1 << 16);
-    auto above = [&](float t, bool& known) {  // true when the ray point at t is above the ground; `known` false: no ground there
+    auto above = [&](float t,
+                     bool& known) {  // true when the ray point at t is above the ground; `known` false: no ground there
         const Vec3 p = origin + dir * t;
         float y = 0.0f;
         known = surface(p.x, p.z, y);

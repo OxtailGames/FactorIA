@@ -13,7 +13,6 @@
 // Esc during a stroke takes it back and records nothing.
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <format>
 
 #include "editor_internal.h"
@@ -87,7 +86,8 @@ bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mo
     const float y1 = std::max(t->heightOffset, t->heightOffset + t->heightScale);
     Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
     for (int i = 0; i < 8; ++i) {
-        const Vec3 p = m.transform_point({(i & 1 ? 0.5f : -0.5f) * t->size.x, i & 2 ? y1 : y0, (i & 4 ? 0.5f : -0.5f) * t->size.y});
+        const Vec3 p = m.transform_point(
+            {(i & 1 ? 0.5f : -0.5f) * t->size.x, i & 2 ? y1 : y0, (i & 4 ? 0.5f : -0.5f) * t->size.y});
         lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
         hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
     }
@@ -96,9 +96,10 @@ bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mo
     const float dirLen = std::max(length(dir), 1e-6f);
     const float cell = std::min(t->size.x, t->size.y) / float(std::max(h->cells(), 1));
     const int steps = int(std::clamp(std::ceil((t1 - t0) * dirLen / (cell * 0.25f)), 1.0f, 4096.0f));
+    // A hole has ground to aim at (Fill), so the ray ignores the cut cells.
     return brush_ray_ground(
-        origin, dir, t0, t1, steps,
-        [&](float x, float z, float& y) { return terrain_height_at(w, e, x, z, y); }, hit);
+        origin, dir, t0, t1, steps, [&](float x, float z, float& y) { return terrain_height_at(w, e, x, z, y, true); },
+        hit);
 }
 
 }  // namespace
@@ -266,7 +267,8 @@ bool Editor::terrain_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool ho
     World& w = world();
     ImGuiIO& io = ImGui::GetIO();
     const Entity e = selected();
-    if (t.stroke.active() && (e.is_null() || w.id_of(e) != t.strokeEntity || play_ != PlayState::Edit)) terrain_stroke_end();
+    if (t.stroke.active() && (e.is_null() || w.id_of(e) != t.strokeEntity || play_ != PlayState::Edit))
+        terrain_stroke_end();
     if (e.is_null() || !w.has<Terrain3D>(e)) {
         t.hasHit = false;
         return false;
@@ -305,8 +307,10 @@ bool Editor::terrain_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool ho
             return true;
         }
         if (t.hasHit) t.stroke.add(Vec2{hit.x, hit.z});
-        if (!terrain_stroke_flush()) terrain_stroke_end();
-        else if (t.stroke.full() && t.stroke.pending() == 0) terrain_stroke_end();
+        if (!terrain_stroke_flush())
+            terrain_stroke_end();
+        else if (t.stroke.full() && t.stroke.pending() == 0)
+            terrain_stroke_end();
         return true;
     }
     if (hovered && t.hasHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -341,7 +345,8 @@ void Editor::terrain_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec
         screen.reserve(pts.size());
         for (const Vec2& p : pts) {
             float y = t.hit.y;
-            (void)terrain_height_at(w, e, p.x, p.y, y);  // outside the grid the ring stays at the height of the hit
+            (void)terrain_height_at(w, e, p.x, p.y, y,
+                                    true);  // outside the grid the ring stays at the height of the hit
             screen.push_back(map.to_screen(Vec3{p.x, y + 0.02f, p.y}));
         }
         dl->AddPolyline(screen.data(), int(screen.size()), IM_COL32(0, 0, 0, 160), ImDrawFlags_Closed, width + 2.0f);
@@ -374,8 +379,9 @@ void Editor::draw_terrain_tool_panel() {
     const Entity e = selected();
     const Terrain3D* tc = e.is_null() ? nullptr : w.get<Terrain3D>(e);
     if (!tc) {
-        ImGui::TextWrapped("Select an entity with a Terrain3D component (terrain.create makes one). The brush works in the "
-                           "viewport on the selected terrain.");
+        ImGui::TextWrapped(
+            "Select an entity with a Terrain3D component (terrain.create makes one). The brush works in the "
+            "viewport on the selected terrain.");
         ImGui::End();
         return;
     }
@@ -395,7 +401,8 @@ void Editor::draw_terrain_tool_panel() {
         const bool on = t.mode == mode;
         const float width = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
         const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-        if (!firstMode && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right) ImGui::SameLine();
+        if (!firstMode && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= right)
+            ImGui::SameLine();
         firstMode = false;
         if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.42f, 0.70f, 1));
         if (ImGui::Button(label)) {
@@ -410,11 +417,13 @@ void Editor::draw_terrain_tool_panel() {
     ImGui::Text("Terrain: %s", w.info(e).name.c_str());
     mode_button(" Sculpt ", TerrainMode::Sculpt, "terrain:mode:sculpt",
                 "Raise, lower, smooth or flatten the heights with the brush");
-    mode_button(" Paint ", TerrainMode::Paint, "terrain:mode:paint", "Paint one of the terrain's material layers (the splat maps)");
+    mode_button(" Paint ", TerrainMode::Paint, "terrain:mode:paint",
+                "Paint one of the terrain's material layers (the splat maps)");
     mode_button(" Holes ", TerrainMode::Holes, "terrain:mode:holes", "Cut holes (caves, tunnels) or fill them again");
     if (t.mode == TerrainMode::Off) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Pick a mode. While one is on the viewport gizmo is off (click the mode again to leave it).");
+        ImGui::TextWrapped(
+            "Pick a mode. While one is on the viewport gizmo is off (click the mode again to leave it).");
         ImGui::PopStyleColor();
     }
 
@@ -440,32 +449,37 @@ void Editor::draw_terrain_tool_panel() {
             ImGui::DragFloat("amount (m)", &t.amount, 0.01f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
             t.amount = std::clamp(t.amount, 0.001f, 100.0f);
             at_track("terrain:amount");
-            ImGui::SetItemTooltip("Metres one stamp changes the ground at the middle of the brush at full strength. Stamps are a "
-                                  "quarter of the radius apart, so the ground under the brush gets several of them.");
+            ImGui::SetItemTooltip(
+                "Metres one stamp changes the ground at the middle of the brush at full strength. Stamps are a "
+                "quarter of the radius apart, so the ground under the brush gets several of them.");
         }
         if (t.sculpt == SculptTool::Flatten) {
             ImGui::Checkbox("height under the first click", &t.flattenAuto);
             at_track("terrain:flatten:auto");
-            ImGui::SetItemTooltip("On: a stroke levels the ground to the height it found where you pressed. Off: to the height below.");
+            ImGui::SetItemTooltip(
+                "On: a stroke levels the ground to the height it found where you pressed. Off: to the height below.");
             ImGui::BeginDisabled(t.flattenAuto);
             ImGui::SetNextItemWidth(120);
             ImGui::DragFloat("height (m)", &t.flattenHeight, 0.05f, -100000.0f, 100000.0f, "%.3f");
             at_track("terrain:flatten:height");
             ImGui::EndDisabled();
             if (t.pickingHeight) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.42f, 0.70f, 1));
-            if (ImGui::Button(t.pickingHeight ? "Click the ground..." : "Pick from the terrain")) t.pickingHeight = !t.pickingHeight;
+            if (ImGui::Button(t.pickingHeight ? "Click the ground..." : "Pick from the terrain"))
+                t.pickingHeight = !t.pickingHeight;
             if (t.pickingHeight) ImGui::PopStyleColor();
             at_track("terrain:flatten:pick");
-            ImGui::SetItemTooltip("Then click the ground in the viewport: its height becomes the flatten height (Alt+click does it "
-                                  "without this button).");
+            ImGui::SetItemTooltip(
+                "Then click the ground in the viewport: its height becomes the flatten height (Alt+click does it "
+                "without this button).");
         }
     }
     if (t.mode == TerrainMode::Paint) {
         ImGui::SeparatorText("Paint a layer");
         const Json& layers = tc->layers;
         if (!layers.is_array() || layers.empty()) {
-            ImGui::TextWrapped("This terrain has no layers. Add them to Terrain.layers in the Inspector: each one an albedo texture "
-                               "(at most 8). The brush paints the layer you pick here.");
+            ImGui::TextWrapped(
+                "This terrain has no layers. Add them to Terrain.layers in the Inspector: each one an albedo texture "
+                "(at most 8). The brush paints the layer you pick here.");
         } else {
             const int n = int(std::min<std::size_t>(layers.size(), 8));
             t.layer = std::clamp(t.layer, 0, n - 1);
@@ -499,7 +513,8 @@ void Editor::draw_terrain_tool_panel() {
         ImGui::SameLine();
         if (ImGui::RadioButton("Fill", !t.cut)) t.cut = false;
         at_track("terrain:holes:fill");
-        ImGui::SetItemTooltip("Hold Ctrl while you paint to do the other one. A brush smaller than a cell can miss every cell.");
+        ImGui::SetItemTooltip(
+            "Hold Ctrl while you paint to do the other one. A brush smaller than a cell can miss every cell.");
     }
 
     if (t.mode != TerrainMode::Off) {
@@ -512,19 +527,22 @@ void Editor::draw_terrain_tool_panel() {
             ImGui::SetNextItemWidth(180);
             ImGui::SliderFloat("strength", &t.brush.strength, 0.0f, 1.0f, "%.2f");
             at_track("terrain:strength");
-            ImGui::SetItemTooltip("How much of the effect a stamp applies. Shift+[ and Shift+] change it from the keyboard");
+            ImGui::SetItemTooltip(
+                "How much of the effect a stamp applies. Shift+[ and Shift+] change it from the keyboard");
             ImGui::SetNextItemWidth(180);
             ImGui::SliderFloat("falloff", &t.brush.falloff, 0.0f, 1.0f, "%.2f");
             at_track("terrain:falloff");
-            ImGui::SetItemTooltip("The share of the radius the effect fades over: 1 from the middle to the edge, 0 a hard edge. "
-                                  "The inner ring of the cursor is where the full effect ends.");
+            ImGui::SetItemTooltip(
+                "The share of the radius the effect fades over: 1 from the middle to the edge, 0 a hard edge. "
+                "The inner ring of the cursor is where the full effect ends.");
         }
         brush_clamp(t.brush, maxR);
     }
 
     ImGui::SeparatorText("Terrain");
     ImGui::Text("%d x %d samples, %zu edit%s to undo%s", heights->samples, heights->samples, heights->undo_depth(),
-                heights->undo_depth() == 1 ? "" : "s", heights->any_unsaved() ? ", unsaved (Save writes the files)" : "");
+                heights->undo_depth() == 1 ? "" : "s",
+                heights->any_unsaved() ? ", unsaved (Save writes the files)" : "");
     at_track("terrain:status");
     if (!t.error.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1));
