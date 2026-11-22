@@ -493,11 +493,13 @@ void register_world_components(TypeRegistry& r) {
             "every child beyond hlodThreshold, in the local space of this entity (the group's matrix is applied). "
             "\"\" (default) = no proxy. The children stop being drawn, in the main pass and in the shadows, "
             "and their draw calls with them; the proxy casts the shadow. world.bake_hlod writes it.")
-        .field("hlodThreshold", &LodGroup::hlodThreshold,
-               "Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen "
-               "fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole "
-               "bounds like thresholds. It should be beyond the last thresholds entry (the farthest child level), so the proxy replaces the last level and not a nearer one. Needs hlodProxy; 0 (default) with a proxy is an "
-               "error.")
+        .field(
+            "hlodThreshold", &LodGroup::hlodThreshold,
+            "Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen "
+            "fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole "
+            "bounds like thresholds. It should be beyond the last thresholds entry (the farthest child level), so the "
+            "proxy replaces the last level and not a nearer one. Needs hlodProxy; 0 (default) with a proxy is an "
+            "error.")
         .range(0, 100000);
 
     r.add<Occluder>(

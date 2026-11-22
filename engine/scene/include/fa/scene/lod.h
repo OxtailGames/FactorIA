@@ -40,6 +40,10 @@ int lod_level_by_distance(const MeshRenderer& mr, float distance);
 int lod_level_by_screen_size(const MeshRenderer& mr, float screenSize);
 // The level by `mr.lodMode`: `distance` for Distance, `screenSize` for ScreenSize.
 int lod_level_of(const MeshRenderer& mr, float distance, float screenSize);
+// Whether `mr` draws its impostor (MeshRenderer.impostor) instead of its last level: false when `impostor` is empty or `impostorDistance`
+// is not above 0 or is NaN. Distance mode: `distance` (metres) >= impostorDistance. ScreenSize mode: `screenSize` < impostorDistance (the
+// mesh covers less of the screen than that fraction). A NaN distance or size is false (the mesh keeps drawing).
+bool impostor_active(const MeshRenderer& mr, float distance, float screenSize);
 // The mesh path of a level of `mr` (mr.mesh for 0 or a level with no entry).
 const std::string& lod_level_mesh(const MeshRenderer& mr, int level);
 

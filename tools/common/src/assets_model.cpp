@@ -1307,6 +1307,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
     register_model_texture_commands(registry, projectDir);
     register_model_eyes_commands(registry, projectDir);
     register_model_import_clean_command(registry, projectDir);
+    register_model_impostor_command(registry, projectDir);
     {
         CommandInfo info;
         info.name = "model.game_ready";
@@ -1388,7 +1389,8 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                             {"model.create", writes_project()},
                                             {"model.edit", writes_project()},
                                             {"model.game_ready", writes_project()},
-                                            {"model.generate_lods", writes_project()}});
+                                            {"model.generate_lods", writes_project()},
+                                            {"model.bake_impostor", writes_project()}});
 }
 
 }  // namespace fa::assets_detail
