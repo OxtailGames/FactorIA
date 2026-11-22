@@ -312,3 +312,13 @@ TEST_CASE("normal_map_from_sprite: the silhouette is a bevel that faces outwards
     CHECK(int(rn.rgba[(32 * 64 + 32) * 4]) < 120);
     CHECK(int(rn.rgba[(32 * 64 + 32) * 4 + 1]) == 128);
 }
+
+TEST_CASE("image tools: luminance01 weighs the 8-bit channels as Rec. 709 and ignores alpha") {
+    const std::uint8_t white[4] = {255, 255, 255, 0}, black[4] = {0, 0, 0, 255}, red[4] = {255, 0, 0, 255};
+    const std::uint8_t green[4] = {0, 255, 0, 255}, blue[4] = {0, 0, 255, 255};
+    CHECK(luminance01(white) == doctest::Approx(1.0));
+    CHECK(luminance01(black) == 0.0);
+    CHECK(luminance01(red) == doctest::Approx(0.2126));
+    CHECK(luminance01(green) == doctest::Approx(0.7152));
+    CHECK(luminance01(blue) == doctest::Approx(0.0722));
+}

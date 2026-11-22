@@ -133,3 +133,47 @@ not load the tooling, an exported game, has an empty table and pays one atomic l
   that no longer exists (remove the entry), whose `use` does not exist or is deprecated itself, or without a `use` and a
   `note`. The removal and the deleted entry go in the same commit, with a line in CHANGELOG.md.
 
+
+## Noise and erosion (fa_core, M75.5)
+`fa/core/noise.h` and `fa/core/erosion.h` are the one shared, deterministic, pure-CPU implementation of procedural
+height data; the terrain generator (`terrain.generate`) is their first user. The older ad-hoc noise of the model and
+material code (`model_sdf.cpp`, `model_modifiers.cpp`, `model_texture_*.cpp`, `assets_texture.cpp`, `material_graph*.cpp`)
+is deliberately untouched: its outputs are baked into fixtures.
+
+- **Noise.** Primitives `perlin_2d/3d`, `value_2d/3d` (return [-1, 1]) and `cellular_2d/3d` (`CellularSample`: F1, F2, F2-F1 in
+  lattice cells, and a per-cell value), each a pure function of `(seed, position)`: a 64-bit integer hash of the seed and the
+  lattice coordinates, quintic fade, `+ - * /` and `sqrt` only (no libm transcendentals; the build has FP contraction off),
+  so the same bits come out on every thread count and platform. `NoiseParams` (camelCase JSON: `type`, `dimension`, `fractal`,
+  `cellularReturn`, `seed`, `frequency` in cycles per world unit, `octaves` 1-16, `lacunarity`, `gain`, `offset`, `jitter`,
+  `warpAmplitude`, `warpFrequency`, `warpOctaves`, `output`) drives `sample_noise_2d/3d` (domain warp, then fBm, ridged or
+  billow octaves with a seed of their own each, all remapped to [-1, 1]). `validate_noise_params` and
+  `noise_params_from_json(value, pointer)` refuse bad values with the JSON pointer of the field, a hint and "did you mean" for
+  misspelled keys and words; `noise_params_schema()` is the JSON Schema with a description per field.
+- **`fill_noise(out, width, height, params, origin, cellSize, z)`** fills a grid on the jobs system (`parallel_for` over rows,
+  about 16k samples per chunk). Sample (i, j) sits at `origin + (i, j) * cellSize`, so two tiles whose origins differ by
+  `(width - 1) * cellSize` share their edge samples and line up. Every sample depends only on its own position, so the
+  result is bit-identical with 0, 1 or many threads or in inline mode. Caps are deterministic counts checked before any
+  work: `kMaxNoiseFillSamples` (2^28 samples) and `kMaxNoiseFillWork` (2^31 noise evaluations, `noise_fill_work`).
+  Tileable noise (a wrapping period) is not offered; tile by origin instead.
+- **Erosion.** A `HeightfieldView` (`span<float>`, width, height, cellSize in metres) is changed in place and an
+  `ErosionResult` reports the work done, the volume before and after (`sum of heights * cellSize^2`) and the volume moved.
+  `erode_thermal(field, ThermalErosionParams{iterations, talusAngle, strength})` is a Jacobi step in three passes (what
+  each cell offers to its lower neighbours, how much of its inflow each receiver accepts, then the transfers), run on
+  the jobs system in rows: thread-count independent. A receiver accepts at most half the way up to its lowest donor and
+  donors lose only what was accepted. What holds: the sum of the heights is kept (up to float rounding; nothing leaves
+  the grid), and every cell ends a pass within the range of its 3 x 3 neighbourhood of the previous pass, so a 1-cell
+  pit or spike does not overshoot (tested). Slopes tend to fall, but there is no bound per pass and none on the
+  steepest slope.
+  `erode_hydraulic(field, HydraulicErosionParams, ErosionMasks)` is the
+  droplet model (inertia, capacity, deposition, erosion, evaporation, gravity, brush `radius`, `maxLifetime`). It is SERIAL on
+  purpose: droplets change the heights the next droplet reads, so a split over threads would make the result depend on the
+  order they run; droplets come from a PCG stream seeded with `seed`. A droplet drops what it carries when it ends, so the
+  volume is conserved up to float rounding. The optional masks (`flow`, `erosion`, `deposition`, each empty or
+  width * height floats, cleared first) are for painting splat layers. Slopes are rise over run, so `cellSize` matters.
+- **Caps** are work counts, never time: `kMaxThermalWork` (cells x iterations, 2^30), `kMaxHydraulicSteps` (droplets x
+  `maxLifetime`, 2^28), `kMaxErosionScratchBytes` (the three buffers of the thermal pass, 1 GB: about 9400 x 9400 cells, computed in 64 bits with
+  saturation before anything is allocated) and `kMaxHeightfieldSide`. An out-of-range request is refused up front with the
+  numbers and a hint, and no height changes; a non-finite height is refused with its x, y.
+- Tests: `engine/core/tests/test_noise.cpp` and `test_erosion.cpp` (ranges, seeds, continuity, tiling, thread-count
+  independence, mass, slopes, caps). Benchmarks: `terrain.noise_fill`, `terrain.hydraulic_erosion`, `terrain.thermal_erosion`
+  (`fa_bench`).

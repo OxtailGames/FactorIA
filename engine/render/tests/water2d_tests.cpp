@@ -497,3 +497,25 @@ TEST_CASE("water2d: the supports rows of the features are drawn, not planned") {
         CHECK(found);
     }
 }
+
+TEST_CASE(
+    "water2d: warm makes the shaders and the pipelines of the main pass ahead of the first draw, once per format") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    render::Gpu* gpu = render::renderer_gpu(g.renderer);
+    REQUIRE(gpu != nullptr);
+    WaterFx fx;
+    CHECK(fx.pipeline_count() == 0);  // nothing is made before it is asked for
+    const TargetFormat game{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
+    fx.warm(*gpu, game);
+    REQUIRE(fx.ready());
+    // The copy's pipeline (in the scene format) and the effect's two (with and without the depth test): what the first frame draws with.
+    CHECK(fx.pipeline_count() == 3);
+    fx.warm(*gpu, game);  // the same format again finds them all: the warm-up is idempotent
+    CHECK(fx.pipeline_count() == 3);
+    // Another format of the main pass adds only the effect's two pipelines (the copy's format does not depend on it).
+    fx.warm(*gpu, TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1});
+    CHECK(fx.pipeline_count() == 5);
+    fx.release();
+    CHECK(fx.pipeline_count() == 0);
+}

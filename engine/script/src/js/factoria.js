@@ -4978,7 +4978,9 @@
     // have done): an object of counters (drawCalls, sprites, meshes, triangles, lights, lights2d, sceneCopies, textureMB, width,
     // height, renderScale and more; docs/COMPONENTS.md lists every field under game.render_stats). lights are the 3D lights, lights2d
     // the Light2D ones (lights2dShadowed: those with a shadow); sceneCopies counts the copies of the picture drawn so far that
-    // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). Throws
+    // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). The big-world
+    // counters (M75, 0 until their package draws): lodCrossFades, impostors, occluders, occlusionTests, meshesOccluded,
+    // terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();

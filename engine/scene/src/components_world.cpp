@@ -25,8 +25,8 @@ void unknown_keys(std::vector<WorldProblem>& out, const Json& entry, const std::
                   const std::vector<std::string>& known, const std::string& what) {
     for (auto it = entry.begin(); it != entry.end(); ++it) {
         if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
-        problem(out, false, pointer + "/" + it.key(), what + " has an unknown key \"" + it.key() + "\", which is ignored",
-                did_you_mean(it.key(), known));
+        problem(out, false, pointer + "/" + it.key(),
+                what + " has an unknown key \"" + it.key() + "\", which is ignored", did_you_mean(it.key(), known));
     }
 }
 
@@ -36,13 +36,15 @@ void check_number(std::vector<WorldProblem>& out, const Json& entry, const char*
     if (!entry.contains(key)) return;
     const Json& v = entry[key];
     if (!v.is_number()) {
-        problem(out, true, pointer + "/" + key, what + " \"" + key + "\" must be a number, got " + describe_json_value(v),
+        problem(out, true, pointer + "/" + key,
+                what + " \"" + key + "\" must be a number, got " + describe_json_value(v),
                 std::string("Write ") + key + " as a number between " + num(lo) + " and " + num(hi) + ".");
         return;
     }
     const double d = v.get<double>();
     if (!(d >= lo && d <= hi))
-        problem(out, true, pointer + "/" + key, what + " \"" + key + "\" is " + num(d) + ", outside " + num(lo) + ".." + num(hi),
+        problem(out, true, pointer + "/" + key,
+                what + " \"" + key + "\" is " + num(d) + ", outside " + num(lo) + ".." + num(hi),
                 std::string("Use a ") + key + " between " + num(lo) + " and " + num(hi) + ".");
 }
 
@@ -50,11 +52,13 @@ void check_path(std::vector<WorldProblem>& out, const Json& entry, const char* k
                 bool required, const std::string& what, const char* example) {
     if (!entry.contains(key)) {
         if (required)
-            problem(out, true, pointer, what + " has no \"" + key + "\"", std::string("Add it, for example ") + example + ".");
+            problem(out, true, pointer, what + " has no \"" + key + "\"",
+                    std::string("Add it, for example ") + example + ".");
         return;
     }
     if (!entry[key].is_string())
-        problem(out, true, pointer + "/" + key, what + " \"" + key + "\" must be a path string, got " + describe_json_value(entry[key]),
+        problem(out, true, pointer + "/" + key,
+                what + " \"" + key + "\" must be a path string, got " + describe_json_value(entry[key]),
                 std::string("Write a project-relative path, for example ") + example + ".");
     else if (required && entry[key].get<std::string>().empty())
         problem(out, true, pointer + "/" + key, what + " \"" + key + "\" is empty",
@@ -64,7 +68,8 @@ void check_path(std::vector<WorldProblem>& out, const Json& entry, const char* k
 void check_ordered_pair(std::vector<WorldProblem>& out, const Vec2& v, const char* field, const char* component) {
     if (v.x > v.y)
         problem(out, true, std::string("/") + field,
-                std::string(component) + "." + field + " is [" + num(v.x) + ", " + num(v.y) + "], but the minimum is above the maximum",
+                std::string(component) + "." + field + " is [" + num(v.x) + ", " + num(v.y) +
+                    "], but the minimum is above the maximum",
                 "Write [min, max] with min <= max.");
 }
 
@@ -76,49 +81,63 @@ std::vector<WorldProblem> lod_group_problems(const LodGroup& g) {
     const bool screen = g.mode == LodMode::ScreenSize;
     if (g.thresholds.size() > std::size_t(kMaxLodThresholds))
         problem(out, true, "/thresholds",
-                "LodGroup.thresholds has " + std::to_string(g.thresholds.size()) + " numbers, but a group has at most " +
-                    std::to_string(kMaxLodThresholds) + " (so " + std::to_string(kMaxLodThresholds + 1) + " levels)",
+                "LodGroup.thresholds has " + std::to_string(g.thresholds.size()) +
+                    " numbers, but a group has at most " + std::to_string(kMaxLodThresholds) + " (so " +
+                    std::to_string(kMaxLodThresholds + 1) + " levels)",
                 "Merge the last levels, or split the group in two.");
     for (std::size_t i = 0; i < g.thresholds.size(); ++i) {
         const float t = g.thresholds[i];
         const std::string at = "/thresholds/" + std::to_string(i);
         if (!(t > 0.0f)) {
-            problem(out, true, at, "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) + ", but a threshold is above 0",
+            problem(out, true, at,
+                    "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) + ", but a threshold is above 0",
                     screen ? "Write the screen fraction 0..1 where the next level takes over, for example 0.3."
                            : "Write the distance in metres where the next level takes over, for example 25.");
             continue;
         }
         if (screen && t > 1.0f)
             problem(out, true, at,
-                    "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) + " in mode \"screenSize\", where a threshold is a screen fraction 0..1",
-                    "Use a fraction such as 0.3 (the level changes when the group covers 30% of the screen's height), or set \"mode\": \"distance\".");
+                    "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) +
+                        " in mode \"screenSize\", where a threshold is a screen fraction 0..1",
+                    "Use a fraction such as 0.3 (the level changes when the group covers 30% of the screen's height), "
+                    "or set \"mode\": \"distance\".");
         if (i > 0) {
             const float prev = g.thresholds[i - 1];
             if (screen ? !(t < prev) : !(t > prev))
                 problem(out, true, at,
-                        "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) + ", not " + (screen ? "below " : "above ") +
-                            "the one before it (" + num(prev) + ")",
-                        screen ? "Screen sizes shrink with each level: write them from the largest to the smallest, for example [0.5, 0.2, 0.05]."
-                               : "Distances grow with each level: write them from the nearest to the farthest, for example [15, 40, 90].");
+                        "LodGroup.thresholds[" + std::to_string(i) + "] is " + num(t) + ", not " +
+                            (screen ? "below " : "above ") + "the one before it (" + num(prev) + ")",
+                        screen ? "Screen sizes shrink with each level: write them from the largest to the smallest, "
+                                 "for example [0.5, 0.2, 0.05]."
+                               : "Distances grow with each level: write them from the nearest to the farthest, for "
+                                 "example [15, 40, 90].");
         }
     }
     if (!g.hlodProxy.empty() && !(g.hlodThreshold > 0.0f))
-        problem(out, true, "/hlodThreshold", "LodGroup.hlodProxy is \"" + g.hlodProxy + "\" but hlodThreshold is " + num(g.hlodThreshold) + ", so the proxy never takes over",
-                screen ? "Set hlodThreshold to the screen fraction 0..1 below which the proxy is drawn, for example 0.02."
-                       : "Set hlodThreshold to the distance in metres from which the proxy is drawn, for example 300.");
+        problem(out, true, "/hlodThreshold",
+                "LodGroup.hlodProxy is \"" + g.hlodProxy + "\" but hlodThreshold is " + num(g.hlodThreshold) +
+                    ", so the proxy never takes over",
+                screen
+                    ? "Set hlodThreshold to the screen fraction 0..1 below which the proxy is drawn, for example 0.02."
+                    : "Set hlodThreshold to the distance in metres from which the proxy is drawn, for example 300.");
     else if (g.hlodProxy.empty() && g.hlodThreshold > 0.0f)
-        problem(out, false, "/hlodThreshold", "LodGroup.hlodThreshold is " + num(g.hlodThreshold) + " but hlodProxy is empty, so it has no effect",
+        problem(out, false, "/hlodThreshold",
+                "LodGroup.hlodThreshold is " + num(g.hlodThreshold) + " but hlodProxy is empty, so it has no effect",
                 "Set hlodProxy to the mesh that stands for the whole group from far away, or set hlodThreshold to 0.");
     if (!g.hlodProxy.empty() && screen && g.hlodThreshold > 1.0f)
-        problem(out, true, "/hlodThreshold", "LodGroup.hlodThreshold is " + num(g.hlodThreshold) + " in mode \"screenSize\", where it is a screen fraction 0..1",
+        problem(out, true, "/hlodThreshold",
+                "LodGroup.hlodThreshold is " + num(g.hlodThreshold) +
+                    " in mode \"screenSize\", where it is a screen fraction 0..1",
                 "Use a fraction such as 0.02, or set \"mode\": \"distance\".");
     if (!g.hlodProxy.empty() && !g.thresholds.empty() && g.hlodThreshold > 0.0f) {
         const float last = g.thresholds[g.thresholds.size() - 1];
         if (screen ? !(g.hlodThreshold < last) : !(g.hlodThreshold > last))
             problem(out, false, "/hlodThreshold",
-                    "LodGroup.hlodThreshold " + num(g.hlodThreshold) + " is not " + (screen ? "below" : "above") + " the last threshold (" + num(last) +
+                    "LodGroup.hlodThreshold " + num(g.hlodThreshold) + " is not " + (screen ? "below" : "above") +
+                        " the last threshold (" + num(last) +
                         "), so the proxy would replace levels that were never drawn",
-                    screen ? "Make hlodThreshold smaller than the last threshold." : "Make hlodThreshold larger than the last threshold.");
+                    screen ? "Make hlodThreshold smaller than the last threshold."
+                           : "Make hlodThreshold larger than the last threshold.");
     }
     return out;
 }
@@ -134,8 +153,11 @@ std::vector<WorldProblem> mesh_lod_problems(const std::string& mesh, const Json&
             const Json& e = lods[i];
             const std::string at = "/lods/" + std::to_string(i);
             if (!e.is_object()) {
-                problem(out, false, at, "MeshRenderer.lods[" + std::to_string(i) + "] is " + describe_json_value(e) + ", not an object, so it is ignored",
-                        "Write {\"mesh\": \"assets/lamp.lod1.glb\", \"distance\": 12} (or \"screenSize\": 0.25 with lodMode \"screenSize\").");
+                problem(out, false, at,
+                        "MeshRenderer.lods[" + std::to_string(i) + "] is " + describe_json_value(e) +
+                            ", not an object, so it is ignored",
+                        "Write {\"mesh\": \"assets/lamp.lod1.glb\", \"distance\": 12} (or \"screenSize\": 0.25 with "
+                        "lodMode \"screenSize\").");
                 continue;
             }
             const bool hasScreen = e.contains("screenSize"), hasDistance = e.contains("distance");
@@ -145,18 +167,21 @@ std::vector<WorldProblem> mesh_lod_problems(const std::string& mesh, const Json&
                     const float s = e["screenSize"].get<float>();
                     if (previous >= 0.0f && !(s < previous))
                         problem(out, false, at + "/screenSize",
-                                "MeshRenderer.lods[" + std::to_string(i) + "].screenSize " + num(s) + " is not below the entry before it (" + num(previous) + ")",
+                                "MeshRenderer.lods[" + std::to_string(i) + "].screenSize " + num(s) +
+                                    " is not below the entry before it (" + num(previous) + ")",
                                 "List the screen sizes from the largest to the smallest: the nearest LOD first.");
                     previous = s;
                 }
             } else if (screen && !hasScreen) {
                 problem(out, false, at,
-                        "MeshRenderer.lodMode is \"screenSize\" but lods[" + std::to_string(i) + "] has no \"screenSize\"" +
-                            (hasDistance ? ", so its \"distance\" is not used" : ""),
-                        "Write \"screenSize\": 0.25 (a fraction 0..1 of the screen's height), or set lodMode to \"distance\".");
+                        "MeshRenderer.lodMode is \"screenSize\" but lods[" + std::to_string(i) +
+                            "] has no \"screenSize\"" + (hasDistance ? ", so its \"distance\" is not used" : ""),
+                        "Write \"screenSize\": 0.25 (a fraction 0..1 of the screen's height), or set lodMode to "
+                        "\"distance\".");
             } else if (!screen && hasScreen && !hasDistance) {
                 problem(out, false, at,
-                        "MeshRenderer.lods[" + std::to_string(i) + "] has \"screenSize\" but lodMode is \"distance\", so the entry is ignored",
+                        "MeshRenderer.lods[" + std::to_string(i) +
+                            "] has \"screenSize\" but lodMode is \"distance\", so the entry is ignored",
                         "Set \"lodMode\": \"screenSize\", or write \"distance\": 12 (metres) instead.");
             }
             if (hasScreen && !e["screenSize"].is_number() && !screen)
@@ -164,14 +189,22 @@ std::vector<WorldProblem> mesh_lod_problems(const std::string& mesh, const Json&
         }
     }
     if (!impostor.empty() && !(impostorAt > 0.0f))
-        problem(out, false, "/impostorDistance", "MeshRenderer.impostor is \"" + impostor + "\" but impostorDistance is 0, so the impostor is never drawn",
-                screen ? "Set impostorDistance to the screen fraction 0..1 below which the impostor takes over, for example 0.05."
-                       : "Set impostorDistance to the distance in metres from which the impostor is drawn, for example 120.");
+        problem(
+            out, false, "/impostorDistance",
+            "MeshRenderer.impostor is \"" + impostor + "\" but impostorDistance is 0, so the impostor is never drawn",
+            screen
+                ? "Set impostorDistance to the screen fraction 0..1 below which the impostor takes over, for example "
+                  "0.05."
+                : "Set impostorDistance to the distance in metres from which the impostor is drawn, for example 120.");
     else if (impostor.empty() && impostorAt > 0.0f)
-        problem(out, false, "/impostorDistance", "MeshRenderer.impostorDistance is " + num(impostorAt) + " but impostor is empty, so it has no effect",
-                "Bake one with `model.bake_impostor` and set impostor to its *.impostor.json, or set impostorDistance to 0.");
+        problem(out, false, "/impostorDistance",
+                "MeshRenderer.impostorDistance is " + num(impostorAt) + " but impostor is empty, so it has no effect",
+                "Bake one with `model.bake_impostor` and set impostor to its *.impostor.json, or set impostorDistance "
+                "to 0.");
     if (screen && impostorAt > 1.0f)
-        problem(out, true, "/impostorDistance", "MeshRenderer.impostorDistance is " + num(impostorAt) + " in lodMode \"screenSize\", where it is a screen fraction 0..1",
+        problem(out, true, "/impostorDistance",
+                "MeshRenderer.impostorDistance is " + num(impostorAt) +
+                    " in lodMode \"screenSize\", where it is a screen fraction 0..1",
                 "Use a fraction such as 0.05, or set lodMode to \"distance\".");
     return out;
 }
@@ -180,14 +213,19 @@ std::vector<WorldProblem> occluder_problems(const Occluder& o, bool hasMeshRende
     std::vector<WorldProblem> out;
     if (o.shape == OccluderShape::Box) {
         if (!(o.size.x > 0.0f) || !(o.size.y > 0.0f) || !(o.size.z > 0.0f))
-            problem(out, true, "/size", "Occluder.size is [" + num(o.size.x) + ", " + num(o.size.y) + ", " + num(o.size.z) + "], but every side must be above 0",
+            problem(out, true, "/size",
+                    "Occluder.size is [" + num(o.size.x) + ", " + num(o.size.y) + ", " + num(o.size.z) +
+                        "], but every side must be above 0",
                     "Write the box in metres, for example \"size\": [10, 6, 0.5] for a wall, or remove the component.");
         if (!o.mesh.empty())
-            problem(out, false, "/mesh", "Occluder.mesh is \"" + o.mesh + "\" but shape is \"box\", so the mesh is ignored",
+            problem(out, false, "/mesh",
+                    "Occluder.mesh is \"" + o.mesh + "\" but shape is \"box\", so the mesh is ignored",
                     "Set \"shape\": \"mesh\" to rasterise the mesh, or remove mesh.");
     } else if (o.mesh.empty() && !hasMeshRenderer) {
-        problem(out, true, "/mesh", "Occluder.shape is \"mesh\" but mesh is empty and the entity has no MeshRenderer to take one from",
-                "Set mesh to a model path (a low-poly stand-in is best), add a MeshRenderer, or use \"shape\": \"box\".");
+        problem(
+            out, true, "/mesh",
+            "Occluder.shape is \"mesh\" but mesh is empty and the entity has no MeshRenderer to take one from",
+            "Set mesh to a model path (a low-poly stand-in is best), add a MeshRenderer, or use \"shape\": \"box\".");
     }
     return out;
 }
@@ -195,7 +233,9 @@ std::vector<WorldProblem> occluder_problems(const Occluder& o, bool hasMeshRende
 std::vector<WorldProblem> occlusion_area_problems(const OcclusionArea& a) {
     std::vector<WorldProblem> out;
     if (!(a.size.x > 0.0f) || !(a.size.y > 0.0f) || !(a.size.z > 0.0f))
-        problem(out, true, "/size", "OcclusionArea.size is [" + num(a.size.x) + ", " + num(a.size.y) + ", " + num(a.size.z) + "], but every side must be above 0",
+        problem(out, true, "/size",
+                "OcclusionArea.size is [" + num(a.size.x) + ", " + num(a.size.y) + ", " + num(a.size.z) +
+                    "], but every side must be above 0",
                 "Write the room's box in metres, for example \"size\": [10, 4, 10], or remove the component.");
     return out;
 }
@@ -203,10 +243,15 @@ std::vector<WorldProblem> occlusion_area_problems(const OcclusionArea& a) {
 std::vector<WorldProblem> occlusion_portal_problems(const OcclusionPortal& p) {
     std::vector<WorldProblem> out;
     if (!(p.size.x > 0.0f) || !(p.size.y > 0.0f) || !(p.size.z > 0.0f))
-        problem(out, true, "/size", "OcclusionPortal.size is [" + num(p.size.x) + ", " + num(p.size.y) + ", " + num(p.size.z) + "], but every side must be above 0",
-                "Write the opening in metres, for example \"size\": [2, 2.5, 0.2] for a door, or remove the component.");
+        problem(
+            out, true, "/size",
+            "OcclusionPortal.size is [" + num(p.size.x) + ", " + num(p.size.y) + ", " + num(p.size.z) +
+                "], but every side must be above 0",
+            "Write the opening in metres, for example \"size\": [2, 2.5, 0.2] for a door, or remove the component.");
     if (p.areaA == p.areaB)
-        problem(out, false, "/areaB", "OcclusionPortal.areaA and areaB are both " + std::to_string(p.areaA) + ", so the portal connects an area to itself and does nothing",
+        problem(out, false, "/areaB",
+                "OcclusionPortal.areaA and areaB are both " + std::to_string(p.areaA) +
+                    ", so the portal connects an area to itself and does nothing",
                 "Set areaA and areaB to the areaId of the OcclusionArea on each side (0 = outside every area).");
     return out;
 }
@@ -215,9 +260,10 @@ std::vector<WorldProblem> streaming_anchor_problems(const StreamingAnchor& a) {
     std::vector<WorldProblem> out;
     if (!(a.unloadRadius > a.loadRadius))
         problem(out, true, "/unloadRadius",
-                "StreamingAnchor.unloadRadius is " + num(a.unloadRadius) + ", not above loadRadius (" + num(a.loadRadius) +
-                    "), so a cell on the border would load and unload every frame",
-                "Keep a margin: unloadRadius at least about 25% above loadRadius, for example loadRadius 256 and unloadRadius 320.");
+                "StreamingAnchor.unloadRadius is " + num(a.unloadRadius) + ", not above loadRadius (" +
+                    num(a.loadRadius) + "), so a cell on the border would load and unload every frame",
+                "Keep a margin: unloadRadius at least about 25% above loadRadius, for example loadRadius 256 and "
+                "unloadRadius 320.");
     return out;
 }
 
@@ -244,29 +290,40 @@ std::vector<WorldProblem> streamed_world_problems(const StreamedWorld& w) {
 std::vector<WorldProblem> terrain_problems(const Terrain3D& t) {
     std::vector<WorldProblem> out;
     if (!(t.size.x > 0.0f) || !(t.size.y > 0.0f))
-        problem(out, true, "/size", "Terrain.size is [" + num(t.size.x) + ", " + num(t.size.y) + "], but both sides must be above 0",
+        problem(out, true, "/size",
+                "Terrain.size is [" + num(t.size.x) + ", " + num(t.size.y) + "], but both sides must be above 0",
                 "Write the area in metres, for example \"size\": [512, 512].");
     if (!(t.heightScale > 0.0f) && !t.heightmap.empty())
-        problem(out, false, "/heightScale", "Terrain.heightScale is " + num(t.heightScale) + ", so the heightmap " + "\"" + t.heightmap + "\" gives a flat terrain",
+        problem(out, false, "/heightScale",
+                "Terrain.heightScale is " + num(t.heightScale) + ", so the heightmap " + "\"" + t.heightmap +
+                    "\" gives a flat terrain",
                 "Set heightScale to the metres of height of a white sample, for example 100.");
     if (!t.splatMaps.is_array()) {
-        problem(out, true, "/splatMaps", "Terrain.splatMaps must be an array of image paths, got " + describe_json_value(t.splatMaps),
+        problem(out, true, "/splatMaps",
+                "Terrain.splatMaps must be an array of image paths, got " + describe_json_value(t.splatMaps),
                 "Example: [\"terrain/splat0.png\"]; each RGBA map weights 4 layers.");
     } else {
         if (t.splatMaps.size() > std::size_t(kMaxTerrainSplatMaps))
-            problem(out, true, "/splatMaps", "Terrain.splatMaps has " + std::to_string(t.splatMaps.size()) + " maps, but the most is " + std::to_string(kMaxTerrainSplatMaps) + " (8 layers)",
+            problem(out, true, "/splatMaps",
+                    "Terrain.splatMaps has " + std::to_string(t.splatMaps.size()) + " maps, but the most is " +
+                        std::to_string(kMaxTerrainSplatMaps) + " (8 layers)",
                     "Keep two maps at most; paint fewer layers.");
         for (std::size_t i = 0; i < t.splatMaps.size(); ++i)
             if (!t.splatMaps[i].is_string() || t.splatMaps[i].get<std::string>().empty())
-                problem(out, true, "/splatMaps/" + std::to_string(i), "Terrain.splatMaps[" + std::to_string(i) + "] must be an image path, got " + describe_json_value(t.splatMaps[i]),
+                problem(out, true, "/splatMaps/" + std::to_string(i),
+                        "Terrain.splatMaps[" + std::to_string(i) + "] must be an image path, got " +
+                            describe_json_value(t.splatMaps[i]),
                         "Write a project-relative RGBA PNG, for example \"terrain/splat0.png\".");
     }
     if (!t.layers.is_array()) {
-        problem(out, true, "/layers", "Terrain.layers must be an array of layer objects, got " + describe_json_value(t.layers),
+        problem(out, true, "/layers",
+                "Terrain.layers must be an array of layer objects, got " + describe_json_value(t.layers),
                 "Example: [{\"albedo\": \"terrain/grass.png\", \"tileSize\": 4}].");
     } else {
         if (t.layers.size() > std::size_t(kMaxTerrainLayers))
-            problem(out, true, "/layers", "Terrain.layers has " + std::to_string(t.layers.size()) + " layers, but the most is " + std::to_string(kMaxTerrainLayers),
+            problem(out, true, "/layers",
+                    "Terrain.layers has " + std::to_string(t.layers.size()) + " layers, but the most is " +
+                        std::to_string(kMaxTerrainLayers),
                     "Merge layers: a terrain paints up to 8, 4 per splat map.");
         const std::vector<std::string> known = {"albedo", "normal", "tileSize", "roughness", "metallic", "normalScale"};
         for (std::size_t i = 0; i < t.layers.size(); ++i) {
@@ -280,7 +337,9 @@ std::vector<WorldProblem> terrain_problems(const Terrain3D& t) {
             check_path(out, l, "albedo", at, true, what, "\"terrain/grass.png\"");
             check_path(out, l, "normal", at, false, what, "\"terrain/grass_n.png\"");
             if (l.contains("tileSize") && l["tileSize"].is_number() && !(l["tileSize"].get<double>() > 0.0))
-                problem(out, true, at + "/tileSize", what + " \"tileSize\" is " + num(l["tileSize"].get<double>()) + ", but it is the metres one repeat of the textures covers and must be above 0",
+                problem(out, true, at + "/tileSize",
+                        what + " \"tileSize\" is " + num(l["tileSize"].get<double>()) +
+                            ", but it is the metres one repeat of the textures covers and must be above 0",
                         "Write for example \"tileSize\": 4 (a texture repeat every 4 metres).");
             else
                 check_number(out, l, "tileSize", at, 0.01, 100000.0, what);
@@ -290,26 +349,51 @@ std::vector<WorldProblem> terrain_problems(const Terrain3D& t) {
             unknown_keys(out, l, at, known, what);
         }
         if (t.splatMaps.is_array() && !t.splatMaps.empty() && t.layers.size() > 4 * t.splatMaps.size())
-            problem(out, false, "/layers", "Terrain.layers has " + std::to_string(t.layers.size()) + " layers but " + std::to_string(t.splatMaps.size()) +
-                        " splat map(s) weight only " + std::to_string(4 * t.splatMaps.size()) + ", so the last layers are never painted",
+            problem(out, false, "/layers",
+                    "Terrain.layers has " + std::to_string(t.layers.size()) + " layers but " +
+                        std::to_string(t.splatMaps.size()) + " splat map(s) weight only " +
+                        std::to_string(4 * t.splatMaps.size()) + ", so the last layers are never painted",
                     "Add a second splat map to Terrain.splatMaps, or remove the extra layers.");
         if (t.splatMaps.is_array() && !t.splatMaps.empty() && t.layers.empty())
-            problem(out, false, "/splatMaps", "Terrain.splatMaps is set but layers is empty, so the splat maps weight nothing",
-                    "Add the layers the map channels paint: layers[0] is the red channel of the first map, layers[1] the green.");
+            problem(out, false, "/splatMaps",
+                    "Terrain.splatMaps is set but layers is empty, so the splat maps weight nothing",
+                    "Add the layers the map channels paint: layers[0] is the red channel of the first map, layers[1] "
+                    "the green.");
     }
     return out;
 }
 
 std::vector<WorldProblem> foliage_problems(const Foliage& f) {
     std::vector<WorldProblem> out;
-    if (f.mesh.empty())
-        problem(out, true, "/mesh", "Foliage.mesh is empty, so there is nothing to draw at the instances",
-                "Set mesh to a primitive (\"cube\") or a model path such as \"assets/models/grass.glb\".");
+    if (!f.meshes.is_array()) {
+        problem(out, true, "/meshes",
+                "Foliage.meshes must be an array of mesh paths, got " + describe_json_value(f.meshes),
+                "Example: [\"assets/models/grass.glb\", \"assets/models/flower.glb\"].");
+    } else {
+        if (f.meshes.empty())
+            problem(out, true, "/meshes", "Foliage.meshes is empty, so there is nothing to draw at the instances",
+                    "List a primitive (\"cube\") or a model path such as \"assets/models/grass.glb\".");
+        if (f.meshes.size() > std::size_t(kMaxScatterMeshes))
+            problem(out, true, "/meshes",
+                    "Foliage.meshes has " + std::to_string(f.meshes.size()) + " meshes, but the most is " +
+                        std::to_string(kMaxScatterMeshes),
+                    "Keep the 16 that matter, or use two Foliage entities.");
+        for (std::size_t i = 0; i < f.meshes.size(); ++i)
+            if (!f.meshes[i].is_string() || f.meshes[i].get<std::string>().empty())
+                problem(out, true, "/meshes/" + std::to_string(i),
+                        "Foliage.meshes[" + std::to_string(i) + "] must be a mesh path, got " +
+                            describe_json_value(f.meshes[i]),
+                        "Write a primitive name (\"cube\") or a model path such as \"assets/models/grass.glb\".");
+    }
     if (!(f.fadeEnd > f.fadeStart))
-        problem(out, true, "/fadeEnd", "Foliage.fadeEnd is " + num(f.fadeEnd) + ", not above fadeStart (" + num(f.fadeStart) + ")",
-                "Instances fade out between fadeStart and fadeEnd metres, so fadeEnd is the larger, for example 80 and 100.");
+        problem(out, true, "/fadeEnd",
+                "Foliage.fadeEnd is " + num(f.fadeEnd) + ", not above fadeStart (" + num(f.fadeStart) + ")",
+                "Instances fade out between fadeStart and fadeEnd metres, so fadeEnd is the larger, for example 80 and "
+                "100.");
     if (f.lodDistance > f.fadeEnd)
-        problem(out, false, "/lodDistance", "Foliage.lodDistance " + num(f.lodDistance) + " is beyond fadeEnd (" + num(f.fadeEnd) + "), where the instances are no longer drawn, so the next LOD is never used",
+        problem(out, false, "/lodDistance",
+                "Foliage.lodDistance " + num(f.lodDistance) + " is beyond fadeEnd (" + num(f.fadeEnd) +
+                    "), where the instances are no longer drawn, so the next LOD is never used",
                 "Make lodDistance smaller than fadeEnd.");
     return out;
 }
@@ -318,25 +402,32 @@ std::vector<WorldProblem> scatter_rule_problems(const ScatterRule& r) {
     std::vector<WorldProblem> out;
     if (!r.meshes.is_array()) {
         problem(out, true, "/meshes", "ScatterRule.meshes must be an array, got " + describe_json_value(r.meshes),
-                "Example: [{\"mesh\": \"assets/models/pine.glb\", \"weight\": 3}, {\"mesh\": \"assets/models/bush.glb\"}].");
+                "Example: [{\"mesh\": \"assets/models/pine.glb\", \"weight\": 3}, {\"mesh\": "
+                "\"assets/models/bush.glb\"}].");
     } else {
         if (r.meshes.empty())
             problem(out, false, "/meshes", "ScatterRule.meshes is empty, so foliage.scatter has nothing to place",
                     "Add at least one {\"mesh\": path, \"weight\": 1}.");
         if (r.meshes.size() > std::size_t(kMaxScatterMeshes))
-            problem(out, true, "/meshes", "ScatterRule.meshes has " + std::to_string(r.meshes.size()) + " entries, but the most is " + std::to_string(kMaxScatterMeshes),
+            problem(out, true, "/meshes",
+                    "ScatterRule.meshes has " + std::to_string(r.meshes.size()) + " entries, but the most is " +
+                        std::to_string(kMaxScatterMeshes),
                     "Keep the 16 that matter, or use two ScatterRule entities.");
         const std::vector<std::string> known = {"mesh", "weight"};
         for (std::size_t i = 0; i < r.meshes.size(); ++i) {
             const Json& m = r.meshes[i];
-            const std::string at = "/meshes/" + std::to_string(i), what = "ScatterRule.meshes[" + std::to_string(i) + "]";
+            const std::string at = "/meshes/" + std::to_string(i),
+                              what = "ScatterRule.meshes[" + std::to_string(i) + "]";
             if (!m.is_object()) {
-                problem(out, true, at, what + " must be an object, got " + describe_json_value(m), "Write {\"mesh\": \"assets/models/pine.glb\", \"weight\": 1}.");
+                problem(out, true, at, what + " must be an object, got " + describe_json_value(m),
+                        "Write {\"mesh\": \"assets/models/pine.glb\", \"weight\": 1}.");
                 continue;
             }
             check_path(out, m, "mesh", at, true, what, "\"assets/models/pine.glb\"");
             if (m.contains("weight") && m["weight"].is_number() && !(m["weight"].get<double>() > 0.0))
-                problem(out, true, at + "/weight", what + " \"weight\" is " + num(m["weight"].get<double>()) + ", but a weight is the relative chance of the mesh and must be above 0",
+                problem(out, true, at + "/weight",
+                        what + " \"weight\" is " + num(m["weight"].get<double>()) +
+                            ", but a weight is the relative chance of the mesh and must be above 0",
                         "Write \"weight\": 1, or remove the entry to never use that mesh.");
             else
                 check_number(out, m, "weight", at, 0.0, 1000000.0, what);
@@ -347,7 +438,8 @@ std::vector<WorldProblem> scatter_rule_problems(const ScatterRule& r) {
     check_ordered_pair(out, r.heightRange, "heightRange", "ScatterRule");
     check_ordered_pair(out, r.scaleRange, "scaleRange", "ScatterRule");
     if (!(r.scaleRange.x > 0.0f))
-        problem(out, true, "/scaleRange", "ScatterRule.scaleRange starts at " + num(r.scaleRange.x) + ", but a scale must be above 0",
+        problem(out, true, "/scaleRange",
+                "ScatterRule.scaleRange starts at " + num(r.scaleRange.x) + ", but a scale must be above 0",
                 "Write [min, max] above 0, for example [0.8, 1.2].");
     return out;
 }
@@ -360,14 +452,18 @@ void register_world_components(TypeRegistry& r) {
          "entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from "
          "thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn "
          "as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The "
-         "units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, \"Levels of detail\"); the "
+         "units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, \"Levels of "
+         "detail\"); the "
          "fields are saved and checked today.",
          "3D")
-        .enum_field("mode", &LodGroup::mode, {"distance", "screenSize"},
-                    "What thresholds and hlodThreshold measure. distance (default): metres between the camera and the "
-                    "entity's origin. screenSize: the fraction 0..1 of the screen's height that the group's bounding "
-                    "sphere covers (1 = it fills the screen); it does not depend on the field of view or on the size "
-                    "of the object.")
+        .enum_field(
+            "mode", &LodGroup::mode, {"distance", "screenSize"},
+            "What thresholds and hlodThreshold measure. distance (default): metres between the camera and the "
+            "entity's origin. screenSize: the diameter of the world-space bounding sphere of the whole group "
+            "(every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in "
+            "perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is "
+            "a fraction, so a threshold means the same at every resolution; it does change with the field of "
+            "view, the zoom and the size of the object.")
         .field("thresholds", &LodGroup::thresholds,
                "One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode "
                "distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions "
@@ -458,8 +554,10 @@ void register_world_components(TypeRegistry& r) {
          "\"Streaming\").",
          "World")
         .field("loadRadius", &StreamingAnchor::loadRadius,
-               "Metres: a cell whose bounds are nearer than this to the anchor (on the ground plane, x and z) is "
-               "loaded. 1..1000000. Default 256.")
+               "Metres: a cell whose bounds are nearer than this to the anchor is loaded. Measured on the plane of the "
+               "streamed world: x and z for a world index whose dimension is \"3d\", x and y for \"2d\". Distances use "
+               "absolute positions (the floating origin plus the local position), so a rebase of the floating origin "
+               "never changes what is loaded. 1..1000000. Default 256.")
         .range(1, 1000000)
         .field("unloadRadius", &StreamingAnchor::unloadRadius,
                "Metres: a loaded cell whose bounds are farther than this from every anchor is unloaded. Must be above "
@@ -518,8 +616,10 @@ void register_world_components(TypeRegistry& r) {
          "3D")
         .asset_field("heightmap", &Terrain3D::heightmap, "any",
                      "Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the "
-                     "lowest sample, white (65535) is heightScale metres higher. \"\" (default) = a flat terrain at "
-                     "heightOffset.")
+                     "lowest sample, white (65535) is heightScale metres higher. A .r16 file is square: its side is "
+                     "sqrt(bytes / 2) samples (1025 x 1025 is 2 101 250 bytes). The heightmap's resolution and `size` "
+                     "are independent: a 1025-sample map over 2048 m gives a sample every 2 m, stretched over `size`. "
+                     "\"\" (default) = a flat terrain at heightOffset.")
         .field("size", &Terrain3D::size,
                "[x, z] metres the heightmap covers, centred on the entity, before Transform.scale; each above 0 and "
                "at most 100000. Default [512, 512].")
@@ -540,7 +640,9 @@ void register_world_components(TypeRegistry& r) {
                "\"terrain/grass_n.png\", \"tileSize\": 4, \"roughness\": 0.9, \"metallic\": 0, \"normalScale\": 1}. "
                "`albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of "
                "the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); "
-               "normalScale 0..4 (default 1). [] (default) = a plain grey terrain.")
+               "normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all "
+               "the normal textures: the layers are packed into texture arrays (8 layers of separate textures would "
+               "need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain.")
         .asset_field("holes", &Terrain3D::holes, "texture",
                      "Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the "
                      "terrain is cut open (no surface, no collider): a cave mouth, a well. \"\" (default) = no holes.")
@@ -555,17 +657,22 @@ void register_world_components(TypeRegistry& r) {
 
     r.add<Foliage>(
          "Foliage",
-         "Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of "
-         "positions, rotations and scales, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` "
-         "write the file, `foliage.clear` empties it. One entity holds one mesh: use several for several kinds. No "
+         "Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of "
+         "positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and "
+         "`foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every "
+         "instance picks one by index): use several entities for kinds that need different settings (wind, fade). No "
          "effect yet: M75.6 draws it (docs/BIG_WORLDS.md, \"Foliage\"); the fields are saved and checked today.",
          "3D")
-        .asset_field("mesh", &Foliage::mesh, "mesh",
-                     "The mesh drawn at every instance: a primitive name or a model path (its LODs are used). Default "
-                     "\"cube\".")
-        .asset_field("instances", &Foliage::instances, "any",
-                     "Project-relative data file with the instances; `foliage.paint` and `foliage.scatter` create and "
-                     "write it. \"\" (default) = no instances, nothing drawn.")
+        .field("meshes", &Foliage::meshes,
+               "Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): "
+               "[\"assets/models/grass.glb\", \"assets/models/flower.glb\"]. The instances file stores, for every "
+               "instance, the index of its mesh in this array, so reordering the array changes which mesh each "
+               "instance shows. The binary format of the file is defined by the foliage package (M75.6, P6a). "
+               "`foliage.scatter` writes all the meshes of its rule here. Default [\"cube\"].")
+        .asset_field(
+            "instances", &Foliage::instances, "any",
+            "Project-relative data file with the instances (position, rotation, scale and mesh index of each); "
+            "`foliage.paint` and `foliage.scatter` create and write it. \"\" (default) = no instances, nothing drawn.")
         .field("density", &Foliage::density,
                "0..1: the share of the instances that are drawn, thinned out evenly (a quality setting: 0.5 draws "
                "every second instance). Default 1.")
@@ -627,7 +734,8 @@ void register_world_components(TypeRegistry& r) {
                "Bit mask of the Terrain.layers the ground must be painted with for an instance to grow (bit 0 = layer "
                "0 ... bit 7 = layer 7); -1 (default) = anywhere. -1..255.")
         .range(-1, 255)
-        .field("seed", &ScatterRule::seed, "The random seed: the same rule and seed give the same instances. Default 1.")
+        .field("seed", &ScatterRule::seed,
+               "The random seed: the same rule and seed give the same instances. Default 1.")
         .field("terrain", &ScatterRule::terrain,
                "The entity with the Terrain to scatter on. Empty (default) = this entity's Terrain, or its parent's.");
 }

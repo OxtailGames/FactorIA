@@ -53,8 +53,7 @@ Image make_normal_map(const Image& src, const std::string& from, double strength
     if (from == "height") {
         std::vector<double> hf(std::size_t(src.width) * std::size_t(src.height));
         for (std::size_t i = 0; i < hf.size(); ++i) {
-            const std::uint8_t* px = &src.rgba[i * 4];
-            hf[i] = (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255.0;  // luminance01 of the engine's kernel
+            hf[i] = luminance01(&src.rgba[i * 4]);
         }
         return normal_map_from_height(hf, src.width, src.height, tile, strength);
     }
