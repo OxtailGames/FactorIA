@@ -367,8 +367,21 @@ void World::clear() {
     particles_->clear();
     terrain_->clear();
     warnedSpriteClips_.clear();
+    const DVec3 oldOrigin = origin_;
     origin_ = DVec3{};
     rebaseCount_ = 0;
+    // After everything is cleared: an observer that reads the world finds it empty, not half-cleared.
+    if (oldOrigin.x != 0.0 || oldOrigin.y != 0.0 || oldOrigin.z != 0.0) {
+        const DVec3 change = DVec3{} - oldOrigin;
+        for (const auto& [id, cb] : originObservers_) cb(change);
+    }
+}
+
+void World::set_origin(const DVec3& origin) {
+    const DVec3 change = origin - origin_;
+    origin_ = origin;
+    if (change.x != 0.0 || change.y != 0.0 || change.z != 0.0)
+        for (const auto& [id, cb] : originObservers_) cb(change);
 }
 
 bool World::active_in_hierarchy(Entity e) const { return alive(e) && impl_->active_cached(e); }

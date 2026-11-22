@@ -237,4 +237,8 @@ TEST_CASE("foliage lod name: <name>.lod1.<ext> for a model, nothing for a primit
     CHECK(foliage_lod_name("cube").empty());
     CHECK(foliage_lod_name("mesh:3").empty());
     CHECK(foliage_lod_name("assets/grass.lod1.glb").empty());
+    // the extension in any case: the level is the file the bake writes, with a lower-case extension
+    CHECK(foliage_lod_name("assets/Grass.GLB") == "assets/Grass.lod1.glb");
+    CHECK(foliage_lod_name("Tree.GlTf") == "Tree.lod1.gltf");
+    CHECK(foliage_lod_name("assets/grass.LOD1.GLB").empty());
 }

@@ -29,6 +29,7 @@ struct PortalAreaBox {
     std::uint64_t entity = 0;  // tie-break of equal volumes
     Mat4 inv;                  // model.inverse(), made once by make_portal_area
     bool valid = true;         // false: a degenerate (zero scale) box that holds nothing
+    Vec3 wmin, wmax;           // the world bounds of the oriented box (a cheap reject before the exact test of a mesh)
 };
 
 PortalAreaBox make_portal_area(std::int32_t id, const Mat4& model, Vec3 size, std::uint64_t entity);
@@ -60,7 +61,7 @@ std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& a
 
 // Whether a mesh (its model matrix and model-space bounds) is drawn when the walk reached `reached` (sorted ids). The mesh belongs to
 // EVERY area whose box its world bounds touch, and also to area 0 unless its bounds lie wholly inside one area box; it is hidden only
-// when none of its areas was reached. No allocation.
+// when none of its areas was reached. No allocation; an area whose world bounds the mesh's do not touch is rejected before the exact test.
 bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached,
                       const Mat4& model, Vec3 bmin, Vec3 bmax);
 

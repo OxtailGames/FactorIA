@@ -20,11 +20,11 @@ constexpr std::int64_t kBadAreaId = std::numeric_limits<std::int64_t>::min();
 constexpr std::int64_t kSameArea = std::numeric_limits<std::int64_t>::min() + 1;
 }  // namespace
 
-void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes) {
+void Renderer::Impl::gather_portal_boxes(World& world, Entity scopeRoot, PortalGather& g) {
     using namespace render;
-    std::vector<PortalAreaBox> areas;
+    std::vector<PortalAreaBox>& areas = g.areas;
     world.each<OcclusionArea>([&](Entity e, OcclusionArea& a) {
-        if (!entity_active_in_scope(world, fr.scopeRoot, e)) return;
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
         if (a.areaId < 1 || a.areaId > 65535) {
             if (warnedPortalEntities.insert({e.bits(), kBadAreaId}).second)
                 FA_WARN(
@@ -37,21 +37,20 @@ void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<Mes
         }
         areas.push_back(make_portal_area(a.areaId, world.drawn_matrix(e), a.size, e.bits()));
     });
-    if (areas.empty()) return;  // every area is off or invalid: nothing is culled, nothing is counted
-    std::vector<std::string> ids;
+    if (areas.empty()) return;
     {
         std::vector<std::int32_t> sorted;
         for (const PortalAreaBox& a : areas) sorted.push_back(a.id);
         std::sort(sorted.begin(), sorted.end());
         sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
-        for (std::int32_t id : sorted) ids.push_back(std::to_string(id));
+        for (std::int32_t id : sorted) g.ids.push_back(std::to_string(id));
     }
+    const std::vector<std::string>& ids = g.ids;
     auto exists = [&](std::int32_t id) {
         return id == 0 || std::any_of(areas.begin(), areas.end(), [&](const PortalAreaBox& a) { return a.id == id; });
     };
-    std::vector<PortalBox> portals;
     world.each<OcclusionPortal>([&](Entity e, OcclusionPortal& p) {
-        if (!entity_active_in_scope(world, fr.scopeRoot, e)) return;
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
         bool bad = false;
         for (const std::int32_t id : {p.areaA, p.areaB}) {
             if (exists(id)) continue;
@@ -73,9 +72,27 @@ void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<Mes
             bad = true;
         }
         if (bad) return;
-        portals.push_back(make_portal_box(p.areaA, p.areaB, world.drawn_matrix(e), p.size, p.open, e.bits()));
+        g.portals.push_back(make_portal_box(p.areaA, p.areaB, world.drawn_matrix(e), p.size, p.open, e.bits()));
     });
+}
 
+void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes) {
+    using namespace render;
+    // The boxes are the world's, not the camera's: gathered by the first camera of the frame and kept for the others (render() and the
+    // captures drop them). The warnings below are said when they are gathered, once per entity.
+    PortalGather& g = portalGather;
+    if (!g.valid || g.world != &world || g.scope != fr.scopeRoot.bits()) {
+        g.valid = true;
+        g.world = &world;
+        g.scope = fr.scopeRoot.bits();
+        g.areas.clear();
+        g.portals.clear();
+        g.ids.clear();
+        gather_portal_boxes(world, fr.scopeRoot, g);
+    }
+    const std::vector<PortalAreaBox>& areas = g.areas;
+    const std::vector<PortalBox>& portals = g.portals;
+    if (areas.empty()) return;  // every area is off or invalid: nothing is culled, nothing is counted
     const PortalWalk walk = portal_walk(portals, fr.cam.viewProj, portal_start_areas(areas, portals, fr.cam.position));
     stats.portalsVisited += walk.portalsVisited;
     if (walk.capped) return;  // the walk was cut short: draw everything rather than hide what may be seen

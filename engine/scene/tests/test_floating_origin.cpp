@@ -116,6 +116,32 @@ TEST_CASE("floating origin: the observers are called once per rebase with the of
     CHECK(calls == 1);
 }
 
+TEST_CASE(
+    "floating origin: set_origin and clear tell the observers how the origin changed, so what they keep follows it") {
+    ensure_builtin_components();
+    World w;
+    int calls = 0;
+    DVec3 total{};  // what an observer that keeps a point in world space would add up
+    w.on_origin_shifted([&](const DVec3& o) {
+        ++calls;
+        total = total + o;
+    });
+    w.set_origin({1024, 0, -2048});  // a scene load that carries an origin
+    CHECK(calls == 1);
+    CHECK(total == DVec3{1024, 0, -2048});
+    CHECK(w.origin() == DVec3{1024, 0, -2048});
+    w.set_origin({1024, 0, -2048});  // the same origin: nothing changed, nobody is told
+    CHECK(calls == 1);
+    w.rebase({0, 0, 512});
+    CHECK(calls == 2);
+    w.clear();  // the origin goes back to zero: observers get the change that undoes all of it
+    CHECK(calls == 3);
+    CHECK(total == DVec3{0, 0, 0});
+    CHECK(w.origin() == DVec3{0, 0, 0});
+    w.clear();  // already at zero: no call
+    CHECK(calls == 3);
+}
+
 TEST_CASE("floating origin: the interpolation records shift with the transform (no jump at the next frame)") {
     ensure_builtin_components();
     World w;

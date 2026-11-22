@@ -571,7 +571,14 @@ void register_builtin_components(TypeRegistry& r) {
                "with "
                "render-target pages so it does not also see the pages' own content: hideTags [\"page_left\", "
                "\"page_right\"]. "
-               "A tag in both showTags and hideTags is an error for `factoria validate`.");
+               "A tag in both showTags and hideTags is an error for `factoria validate`.")
+        .field("areaCulling", &Camera::areaCulling,
+               "Whether this camera is culled by the OcclusionArea / OcclusionPortal rooms (default true): with true a "
+               "mesh in a room is drawn only when a chain of open portals the camera sees leads to it from the "
+               "camera's own area. A camera that is not inside the building (outside every area, the area 0) draws "
+               "none of its rooms, which is wrong for a minimap, a top-down overview or a render-target camera that "
+               "shows the interior: set false there and it draws every room in its view (only the frustum, the "
+               "Occluders and the depth pyramid cull it). No effect when the scene has no enabled OcclusionArea.");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",

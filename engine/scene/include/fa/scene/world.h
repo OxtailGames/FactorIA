@@ -390,7 +390,10 @@ public:
     // network snapshots store absolute positions or the origin next to the locals. Set by a scene load and by rebase(); clear()
     // puts it back to (0, 0, 0).
     const DVec3& origin() const { return origin_; }
-    void set_origin(const DVec3& origin) { origin_ = origin; }
+    // Sets the origin without moving anything (a scene load: the entities it creates carry the locals of the file). The origin
+    // observers are called with the change (origin - the old origin) when it is not zero, as for a rebase: what an observer keeps in
+    // world space stays where it is in absolute space. clear() does the same when it puts the origin back to (0, 0, 0).
+    void set_origin(const DVec3& origin);
     // How many times rebase() moved the origin since the scene was loaded (clear() resets it).
     std::uint64_t rebase_count() const { return rebaseCount_; }
     // origin() + world_position(e), added in double: exact to about a micrometre at 10 000 km. (0, 0, 0) for a dead entity's local part.
@@ -409,7 +412,7 @@ public:
     // every axis (a power of two: the shift of a position that is far from 0 is then exact in float and the origin, a sum of
     // multiples, stays exact in double and reversible); rebase itself accepts any finite offset.
     void rebase(Vec3 offset);
-    // Called by rebase() after the world shifted, with the offset. The renderer registers one to shift what it keeps in world space
+    // Called by rebase() after the world shifted, with the offset (and by set_origin() / clear() with the change of the origin). The renderer registers one to shift what it keeps in world space
     // (motion-vector history, shadow snapping, probes...). Returns an id for remove_origin_observer.
     using OriginCallback = std::function<void(const DVec3& offset)>;
     int on_origin_shifted(OriginCallback cb);

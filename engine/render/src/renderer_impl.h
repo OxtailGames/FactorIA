@@ -30,6 +30,7 @@
 #include "bloom.h"
 #include "decal_atlas.h"
 #include "light_clusters.h"
+#include "portal_graph.h"
 #include "renderer_env.h"
 #include "renderer_lod.h"
 #include "renderer_foliage.h"
@@ -197,6 +198,7 @@ struct Renderer::Impl {
     int originObserver = 0;          // World::on_origin_shifted's id
     std::uint64_t originShifts = 0;  // rebases followed since the renderer was made (RendererTestAccess)
     void watch_world(World& world);
+    void watch_world_if_free(World& world);  // captures: watches `world` only when no other live world is watched
     void unwatch_world();
     void origin_shifted(World& world, const DVec3& offset);
     bool fogMissingWarned = false;  // one warning when a planned fog could not be drawn
@@ -288,6 +290,17 @@ struct Renderer::Impl {
     // M75.2, areas and portals (renderer_portals.cpp): (entity, what) pairs already warned about (what: an unknown areaId, or a code).
     std::set<std::pair<std::uint64_t, std::int64_t>> warnedPortalEntities;
     void portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes);
+    // The OcclusionArea and OcclusionPortal boxes of the frame, gathered once and shared by its cameras (the same world, the same
+    // scope subtree); render() and every capture drop it, since the world may have changed between them.
+    struct PortalGather {
+        bool valid = false;
+        const World* world = nullptr;
+        std::uint64_t scope = 0;
+        std::vector<render::PortalAreaBox> areas;
+        std::vector<render::PortalBox> portals;
+        std::vector<std::string> ids;  // the distinct area ids as text, for the did-you-mean
+    } portalGather;
+    void gather_portal_boxes(World& world, Entity scopeRoot, PortalGather& into);
     void occlusion_overlay();
     // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
     // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
@@ -354,7 +367,10 @@ struct Renderer::Impl {
     static render::HizPose hiz_pose_of(const CameraInfo& cam);
     // gather_meshes: the camera's meshes tested against its pyramid. Returns the camera's HizCamera (null when the camera is not culled
     // this way: past the cap, so the Occluders cull it).
-    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
+    // `viewJob`: the camera draws into a view's image (a capture), so its pyramid is kept under a key of its own, apart from the game
+    // camera of the same entity (and from the camera of another world with the same index).
+    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes, bool viewJob);
+    void hiz_forget_views();  // drops the pyramids of view jobs (the end of a capture)
     // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
     void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
     void hiz_overlay();
