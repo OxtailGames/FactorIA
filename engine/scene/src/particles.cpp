@@ -918,6 +918,13 @@ void ParticleSim::spawn(const ParticleEmitter& em, const ParticleEnv& env, int c
     for (int i = 0; i < count && can_spawn(0); ++i) spawn_one(0, place, extra, false);
 }
 
+void ParticleSim::shift(Vec3 offset) {
+    for (Particle& p : particles) p.pos -= offset;
+    for (ParticleTrailPoint& t : trailPool_) t.pos -= offset;
+    for (ParticleTrailPoint& t : emitterTrail) t.pos -= offset;
+    lastPos_ -= offset;  // (emitterVel_ is a difference of two positions: it stays)
+}
+
 void ParticleSim::flush(const ParticleEmitter& em, const ParticleEnv& env) {
     if (pendingBurst_ <= 0) return;
     const int n = pendingBurst_;

@@ -1,6 +1,7 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -1032,7 +1033,7 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
         loader.warn("/format", "Missing \"format\"",
                     std::string("Add \"format\": \"") + kSceneFormat + "\" as the first key.");
     }
-    static const std::vector<std::string> topKeys = {"format", "settings", "entities"};
+    static const std::vector<std::string> topKeys = {"format", "origin", "settings", "entities"};
     for (auto it = scene.begin(); it != scene.end(); ++it) {
         const std::string& k = it.key();
         if (std::find(topKeys.begin(), topKeys.end(), k) != topKeys.end()) continue;
@@ -1041,6 +1042,20 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
     }
 
     if (!opts.additive) world.clear();
+
+    // The floating origin the positions below are relative to (written only when a rebase moved it). An additive load adds entities
+    // at their local positions to the world it is in and keeps that world's origin.
+    if (scene.contains("origin") && !opts.additive) {
+        const Json& o = scene["origin"];
+        if (!o.is_array() || o.size() != 3 || !o[0].is_number() || !o[1].is_number() || !o[2].is_number() ||
+            !std::isfinite(o[0].get<double>()) || !std::isfinite(o[1].get<double>()) || !std::isfinite(o[2].get<double>())) {
+            loader.error("/origin", "'origin' must be an array of three finite numbers [x, y, z], got " + describe_json_value(o),
+                         "It is the world position of the scene's local (0, 0, 0) in metres, for example [20480, 0, -4096]. "
+                         "Leave it out (it is 0) unless the floating origin moved.");
+        } else {
+            world.set_origin({o[0].get<double>(), o[1].get<double>(), o[2].get<double>()});
+        }
+    }
 
     if (scene.contains("settings") && !opts.additive) {
         const Json& s = scene["settings"];
@@ -1140,6 +1155,9 @@ Json save_scene(const World& world, const SaveSceneOptions& options) {
     if (!pose.empty()) eo.poseRest = &pose;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
+    // The positions below are relative to the floating origin: written (as doubles) only when a rebase moved it, so every scene that
+    // never had one is saved as before.
+    if (const DVec3& o = world.origin(); o.x != 0.0 || o.y != 0.0 || o.z != 0.0) scene["origin"] = Json::array({o.x, o.y, o.z});
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) {
@@ -1330,6 +1348,12 @@ Json scene_json_schema() {
         {"$schema", Json::object({{"type", "string"}})},
         {"name", Json::object({{"type", "string"}})},
         {"format", Json::object({{"const", kSceneFormat}})},
+        {"origin", Json::object({{"type", "array"},
+                                 {"items", Json::object({{"type", "number"}})},
+                                 {"minItems", 3},
+                                 {"maxItems", 3},
+                                 {"description", "Floating origin: the world position (metres, doubles) of the scene's local (0, 0, 0), "
+                                                 "written only when a rebase moved it (default [0, 0, 0])."}})},
         {"settings", Json::object({{"$ref", "#/$defs/SceneSettings"}})},
         {"entities", Json::object({{"type", "array"}, {"items", Json::object({{"$ref", "#/$defs/Entity"}})}})},
     });

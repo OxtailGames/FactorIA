@@ -307,6 +307,11 @@ public:
     void reset();  // drop all bodies (scene change)
 
     void step(World& world, float dt);
+    // The world's origin moved by `offset` (World::rebase already shifted the Transforms): moves what the physics keeps in world
+    // space by -offset in the same step, with no body woken or rebuilt: 3D bodies, contacts' warm start, joints to the world, the
+    // broad phase tree and the navigation grids; Box2D bodies, tilemap bodies and the static ground. Velocities, forces, sleeping
+    // state and the pairs touching are untouched, so a body that falls across a rebase behaves as if nothing happened.
+    void origin_shifted(World& world, Vec3 offset);
     // Create/update/destroy bodies to match the components WITHOUT simulating. step() does this itself;
     // the engine also calls it after scene loads and before scripts' fixed update so freshly spawned
     // entities can be ray-cast / queried in the same frame.

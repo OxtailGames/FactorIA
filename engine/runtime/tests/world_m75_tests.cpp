@@ -106,7 +106,7 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
     CHECK(r.error().message.find("/world") != std::string::npos);
 }
 
-TEST_CASE("world.* runtime commands: registered, documented, and fail with not_built naming their package") {
+TEST_CASE("world.* streaming commands: registered, documented, and fail with not_built naming their package") {
     TempProject p(project_with(""));
     EngineConfig c;
     c.projectDir = p.dir.generic_string();
@@ -121,9 +121,7 @@ TEST_CASE("world.* runtime commands: registered, documented, and fail with not_b
         const char* package;
         bool readOnly;
     };
-    const Row rows[] = {{"world.origin", "M75.4", true},
-                        {"world.rebase", "M75.4", false},
-                        {"world.cells", "M75.3", true},
+    const Row rows[] = {{"world.cells", "M75.3", true},
                         {"world.stream_status", "M75.3", true}};
     for (const Row& row : rows) {
         INFO(row.name);
