@@ -157,10 +157,23 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
     std::uint32_t slots = 0;
     for (const SceneMesh& sm : meshes_) slots = std::max(slots, sm.entity.index + 1);
     meshOf_.assign(slots, kNoMesh);
-    for (std::size_t i = 0; i < meshes_.size(); ++i) meshOf_[meshes_[i].entity.index] = std::uint32_t(i);
+    proxyOf_.assign(slots, kNoMesh);
+    std::vector<std::uint32_t> proxies;  // indices in meshes_ of the HLOD proxy meshes, in the order of the groups
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        if (meshes_[i].hlodProxy) {
+            proxyOf_[meshes_[i].entity.index] = std::uint32_t(i);
+            proxies.push_back(std::uint32_t(i));
+        } else {
+            meshOf_[meshes_[i].entity.index] = std::uint32_t(i);
+        }
+    }
     const auto mesh_of = [&](Entity x) {
         if (x.index >= meshOf_.size() || meshOf_[x.index] == kNoMesh) return kNoMesh;
         return meshes_[meshOf_[x.index]].entity == x ? meshOf_[x.index] : kNoMesh;
+    };
+    const auto proxy_of = [&](Entity x) {
+        if (x.index >= proxyOf_.size() || proxyOf_[x.index] == kNoMesh) return kNoMesh;
+        return meshes_[proxyOf_[x.index]].entity == x ? proxyOf_[x.index] : kNoMesh;
     };
     world.each<LodGroup>([&](Entity e, LodGroup& g) {
         if (!entity_active_in_scope(world, scopeRoot, e)) return;
@@ -169,6 +182,13 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
         sg.group = &g;
         sg.origin = world.drawn_matrix(e).translation();
     });
+    // The proxy meshes were gathered in the order of the groups (add_hlod_proxies): each belongs to the group of its entity.
+    for (std::size_t gi = 0, p = 0; gi < lodGroups_.size() && p < proxies.size(); ++gi) {
+        if (meshes_[proxies[p]].entity != lodGroups_[gi].entity) continue;
+        meshes_[proxies[p]].hlodGroup = std::uint32_t(gi) + 1;
+        lodGroups_[gi].proxy = true;
+        ++p;
+    }
     std::vector<std::pair<std::uint32_t, std::uint32_t>> links;  // (mesh index, chain entry)
     std::vector<Entity> stack;
     for (std::size_t gi = 0; gi < lodGroups_.size(); ++gi) {
@@ -195,6 +215,10 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
                     }
                     any = true;
                 }
+                // The proxy of a group nested under this child is a mesh of this child too (it goes when the child does); it adds no
+                // bounds (the nested group's own children are in the subtree).
+                if (const std::uint32_t nested = proxy_of(x); nested != kNoMesh)
+                    links.emplace_back(nested, (std::uint32_t(gi) << 4) | child);
                 for (Entity k : world.children(x)) stack.push_back(k);
             }
         }
@@ -214,6 +238,34 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
     }
 }
 
+// The HLOD proxies (M75 P1d): for each active LodGroup with an hlodProxy and an hlodThreshold, one more mesh of the scene, drawn with the group's
+// matrix like any MeshRenderer (so its box, material, lightmap-less lighting, probes and sort key come from the one gather). Whether a camera
+// draws it is decided per frame from the group's pick (hlod_proxy_shown). A proxy that cannot be read is not added, so the group draws its
+// children as before, and says so once. Costs one check per LodGroup without a proxy.
+void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot) {
+    world.each<LodGroup>([&](Entity e, LodGroup& g) {
+        if (g.hlodProxy.empty() || !(g.hlodThreshold > 0.0f)) return;
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
+        const MeshAsset* mesh = assets.mesh(g.hlodProxy);
+        if (!mesh || mesh->placeholder) {
+            if (hlodWarned_.insert(std::to_string(e.bits()) + "|" + g.hlodProxy).second)
+                FA_WARN("render",
+                        "LodGroup.hlodProxy '{}' of entity '{}' cannot be read, so the group draws its children as before. "
+                        "Hint: bake the proxy again (world.bake_hlod) or fix the path; a model is a project-relative .glb.",
+                        g.hlodProxy, world.id_of(e));
+            return;
+        }
+        MeshRenderer& r = hlodRenderers_.emplace_back();
+        r.mesh = g.hlodProxy;
+        r.lodCrossFade = 0.0f;
+        r.lightmapScale = 0.0f;  // no lightmap was baked for it
+        SceneMesh& sm = meshes_.emplace_back();
+        sm.mr = &r;
+        sm.entity = e;
+        sm.hlodProxy = true;
+    });
+}
+
 void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
                         const std::vector<ProbeVolume>* probeVolumes) {
     meshes_.clear();
@@ -231,6 +283,8 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         sm.mr = &mr;
         sm.entity = e;
     });
+    hlodRenderers_.clear();
+    if (world.any<LodGroup>()) add_hlod_proxies(world, assets, scopeRoot);
 
     // The asset lookups stay on this thread (a mesh, texture or material may be loaded), and so do the cache entries (a map
     // that grows); the jobs below only read the assets and write their own items and entries. Every active MeshRenderer is

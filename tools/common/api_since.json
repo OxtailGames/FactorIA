@@ -1715,6 +1715,7 @@
     "vfx.review": "0.17.0",
     "vfx.stop": "0.17.0",
     "world.absolute_position": "unreleased",
+    "world.bake_hlod": "unreleased",
     "world.cells": "unreleased",
     "world.merge_cells": "unreleased",
     "world.origin": "unreleased",

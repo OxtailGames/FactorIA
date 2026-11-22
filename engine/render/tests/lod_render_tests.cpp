@@ -3,6 +3,7 @@
 // shadow casters. The pure selection and the fade state are in engine/scene/tests/lod_tests.cpp; LodFades (no GPU) is tested here too.
 #include "test_util.h"
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 
@@ -321,6 +322,163 @@ TEST_CASE("lod render: a mesh with no lods and a scene with no LodGroup draw as 
     g.renderer.clear_asset_cache();
 }
 
+TEST_CASE("hlod: past hlodThreshold a LodGroup draws its proxy with its own matrix and no child") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube"), sphere = triangles_of("sphere");
+    REQUIRE(cube != sphere);
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity group = make(w, "group", {0, 0, 0});
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "sphere";
+    lg.hlodThreshold = 30.0f;
+    for (int i = 0; i < 3; ++i) {
+        Entity kid = make(w, "kid", {float(i) - 1.0f, 0, 0});
+        w.set_parent(kid, group);
+        w.add<MeshRenderer>(kid).mesh = "cube";
+    }
+    // a group has one child per level, so three children without thresholds draw the first one; the proxy replaces it
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 1);
+    CHECK(g.renderer.stats().triangles == cube);
+    w.get<Transform>(group)->position = {0, 0, -30};  // 40 m away
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 1);
+    CHECK(g.renderer.stats().meshes == 1);
+    CHECK(g.renderer.stats().triangles == sphere);
+    // nearer again: the children come back and the counter goes to 0
+    w.get<Transform>(group)->position = {0, 0, 0};
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().triangles == cube);
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("hlod: the proxy casts the shadow and the children it replaces do not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
+    World w;
+    add_camera(w, {0, 2, 10});
+    Entity sun = make(w, "sun", {0, 5, 0});
+    w.get<Transform>(sun)->rotation = {-40, -35, 0};
+    auto& l = w.add<Light>(sun);
+    l.type = LightType::Directional;
+    l.castShadows = true;
+    Entity group = make(w, "group", {0, 0, 0});
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "sphere";
+    lg.hlodThreshold = 30.0f;
+    for (int i = 0; i < 3; ++i) {
+        Entity kid = make(w, "kid", {float(i) - 1.0f, 0, 0});
+        w.set_parent(kid, group);
+        w.add<MeshRenderer>(kid).mesh = "cube";
+    }
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().shadowCasters == 1);  // the first child
+    w.get<Transform>(group)->position = {0, 0, -30};
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 1);
+    CHECK(g.renderer.stats().shadowCasters == 1);  // the proxy, and no child
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("hlod: crossFade fades the children out and the proxy in, like a LOD switch") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube"), sphere = triangles_of("sphere");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity group = make(w, "group", {0, 0, 0});
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "sphere";
+    lg.hlodThreshold = 30.0f;
+    lg.crossFade = 0.5f;
+    Entity kid = make(w, "kid", {0, 0, 0});
+    w.set_parent(kid, group);
+    w.add<MeshRenderer>(kid).mesh = "cube";
+    const float dt = 0.125f;
+    g.render(w, dt);
+    CHECK(g.renderer.stats().lodCrossFades == 0);
+    w.get<Transform>(group)->position = {0, 0, -30};
+    int fading = 0;
+    for (int i = 0; i < 10; ++i) {
+        g.render(w, dt);
+        const RenderStats& st = g.renderer.stats();
+        if (st.lodCrossFades == 0) break;
+        ++fading;
+        CHECK(st.lodCrossFades == 2);
+        CHECK(st.meshes == 2);
+        CHECK(st.triangles == cube + sphere);
+        CHECK(st.hlodProxies == 1);
+    }
+    CHECK(fading == 3);
+    CHECK(g.renderer.stats().meshes == 1);
+    CHECK(g.renderer.stats().triangles == sphere);
+    CHECK(g.renderer.stats().hlodProxies == 1);
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("hlod: an unreadable proxy draws the children as before, a group without a proxy costs nothing") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity group = make(w, "group", {0, 0, -30});
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "missing/never_baked.glb";
+    lg.hlodThreshold = 30.0f;
+    Entity kid = make(w, "kid", {0, 0, -30});
+    w.set_parent(kid, group);
+    w.add<MeshRenderer>(kid).mesh = "cube";
+    g.render(w);
+    g.render(w);  // the warning is logged once, and the group keeps drawing its child
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 1);
+    CHECK(g.renderer.stats().triangles == cube);
+    // the same scene with no proxy anywhere: the same counts and draws
+    lg.hlodProxy.clear();
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 1);
+    CHECK(g.renderer.stats().triangles == cube);
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("hlod: with no hlodProxy anywhere the draws and counts are those of a group without the field") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const auto run = [&](bool setThresholdOnly) {
+        World w;
+        add_camera(w, {0, 0, 10});
+        Entity group = make(w, "group", {0, 0, -40});
+        auto& lg = w.add<LodGroup>(group);
+        lg.thresholds.push_back(30.0f);
+        if (setThresholdOnly) lg.hlodThreshold = 20.0f;  // a threshold without a proxy does nothing
+        Entity a = make(w, "a", {0, 0, -40}), b = make(w, "b", {0, 0, -40});
+        w.set_parent(a, group);
+        w.set_parent(b, group);
+        w.add<MeshRenderer>(a).mesh = "cube";
+        w.add<MeshRenderer>(b).mesh = "sphere";
+        g.render(w);
+        const RenderStats& st = g.renderer.stats();
+        return std::array<int, 5>{int(st.meshes), int(st.triangles), int(st.drawCalls), int(st.shadowCasters),
+                                  int(st.hlodProxies)};
+    };
+    const auto plain = run(false);
+    const auto withThreshold = run(true);
+    CHECK(plain == withThreshold);
+    CHECK(plain[4] == 0);
+    g.renderer.clear_asset_cache();
+}
+
 // ---- LodFades: no GPU ----
 
 TEST_CASE("lod fades: a new entity starts settled, a change fades per camera, and what nobody asked about is dropped") {
@@ -363,4 +521,23 @@ TEST_CASE("lod fades: the first main camera's picks are what a capture follows")
     f.begin_frame();  // a new frame forgets them
     CHECK_FALSE(f.main_set());
     CHECK(f.main_pick(5, render::LodKind::Mesh) == nullptr);
+}
+
+TEST_CASE("hlod: the proxy is the group's level past every child, fading with the group's own pick") {
+    render::LodPick pick{kHlodLevel, -1, 0.0f};
+    float fade = 7.0f;
+    CHECK(render::hlod_proxy_shown(pick, true, fade));
+    CHECK(fade == 0.0f);
+    pick = render::LodPick{2, -1, 0.0f};  // a child level: the proxy is not drawn
+    CHECK_FALSE(render::hlod_proxy_shown(pick, true, fade));
+    pick = render::LodPick{kHlodLevel, 2, 0.25f};  // fading in from the children
+    CHECK(render::hlod_proxy_shown(pick, true, fade));
+    CHECK(fade == doctest::Approx(0.25f));
+    CHECK(render::hlod_proxy_shown(pick, false, fade));  // a draw with no dither program switches at once
+    CHECK(fade == 0.0f);
+    pick = render::LodPick{1, kHlodLevel, 0.25f};  // fading out towards a child
+    CHECK(render::hlod_proxy_shown(pick, true, fade));
+    CHECK(fade == doctest::Approx(-0.25f));
+    CHECK_FALSE(render::hlod_proxy_shown(pick, false, fade));
+    CHECK(fade == 0.0f);
 }

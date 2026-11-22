@@ -10,7 +10,7 @@ is "off" or "as before".
 
 | Part | Package | What it adds |
 |---|---|---|
-| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup` and dithered cross-fade (drawn); impostors and HLOD (planned) |
+| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup`, dithered cross-fade and the HLOD proxy with `world.bake_hlod` (drawn); impostors (planned) |
 | [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders (CPU) and a depth pyramid of the camera's picture (GPU) built, areas and portals (planned) |
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |

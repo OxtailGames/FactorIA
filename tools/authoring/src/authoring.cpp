@@ -35,6 +35,7 @@ void register_authoring_commands(Engine& engine) {
     register_big_world_commands(engine, impl);      // model.bake_impostor, terrain.*, foliage.*, ...
     register_tilemap_split_commands(engine, impl);  // tilemap.split_cells
     register_world_split_commands(engine, impl);    // world.split_cells, world.merge_cells
+    register_hlod_commands(engine, impl);           // world.bake_hlod
     // levels
     register_ascii_level_commands(engine, impl);
 }

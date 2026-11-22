@@ -52,6 +52,7 @@ Json RenderStats::to_json() const {
                 {"occlusionTests", occlusionTests},
                 {"meshesOccluded", meshesOccluded},
                 {"lodCrossFades", lodCrossFades},
+                {"hlodProxies", hlodProxies},
                 {"impostors", impostors},
                 {"terrainTiles", terrainTiles},
                 {"terrainTriangles", terrainTriangles},

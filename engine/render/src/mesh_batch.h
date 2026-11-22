@@ -51,6 +51,7 @@ struct MeshItem {
     // The LOD cross-fade of the item (M75.1, lod_fade_amount): 0 = none, +a = a level fading in, -a = a level fading out; the shader
     // dithers with it (mesh_common.glsl fa_lod_dither). Items with different values never share a draw; the shadow pass ignores it.
     float lodFade = 0.0f;
+    bool hlod = false;  // the HLOD proxy mesh of a LodGroup (M75 P1d; RenderStats::hlodProxies counts the ones drawn)
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
     // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
