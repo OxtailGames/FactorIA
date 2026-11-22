@@ -372,6 +372,20 @@ files while frames run. The pieces and who owns what:
   prefix of the same order, whose length a recording keeps as `"loadUnits"`). An async scene load whose files are ready
   becomes the frame's pending scene change (`apply_scene_change` at the end of the frame); a scene change asked meanwhile
   cancels it.
+- **`Kind::CellLoad`** (`"cell.load"`, the cells of a streamed world, docs/BIG_WORLDS.md "Streaming"): a job with the same SCAN
+  item (the cell's scene file is read, parsed once and its text and binary files listed and warmed) and the same per-file items,
+  but it never becomes a scene change and has no script handle. Several run at once (the `WorldStreamer` of `runtime`
+  starts them, at most `StreamedWorld.maxLoadsInFlight`); they take items in the loader's usual round robin in start order, within
+  the same budget, so the order does not depend on the speed of the IO thread. When its items are done the job is erased and
+  its result (`Frame::cells`: the parsed JSON, the bytes read, or the error with its hint) goes to `WorldStreamer::apply` on
+  the main thread in the same `tick_background_loads`, which creates the cell's entities (additive `load_scene`, so the world is
+  touched on the main thread only) within `maxAppliesPerFrame`, unloads first. The warm files of a finished cell are held until
+  the streamer has applied it, then given back (`cancel`). `Kind::SceneLoad` behaves as before: a cell job has no pending
+  scene change, no `remember()` entry and no update for scripts. A scene change (`load_scene_impl` and `load_scene_json_impl`)
+  calls `WorldStreamer::reset` BEFORE the new scene is loaded (the old entities are still in the world at that moment: the load's own
+  clear removes them, `reset` destroys nothing and sends no event): every cell job is cancelled and the streamer forgets its cells, so a
+  result that finishes later matches no cell and is dropped, and nothing of the old world reaches the new one; `Engine::shutdown`
+  destroys the streamer before the loader.
 - **Lifetime**: a cancelled job's queued items become orphans the loader frees once the IO thread let go of them; a decode
   still running finishes on its worker and is dropped. `Engine::shutdown` stops the loader (`cancel_all`: the IO thread lets
   go of this engine's files), then waits for its jobs owner (the decodes still running), then destroys the loader; nothing

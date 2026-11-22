@@ -123,6 +123,8 @@ public:
                          bool deferEntities);
     void resolve_pending();
     void defer_missing_refs() { deferMissing_ = true; }
+    // A streamed cell loads under `root`: an entity reference reaches only what the cell holds or what is outside every cell.
+    void set_cell_root(Entity root) { cellRoot_ = root; }
     World& world() { return world_; }
 
 private:
@@ -139,6 +141,7 @@ private:
     bool deferMissing_ =
         false;  // a reference to an id that does not exist yet is a warning and goes to report_.deferred
     std::vector<std::string> prefabStack_;
+    Entity cellRoot_ = kNullEntity;  // set while a streamed cell loads (SceneLoadOptions::streamedCell)
 };
 
 void Loader::apply_info_key(Entity e, const std::string& key, const Json& v, const std::string& ptr, bool quietIds) {
@@ -320,8 +323,37 @@ void Loader::resolve_one(const PendingRef& ref) {
             report_.deferred.push_back({ref.owner, ref.type, ref.field, v.get<std::string>(), ref.pointer});
             return;
         }
+        if (!cellRoot_.is_null()) {
+            warn(ref.pointer, "No entity with id " + where + " in this cell or in the scene; the field stays empty",
+                 "A streamed cell sees only its own entities and those of the main scene: the entity may live in "
+                 "another "
+                 "cell, which loads and unloads on its own. Keep both entities in one cell, or find the other one at "
+                 "run "
+                 "time (world.find(id), after the \"cellLoaded\" event of world.on). " +
+                     did_you_mean(v.get<std::string>(), ids, 20));
+            return;
+        }
         error(ref.pointer, "No entity with id " + where, did_you_mean(v.get<std::string>(), ids, 20));
         return;
+    }
+    if (!cellRoot_.is_null()) {
+        // The target must be in this cell, or outside every streamed cell (the main scene never unloads).
+        Entity cell = kNullEntity;
+        for (Entity up = target; !up.is_null(); up = world_.parent(up))
+            if (world_.info(up).streamedCell) {
+                cell = up;
+                break;
+            }
+        if (!cell.is_null() && cell != cellRoot_) {
+            warn(ref.pointer,
+                 "Field '" + ref.type->name + "." + ref.field->name + "' names '" + v.get<std::string>() +
+                     "', an entity of another streamed cell (" + world_.info(cell).name + "); the field stays empty",
+                 "A cell can unload while the other one stays, which would leave the reference dangling. Move the two "
+                 "entities into "
+                 "one cell, or look the other one up at run time (world.find(id), after the \"cellLoaded\" event of "
+                 "world.on).");
+            return;
+        }
     }
     *static_cast<Entity*>(ref.field->ptr(obj)) = target;
 }
@@ -711,6 +743,8 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
             world_problems("OcclusionPortal", occlusion_portal_problems(*op));
         if (const StreamingAnchor* sa = world_.get<StreamingAnchor>(e))
             world_problems("StreamingAnchor", streaming_anchor_problems(*sa));
+        if (const StreamedWorld* sw = world_.get<StreamedWorld>(e))
+            world_problems("StreamedWorld", streamed_world_problems(*sw));
         if (const Terrain3D* tr = world_.get<Terrain3D>(e)) world_problems("Terrain", terrain_problems(*tr));
         if (const Foliage* fo = world_.get<Foliage>(e)) world_problems("Foliage", foliage_problems(*fo));
         if (const ScatterRule* sr = world_.get<ScatterRule>(e))
@@ -993,6 +1027,7 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
     if (opts.includeChildren && !world.children(e).empty()) {
         Json kids = Json::array();
         for (Entity c : world.children(e)) {
+            if (world.info(c).streamedCell) continue;  // a streamed cell is its own file (docs/BIG_WORLDS.md)
             if (opts.skipSpawned && skip_spawned_subtree(world, c, opts)) continue;
             kids.push_back(entity_to_json(world, c, opts));
         }
@@ -1015,6 +1050,7 @@ Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadRep
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts) {
     LoadReport report;
     Loader loader(world, report, std::string(sourceName));
+    if (opts.streamedCell && opts.additive) loader.set_cell_root(opts.parent);
     if (!scene.is_object()) {
         loader.error("", "A scene file must be a JSON object, got " + describe_json_value(scene),
                      std::string("Start from {\"format\": \"") + kSceneFormat + "\", \"entities\": []}.");
@@ -1174,6 +1210,7 @@ Json save_scene(const World& world, const SaveSceneOptions& options) {
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) {
+        if (world.info(e).streamedCell) continue;  // a streamed cell is its own file, loaded again by the streamer
         if (skipSpawned && skip_spawned_subtree(world, e, eo)) continue;
         ents.push_back(entity_to_json(world, e, eo));
     }

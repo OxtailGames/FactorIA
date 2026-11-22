@@ -13,7 +13,7 @@ is "off" or "as before".
 |---|---|---|
 | [Levels of detail](#levels-of-detail-planned-m751) | M75.1 | screen-size thresholds, dithered cross-fade, impostors, HLOD |
 | [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
-| [Streaming](#streaming-planned-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
+| [Streaming](#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
 | [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it (the blend of the splat layers and the picture of the holes: planned) |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
@@ -59,11 +59,140 @@ Meshes hidden behind big solid ones are not drawn.
   tests against a hierarchical depth buffer and needs compute shaders (`occlusionGpu`, not on GLES3 or WebGL2).
 - `renderStats` gets `occluders`, `occlusionTests` and `meshesOccluded`.
 
-## Streaming (planned, M75.3)
+## Streaming (M75.3)
 
-A world is an index file (`<name>.world.json`: the cell size, and for each cell its bounds and its scene file) plus one scene file
-per cell. Cells load additively on the IO thread and apply on the main thread within the frame's budget; unloading destroys the
-cell's root.
+A big world is cut into **cells**: one scene file per square of the world, and an index file that lists them. The engine
+loads the cells around the `StreamingAnchor` entities (usually the player) and unloads the ones left behind, so a world of
+any size costs what the part around the player costs. The reading and parsing of a cell happen off the main thread; only the
+creation of its entities is on the main thread, within a budget per frame. Nothing here changes a game without a
+`StreamedWorld` component.
+
+Parts that are not built yet: `world.split_cells` and `world.merge_cells` (they fail with `not_built`), the tilemap chunks of
+streamed 2D worlds (planned, M75.3b) and the debug view of the cells (planned, M75.3c).
+
+### The world index
+
+The index is a file `<name>.world.json`.
+
+```json
+{
+  "format": "factoria.world/1",
+  "version": 1,
+  "dimension": "3d",
+  "cellSize": 128,
+  "origin": [0, 0],
+  "cells": [
+    { "coord": [0, 0], "scene": "cells/0_0.scene.json",
+      "bounds": { "min": [0, 0, 0], "max": [128, 20, 128] }, "sizeBytes": 18234 },
+    { "coord": [-1, 2], "scene": "cells/-1_2.scene.json",
+      "bounds": { "min": [-128, 0, 256], "max": [-1, 12, 383] } }
+  ]
+}
+```
+
+The schema is `schemas/world.schema.json`.
+
+- `dimension`: `"3d"` lays the cells on the XZ plane (the height never matters), `"2d"` on the XY plane (the Z of an anchor never
+  matters). In a 2D index `bounds` has two numbers per corner.
+- `cellSize` (0.5 to 1,000,000 units) and `origin` (two numbers): cell `[i, j]` covers `origin + [i, j] * cellSize` up to one
+  `cellSize` more on each axis of the plane. `coord` is an integer pair, at most 1,000,000 in absolute value; an index has at most
+  262,144 cells.
+- `bounds` is what the entities of the cell cover, **absolute**, and must lie inside the cell's square. A radius is measured to
+  these bounds: an anchor inside them is at distance 0.
+- `scene` is a project-relative scene file. `sizeBytes` is optional (a hint for the debug view).
+- Cells are listed in any order; the engine sorts them by `[j, i]` and uses that order to break every tie.
+
+`factoria validate` (the command `project.validate`) checks every `*.world.json` of the project, every cell's scene file included however big the index is, and the
+streamer checks the index when it first needs it; either refuses it with every problem found (the first
+eight in the message, then "and N more"): each one has the file, the JSON pointer (`worlds/main.world.json#/cells/4/bounds/max`),
+what is wrong and how to fix it. Two cells with the same `coord` name both entries; a scene file that does not exist says
+"Did you mean" with the files that do; bounds outside the cell say which axis and what the cell covers. A wrong index loads
+nothing and `world.stream_status` shows the text in `lastError`; it is read again only when the `StreamedWorld.world` path
+changes. The streamer does not check the files of an index of more than 4096 cells when it reads it (a cell whose file is missing then
+fails when it is loaded and is reported the same way); `factoria validate` always checks them all.
+
+### The component `StreamedWorld`
+
+Put it on one entity of the main scene. `world` is the path of the index; `enabled` (default true) turns streaming off, and
+everything loaded unloads; `maxLoadsInFlight` (default 2, 1 to 16) is how many cells load at the same time; `maxAppliesPerFrame`
+(default 1, 1 to 64) is how many cells are added to or removed from the world per frame; `keepLoaded` (a debug aid: it costs O(cells) per fixed tick) loads every cell whatever
+the anchors say; `cameraLoadRadius` and `cameraUnloadRadius` make the active camera an anchor (0, the default, means it is not:
+put a `StreamingAnchor` on the player instead; an unload radius of 0 means 1.25 times the load radius). Only the first enabled
+`StreamedWorld` of the scene counts, and a second one is a warning in the log.
+
+### Which cells are loaded
+
+Every fixed tick the streamer reads the anchors (every enabled `StreamingAnchor` on an active entity, plus the camera when
+`cameraLoadRadius` is set) and decides, from their positions alone:
+
+- a cell is **wanted** when it is within an anchor's `loadRadius`, measured on the plane of the world from the anchor's
+  absolute position to the cell's bounds. The position is the floating origin plus the local position (`World::absolute_position`, in doubles), and
+  the index's bounds are absolute, so the cells loaded do not change when the origin moves;
+- a cell that is loaded or loading is **kept** until it is farther than the `unloadRadius` of every anchor. The gap between the two
+  radii is the hysteresis: an anchor that walks along a border does not load and unload a cell every frame;
+- the wanted cells are started in the order of the highest `priority` of the anchors that want them, then the smallest distance,
+  then `[j, i]`; at most `maxLoadsInFlight` at a time (a cell counts as in flight from the start of its load until it is applied);
+- a load that is queued or running for a cell that is no longer kept is cancelled, and its result is thrown away; a cell that
+  fails to load (a missing or broken file) is tried again after 120 fixed ticks while it is still wanted, at once when it has left
+  the wanted set and come back, and `lastError` of `world.stream_status` clears when that cell loads well.
+
+### How a cell is loaded
+
+A cell load is a `BackgroundLoader` job of its own kind (`cell.load`, docs/design/ARCHITECTURE_THREADS.md, repository only, not in the binary): its scene file and the
+files the scene names are read and parsed on the IO thread and the job pool, and the parsed scene waits for the main thread. The
+job takes its share of the loader's budget like every other load: with the exact budget (tests, headless runs, the editor) four
+units per frame in total, shared by the jobs in the order they started; with a window, the milliseconds of `loadBudgetMs`.
+`world.stream_status` shows which of the two (`budget`). The loads and applies depend only on the anchors at the fixed ticks and
+on the unit budgets, never on how fast the machine reads files: the same run loads the same cells in the same order.
+
+Per frame the main thread then unloads first, in `[j, i]` order, and applies the loaded cells in the order their jobs started, up
+to `maxAppliesPerFrame` in all. Applying a cell:
+
+1. creates its **root entity**, named `cell i,j` with id `cell_i_j` (its `streamedCell` flag is set), at the ABSOLUTE (0, 0, 0) (its local position is minus the floating origin, and a rebase moves it like any root);
+2. adds the entities of the cell scene under it, additively: their positions in the file are ABSOLUTE positions, and the scene load
+   lands them under that root, so a cell lands at its absolute place whatever the origin is now (a load under a parent is placed by
+   the parent: the scene load shifts only the roots of a load that has none);
+3. sends the game event `cellLoaded`.
+
+Unloading sends `cellUnloaded` and destroys the root and everything under it. A 3D collider joins the physics world when its
+cell is applied and leaves it at the next fixed step after the cell is unloaded, so no stale body is left. If the main scene
+changes (`scene.load`, a new game), every cell job is cancelled, nothing is applied to the new scene and the streamer starts again
+from nothing.
+
+Rules for the cell scenes:
+
+- **Entity ids are unique across the whole world.** An id that is already taken is renamed with a warning. Name entities
+  `floor_3_-2`, not `floor`.
+- A reference from an entity to an entity of **another cell** cannot be resolved: that cell may not be loaded. The field stays
+  empty and the loader logs a warning with the field's pointer. A reference to an entity of the main scene works. To connect two
+  cells, listen to `cellLoaded` and set the field with `world.find(id)` there.
+- A cell is **not part of the main scene when it is saved**: `scene.save` and the editor's save leave out the cell roots and
+  everything under them. Edit the cell's own file.
+
+### Events
+
+`world.on("cellLoaded", (d, root) => ...)` and `world.on("cellUnloaded", (d) => ...)`. The data of `cellLoaded` is
+`{ world, id: "3,-2", coord: [3, -2], scene, entities, bytes }` and `root` is the cell's root entity; `cellUnloaded` sends the
+same without `bytes` (`entities` is how many the cell had) and with no source: the root is already being destroyed. The events are
+queued when the cell is applied or unloaded and delivered with the other game events of the next dispatch. Listeners end with the scene, like every `world.on`.
+
+### The streaming commands
+
+- `world.cells {state, limit}` lists the cells of the index sorted by distance to the nearest anchor (cells with no anchor
+  last): `{world, dimension, cellSize, total, matching, truncated, cells: [{id, coord, scene, bounds, state, entities, distance,
+  sizeBytes?, failed?}]}`. `state` is one of `unloaded`, `queued`, `loading`, `loaded` and `unloading` and filters the list;
+  `limit` is 1 to 100000 (default 1000). Without a `StreamedWorld` or with a wrong index it fails with the code
+  `no_streamed_world`, and the message says why.
+- `world.stream_status {}` says what streaming is doing: `enabled`, `world`, the cells per state (`cellsTotal`, `cellsLoaded`,
+  `cellsLoading`, `cellsQueued`, `cellsUnloading`), `inFlight`, `waitingToApply`, `anchors`, the totals since the scene started
+  (`loadsStarted`, `loadsCancelled`, `cellsApplied`, `unloadsDone`, `bytesLoaded`), what the last frame did
+  (`appliedThisFrame`, `unloadedThisFrame`, `unitsThisFrame`), `maxLoadsInFlight`, `maxAppliesPerFrame`, `budget`, `pending` (the
+  cells that are not at rest) and `lastError`. A test steps frames until `pending` is empty and `cellsQueued` is 0.
+
+Both are read-only. A script that waits for them checks that its scene is still the current one first. Tests count units of work,
+not milliseconds, so a result does not depend on the speed of the machine.
+
+### The anchors
 
 - `StreamingAnchor` on an entity (usually the player or the camera): `loadRadius` (metres: cells nearer than this load),
   `unloadRadius` (cells farther than this unload; it must be above `loadRadius`, the gap is the hysteresis that stops a cell from
@@ -73,10 +202,6 @@ cell's root.
 - `world.split_cells {scene, cellSize, output, dryRun}` cuts a scene into a grid of cells and writes the files and the index;
   `world.merge_cells {manifest, output, dryRun}` joins them back so a level can be edited as one file. They write project files and
   fail with `not_built` today.
-- `world.cells {state}` lists the cells and whether each is loaded; `world.stream_status {}` says what streaming is doing (loads
-  in flight, cells loaded, pending cells, the last error), so a test can wait until the cells around the player are in. Both are
-  read-only and fail with `not_built` today. A script that waits for them checks that its scene is still the current one first.
-- Tests count units of work, not milliseconds, so a result does not depend on the speed of the machine.
 
 ## Floating origin
 
@@ -320,7 +445,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 |---|---|---|
 | `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 (built) | no |
 | `world.cells`, `world.stream_status` | M75.3 | no |
-| `world.split_cells`, `world.merge_cells` | M75.3 | yes |
+| `world.split_cells`, `world.merge_cells` | M75.3 (planned) | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
 | `foliage.scatter`, `foliage.paint`, `foliage.clear` | M75.6 | yes |

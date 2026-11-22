@@ -74,6 +74,10 @@ struct LoadReport {
 struct SceneLoadOptions {
     bool additive = false;  // false: world.clear() first and apply settings
     Entity parent;          // additive loads may parent all roots under this entity
+    // The load is a streamed cell (engine/runtime world_streamer.h): `parent` is the cell's root entity (EntityInfo::streamedCell).
+    // An entity reference inside it resolves to the cell's own entities or to entities outside every streamed cell; one that
+    // names an entity of another cell, or an id that exists nowhere, is a warning (the field stays empty), never an error.
+    bool streamedCell = false;
 };
 
 // Scenes
