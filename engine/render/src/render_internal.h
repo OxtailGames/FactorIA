@@ -2026,6 +2026,33 @@ bool storage_image_loadable(sg_pixel_format format, std::string* why);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
 
+// GPU->CPU readback of the start of a storage buffer WITHOUT waiting (the Hi-Z culling, renderer_hiz.cpp): a small ring of staging
+// buffers. request() queues a copy of the first `bytes` bytes of `buffer` behind the work submitted so far and returns the slot it
+// uses; poll() hands the bytes over once the GPU has finished the copy, and never blocks unless `wait` is set (a headless frame
+// waits so its result does not depend on the GPU's speed). The work that wrote the buffer must have been committed (sg_commit)
+// before request(): on Metal the copy is a blit on the queue after sokol's command buffer. Needs the GPU's storage buffers (no
+// GLES3): `supported()` says so. Not thread safe: the render thread only.
+class AsyncBufferRead {
+public:
+    static constexpr int kSlots = 4;
+    AsyncBufferRead();
+    ~AsyncBufferRead();
+    AsyncBufferRead(const AsyncBufferRead&) = delete;
+    AsyncBufferRead& operator=(const AsyncBufferRead&) = delete;
+    static bool supported();
+    // The slot, or -1: every slot is still in flight (error stays empty: ask again later), or the copy failed (error says why).
+    int request(sg_buffer buffer, std::size_t bytes, std::string* error);
+    // True when the slot's copy has finished: `out` holds its bytes and the slot is free again. False: not done yet (or the slot is
+    // unused); with `wait` it returns after the GPU finished (bounded: a GPU that does not answer in seconds gives up, false).
+    bool poll(int slot, std::vector<std::uint8_t>& out, bool wait);
+    // Frees a slot without reading it (the copy may still be running; its staging buffer is reused only when it is done).
+    void release(int slot);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // Debug draw storage.
 struct DebugLine {
     Vec3 a, b;

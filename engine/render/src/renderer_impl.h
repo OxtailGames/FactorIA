@@ -32,6 +32,7 @@
 #include "light_clusters.h"
 #include "renderer_env.h"
 #include "renderer_lod.h"
+#include "renderer_foliage.h"
 #include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
@@ -48,6 +49,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "hiz.h"
 #include "occlusion.h"
 #include "render_scene.h"
 #include "renderer_ssao.h"
@@ -97,6 +99,7 @@ struct Renderer::Impl {
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
     TerrainRenderer terrains;  // the Terrain components' height textures, patch and program (renderer_terrain.h)
+    FoliageRenderer foliage;   // the Foliage components: instances file, chunks and items (renderer_foliage.h)
     GradientRamps ramps;       // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;    // Renderer::set_text_scale
     float uiScale = 1.0f;      // Renderer::set_ui_scale
@@ -278,11 +281,85 @@ struct Renderer::Impl {
     };
     OcclusionShown occlusionShown;  // this frame (cleared when it begins)
     OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
-    void occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    // True when it rasterised an occlusion buffer for this camera (`occlusion` holds it), false when nothing was tested.
+    bool occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
     // M75.2, areas and portals (renderer_portals.cpp): (entity, what) pairs already warned about (what: an unknown areaId, or a code).
     std::set<std::pair<std::uint64_t, std::int64_t>> warnedPortalEntities;
     void portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes);
     void occlusion_overlay();
+    // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
+    // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
+    struct HizCamera {
+        struct Flight {  // a copy of the cells that was asked for and has not been taken yet
+            int slot = -1;
+            render::HizPose pose;
+            int w = 0, h = 0;
+            std::uint64_t frame = 0, worldFrame = 0;
+        };
+        std::uint64_t key = 0;
+        int w = 0, h = 0;  // cells of `cells` (the aspect of the camera's rectangle)
+        sg_buffer cells{};
+        sg_view cellsView{};
+        render::AsyncBufferRead ring;
+        std::vector<Flight> flights;  // oldest first
+        bool reduced = false;         // a reduce pass wrote `cells` and no copy of it was asked for yet
+        Flight reducedInfo;           // its pose, size and frame
+        render::HizPyramid pyramid;   // the newest picture that came back
+        render::HizPose pose;         // the camera of that picture
+        std::uint64_t pyramidFrame = 0, pyramidWorldFrame = 0;
+        std::uint64_t usedFrame = 0;  // the frameSerial of the last frame this camera was culled or reduced in
+        std::string name;
+        HizCamera() = default;
+        HizCamera(const HizCamera&) = delete;
+        HizCamera& operator=(const HizCamera&) = delete;
+        ~HizCamera();
+    };
+    std::map<std::uint64_t, std::unique_ptr<HizCamera>> hizCams;  // by camera entity bits
+    sg_shader hizShader{};
+    int hizShaderState = 0;  // 0 not tried, 1 made, -1 refused
+    int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
+    std::string hizWhy;      // why not
+    bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
+    bool warnedHizMode = false, warnedHizCameras = false;
+    const World* hizWorld = nullptr;
+    std::string hizScene;
+    // What `render.occlusion` and the debug view say about the GPU culling of a frame (summed over the cameras culled this way).
+    struct HizShown {
+        bool valid = false;
+        std::string camera;  // the last camera culled this way
+        int cameras = 0, usable = 0, tests = 0, hidden = 0;
+        int cells = 0, cellsDown = 0, levels = 0, coveredCells = 0;
+        int ageFrames = -1;            // frames between the newest picture and this one (-1: none yet)
+        std::string why;               // the reason the last camera drew without culling, when it did
+        std::array<int, 8> reasons{};  // the tests by HizTestInfo::Why
+        int greyLevel = -1, greyW = 0, greyH = 0;
+        std::vector<std::uint8_t> grey;  // a coarse level of the pyramid, for the debug view (only while it is on)
+        std::vector<OcclusionShown::Box> boxes;
+    };
+    HizShown hizShown, hizPrev;
+    bool warnedHizRead = false;
+    bool warnedHizPipeline = false;
+    int hizReduces = 0;  // reduce passes run since the renderer was made (tests)
+    // The mode of the world's SceneSettings against what this GPU can do; one warning when `gpu` was asked for and cannot be had.
+    bool hiz_resolve(World& world);
+    // Start of Renderer::begin_frame (before sokol's frame begins): ask for the copy of every reduce of the frame before and take the
+    // copies that came back.
+    void hiz_submit();
+    // Frame start of render(): the world, the mode, the cameras not drawn any more.
+    void hiz_begin_frame(World& world);
+    void hiz_release();
+    void hiz_shift(const Vec3& off);
+    static render::HizPose hiz_pose_of(const CameraInfo& cam);
+    // gather_meshes: the camera's meshes tested against its pyramid. Returns the camera's HizCamera (null when the camera is not culled
+    // this way: past the cap, so the Occluders cull it).
+    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
+    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
+    void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
+    void hiz_overlay();
+    std::string hizModeName = "cpu";  // SceneSettings.occlusionMode of the last frame's world
+    // The "gpu" object of Renderer::occlusion_report: what the depth pyramid did in the last frame; `level` of the pyramid is saved to
+    // `savePath` (a .png) when one is given.
+    Json hiz_report(std::string_view savePath, int level);
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;
     // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the

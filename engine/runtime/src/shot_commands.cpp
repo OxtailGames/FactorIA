@@ -850,11 +850,14 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"render.occlusion",
-         "The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and "
-         "hidden; optionally the depth buffer as a PNG.",
+         "The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, "
+         "meshes "
+         "tested and hidden; optionally the depth picture as a PNG.",
          "Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that "
          "had "
-         "an enabled Occluder (docs/BIG_WORLDS_LOD.md, \"Occlusion\"): the size of its depth buffer, the Occluders and "
+         "an enabled Occluder (docs/BIG_WORLDS_LOD.md, \"Occlusion\"), and in `gpu` what the depth pyramid did "
+         "(SceneSettings.occlusionMode \"gpu\" or \"auto\" on a backend with compute shaders): the size of its depth "
+         "buffer, the Occluders and "
          "triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in "
          "renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no "
          "occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view "
@@ -863,15 +866,34 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{\"save\": \".factoria/tmp/occlusion.png\"}" FA_COMMAND_DETAILS
          "Result: {supported, debugView, active, limits: {width, trianglesPerOccluder, trianglesPerCamera}, camera, "
          "width, "
-         "height, occluders, triangles, coveredCells, tests, hidden, file?, error?}. `active` is false when no camera "
-         "of the last frame had an enabled Occluder (then only `message` and `limits` follow). `width` x `height` "
+         "height, occluders, triangles, coveredCells, tests, hidden, file?, error?, gpu: {mode, supported, why?, "
+         "active, "
+         "limits, camera?, cameras?, usableCameras?, width?, height?, levels?, coveredCells?, ageFrames?, tests?, "
+         "hidden?, "
+         "testResults?: {hidden, visible, noPyramid, cut, behindNear, outsideView, tooMuchMotion, noOccluder}, "
+         "drewEverythingBecause?, reducePasses?, level?, file?, error?, message?}}. `active` is false when no camera "
+         "of the last frame had an enabled Occluder (then only `message`, `limits` and `gpu` follow). In `gpu`, "
+         "`ageFrames` is how old the depth picture was (1 is the frame before) and `testResults` counts the meshes "
+         "tested by "
+         "why they were or were not culled. With `save` and no Occluder buffer, the file is the pyramid's `level` "
+         "(0 = 256 cells across). `width` x `height` "
          "is the buffer without its one-cell guard ring (256 across; 256 / aspect down). `save` needs the writeProject "
          "capability.",
          parse_schema(R"({"type":"object","properties":{
-               "save":{"type":"string","x-fa-path":"write","description":"A .png path (inside the project; absolute paths need writeAnywhere) for the depth buffer as a grey picture. Omitted: nothing is written."}}})"),
+               "save":{"type":"string","x-fa-path":"write","description":"A .png path (inside the project; absolute paths need writeAnywhere) for the depth buffer as a grey picture. Omitted: nothing is written."},
+               "level":{"type":"integer","minimum":0,"maximum":16,"description":"Which mip of the GPU depth pyramid `save` writes when no Occluder buffer exists (0 = the finest, 256 cells across; each level halves it). Default 0."}}})"),
          false, "game"},
         [&engine, &I](const Json& a) {
-            check_args_known(a, {"save"}, "render.occlusion");
+            check_args_known(a, {"save", "level"}, "render.occlusion");
+            int level = 0;
+            if (a.is_object() && a.contains("level") && !a["level"].is_null()) {
+                if (!a["level"].is_number_integer() || a["level"].get<long long>() < 0 ||
+                    a["level"].get<long long>() > 16)
+                    throw CommandError(
+                        "invalid_argument", "render.occlusion: `level` is a whole number from 0 to 16.",
+                        "Pass \"level\": 0 for the finest level of the depth pyramid, 2 for 64 cells across.");
+                level = int(a["level"].get<long long>());
+            }
             std::string save;
             if (a.is_object() && a.contains("save") && !a["save"].is_null()) {
                 if (!a["save"].is_string())
@@ -894,7 +916,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "No renderer: the engine runs with graphics=false, so no occlusion culling is done.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             engine.render_now();
-            return I.renderer->occlusion_report(save);
+            return I.renderer->occlusion_report(save, level);
         });
 
     I.commands.add(
