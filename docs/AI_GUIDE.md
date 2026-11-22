@@ -26,6 +26,7 @@ Read one section with `docs_read {"name":"ai-guide","heading":"<title>"}` (CLI: 
 - 5. Coordinates, units and conventions -- axes, pixels, angles [tools]
 - 6. Scene and prefab files -- JSON formats, ids, overrides [tools]
 - Saving a prefab from the running game, and keeping files tidy [tools]
+- Streamed worlds: a scene cut into cells -- the world index, StreamedWorld, anchors, ids, saving, the two commands [tools]
 - 7. Component cheat-sheet -- the common components [tools]
 - 8. Scripts: behaviours and the JavaScript API -- lifecycle, world, events [scripts]
 - 9. Recipes -- copy-ready solutions, 9.1 to 9.32 [scripts]
