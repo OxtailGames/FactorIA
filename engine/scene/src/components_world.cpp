@@ -267,6 +267,28 @@ std::vector<WorldProblem> streaming_anchor_problems(const StreamingAnchor& a) {
     return out;
 }
 
+std::vector<WorldProblem> streamed_world_problems(const StreamedWorld& w) {
+    std::vector<WorldProblem> out;
+    if (w.world.empty())
+        problem(out, false, "/world", "StreamedWorld.world is empty, so no cell is ever loaded",
+                "Set it to the world index, for example \"worlds/town.world.json\" (world.split_cells writes one).");
+    else if (!ends_with(w.world, ".world.json"))
+        problem(out, false, "/world", "StreamedWorld.world \"" + w.world + "\" does not end in .world.json",
+                "The index is a file named <name>.world.json (docs/BIG_WORLDS.md, \"The world index\").");
+    if (w.cameraUnloadRadius > 0.0f && !(w.cameraLoadRadius > 0.0f))
+        problem(out, false, "/cameraUnloadRadius",
+                "StreamedWorld.cameraUnloadRadius is " + num(w.cameraUnloadRadius) +
+                    " but cameraLoadRadius is 0, so the camera is not an anchor and the radius does nothing",
+                "Set cameraLoadRadius (metres) to make the active camera load cells, or put a StreamingAnchor on the "
+                "player.");
+    if (w.cameraUnloadRadius > 0.0f && w.cameraLoadRadius > 0.0f && !(w.cameraUnloadRadius > w.cameraLoadRadius))
+        problem(out, true, "/cameraUnloadRadius",
+                "StreamedWorld.cameraUnloadRadius is " + num(w.cameraUnloadRadius) + ", not above cameraLoadRadius (" +
+                    num(w.cameraLoadRadius) + "), so a cell on the border would load and unload every frame",
+                "Leave cameraUnloadRadius at 0 (1.25 times the load radius) or keep a margin of about 25%.");
+    return out;
+}
+
 std::vector<WorldProblem> terrain_problems(const Terrain3D& t) {
     std::vector<WorldProblem> out;
     if (!(t.size.x > 0.0f) || !(t.size.y > 0.0f))
@@ -548,6 +570,53 @@ void register_world_components(TypeRegistry& r) {
                "first. Default 0.")
         .range(-100, 100)
         .field("enabled", &StreamingAnchor::enabled, "false = this anchor loads nothing and keeps nothing loaded.");
+
+    r.add<StreamedWorld>(
+         "StreamedWorld",
+         "Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, "
+         "for "
+         "each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor "
+         "entities "
+         "on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root "
+         "entity "
+         "named \"cell i,j\" and, when the anchors move away, destroys that root. Put it on ONE entity (the first "
+         "enabled "
+         "one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and "
+         "`world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` "
+         "(world.on(\"cellLoaded\", (data, root) => ...); docs/BIG_WORLDS.md, \"Streaming\").",
+         "World")
+        .asset_field("world", &StreamedWorld::world, "any",
+                     "Project-relative path of the world index, a *.world.json file. Read once when the scene starts "
+                     "(or when this field changes). \"\" (default) = nothing is streamed.")
+        .field(
+            "enabled", &StreamedWorld::enabled,
+            "true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded.")
+        .field("maxLoadsInFlight", &StreamedWorld::maxLoadsInFlight,
+               "1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. "
+               "Each cell is a BackgroundLoader job, so its files also share the frame's load budget "
+               "(project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.")
+        .range(1, 16)
+        .field(
+            "maxAppliesPerFrame", &StreamedWorld::maxAppliesPerFrame,
+            "1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main "
+            "thread "
+            "(a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the "
+            "frame's load budget limits the reading, not this. Default 1.")
+        .range(1, 64)
+        .field("keepLoaded", &StreamedWorld::keepLoaded,
+               "Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole "
+               "world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. "
+               "Default false.")
+        .field(
+            "cameraLoadRadius", &StreamedWorld::cameraLoadRadius,
+            "Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load "
+            "radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor.")
+        .range(0, 1000000)
+        .field(
+            "cameraUnloadRadius", &StreamedWorld::cameraUnloadRadius,
+            "Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = "
+            "1.25 times cameraLoadRadius.")
+        .range(0, 1000000);
 
     r.add<Terrain3D>(
          "Terrain",

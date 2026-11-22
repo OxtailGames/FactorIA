@@ -1,0 +1,29 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "streamer",
+      "components": {
+        "StreamedWorld": {
+          "world": "worlds/grid.world.json"
+        }
+      }
+    },
+    {
+      "id": "anchor",
+      "components": {
+        "Transform": {
+          "position": [
+            50,
+            0,
+            50
+          ]
+        },
+        "StreamingAnchor": {
+          "loadRadius": 60,
+          "unloadRadius": 80
+        }
+      }
+    }
+  ]
+}

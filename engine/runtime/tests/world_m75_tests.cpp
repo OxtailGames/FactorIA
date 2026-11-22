@@ -128,7 +128,7 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
     CHECK(r.error().message.find("/world") != std::string::npos);
 }
 
-TEST_CASE("world.* streaming commands: registered, documented, and fail with not_built naming their package") {
+TEST_CASE("world.* streaming commands: registered, documented, and built (not stubs)") {
     TempProject p(project_with(""));
     EngineConfig c;
     c.projectDir = p.dir.generic_string();
@@ -151,14 +151,8 @@ TEST_CASE("world.* streaming commands: registered, documented, and fail with not
         CHECK(info->category == "world");
         CHECK(info->readOnly == row.readOnly);
         CHECK(info->description.find("Example") != std::string::npos);
-        CHECK(info->description.find(row.package) != std::string::npos);
         CHECK(info->description.size() < 1500);
-        auto r = e.commands().call(row.name, Json::object());
-        REQUIRE_FALSE(r.ok);
-        CHECK(r.error["code"] == "not_built");
-        CHECK(r.error.dump().find("planned for a coming version") != std::string::npos);
-        CHECK(r.error.dump().find(row.package) != std::string::npos);
-        CHECK(r.error.dump().find("BIG_WORLDS") != std::string::npos);
+        CHECK(info->description.find("Not built yet") == std::string::npos);  // M75.3 is built: it answers
     }
     e.shutdown();
 }
