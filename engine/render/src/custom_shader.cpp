@@ -145,57 +145,110 @@ sg_shader_stage stage_of(const Json& j) {
 }
 
 // GLES3 and WebGL2 guarantee 16 texture units per stage (render_internal.h, kMeshMaxFragmentUnits); sokol's own cap is
-// SG_MAX_TEXTURE_SAMPLER_PAIRS (32) over both stages. The error for a program past either: counts the pairs of the stage, says
-// which ones the engine's own bindings take and which are the material's textures (or the vertex copies of them), and
-// what to drop. Empty when the program is within both.
-std::optional<Error> too_many_pairs(const std::string& where, const Json& pairList) {
+// SG_MAX_TEXTURE_SAMPLER_PAIRS (32) over both stages. The engine refuses a program past either on every backend (D3D11
+// and Metal could bind more: a game that loads on one must load on all). The error for it: counts the pairs of each
+// stage over its limit (both when both are), says which ones the engine's own bindings take and which are the
+// material's textures (or the vertex copies of them), and what to drop. A pair is the material's own when its view is
+// one of `materialTextures` (fragment stage) or `fa_vs_<name>` of one (vertex stage): classified by what the material
+// declares, never by a name the engine's views might share. Without `materialTextures` (a caller that has no material)
+// the engine's own view names (and every other `fa_` one that is not a vertex copy) are the engine's and the rest the
+// material's. Empty when the program is within both limits.
+std::optional<Error> too_many_pairs(const std::string& where, const Json& pairList,
+                                    const std::vector<std::string>* materialTextures) {
     static const char* const engineViews[] = {"tex",       "normal_tex",    "light_tex",       "shadow_tex",
                                               "fx_gi_tex", "fx_cookie_tex", "fx_emissive_tex", "fa_scene_tex"};
     constexpr int kUnitsPerStage = 16;
-    int perStage[2] = {0, 0};  // fragment, vertex
-    for (const Json& p : pairList) ++perStage[text_of(p, "stage") == "vertex" ? 1 : 0];
-    const int worst = perStage[1] > perStage[0] ? 1 : 0;
-    const bool stageOver = perStage[worst] > kUnitsPerStage;
-    if (!stageOver && int(pairList.size()) <= SG_MAX_TEXTURE_SAMPLER_PAIRS) return std::nullopt;
-
-    const char* stageName = worst ? "vertex" : "fragment";
-    std::string engine, own;
-    int nEngine = 0, nOwn = 0;
+    struct Stage {
+        int count = 0, nEngine = 0, nOwn = 0;
+        std::string engine, own;
+    } stages[2];  // fragment, vertex
     auto add = [](std::string& list, int& n, const std::string& name) { list += (n++ ? ", " : "") + name; };
-    for (const Json& p : pairList) {
-        if ((text_of(p, "stage") == "vertex") != bool(worst) && stageOver) continue;
-        const std::string name = text_of(p, "view_name");
+    auto is_own = [&](const std::string& name, bool vertex) {
+        if (materialTextures) {
+            for (const std::string& t : *materialTextures)
+                if (name == (vertex ? "fa_vs_" + t : t)) return true;
+            return false;
+        }
         bool isEngine = name.rfind("fa_", 0) == 0 && name.rfind("fa_vs_", 0) != 0;
         for (const char* e : engineViews) isEngine = isEngine || name == e;
-        if (isEngine)
-            add(engine, nEngine, name);
+        return !isEngine;
+    };
+    bool readsSceneColor = false;
+    for (const Json& p : pairList) {
+        const bool vertex = text_of(p, "stage") == "vertex";
+        Stage& st = stages[vertex ? 1 : 0];
+        const std::string name = text_of(p, "view_name");
+        ++st.count;
+        if (is_own(name, vertex))
+            add(st.own, st.nOwn, name);
         else
-            add(own, nOwn, name);
+            add(st.engine, st.nEngine, name);
+        readsSceneColor = readsSceneColor || name == "fa_scene_tex";
     }
-    const int total = stageOver ? perStage[worst] : int(pairList.size());
-    const int limit = stageOver ? kUnitsPerStage : SG_MAX_TEXTURE_SAMPLER_PAIRS;
-    std::string what = stageOver ? std::string("in its ") + stageName + " stage" : "over both stages";
-    return make_error(
-        where + " reads " + std::to_string(total) + " image-sampler pairs " + what +
-            " (every texture a stage reads counts once, "
-            "with the sampler it is read through), and at most " +
-            std::to_string(limit) +
-            (stageOver ? " can be bound per stage: the texture units GLES3 and WebGL2 guarantee"
-                       : " fit in one shader: sokol's cap") +
-            ". The engine's own bindings take " + std::to_string(nEngine) + " (" + (nEngine ? engine : "none") +
-            "), the " + (worst ? "vertex copies of the material's textures" : "material's own textures") + " " +
-            std::to_string(nOwn) + " (" + (nOwn ? own : "none") + ")",
-        "Drop " + std::to_string(total - limit) +
-            " or more: do not sample a texture in vertex() (that removes its vertex copy), do not call "
-            "fa_scene_color() unless the material needs the picture behind it, and merge maps into the channels of "
-            "one texture (a mask, a roughness and an occlusion map fit the four channels of one image) instead of "
-            "declaring one texture per map.");
+    const bool over[2] = {stages[0].count > kUnitsPerStage, stages[1].count > kUnitsPerStage};
+    const int total = int(pairList.size());
+    if (!over[0] && !over[1] && total <= SG_MAX_TEXTURE_SAMPLER_PAIRS) return std::nullopt;
+
+    // One clause per stage over its limit (both are reported), or one for the two stages together.
+    auto clause = [&](const Stage& st, const char* name) {
+        return std::to_string(st.count) + " in its " + name + " stage (the engine's own bindings take " +
+               std::to_string(st.nEngine) + " (" + (st.nEngine ? st.engine : "none") + "), the " +
+               (name[0] == 'v' ? "vertex copies of the material's textures " : "material's own textures ") +
+               std::to_string(st.nOwn) + " (" + (st.nOwn ? st.own : "none") + "))";
+    };
+    std::string message = where + " reads ";
+    int excess = 0;
+    bool vertexCopies = false, manyOwn = false;
+    if (over[0] || over[1]) {
+        message +=
+            "too many image-sampler pairs for one stage (every texture a stage reads counts once, with the "
+            "sampler it is read through, and at most " +
+            std::to_string(kUnitsPerStage) +
+            " can be bound per stage: the texture units GLES3 and WebGL2 guarantee, which the engine holds every "
+            "backend to, D3D11 and Metal too, so a game that loads on one loads on all): ";
+        bool first = true;
+        for (int s = 0; s < 2; ++s) {
+            if (!over[s]) continue;
+            message += (first ? "" : "; and ") + clause(stages[s], s ? "vertex" : "fragment");
+            first = false;
+            excess = std::max(excess, stages[s].count - kUnitsPerStage);
+            vertexCopies = vertexCopies || (s == 1 && stages[s].nOwn > 0);
+            manyOwn = manyOwn || stages[s].nOwn > 1;
+        }
+    } else {
+        message += std::to_string(total) +
+                   " image-sampler pairs over both stages (every texture a stage reads counts once, "
+                   "with the sampler it is read through), and at most " +
+                   std::to_string(SG_MAX_TEXTURE_SAMPLER_PAIRS) +
+                   " fit in one shader (sokol's cap, the same on every backend): " + "fragment " +
+                   clause(stages[0], "fragment") + "; vertex " + clause(stages[1], "vertex");
+        excess = total - SG_MAX_TEXTURE_SAMPLER_PAIRS;
+        vertexCopies = stages[1].nOwn > 0;
+        manyOwn = stages[0].nOwn + stages[1].nOwn > 1;
+    }
+    // Only what could help this shader: a vertex copy exists when vertex() samples a texture, fa_scene_tex when the
+    // snippet calls fa_scene_color().
+    std::string hint = "Drop " + std::to_string(excess) + " or more";
+    std::vector<std::string> ways;
+    if (vertexCopies) ways.push_back("do not sample a texture in vertex() (that removes its vertex copy)");
+    if (readsSceneColor && (over[0] || !over[1]))
+        ways.push_back("do not call fa_scene_color() unless the material needs the picture behind it");
+    if (manyOwn)
+        ways.push_back(
+            "merge maps into the channels of one texture (a mask, a roughness and an occlusion map fit the four "
+            "channels of one image) instead of declaring one texture per map");
+    else
+        ways.push_back("declare fewer textures: the engine's own bindings cannot be dropped");
+    hint += ": ";
+    for (std::size_t i = 0; i < ways.size(); ++i)
+        hint += (i == 0 ? "" : i + 1 == ways.size() ? ", and " : ", ") + ways[i];
+    return make_error(message, hint + ".");
 }
 
 }  // namespace
 
 Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
-                                            const int* workgroup) {
+                                            const int* workgroup, const std::vector<std::string>* materialTextures) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -360,7 +413,7 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     }
     int pairs = 0;
     const Json& pairList = list_of(*refl, "texture_sampler_pairs");
-    if (auto tooMany = too_many_pairs(where, pairList)) return *tooMany;
+    if (auto tooMany = too_many_pairs(where, pairList, materialTextures)) return *tooMany;
     for (const Json& p : pairList) {
         desc.texture_sampler_pairs[pairs++] = {stage_of(p), std::uint8_t(int_or(p, "view_slot")),
                                                std::uint8_t(int_or(p, "sampler_slot")), cstr_or_null(p, "glsl_name")};
@@ -369,9 +422,10 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup) {
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup,
+                                              const std::vector<std::string>* materialTextures) {
     MaterialProgram out;
-    auto made = material_shader_desc(label, program, out, workgroup);
+    auto made = material_shader_desc(label, program, out, workgroup, materialTextures);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
     out.shader = make_shader(&*made, label.c_str());
@@ -822,6 +876,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
     }
 
     // The shaders. Nothing of `m` changes unless all of them are made.
+    std::vector<std::string> textureNames;  // what the pair-limit error counts as the material's own
+    for (const MaterialTextureDef& t : textures) textureNames.push_back(t.name);
     const std::vector<const char*>& names = material_program_names(kind);
     MaterialProgram programs[kMaxMaterialPrograms];
     auto programsJson = twin.find("programs");
@@ -868,7 +924,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                    ? &programsJson->at(name)
                                    : nullptr;
             Result<MaterialProgram> made =
-                prog ? make_material_program(m.path + " " + name, *prog)
+                prog ? make_material_program(m.path + " " + name, *prog, nullptr, &textureNames)
                      : make_error("the shader of material '" + m.path + "' has no program '" + name + "'",
                                   kReexportHint);
             if (!made.ok()) {
@@ -885,7 +941,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                : nullptr;
         Result<MaterialProgram> made =
             prog ? make_material_program(m.path + " " + names[i], *prog,
-                                         kind == MaterialKind::Compute ? workgroup : nullptr)
+                                         kind == MaterialKind::Compute ? workgroup : nullptr, &textureNames)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);
         if (made.ok()) {

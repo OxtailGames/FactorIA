@@ -165,8 +165,10 @@ TEST_CASE("floating origin render: the camera motion blur reprojects from is the
     // The frame of the rebase: nothing moved on the screen, so nothing is smeared and the picture is the one without a rebase.
     const Image rebased = o.draw(s.w);
     INFO("pixels that differ: " << differing_pixels(rebased, still));
-    CHECK(differing_pixels(rebased, still) <= 150);
-    CHECK(soft_pixels(rebased, 90, 80, 140) <= 6);  // the near cube's vertical edges stay sharp
+    // Margins for llvmpipe and the D3D11 WARP rasterizer, which round an edge pixel differently from a GPU: a smear is thousands of
+    // pixels and tens of soft ones.
+    CHECK(differing_pixels(rebased, still) <= 300);
+    CHECK(soft_pixels(rebased, 90, 80, 140) <= 12);  // the near cube's vertical edges stay sharp
 }
 
 TEST_CASE("floating origin render: a rebase between frames of a moving camera keeps its blur and does not add one") {
@@ -186,8 +188,8 @@ TEST_CASE("floating origin render: a rebase between frames of a moving camera ke
     const Image plain = run(false);
     const Image rebased = run(true);
     INFO("soft plain " << soft_pixels(plain, 90, 60, 150) << ", rebased " << soft_pixels(rebased, 90, 60, 150));
-    CHECK(soft_pixels(plain, 90, 60, 150) >= 12);  // it does blur
-    CHECK(differing_pixels(rebased, plain) <= 150);
+    CHECK(soft_pixels(plain, 90, 60, 150) >= 8);  // it does blur (a sharp edge row has 2 or 3 soft pixels)
+    CHECK(differing_pixels(rebased, plain) <= 300);
 }
 
 TEST_CASE(
@@ -417,4 +419,35 @@ TEST_CASE("floating origin render: the realtime GI grid is not laid out again by
     CHECK(report["grids"][0]["state"] == "ready");
     CHECK(report["grids"][0]["origin"][0].get<double>() == doctest::Approx(originBefore - 4096.0).epsilon(1e-6));
     CHECK(report["grids"][0]["cycles"].get<double>() >= 1.0);
+}
+
+TEST_CASE("floating origin render: a capture before any frame follows the rebases of its world, and a capture of "
+          "another world does not take that away") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    Far s;
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 64;
+    spec.height = 36;
+    Image shot;
+    std::string error;
+    REQUIRE_MESSAGE(o.r.capture_camera(s.w, spec, shot, &error),
+                    error);  // the first thing this renderer does: no frame yet
+    const std::uint64_t shifts = RendererTestAccess::origin_shifts(o.r);
+    s.w.rebase({4096.0f, 0.0f, 0.0f});
+    CHECK(RendererTestAccess::origin_shifts(o.r) == shifts + 1);
+    // a preview of another world in between: the game's world keeps being followed
+    World other;
+    Entity cam = other.create("cam", "cam");
+    other.add<Camera>(cam);
+    Renderer::CameraCapture preview;
+    preview.camera = cam;
+    preview.width = 32;
+    preview.height = 18;
+    REQUIRE_MESSAGE(o.r.capture_camera(other, preview, shot, &error), error);
+    s.w.rebase({4096.0f, 0.0f, 0.0f});
+    CHECK(RendererTestAccess::origin_shifts(o.r) == shifts + 2);
 }

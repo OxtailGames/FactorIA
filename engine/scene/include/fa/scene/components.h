@@ -104,6 +104,9 @@ struct Camera {
     Json showTags =
         Json::array();  // non-empty: only entities that have one of these tags (or a parent that has) are drawn
     Json hideTags = Json::array();  // entities that have one of these tags (or a parent that has) are not drawn
+    // false: this camera ignores the OcclusionArea / OcclusionPortal culling (a minimap, a top-down or editor-style view that sits
+    // outside the building and must still see every room). The Occluders and the depth pyramid still apply.
+    bool areaCulling = true;
 };
 
 // The texture id of the render target `name` ("target:book"): what MeshRenderer.texture, a material texture, Sprite.texture,

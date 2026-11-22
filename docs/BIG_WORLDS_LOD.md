@@ -278,6 +278,12 @@ as before. With one, for every main-view camera, after the frustum test and befo
 4. **The cull.** A mesh none of whose areas the walk reached is left out of the main pass (`meshesCulledByArea`); it still casts
    shadows. A mesh that belongs to a reached area, and the Occluder test after it, are as without areas.
 
+The boxes of the areas and portals are gathered once per frame and shared by every camera (a mesh is first rejected against the
+bounds of all the areas, then tested against the few that overlap it), so a split-screen game does not gather the world's areas again per
+player. A camera that must see every room, such as a map or minimap camera that looks down on the building from outside, sets
+`Camera.areaCulling` to `false`: it is not culled by areas and portals (the Occluders and the depth pyramid still apply as set in
+`SceneSettings.occlusionMode`). A capture of a rectangle of a world (a preview, a script's world capture) does the same: it shows every room.
+
 Guards (counts, never time): a portal back to an area already on the current path is never taken (a cycle ends), an area is entered
 again only with a view that no earlier visit of it held, a chain longer than 32 portals or more than 4096 portal tests ends the walk
 and the camera then draws everything (an unknown answer never hides). Reflection probe, GI and light-probe captures are not culled,
@@ -335,7 +341,13 @@ It is conservative like the CPU path, with the costs of one frame of latency:
   more than 12 cells of parallax allow (a teleport, a very fast move, a box close to the camera), a box that crosses the old
   picture's border or the old near plane, and the first frames after a scene loads or a camera appears (until a pyramid
   arrives). A pyramid older than 8 frames is dropped (the camera was not drawn, or the GPU did not answer).
-- Up to 8 cameras per frame keep a pyramid, in the order their jobs are declared; the others are not culled by it.
+- Up to 8 cameras per frame keep a pyramid, in the order their jobs are declared; the others are not culled by it. Each camera that
+  has one asks for its own readback, which flushes the GPU's queue once (a `glFlush` on OpenGL, a `Flush` of the immediate context on
+  D3D11, one more command buffer on Metal), so several cameras cost several flushes: a split-screen game pays one per player.
+- A picture taken with `screenshot` or `render.capture` of a camera has a pyramid of its own, forgotten when the capture ends: it
+  never reuses, replaces or ages the pyramid of the game's camera, and `render.occlusion` keeps showing the last frame's numbers.
+- A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps (up to 6 per frame): the limit is
+  48 steps whatever `fixedHz` is, so a 240 Hz project does not draw everything on every frame.
 - **Not culled**: shadow passes (a hidden mesh still casts its shadow), orthographic cameras (they keep the CPU Occluders),
   a camera view's picture (unless it has its own post-processing), reflection probe, GI and light-probe captures, and sprites, 2D, particles
   and UI as for the CPU path. `showTags` and `hideTags` are applied before the test, and a LOD or HLOD pick is made first, so the

@@ -124,6 +124,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     if (best) {
         cam = *world.get<Camera>(best);
         ci.studio = cam.lighting == CameraLighting::Studio;
+        ci.areaCulling = cam.areaCulling;
         ci.studioIntensity = std::isfinite(cam.studioIntensity) ? std::clamp(cam.studioIntensity, 0.0f, 8.0f) : 1.0f;
     }
     ci.clearColor = cam.clearColor;
@@ -1171,7 +1172,8 @@ void Renderer::Impl::render(World& world, float dt) {
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
     occlusionShown = {};
     occlusion_overlay();
-    hiz_begin_frame(world);  // the mode, and the pictures of a world that is gone
+    hiz_begin_frame(world);      // the mode, and the pictures of a world that is gone
+    portalGather.valid = false;  // the rooms and doors are gathered again by the first camera of this frame
     hizPrev = std::move(hizShown);
     hizShown = {};
     hiz_overlay();

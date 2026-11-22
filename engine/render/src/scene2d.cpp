@@ -1037,7 +1037,9 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         if (t.visibleCharacters == 0) return;
         if (screen && !turned_parent_matrix(world, e, f, t.anchor, t.safeArea, mirrored, m))
             apply_anchor(m, t.anchor, t.safeArea, world, f, mirrored);
-        // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
+        // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned. A world-space text snaps on the grid of the
+        // camera's own pixels (its visible rectangle's corner is the origin of the grid), so it is a screen-space snap: a floating-
+        // origin rebase moves the position and the corner by the same whole offset and the snapped pixel does not change.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;
             float k = screen ? 1.0f : f.cam.pixelsPerUnit;

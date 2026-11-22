@@ -838,11 +838,14 @@ std::string backend_dialect(sg_backend backend);
 // shader is not made). The desc points into `program`, which must outlive it.
 // A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them
 // with the shader).
+// `materialTextures` names the material's textures, so the too-many-texture-pairs error tells them from the engine's.
 Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
-                                            const int* workgroup = nullptr);
+                                            const int* workgroup = nullptr,
+                                            const std::vector<std::string>* materialTextures = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
 Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
-                                              const int* workgroup = nullptr);
+                                              const int* workgroup = nullptr,
+                                              const std::vector<std::string>* materialTextures = nullptr);
 
 // Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
 // A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
@@ -1078,6 +1081,7 @@ struct CameraInfo : CameraGeometry {
     bool studio =
         false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
     float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
+    bool areaCulling = true;  // Camera.areaCulling: the OcclusionArea / OcclusionPortal culling applies to this camera
     // A reflection probe capture with ReflectionProbe.clear = color: the picture's background is clearColor, no sky is drawn behind the
     // meshes (the meshes are still lit by the sky). Only the probe captures set it.
     bool noSky = false;
@@ -2032,6 +2036,10 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
 // waits so its result does not depend on the GPU's speed). The work that wrote the buffer must have been committed (sg_commit)
 // before request(): on Metal the copy is a blit on the queue after sokol's command buffer. Needs the GPU's storage buffers (no
 // GLES3): `supported()` says so. Not thread safe: the render thread only.
+// What a request costs the frame: GL a glFlush (the fence must be submitted to be signalled), D3D11 a Flush of the immediate context
+// (the staging copy and its event query must be submitted), Metal one more command buffer committed behind sokol's. They are per request,
+// so a frame with several cameras that use the depth pyramid flushes once per camera: the price of reading each camera's cells without
+// waiting, bounded by the 8 cameras per frame that keep a pyramid (hiz.h).
 class AsyncBufferRead {
 public:
     static constexpr int kSlots = 4;

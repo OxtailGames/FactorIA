@@ -509,7 +509,8 @@ TEST_CASE(
     const TargetFormat game{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
     fx.warm(*gpu, game);
     REQUIRE(fx.ready());
-    // The copy's pipeline (in the scene format) and the effect's two (with and without the depth test): what the first frame draws with.
+    // pipeline_count() counts cache entries (a failed build is one too, with id 0). Here the copy's (in the scene format) and the
+    // effect's two (with and without the depth test): what the first frame draws with.
     CHECK(fx.pipeline_count() == 3);
     fx.warm(*gpu, game);  // the same format again finds them all: the warm-up is idempotent
     CHECK(fx.pipeline_count() == 3);

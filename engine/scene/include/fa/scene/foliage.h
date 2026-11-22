@@ -27,8 +27,8 @@ namespace fa {
 inline constexpr std::uint16_t kFoliageVersion = 1;
 inline constexpr std::size_t kFoliageHeaderBytes = 16;
 inline constexpr std::size_t kFoliageRecordBytes = 26;
-// One file holds at most this many instances (52 MB on disk, about 64 MB in memory): beyond it use several Foliage entities, which also
-// lets the renderer cull and fade each of them on its own.
+// One file holds at most this many instances (52 MB on disk, 72 MB decoded; the renderer's load peaks at about 170 MB while it sorts them into
+// chunks, then keeps 72 MB): beyond it use several Foliage entities, which also lets the renderer cull and fade each of them on its own.
 inline constexpr std::uint32_t kMaxFoliageInstances = 2000000;
 // The in-memory undo history of foliage.scatter / paint / clear (foliage.undo, foliage.redo) keeps this many steps and bytes per
 // Foliage entity, and this many bytes over all of them (the least recently edited entity's history goes first). The editor names

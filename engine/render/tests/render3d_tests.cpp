@@ -845,10 +845,11 @@ TEST_CASE(
     MaterialScope scope;
     auto twin = load_json_file("materials/sprite_pool.material.json." + g.renderer.shader_dialect() + ".shader");
     REQUIRE(twin.ok());
-    Json program = (*twin)["programs"]
-                          ["quad"];  // the engine's 8 bindings: tex, normal, GI, light, shadow, cookie, emissive, scene
+    // Only the program is borrowed from the twin; the pair list is built here, so the numbers do not depend on how many
+    // bindings the engine gives that fixture or in which order.
+    Json program = (*twin)["programs"]["quad"];
     Json& pairs = program["reflection"]["texture_sampler_pairs"];
-    REQUIRE(pairs.size() == 8);
+    pairs = Json::array();
     auto add = [&](const std::string& name, const char* stage, int viewSlot) {
         pairs.push_back({{"slot", int(pairs.size())},
                          {"stage", stage},
@@ -858,32 +859,103 @@ TEST_CASE(
                          {"view_slot", viewSlot},
                          {"sampler_slot", 0}});
     };
+    // The engine's own 8 fragment bindings: tex, normal, GI, light, shadow, cookie, emissive, scene.
+    const char* const engineNames[] = {"tex",        "normal_tex",    "fx_gi_tex",       "light_tex",
+                                       "shadow_tex", "fx_cookie_tex", "fx_emissive_tex", "fa_scene_tex"};
+    for (int i = 0; i < 8; ++i) add(engineNames[i], "fragment", i);
+    std::vector<std::string> own;  // the material's textures, as the caller (the material) names them
+    for (int i = 0; i < 8; ++i) own.push_back("mask" + std::to_string(i));
     // A full sprite material: the material's four textures read by the fragment stage and the vertex copies of them, 16 pairs in all.
-    for (int i = 0; i < 4; ++i) add("mask" + std::to_string(i), "fragment", 4 + i);
-    for (int i = 0; i < 4; ++i) add("fa_vs_mask" + std::to_string(i), "vertex", 8 + i);
+    for (int i = 0; i < 4; ++i) add(own[std::size_t(i)], "fragment", 4 + i);
+    for (int i = 0; i < 4; ++i) add("fa_vs_" + own[std::size_t(i)], "vertex", 8 + i);
     REQUIRE(pairs.size() == 16);
     render::MaterialProgram full;
-    CHECK(render::material_shader_desc("full sprite", program, full).ok());
+    CHECK(render::material_shader_desc("full sprite", program, full, nullptr, &own).ok());
 
     // The fragment stage alone at exactly 16 (8 more of the material's own) is accepted, a 17th is not.
-    for (int i = 4; i < 8; ++i) add("mask" + std::to_string(i), "fragment", 4 + i);
+    for (int i = 4; i < 8; ++i) add(own[std::size_t(i)], "fragment", 4 + i);
     REQUIRE(pairs.size() == 20);
     render::MaterialProgram atLimit;
-    CHECK(render::material_shader_desc("sixteen", program, atLimit).ok());  // fragment 8 + 4 + 4 = 16, vertex 4
+    CHECK(render::material_shader_desc("sixteen", program, atLimit, nullptr, &own)
+              .ok());  // fragment 8 + 8 = 16, vertex 4
 
+    own.push_back("one_more");
     add("one_more", "fragment", 20);
     render::MaterialProgram over;
-    auto bad = render::material_shader_desc("seventeen", program, over);
+    auto bad = render::material_shader_desc("seventeen", program, over, nullptr, &own);
     REQUIRE_FALSE(bad.ok());
     const std::string& m = bad.error().message;
-    CHECK(m.find("reads 17 image-sampler pairs in its fragment stage") != std::string::npos);
+    CHECK(m.find("17 in its fragment stage") != std::string::npos);
     CHECK(m.find("at most 16 can be bound per stage") != std::string::npos);
-    CHECK(m.find("engine's own bindings take 8 (tex, normal_tex, fx_gi_tex, light_tex, shadow_tex, fx_cookie_tex, "
+    CHECK(m.find("D3D11 and Metal too") != std::string::npos);  // refused on every backend
+    CHECK(m.find("in its vertex stage") == std::string::npos);  // the vertex stage (4) is within its limit
+    CHECK(m.find("the engine's own bindings take 8 (tex, normal_tex, fx_gi_tex, light_tex, shadow_tex, fx_cookie_tex, "
                  "fx_emissive_tex, fa_scene_tex)") != std::string::npos);
     CHECK(m.find("material's own textures 9 (mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7, one_more)") !=
           std::string::npos);
     CHECK(bad.error().hint.find("Drop 1 or more") != std::string::npos);
-    CHECK(bad.error().hint.find("fa_scene_color()") != std::string::npos);
+    CHECK(bad.error().hint.find("fa_scene_color()") != std::string::npos);  // the program reads fa_scene_tex
+    CHECK(bad.error().hint.find("merge maps") != std::string::npos);
+    // The vertex copies are not what takes the fragment stage's units: no advice on vertex().
+    CHECK(bad.error().hint.find("vertex()") == std::string::npos);
+
+    // What the material declares tells the classes apart, not a list of names: a texture the material calls like an
+    // engine view is still its own, and an unknown engine view is the engine's.
+    std::vector<std::string> named = {"tex"};
+    for (int i = 0; i < 8; ++i) named.push_back("mask" + std::to_string(i));
+    named.push_back("one_more");
+    render::MaterialProgram byName;
+    auto byNameErr = render::material_shader_desc("by name", program, byName, nullptr, &named);
+    REQUIRE_FALSE(byNameErr.ok());
+    CHECK(byNameErr.error().message.find("the engine's own bindings take 7 (normal_tex, ") != std::string::npos);
+    CHECK(byNameErr.error().message.find("material's own textures 10 (tex, mask0") != std::string::npos);
+
+    // Both stages over their limit: both are reported, and the hint knows the vertex copies are there.
+    for (int i = 0; i < 17; ++i) add("fa_vs_mask" + std::to_string(i % 8), "vertex", 8 + i % 4);
+    render::MaterialProgram both;
+    auto bothErr = render::material_shader_desc("both", program, both, nullptr, &own);
+    REQUIRE_FALSE(bothErr.ok());
+    CHECK(bothErr.error().message.find("17 in its fragment stage") != std::string::npos);
+    CHECK(bothErr.error().message.find("21 in its vertex stage") != std::string::npos);
+    CHECK(bothErr.error().hint.find("Drop 5 or more") != std::string::npos);
+    CHECK(bothErr.error().hint.find("vertex()") != std::string::npos);
+}
+
+TEST_CASE("materials: the hint of a stage over its pair limit offers only the advice that applies to that shader") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto twin = load_json_file("materials/sprite_pool.material.json." + g.renderer.shader_dialect() + ".shader");
+    REQUIRE(twin.ok());
+    Json program = (*twin)["programs"]["quad"];
+    Json& pairs = program["reflection"]["texture_sampler_pairs"];
+    pairs = Json::array();
+    auto add = [&](const std::string& name, const char* stage) {
+        pairs.push_back({{"slot", int(pairs.size())},
+                         {"stage", stage},
+                         {"name", name + "_smp"},
+                         {"view_name", name},
+                         {"sampler_name", "smp"},
+                         {"view_slot", 0},
+                         {"sampler_slot", 0}});
+    };
+    // (Two stages of 16 never reach the 32 of sokol, so the stage limit is the one a program can break.)
+    std::vector<std::string> own;
+    for (int i = 0; i < 16; ++i) {
+        own.push_back("m" + std::to_string(i));
+        add(own.back(), "fragment");
+    }
+    add("fa_vs_m0", "vertex");
+    render::MaterialProgram ok;
+    CHECK(render::material_shader_desc("sixteen fragment", program, ok, nullptr, &own).ok());
+    add("m16", "fragment");
+    own.push_back("m16");
+    render::MaterialProgram bad;
+    auto err = render::material_shader_desc("over", program, bad, nullptr, &own);
+    REQUIRE_FALSE(err.ok());
+    // No vertex copy takes this stage's units, no fa_scene_tex is read: the advice is the merge of maps only.
+    CHECK(err.error().hint.find("fa_scene_color()") == std::string::npos);
+    CHECK(err.error().hint.find("merge maps") != std::string::npos);
 }
 
 TEST_CASE("materials: a material with an empty surface() renders pixel-identical to the same mesh without a material, "
