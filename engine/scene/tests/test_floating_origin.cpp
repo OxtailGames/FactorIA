@@ -4,6 +4,7 @@
 
 #include <cmath>
 
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/feel.h"
 #include "fa/scene/floating_origin.h"
 #include "fa/scene/interpolation.h"
@@ -211,4 +212,130 @@ TEST_CASE("floating origin: 200 km out a float loses millimetres, with the origi
     const double errorWith = std::fabs(rebased.absolute_position(b).x - 200001.0);
     CHECK(errorWith < 0.002);
     CHECK(errorWith * 100 < errorWithout);
+}
+
+TEST_CASE("floating origin: a Parallax layer moves by offset * factor so what the player sees does not change") {
+    ensure_builtin_components();
+    const float factors[] = {0.5f, 0.0f, 1.0f, 0.25f};
+    for (float f : factors) {
+        CAPTURE(f);
+        World w;
+        Entity layer = make_at(w, "layer", {40000.0f, 300.0f, 2.0f});
+        w.add<Parallax>(layer).factor = {f, f};
+        Entity cam = make_at(w, "cam", {40100.0f, 310.0f, 0});
+        auto seen = [&]() {  // drawn - camera: what the player sees of the layer
+            const Vec3 c = w.world_position(cam);
+            update_parallax(w, {c.x, c.y});
+            const Vec3 p = w.world_position(layer);
+            const Parallax* par = w.get<Parallax>(layer);
+            return Vec2{p.x + par->offset.x - c.x, p.y + par->offset.y - c.y};
+        };
+        const Vec2 before = seen();
+        w.rebase({39936.0f, 256.0f, 64.0f});  // 624 * 64 on x
+        const Vec2 after = seen();
+        CHECK(after.x == before.x);
+        CHECK(after.y == before.y);
+        // The layer's absolute position moved by factor * offset (it is glued to the camera by 1 - factor).
+        CHECK(w.absolute_position(layer).x == doctest::Approx(40000.0 + (1.0 - f) * 39936.0).epsilon(1e-9));
+        CHECK(w.absolute_position(layer).z == 2.0);  // z has no parallax: it moved with the world
+        w.rebase({-39936.0f, -256.0f, -64.0f});      // back: bit for bit
+        CHECK(w.get<Transform>(layer)->position.x == 40000.0f);
+        CHECK(w.get<Transform>(layer)->position.y == 300.0f);
+    }
+}
+
+TEST_CASE("floating origin: the world points components hold move with a rebase") {
+    ensure_builtin_components();
+    World w;
+    Entity link = make_at(w, "link", {5000, 0, 0});
+    w.add<NavLink3D>(link).end = {5100, 0, 30};
+    Entity probes = make_at(w, "probes", {5000, 0, 0});
+    w.add<LightProbeGroup>(probes).points = Json::parse("[[5001, 2, 3], [5002.5, 1, 0], \"not a point\"]");
+    Entity j2 = make_at(w, "j2", {5000, 0, 0});
+    w.add<Joint2D>(j2).connectedAnchor = {5000, 20};  // `connected` empty: a world position
+    Entity j2b = make_at(w, "j2b", {5000, 0, 0});
+    Joint2D& pinned = w.add<Joint2D>(j2b);
+    pinned.connected = j2;  // joined to a body: connectedAnchor is local to it and does not move
+    pinned.connectedAnchor = {7, 8};
+    Entity j3 = make_at(w, "j3", {5000, 0, 0});
+    w.add<Joint3D>(j3).connectedAnchor = {5000, 1, 2};
+
+    w.rebase({4096, 0, -64});
+    CHECK(w.get<NavLink3D>(link)->end == Vec3{1004, 0, 94});
+    const Json& pts = w.get<LightProbeGroup>(probes)->points;
+    CHECK(pts[0] == Json::parse("[905, 2, 67]"));
+    CHECK(pts[1] == Json::parse("[906.5, 1, 64]"));
+    CHECK(pts[2] == "not a point");  // anything that is not [x, y, z] stays
+    CHECK(w.get<Joint2D>(j2)->connectedAnchor == Vec2{904, 20});
+    CHECK(w.get<Joint2D>(j2b)->connectedAnchor == Vec2{7, 8});
+    CHECK(w.get<Joint3D>(j3)->connectedAnchor == Vec3{904, 1, 66});
+    // The absolute point (local + origin) is what it was.
+    CHECK(double(w.get<NavLink3D>(link)->end.x) + w.origin().x == 5100.0);
+}
+
+TEST_CASE("floating origin: an additive load places what it loads at its absolute position") {
+    ensure_builtin_components();
+    // A cell saved at origin 0: a root with a child, a nav link, a world-pinned joint and probe points.
+    World cell;
+    Entity root = make_at(cell, "root", {100, 5, 7});
+    Entity child = make_at(cell, "child", {1, 2, 3});
+    cell.set_parent(child, root);
+    Entity link = make_at(cell, "link", {300, 0, 0});
+    cell.add<NavLink3D>(link).end = {310, 0, 0};
+    Entity pin = make_at(cell, "pin", {200, 0, 0});
+    cell.add<Joint2D>(pin).connectedAnchor = {200, 10};
+    Entity probes = make_at(cell, "probes", {400, 0, 0});
+    cell.add<LightProbeGroup>(probes).points = Json::parse("[[401, 1, 1]]");
+    const Json file = save_scene(cell);
+    REQUIRE_FALSE(file.contains("origin"));
+
+    // Loaded into a world whose origin moved to 4096: the roots land at 4096 less locally, the absolute position is the saved one.
+    World w;
+    w.rebase({4096, 0, 0});
+    REQUIRE(w.origin() == DVec3{4096, 0, 0});
+    SceneLoadOptions add;
+    add.additive = true;
+    const LoadReport r = load_scene(w, file, "cell.scene.json", add);
+    INFO(r.summary());
+    REQUIRE(r.ok());
+    CHECK(w.origin() == DVec3{4096, 0, 0});  // an additive load never moves the origin
+    const Entity lr = w.find_by_id("root"), lc = w.find_by_id("child");
+    REQUIRE_FALSE(lr.is_null());
+    CHECK(w.absolute_position(lr) == DVec3{100, 5, 7});
+    CHECK(w.get<Transform>(lr)->position == Vec3{100 - 4096, 5, 7});
+    CHECK(w.get<Transform>(lc)->position == Vec3{1, 2, 3});  // a child stays local to its parent
+    CHECK(w.absolute_position(lc) == DVec3{101, 7, 10});
+    CHECK(double(w.get<NavLink3D>(w.find_by_id("link"))->end.x) + w.origin().x == 310.0);
+    CHECK(double(w.get<Joint2D>(w.find_by_id("pin"))->connectedAnchor.x) + w.origin().x == 200.0);
+    CHECK(w.get<LightProbeGroup>(w.find_by_id("probes"))->points[0] == Json::parse("[-3695, 1, 1]"));
+
+    // A file with its own origin: positions are local to THAT origin, so they land at file origin - world origin more.
+    World farWorld;
+    farWorld.rebase({8192, 0, 0});
+    make_at(farWorld, "far", {10, 0, 0});  // absolute 8202
+    const Json farFile = save_scene(farWorld);
+    REQUIRE(farFile["origin"][0].get<double>() == 8192.0);
+    World w2;
+    w2.rebase({4096, 0, 0});
+    const LoadReport r2 = load_scene(w2, farFile, "far.scene.json", add);
+    REQUIRE(r2.ok());
+    CHECK(w2.origin() == DVec3{4096, 0, 0});
+    CHECK(w2.absolute_position(w2.find_by_id("far")) == DVec3{8202, 0, 0});
+    CHECK(w2.get<Transform>(w2.find_by_id("far"))->position.x == 4106.0f);
+
+    // A non-additive load still restores the file's origin and leaves the positions as written.
+    World w3;
+    w3.rebase({4096, 0, 0});
+    REQUIRE(load_scene(w3, farFile, "far.scene.json").ok());
+    CHECK(w3.origin() == DVec3{8192, 0, 0});
+    CHECK(w3.get<Transform>(w3.find_by_id("far"))->position.x == 10.0f);
+
+    // Under a parent the roots are relative to it: nothing moves.
+    World w4;
+    w4.rebase({4096, 0, 0});
+    Entity holder = make_at(w4, "holder", {5, 0, 0});
+    SceneLoadOptions under = add;
+    under.parent = holder;
+    REQUIRE(load_scene(w4, farFile, "far.scene.json", under).ok());
+    CHECK(w4.get<Transform>(w4.find_by_id("far"))->position.x == 10.0f);
 }

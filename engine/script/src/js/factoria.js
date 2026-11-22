@@ -921,6 +921,15 @@
   // it never resumes; the promise and everything it holds become garbage as soon as nothing else refers to them.
   const tweens = {
     list: [], allPaused: false, timeScale: 1,
+    // The world's origin when the tweens last looked: a rebase (an automatic one, `world.rebase`, a script's command) moves it, and
+    // tickTweens shifts the running tweens by the difference BEFORE any of them writes, so none ever writes the old position.
+    origin: [0, 0, 0],
+    syncOrigin() {
+      const o = N.worldOrigin(), last = this.origin;
+      if (o[0] === last[0] && o[1] === last[1] && o[2] === last[2]) return;
+      this.origin = o;
+      this.shiftOrigin([o[0] - last[0], o[1] - last[1], o[2] - last[2]]);
+    },
     // The world's origin moved by `offset` (floating origin): a running tween of a root entity's position holds its start and end
     // as world numbers, so both move with the world and the entity keeps its way. Tweens of a child, of a UI element or of
     // a value that is not a Transform.position are left alone.
@@ -941,7 +950,7 @@
       }
     },
     dropAll() { for (const t of this.list.slice()) t.$drop(); this.list = []; },
-    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; },
+    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; this.origin = N.worldOrigin(); },
   };
 
   class Tween {
@@ -1071,7 +1080,9 @@
     return t;
   }
   function tickTweens(dt) {
-    if (tweens.list.length === 0 || tweens.allPaused) return;
+    if (tweens.list.length === 0) return;
+    tweens.syncOrigin();
+    if (tweens.allPaused) return;
     dt *= tweens.timeScale;
     if (!(dt > 0)) return;
     for (const t of tweens.list.slice()) {
@@ -1147,7 +1158,6 @@
   }
   const listeners = new Map();
   function emitToListeners(name, data, source) {
-    if (name === "app.originShifted") tweens.shiftOrigin(data.offset);  // the engine's own bookkeeping, before the game's handlers
     const arr = listeners.get(name);
     if (!arr) return;
     for (const l of arr.slice()) {
