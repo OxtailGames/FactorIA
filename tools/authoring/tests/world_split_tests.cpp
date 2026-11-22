@@ -481,3 +481,64 @@ TEST_CASE("world.split_cells: the streamer loads the cells as the entities of th
     }
     e.shutdown();
 }
+
+TEST_CASE("world.merge_cells: a StreamedWorld in the files stays in the merged scene and is a warning that says how to "
+          "remove it") {
+    Project p;
+    write_town(p);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
+    call(e, "world.split_cells", split_args());
+    // Without a StreamedWorld there is nothing to warn about
+    const Json plain = call(e, "world.merge_cells",
+                            Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/plain.scene.json"}}));
+    REQUIRE(plain.contains("warnings"));
+    CHECK(plain["warnings"].empty());
+    // The persistent scene gets the streamer the split's note asks for, one of them as a child
+    Json persistent = Json::parse(p.read("worlds/town_persistent.scene.json"));
+    Json streamer = Json::object(
+        {{"id", "streamer"},
+         {"components", Json::object({{"StreamedWorld", Json::object({{"world", "worlds/town.world.json"}})}})}});
+    persistent["entities"].push_back(streamer);
+    Json holder = Json::object({{"id", "holder"}, {"children", Json::array({streamer})}});
+    holder["children"][0]["id"] = "inner_streamer";
+    persistent["entities"].push_back(holder);
+    p.write("worlds/town_persistent.scene.json", persistent.dump(1));
+    const Json m = call(e, "world.merge_cells",
+                        Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}}));
+    REQUIRE(m["warnings"].size() == 2);
+    const std::string w = m["warnings"][0].get<std::string>();
+    CHECK(w.find("'streamer'") != std::string::npos);
+    CHECK(w.find("scene.remove_component") != std::string::npos);
+    CHECK(w.find("StreamedWorld") != std::string::npos);
+    CHECK(m["warnings"][1].get<std::string>().find("'inner_streamer'") != std::string::npos);
+    // The component is kept: split then merge still gives back the same entities
+    CHECK(p.read("scenes/merged.scene.json").find("\"StreamedWorld\"") != std::string::npos);
+    // The write is atomic (a temp file next to the target, renamed over it): none is left behind
+    for (const auto& f : stdfs::recursive_directory_iterator(p.dir))
+        CHECK(f.path().string().find(".fa-tmp") == std::string::npos);
+    e.shutdown();
+}
+
+#if defined(_WIN32) || defined(__APPLE__)
+// Windows and macOS volumes ignore case by default: the same file spelled another way is the same file.
+TEST_CASE("world.merge_cells: an out that names a cell file in another case is refused on case-insensitive volumes") {
+    Project p;
+    write_town(p);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
+    call(e, "world.split_cells", split_args());
+    if (!stdfs::exists(p.dir / "worlds/Town_Cells")) {  // a case-sensitive volume: nothing to check
+        e.shutdown();
+        return;
+    }
+    CHECK(text_of(call_error(e, "world.merge_cells",
+                             Json::object({{"world", "worlds/town.world.json"},
+                                           {"out", "worlds/Town_Cells/0_0.scene.json"},
+                                           {"overwrite", true}})))
+              .find("never changes them") != std::string::npos);
+    e.shutdown();
+}
+#endif
