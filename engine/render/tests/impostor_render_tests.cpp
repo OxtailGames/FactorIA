@@ -286,16 +286,52 @@ TEST_CASE("impostor render: a missing or wrong atlas warns once and the last lev
     g.renderer.clear_asset_cache();
 }
 
+TEST_CASE("impostor render: an atlas replaced file by file (json first, pictures after) warns about nothing while it settles") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string atlas = write_atlas("replace", ImpostorMode::Octahedral, 3, 16);
+    ProblemLog log;
+    World w;
+    add_camera(w, {0, 0, 12});
+    add_tree(w, {0, 0, 0}, atlas, 10.0f);
+    g.render(w);
+    REQUIRE(g.renderer.stats().impostors == 1);
+    // The editor replaces the json first: it says 4 views of 16 (64 pixels) and the pictures still are 48.
+    {
+        ImpostorAtlas a;
+        a.views = 4;
+        a.frameSize = 16;
+        a.albedo = "assets/imp/replace.impostor.png";
+        a.normal = "assets/imp/replace.impostor.normal.png";
+        a.radius = 1.0f;
+        write_text(atlas, impostor_to_json(a).dump(2));
+    }
+    g.renderer.reload_asset(atlas);
+    for (int i = 0; i < 3; ++i) {
+        g.render(w);
+        CHECK(g.renderer.stats().impostors == 0);  // the cube keeps drawing meanwhile
+    }
+    // Then the pictures arrive.
+    write_atlas("replace", ImpostorMode::Octahedral, 4, 16);
+    g.renderer.reload_asset("assets/imp/replace.impostor.png");
+    g.renderer.reload_asset("assets/imp/replace.impostor.normal.png");
+    g.render(w);
+    CHECK(g.renderer.stats().impostors == 1);
+    CHECK(log.count("replace.impostor") == 0);
+    g.renderer.clear_asset_cache();
+}
+
 TEST_CASE("impostor render: the card shows the frame the CPU pick says, in front of a transparent surround") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string atlas = write_atlas("pixels");
-    // Four cameras on the axes: each looks at the tree from a direction that is exactly one frame of the 3 x 3 grid.
+    // Four cameras on the axes: each looks at the tree from a direction that is exactly one frame of the 3 x 3 grid. At 12 m the card
+    // (radius 1 m) is about 26 pixels across in the 320 x 180 picture, so the pixels read below are inside it; impostorDistance is 10.
     struct View {
         Vec3 from, rotation;
     };
     const View views[] = {
-        {{0, 0, 40}, {0, 0, 0}}, {{40, 0, 0}, {0, 90, 0}}, {{-40, 0, 0}, {0, -90, 0}}, {{0, 40, 0}, {-90, 0, 0}}};
+        {{0, 0, 12}, {0, 0, 0}}, {{12, 0, 0}, {0, 90, 0}}, {{-12, 0, 0}, {0, -90, 0}}, {{0, 12, 0}, {-90, 0, 0}}};
     for (const View& v : views) {
         World w;
         add_camera(w, v.from, v.rotation);
@@ -316,12 +352,16 @@ TEST_CASE("impostor render: the card shows the frame the CPU pick says, in front
         CHECK(std::fabs(got.r - want.r) < 0.06f);
         CHECK(std::fabs(got.g - want.g) < 0.06f);
         CHECK(std::fabs(got.b - want.b) < 0.06f);
-        // The corner of the frame is transparent: the pixel is the background's. The disc is half the frame: 0.5 of the card's radius.
-        // At 40 m the radius of 1 m is about 24 pixels.
-        const Color corner = img.pixel(160 + 20, 90 + 20), clear = background.pixel(160 + 20, 90 + 20);
+        // The corner of the frame is transparent: the pixel is the background's. The disc is half the frame: 0.5 of the card's radius
+        // (6.5 pixels at 12 m), and (+9, +9) pixels is 0.7 m on each axis, inside the card and outside the disc. The card does cover it:
+        // the same pixel a little nearer the disc (+4, +4) is the frame's colour.
+        const Color corner = img.pixel(160 + 9, 90 + 9), clear = background.pixel(160 + 9, 90 + 9);
         CHECK(std::fabs(corner.r - clear.r) < 0.02f);
         CHECK(std::fabs(corner.g - clear.g) < 0.02f);
         CHECK(std::fabs(corner.b - clear.b) < 0.02f);
+        const Color edge = img.pixel(160 + 4, 90 + 4);
+        CHECK(std::fabs(edge.r - want.r) < 0.06f);
+        CHECK(std::fabs(edge.g - want.g) < 0.06f);
         (void)e;
         g.renderer.clear_asset_cache();
     }
@@ -332,7 +372,7 @@ TEST_CASE("impostor render: the card turns with the entity, so a turned tree sho
     REQUIRE(g.ok);
     const std::string atlas = write_atlas("turned");
     World w;
-    add_camera(w, {0, 0, 40});
+    add_camera(w, {0, 0, 12});
     Entity e = add_tree(w, {0, 0, 0}, atlas, 10.0f);
     g.render(w);
     const Color front = g.render(w).pixel(160, 90);
@@ -351,6 +391,59 @@ TEST_CASE("impostor render: the card turns with the entity, so a turned tree sho
     CHECK(std::fabs(side.g - want.g) < 0.06f);
     CHECK(std::fabs(side.b - want.b) < 0.06f);
     g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("impostor render: a mirrored entity (negative scale) shows the frame of the mirrored side") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string atlas = write_atlas("mirror");
+    // The camera on +x sees the model's +x side of a tree and its -x side of the same tree mirrored in x.
+    for (const bool mirrored : {false, true}) {
+        World w;
+        add_camera(w, {12, 0, 0}, {0, 90, 0});
+        Entity e = add_tree(w, {0, 0, 0}, atlas, 10.0f);
+        if (mirrored) w.get<Transform>(e)->scale = {-1, 1, 1};
+        const Image img = g.render(w);
+        REQUIRE(g.renderer.stats().impostors == 1);
+        const ImpostorPick pick = impostor_pick(ImpostorMode::Octahedral, 3, Vec3{mirrored ? -1.0f : 1.0f, 0, 0});
+        int best = 0;
+        for (int k = 1; k < 3; ++k)
+            if (pick.weight[k] > pick.weight[best]) best = k;
+        const Color want = frame_colour(pick.frame[best] % 3, pick.frame[best] / 3);
+        const Color got = img.pixel(160, 90);
+        INFO("mirrored " << mirrored << ", frame " << pick.frame[best]);
+        CHECK(std::fabs(got.r - want.r) < 0.06f);
+        CHECK(std::fabs(got.g - want.g) < 0.06f);
+        CHECK(std::fabs(got.b - want.b) < 0.06f);
+        g.renderer.clear_asset_cache();
+    }
+}
+
+TEST_CASE("impostor render: a lit card takes the atlas's normal, so a sun from above lights it and one from below does not") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string atlas = write_atlas("lit");  // every texel's model-space normal is +y
+    float luma_of[2] = {0, 0};
+    for (int below = 0; below < 2; ++below) {
+        World w;
+        w.settings().ambientLight = Color{0.05f, 0.05f, 0.05f, 1};
+        add_camera(w, {0, 0, 12});
+        Entity sun = make(w, "sun", {0, 5, 0});
+        w.get<Transform>(sun)->rotation = {below ? 90.0f : -90.0f, 0, 0};  // -90: the light travels down, onto a +y normal
+        auto& l = w.add<Light>(sun);
+        l.type = LightType::Directional;
+        l.intensity = 2.0f;
+        Entity e = add_tree(w, {0, 0, 0}, atlas, 10.0f);
+        w.get<MeshRenderer>(e)->unlit = false;
+        const Image img = g.render(w);
+        REQUIRE(g.renderer.stats().impostors == 1);
+        const Color c = img.pixel(160, 90);
+        luma_of[below] = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        g.renderer.clear_asset_cache();
+    }
+    INFO("lit from above " << luma_of[0] << ", from below " << luma_of[1]);
+    CHECK(luma_of[0] > 0.15f);
+    CHECK(luma_of[0] > luma_of[1] * 2.0f);
 }
 
 TEST_CASE(

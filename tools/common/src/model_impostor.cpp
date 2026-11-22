@@ -3,6 +3,7 @@
 // in a fixed order, so the same model and arguments give the same files on one build. The layout and the maths of the atlas are
 // fa/scene/impostor.h; this file is the bake and the command.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -26,17 +27,17 @@ constexpr double kMaxPixelWork = 6.0e9;         // pixels the triangles' boundin
 constexpr int kDilatePasses = 4;                // pixels the colour of an edge grows into the transparent area
 constexpr const char* kCommand = "model.bake_impostor";
 
+// Built once (a function-local static initialised by a lambda: thread-safe, unlike a flag checked by every caller).
 const float* srgb_to_linear_table() {
-    static float table[256];
-    static bool ready = false;
-    if (!ready) {
+    static const std::array<float, 256> table = [] {
+        std::array<float, 256> t{};
         for (int i = 0; i < 256; ++i) {
             const double c = i / 255.0;
-            table[i] = float(c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4));
+            t[std::size_t(i)] = float(c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4));
         }
-        ready = true;
-    }
-    return table;
+        return t;
+    }();
+    return table.data();
 }
 
 std::uint8_t linear_to_srgb_byte(float lin) {
@@ -278,9 +279,11 @@ bool is_our_impostor(const std::string& projectDir, const std::string& rel) {
            (*j)["format"].get<std::string>() == kImpostorFormat;
 }
 
-// The entities of the loaded scene that draw `meshPath` get MeshRenderer.impostor = `file` (only the live scene: save it to keep it).
-Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath, const std::string& file,
-                    Json& warnings) {
+// The entities of the loaded scene that draw the model (`meshPath`, the .glb, or `docPath`, the .model.json it was baked from: a MeshRenderer
+// may name either) get MeshRenderer.impostor = `file` (only the live scene: save it to keep it). One scene.get_entity per MeshRenderer of the
+// scene (scene.list_entities lists no fields), each change one scene.set_component, so the editor's history has one step per entity.
+Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath, const std::string& docPath,
+                    const std::string& file, Json& warnings) {
     Json applied = Json::array();
     if (!registry.info("scene.list_entities") || !registry.info("scene.set_component")) {
         warnings.push_back(
@@ -305,7 +308,7 @@ Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath
         const Json& mr = got.result["components"]["MeshRenderer"];
         if (!mr.contains("mesh") || !mr["mesh"].is_string()) continue;
         auto norm = fs::normalize_checked(mr["mesh"].get<std::string>());
-        if (!norm.ok() || *norm != meshPath) continue;
+        if (!norm.ok() || (*norm != meshPath && (docPath.empty() || *norm != docPath))) continue;
         CommandResult set = registry.call(
             "scene.set_component",
             Json::object({{"id", id}, {"component", "MeshRenderer"}, {"fields", Json::object({{"impostor", file}})}}));
@@ -354,8 +357,10 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
         fail("invalid_argument", "/model: '" + arg + "' is not a project-relative path.",
              "Example: \"assets/models/tree.glb\" or \"assets/models/tree.model.json\".");
     std::string meshPath = *norm;
+    std::string docPath;  // the .model.json the model was given as: a MeshRenderer may name it instead of the .glb
     const std::string lower = to_lower(*norm);
     if (ends_with(lower, kModelDocSuffix)) {
+        docPath = *norm;
         ProjectRootGuard root(projectDir);
         auto doc = load_model_doc(*norm);
         if (!doc.ok()) fail("invalid_document", doc.error().message, doc.error().hint);
@@ -478,6 +483,13 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
     double work = 0;
     for (int j = 0; j < views; ++j)
         for (int i = 0; i < views; ++i) {
+            // A long bake tells its caller where it is (the MCP progress notification) and stops, writing nothing, when the request is cancelled.
+            if (command_cancelled())
+                fail("cancelled", "The bake of '" + meshPath + "' was cancelled after " + std::to_string(j * views + i) +
+                                      " of " + std::to_string(views * views) + " frames; no file was written.",
+                     "Call model.bake_impostor again when you want the atlas.");
+            if (i == 0)
+                report_command_progress("impostor bake: row " + std::to_string(j + 1) + " of " + std::to_string(views));
             fb.reset(frameSize * ss);
             draw_frame(sc, impostor_direction(mode, views, i, j), fb, proj, work);
             if (work > kMaxPixelWork)
@@ -522,7 +534,7 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
                                 {"resolution", views * frameSize},
                                 {"radius", std::round(sc.radius * 1000.0) / 1000.0},
                                 {"triangles", sc.triangles}});
-    if (apply) result["applied"] = apply_to_scene(registry, meshPath, jsonRel, warnings);
+    if (apply) result["applied"] = apply_to_scene(registry, meshPath, docPath, jsonRel, warnings);
     result["nextSteps"] =
         Json::array({"Set MeshRenderer.impostor to \"" + jsonRel +
                      "\" and impostorDistance to where the model should turn into its picture (metres, "
@@ -552,11 +564,15 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
         "Frames cover a sphere around the model, so one frame size fits every direction. `mode` octahedral (default) "
         "covers every direction; hemiOctahedral only the upper half (y >= 0), with twice the angular resolution: for "
         "trees, rocks and buildings that are seen from above. Each frame gets resolution / views pixels, at least 8. "
-        "Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of "
+        "Same model and arguments give the same files on one build (the bytes can differ between platforms and compilers). "
+        "Transparent materials are cut out at alpha 0.5. A model of "
         "more than 4 million triangles, or whose triangles x views x views is above 400 million, is refused: bake from "
         "a lower LOD (model.generate_lods). Existing files of an earlier bake are replaced; others need `overwrite`. "
-        "`apply` also sets MeshRenderer.impostor of the entities of the loaded scene that draw the model (the scene "
-        "file is not saved: set the field in the scene to keep it). Result: {file, albedo, normal, mode, views, "
+        "`apply` also sets MeshRenderer.impostor of the entities of the loaded scene that draw the model, the .glb or "
+        "the .model.json given (one scene.get_entity per MeshRenderer of the scene, one scene.set_component per "
+        "entity; the scene file is not saved: set the field in the scene to keep it). The editor's undo reverts "
+        "those scene changes but never the three files written (delete them, or bake again). A long bake reports "
+        "its progress by row of frames and stops, writing nothing, when the request is cancelled. Result: {file, albedo, normal, mode, views, "
         "frameSize, resolution, radius, triangles, applied?, warnings?}.";
     info.inputSchema = Json::object(
         {{"type", "object"},

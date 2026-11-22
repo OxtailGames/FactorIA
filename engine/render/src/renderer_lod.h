@@ -46,8 +46,11 @@ public:
     void end_frame();
     // The pick of `entity` (Entity::bits) for the camera `camera` (any number that tells the camera's jobs apart): the level the metric
     // chose (`target`), cross-fading over `crossFade` seconds; the first time an entity is seen it starts settled at `target`.
-    // Call once per entity per camera per frame.
-    LodPick step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade, float dt);
+    // Call once per entity per camera per frame. `farTarget` is the level the metric picks when pushed kLodHysteresis farther (fa/scene/lod.h): an
+    // entity already on a farther level than `target` keeps it unless `farTarget` is nearer too (-1: no hysteresis). The level held is kept for
+    // every entity asked about, also with crossFade 0 (a hard switch).
+    LodPick step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade, float dt,
+                 int farTarget = -1);
     // The picks the first main camera of the frame made: probe and GI captures, which have no camera of their own, draw the levels that
     // camera sees. `remember` stores one (the first writer of the frame wins), `main_pick` reads it.
     void remember(std::uint64_t entity, LodKind kind, const LodPick& p);

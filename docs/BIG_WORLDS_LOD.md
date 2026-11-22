@@ -65,7 +65,11 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
     the draws the levels split into: `render.lod3d` (the same 1600 meshes with two lower levels each and 40 `LodGroup`s, no fade
     running) took 11.7 to 15.3 ms against 5.4 ms for `render.frame3d` in that build, on the CPU
     (docs/performance/PERFORMANCE_BENCH.md). Only while an entity fades does it also pay two draws and a lost batch for it.
-    With `crossFade` 0 the pick keeps no state.
+    With `crossFade` 0 an entity keeps only the level it is on (for the hysteresis below).
+  - Hysteresis (every `lods` list, `LodGroup` and impostor, with or without a fade): going to a FARTHER level happens at once at
+    the threshold, but coming back to a nearer one needs the metric 5% past it (a 30 m threshold goes back to the near level at
+    28.6 m or less; a screen-size threshold at 5% above it), so a camera that shakes at a threshold does not flip the level
+    every frame. A level that is held this way is the one the cross-fade fades from.
 - `MeshRenderer.impostor` and `impostorDistance`: drawn, see "Impostors" below.
 - **HLOD proxy** (`LodGroup.hlodProxy` and `hlodThreshold`, M75 P1d). A `LodGroup` with an `hlodProxy` (a mesh file) and an
   `hlodThreshold` above 0 draws that ONE mesh, with the group entity's own world matrix, instead of its children once the
@@ -75,8 +79,12 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
   with the same dither as any switch; the children are skipped in the main pass and in the shadows, and the proxy casts the
   shadow (`renderStats.hlodProxies` counts the proxies drawn in the main view, `render.supports` `hlod` is true on every
   backend). A group nested in another group counts as one of its meshes: the outer group's pick shows or hides it, proxy
-  included. The floating origin changes nothing: the proxy is drawn with the group's drawn matrix. If the proxy cannot be
-  read the group draws its children as before and logs one warning with the entity and the path. A scene with no `hlodProxy`
+  included. The proxy has NO baked lightmap (`lightmap.bake` bakes the MeshRenderers of the scene, and the proxy is not one), so
+  in a lightmapped scene the light of a group can jump at the switch: the children show their baked light, the proxy is lit by
+  the lights, probes and ambient like a mesh with `lightmapScale` 0; a `crossFade` softens the jump, and a proxy far enough
+  away to be small on the screen hides most of it. The floating origin changes nothing: the proxy is drawn with the group's drawn matrix. If the proxy cannot be
+  read the group draws its children as before and logs ONE error (a file that does not exist: with the entity, the path and
+  `world.bake_hlod`; any other failure: the error of the mesh loader, with its cause). A scene with no `hlodProxy`
   costs one empty-string check per `LodGroup` and draws exactly as before. The proxy of a streamed cell that is NOT loaded
   is a different feature with its own mesh: `StreamedWorld.hlodDistance` and the `hlod` of the world index
   (docs/BIG_WORLDS_STREAMING.md, "HLOD proxies"; M75 P1e); it counts in `renderStats.hlodProxies` too.
@@ -87,7 +95,8 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
   look like: a `LodGroup`'s CHILDREN are its levels (child 0 the full detail), so a cell is an entity with ONE child
   (LOD 0) that holds the meshes, or an existing `LodGroup` whose child 0 does. With `apply` the command sets
   `LodGroup.hlodProxy` (adding the `LodGroup`) and, when none is set, a default `hlodThreshold` (8 times the proxy's
-  size in `distance` mode, 0.03 in `screenSize` mode; set it beyond the last `thresholds` entry); the editor undoes that
+  size in `distance` mode but at least 1.5 times the group's farthest `thresholds` entry, 0.03 in `screenSize` mode but at most
+  the smallest entry divided by 1.5, so the proxy never takes over before a child level); the editor undoes that
   as one step. `apply` on an entity with several children and no `LodGroup` is refused, because adding the group would
   turn those children into levels and only the first would be drawn up close: wrap them in one child entity first. Under
   an existing `LodGroup` only child 0 is merged (`levelsIgnored` counts the others), and the entity's own `MeshRenderer`
@@ -118,12 +127,19 @@ beforehand: the model drawn from `views` x `views` directions around it.
      8: `views` 32 needs a `resolution` of at least 256). An atlas of 8 views at 1024 has 128-pixel frames.
    - `mode`: `octahedral` (default, every direction, also from below) or `hemiOctahedral` (only from above: every frame of the grid
      looks at the upper half, so a tree or a rock seen from the ground side gets twice the directions for the same atlas).
-   - `apply`: sets `MeshRenderer.impostor` of the entities of the LOADED scene that draw the model (the scene is not saved and
-     `impostorDistance` is yours to set: the result lists the entities).
+   - `apply`: sets `MeshRenderer.impostor` of the entities of the LOADED scene whose `mesh` is the `.glb`/`.gltf` or the
+     `.model.json` you gave (the scene is not saved and `impostorDistance` is yours to set: the result lists the entities). It
+     costs one `scene.get_entity` per `MeshRenderer` of the scene (there is no batch read) and one `scene.set_component` per
+     entity that matches, so on a scene of tens of thousands of meshes bake first and apply later with a narrower scene. The
+     editor's Undo reverts those scene changes (one step per entity); it never deletes the three files, which stay on disk
+     (delete them by hand, or bake again with `overwrite`).
+   - The bake can be long (`views` x `views` frames): it reports progress (`impostor bake: row N of M`) and a cancelled command
+     stops between frames and writes nothing.
    - `overwrite`: replaces files at the output paths that this command did not write itself (without it the command refuses).
    - Files, next to the model: `<name>.impostor.json` (the data, `"format": "factoria.impostor/1"`), `<name>.impostor.png` (the
      colour atlas, straight alpha: the transparent part of a frame is the cutout) and `<name>.impostor.normal.png` (model-space
-     normals, `n * 0.5 + 0.5`, so the card can be lit). The same input gives the same bytes on every platform.
+     normals, `n * 0.5 + 0.5`, so the card can be lit). The same input gives the same files on one build (the bytes can differ between platforms and
+     compilers: the rasteriser and the PNG encoder are not bit-exact across them).
 2. Use: `MeshRenderer.impostor = "assets/models/tree.impostor.json"` and `impostorDistance` above 0, in the unit of `lodMode`
    (metres, or a screen fraction below which the card is drawn; exactly the thresholds of `lods`).
    The impostor replaces the LAST level (`lods` or the mesh itself): a `MeshRenderer` with `lods` of 30 and 60 m and an
@@ -142,9 +158,16 @@ What is drawn:
 - `lodCrossFade` fades the last level into the card (and back) with the same complementary dither as two levels: both are drawn
   for the seconds it says (`renderStats.lodCrossFades` counts them), and the card then needs no extra program. A card that is
   fading out casts no shadow, as a level that leaves does not.
-- Shadows: a `MeshRenderer` that casts shadows casts the shadow of the card, which is a SIMPLE shadow: the card turns to the
-  main camera, not to the light, so its shadow is a flat cut-out, right from the camera's side and a thin sliver from the
-  others. It is meant for the far trees whose shadows are small. Turn `castShadows` off on the entity to skip it.
+- Shadows: a `MeshRenderer` that casts shadows casts a shadow shaped like the CARD, not like the model: the shadow pass draws
+  the same card, which turns to the main camera and not to the light, so its shadow is a flat cut-out of the frame the camera sees,
+  right when the light comes from the camera's side and a thin sliver when it comes from the others. It is meant for the far
+  trees whose shadows are small. Turn `castShadows` off on the entity to skip it.
+- What the card does not do: it draws the atlas's colour and normals only, so the entity's `color`, `emissive`, `metallic`,
+  `flash`, its material and its lightmap are ignored (a tree that glows or is tinted shows the baked colours; bake a tinted
+  copy if you need it). The cutout is a hard alpha clip with no alpha-to-coverage, so the edge of a far card shimmers a little
+  with the pixels and does not get smoother with MSAA. Frames are read with the mip level of the card's footprint, kept inside a
+  frame's own pixels by a margin, so a small card does not blend the neighbour's colour. A mirroring scale (a negative `scale`
+  component) shows the frame of the mirrored side.
 - Several entities with the same atlas draw as one instanced batch of cards (one draw), whatever the mesh they replace.
 - `renderStats.impostors` counts the cards drawn in the main pass; they are not in `meshes`. `renderer.supports` `impostors` is
   true on every backend that draws them (GL, GLES3 and WebGL2, D3D11, Metal).

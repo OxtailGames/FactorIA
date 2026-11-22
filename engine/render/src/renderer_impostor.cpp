@@ -19,6 +19,9 @@ namespace {
 
 // How often a file that failed is read again (frames): a file written after the first draw is found without a reload event.
 constexpr std::uint64_t kRetryFrames = 64;
+// After a reload of the file or of one of its pictures, a problem is held back this many frames: the three files change one by one (a
+// hot reload sees the new json before the new pictures, or the other way round), and the warning would name a state that lasts a frame.
+constexpr std::uint64_t kSettleFrames = 30;
 // The albedo and the roughness every impostor is lit with: the atlas keeps the base colour and the normal only (docs/BIG_WORLDS_LOD.md).
 constexpr float kImpostorRoughness = 0.85f;
 
@@ -98,6 +101,9 @@ const ImpostorDraw* ImpostorDraws::draw(const ImpostorUse& use, const ImpostorCa
 }
 
 void ImpostorRenderer::destroy() {
+    byRaw_.clear();
+    lastEntry_ = nullptr;
+    lastRaw_.clear();
     entries_.clear();
     if (quad_) {
         for (SubMesh& p : quad_->parts) {
@@ -203,20 +209,39 @@ MaterialAsset* ImpostorRenderer::material() {
 bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshRenderer& mr, Entity entity,
                                ImpostorUse& out) {
     if (!material() || !quad()) return false;
-    const std::string key = fs::normalize(mr.impostor);
-    std::unique_ptr<Entry>& slot = entries_[key];
-    if (!slot) slot = std::make_unique<Entry>();
+    Entry* slot = nullptr;
+    std::string key;  // the normalised path, only where an entry is made or read again
+    if (lastEntry_ && lastRaw_ == mr.impostor) {
+        slot = lastEntry_;
+    } else if (auto it = byRaw_.find(mr.impostor); it != byRaw_.end()) {
+        slot = it->second;
+    } else {
+        key = fs::normalize(mr.impostor);
+        std::unique_ptr<Entry>& owned = entries_[key];
+        if (!owned) owned = std::make_unique<Entry>();
+        slot = owned.get();
+        byRaw_.emplace(mr.impostor, slot);
+    }
+    if (lastEntry_ != slot || lastRaw_ != mr.impostor) {
+        lastEntry_ = slot;
+        lastRaw_ = mr.impostor;
+    }
     Entry& en = *slot;
     const std::uint64_t generation = assets.reload_generation();
-    const bool reloaded = en.loaded && en.reloadSeen != generation && assets.reloaded_any_of(en.reloadSeen, {key});
-    const bool retry = en.loaded && !en.ok && serial - en.triedAt >= kRetryFrames;
+    const bool reloaded = en.loaded && en.reloadSeen != generation && assets.reloaded_any_of(en.reloadSeen, en.watch);
+    if (reloaded) en.settleUntil = serial + kSettleFrames;
+    const bool settling = serial < en.settleUntil;
+    const bool retry = en.loaded && !en.ok &&
+                       (settling || en.settlePending || serial - en.triedAt >= kRetryFrames);
     std::string problem;
     if (!en.loaded || reloaded || retry) {
+        if (key.empty()) key = fs::normalize(mr.impostor);
         en.loaded = true;
         en.ok = false;
         en.reloadSeen = generation;
         en.triedAt = serial;
         en.texSerial = ~std::uint64_t(0);
+        en.watch = {key};
         auto text = fs::read_text(key);
         if (!text) {
             problem = std::format("the file cannot be read: {}", text.error().message);
@@ -231,6 +256,8 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
                 else {
                     en.atlas = *atlas;
                     en.ok = true;
+                    en.watch.insert(fs::normalize(en.atlas.albedo));
+                    en.watch.insert(fs::normalize(en.atlas.normal));
                 }
             }
         }
@@ -257,6 +284,10 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
         }
         if (!problem.empty()) en.ok = false;
     }
+    // A problem seen while the files are still being replaced (the frames after a reload) is held back and looked at again every frame
+    // until they settle: the first frame after that says it, if it is still there.
+    en.settlePending = !problem.empty() && settling;
+    if (en.settlePending) return false;
     if (!en.ok) {
         if (!problem.empty() && problem != en.note) {
             FA_WARN("render",
@@ -290,6 +321,10 @@ void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const Imp
         axis[c] = len > 1e-12f ? col / len : Vec3{c == 0 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f};
     }
     if (!(scale > 0.0f) || !std::isfinite(scale)) scale = 1.0f;
+    // A matrix that mirrors (negative determinant: a negative scale) is a proper rotation after the model's x axis is flipped: the rotation is
+    // made from -x, and the radius carries the sign for the shader (shaders/impostor.glsl) to flip x back where it reads the atlas.
+    const bool mirrored = dot(cross(axis[0], axis[1]), axis[2]) < 0.0f;
+    if (mirrored) axis[0] = axis[0] * -1.0f;
     const Quat toWorld = quat_of_axes(axis[0], axis[1], axis[2]);
     const Quat toModel = toWorld.conjugate();
     const Vec3 centre = m.transform_point(use.atlas->center);
@@ -311,7 +346,7 @@ void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const Imp
     item.keyed = true;
     item.sortKey = kImpostorSortKey + d->ordinal;
     item.impostor = d;
-    item.terrainNode = {centre.x, centre.y, centre.z, radius, toModel.x, toModel.y, toModel.z, toModel.w};
+    item.terrainNode = {centre.x, centre.y, centre.z, mirrored ? -radius : radius, toModel.x, toModel.y, toModel.z, toModel.w};
 }
 
 }  // namespace fa::render

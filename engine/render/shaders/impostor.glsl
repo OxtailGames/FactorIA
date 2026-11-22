@@ -9,8 +9,9 @@
 // to sokol-shdc).
 // shdc-defines: FA_HAS_VERTEX:FA_INST_2:FA_ALPHA_CLIP
 //
-// Per card (instance data, two vec4): fa_id0 = (the world centre of the atlas, the world radius of its square), fa_id1 = the rotation
-// world -> model as a quaternion (x, y, z, w) of the entity's matrix.
+// Per card (instance data, two vec4): fa_id0 = (the world centre of the atlas, the world radius of its square; NEGATIVE for an entity whose
+// matrix mirrors, a negative determinant: the model is then its x axis flipped and turned by a proper rotation), fa_id1 = that rotation world
+// -> model as a quaternion (x, y, z, w).
 // Per draw (the material block, binding 4 in the vertex stage and 5 in the fragment stage; the same four vec4):
 //   fa_i_cam   xyz the camera's world position, w = frames per side of the atlas
 //   fa_i_right xyz the camera's right axis, w = 1 for hemiOctahedral, 0 for octahedral
@@ -48,7 +49,7 @@ void fa_instance_unpack(vec4 fa_d0, vec4 fa_d1, vec4 fa_d2) {
 void vertex(inout VertexData v) {
     // The card: the square of side 2 * radius around the centre, facing the camera. The quad of the mesh has its corners at (+-1, +-1, 0).
     vec2 k = v.object_pos.xy;
-    v.world_pos = fa_id0.xyz + (fa_i_right.xyz * k.x + fa_i_up.xyz * k.y) * fa_id0.w;
+    v.world_pos = fa_id0.xyz + (fa_i_right.xyz * k.x + fa_i_up.xyz * k.y) * abs(fa_id0.w);
     v.world_normal = normalize(fa_i_cam.xyz - fa_id0.xyz);
     v.world_tangent = vec4(fa_i_right.xyz, 1.0);
     v.uv = k * 0.5 + 0.5;
@@ -106,31 +107,36 @@ vec3 fa_i_decode(vec2 uv, bool hemi) {
 
 // What one frame (the cell, weighed w) adds at the model-space offset xl from the centre: its colour weighed by its alpha, its alpha and its
 // normal turned to world space by qc.
-void fa_i_add(ivec2 cell, float w, vec3 xl, vec4 qc, float radius, float n, bool hemi, inout vec4 acc, inout vec3 nrm) {
+// `lod` is the mip level both pictures are read at (a whole number, see surface()): the point is kept half a texel of that level inside the frame,
+// so a smaller mip never averages in the neighbouring frame.
+void fa_i_add(ivec2 cell, float w, vec3 xl, vec4 qc, float mirror, float radius, float n, bool hemi, float lod, inout vec4 acc, inout vec3 nrm) {
     vec3 d = fa_i_decode(vec2(cell) / (n - 1.0) * 2.0 - vec2(1.0), hemi);
     vec3 ref = abs(d.y) > 0.99 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);  // impostor_basis
     vec3 r = normalize(cross(ref, d));
     vec3 u = cross(d, r);
     vec2 p = vec2(dot(xl, r), -dot(xl, u)) / (2.0 * radius) + vec2(0.5);  // 0..1 across the frame, v downwards
     float inside = (p.x >= 0.0 && p.x <= 1.0 && p.y >= 0.0 && p.y <= 1.0) ? 1.0 : 0.0;
-    float half_px = 0.5 / fa_i_misc.z;
+    float half_px = min(0.5 * exp2(lod) / fa_i_misc.z, 0.5);
     vec2 f = mix(vec2(half_px), vec2(1.0 - half_px), clamp(p, vec2(0.0), vec2(1.0)));
     vec2 auv = (vec2(cell) + f) / n;
-    vec4 c = texture(sampler2D(fa_i_albedo, fa_i_albedo_smp), auv);
-    vec3 nm = fa_i_fix(texture(sampler2D(fa_i_normal, fa_i_normal_smp), auv).rgb, fa_i_misc.x) * 2.0 - vec3(1.0);
+    vec4 c = textureLod(sampler2D(fa_i_albedo, fa_i_albedo_smp), auv, lod);
+    vec3 nm = fa_i_fix(textureLod(sampler2D(fa_i_normal, fa_i_normal_smp), auv, lod).rgb, fa_i_misc.x) * 2.0 - vec3(1.0);
     float a = c.a * inside * w;
     acc += vec4(fa_i_fix(c.rgb, fa_i_up.w) * a, a);
+    nm.x *= mirror;
     nrm += fa_i_qrot(qc, nm) * a;
 }
 
 void surface(in SurfaceInput i, inout Surface s) {
     vec3 centre = fa_id0.xyz;
-    float radius = fa_id0.w;
+    float radius = abs(fa_id0.w);
+    float mirror = fa_id0.w < 0.0 ? -1.0 : 1.0;  // a mirroring matrix: the model's x axis is flipped after the rotation
     vec4 q = fa_id1;                       // world -> model
     vec4 qc = vec4(-q.xyz, q.w);           // model -> world
     float n = fa_i_cam.w;
     bool hemi = fa_i_right.w > 0.5;
     vec3 dl = normalize(fa_i_qrot(q, normalize(fa_i_cam.xyz - centre)));  // from the model towards the camera, in model space
+    dl.x *= mirror;
     // impostor_pick: the corners of the triangle of the grid that holds the direction.
     float last = n - 1.0;
     vec2 g = clamp((fa_i_encode(dl, hemi) * 0.5 + vec2(0.5)) * last, vec2(0.0), vec2(last));
@@ -150,11 +156,17 @@ void surface(in SurfaceInput i, inout Surface s) {
         w = vec3(fr.x + fr.y - 1.0, 1.0 - fr.x, 1.0 - fr.y);
     }
     vec3 xl = fa_i_qrot(q, i.world_pos - centre);  // the fragment's offset from the centre, in model space
+    xl.x *= mirror;
+    // The mip level: the texels of a frame's side that one screen pixel covers on the card, as a whole level (the samplers pick the nearest
+    // mip anyway), at most 3 and at most log2(frame) - 1, so a smaller card never reads a level whose texels are wider than a frame's border.
+    float footprint = max(length(dFdx(i.world_pos)), length(dFdy(i.world_pos))) / (2.0 * radius) * fa_i_misc.z;
+    float maxLod = max(min(3.0, floor(log2(fa_i_misc.z)) - 1.0), 0.0);
+    float lod = clamp(floor(log2(max(footprint, 1.0)) + 0.5), 0.0, maxLod);
     vec4 acc = vec4(0.0);
     vec3 nrm = vec3(0.0);
-    fa_i_add(c0, w.x, xl, qc, radius, n, hemi, acc, nrm);
-    fa_i_add(c1, w.y, xl, qc, radius, n, hemi, acc, nrm);
-    fa_i_add(c2, w.z, xl, qc, radius, n, hemi, acc, nrm);
+    fa_i_add(c0, w.x, xl, qc, mirror, radius, n, hemi, lod, acc, nrm);
+    fa_i_add(c1, w.y, xl, qc, mirror, radius, n, hemi, lod, acc, nrm);
+    fa_i_add(c2, w.z, xl, qc, mirror, radius, n, hemi, lod, acc, nrm);
     s.albedo = acc.rgb / max(acc.a, 1e-4);
     s.alpha = acc.a;
     float nl = length(nrm);
