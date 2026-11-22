@@ -7,7 +7,10 @@
 // anchored at the world origin (one candidate per cell of 1 / sqrt(density) metres, visited row by row), each one drawn from an
 // integer hash (splitmix64) of the seed and its cell, so nothing depends on where the area starts, on the order of calls or on a
 // clock. The numbers are IEEE double operations (+ - * / sqrt, floor, round) and are quantised before they are stored, so a
-// last-digit difference of the terrain's float math between x86 and ARM does not reach the file.
+// last-digit difference of the terrain's float math between x86 and ARM does not reach the file. The one exception is std::tan
+// (tan2_of_degrees, the bounds of slopeRange): its last digit may differ between C libraries, so a candidate whose slope lies
+// within a few ULP of a bound could be kept on one platform and rejected on another; the bounds are compared once per candidate and
+// never stored.
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -404,16 +407,19 @@ std::string default_file(Engine::Impl& I, const std::string& id) {
 // an undo gives the previous file byte for byte. A step costs what it changed (a paint stamp a few hundred bytes; a scatter over
 // a full file about the size of both files), never the whole file.
 //
-// The history is bounded: kHistorySteps steps and kHistoryBytes bytes (the newest step stays even when it alone is over budget);
-// the oldest steps go first and the result of the command that made them go says how many (`historyDropped`).
+// The history is bounded: kFoliageHistorySteps steps and kFoliageHistoryBytes bytes per entity (the newest step stays even when it
+// alone is over budget); the oldest steps go first and the result of the command that made them go says how many (`historyDropped`).
+// All the histories together keep at most kFoliageHistoryTotalBytes: over it, the whole history of the Foliage edited longest ago is
+// cleared and the result names it (`historiesEvicted`). The history of an entity that no longer exists is dropped at the next
+// foliage command.
 //
 // What survives: the history lives in this process, with the engine. A scene save changes nothing in it (the file and the fields
 // are what they were); a scene reload, an edit of the file or of Foliage.meshes / Foliage.instances by anything but the foliage
 // commands, or a restart makes the state differ from the one the history recorded, and the history of that Foliage is cleared
 // (a stale history is never applied to bytes it was not made for).
 
-constexpr std::size_t kHistorySteps = 64;
-constexpr std::size_t kHistoryBytes = std::size_t(128) << 20;
+constexpr std::size_t kHistorySteps = kFoliageHistorySteps;
+constexpr std::size_t kHistoryBytes = kFoliageHistoryBytes;
 
 struct Step {
     std::string label;       // the command that made it: "foliage.scatter", "foliage.paint" or "foliage.clear"
@@ -431,6 +437,9 @@ struct Step {
 struct History {
     std::vector<Step> undo, redo;  // oldest first
     std::uint64_t state = 0;       // the hash of the file and fields the newest edit left (see state_hash)
+    std::uint64_t touched = 0;     // Histories::clock at the last foliage command on this Foliage (the least recent goes first)
+    std::uint64_t id = 0;          // which history this is (Histories::serial): a new one after the entity was pruned and came back
+    std::uint64_t lost = 0;        // the steps this history let go of (trimmed off the oldest end) since it was made, never reset
     std::size_t bytes() const {
         std::size_t n = 0;
         for (const Step& s : undo) n += s.bytes();
@@ -445,7 +454,51 @@ struct History {
 
 struct Histories {
     std::map<std::string, History> byEntity;  // by entity id
+    std::uint64_t clock = 0;                  // counts the foliage commands: History::touched
+    std::uint64_t serial = 0;                 // counts the histories made: History::id
 };
+
+// The history of a Foliage entity (made empty when it has none yet).
+History& history_for(Histories& H, const std::string& id) {
+    History& h = H.byEntity[id];
+    if (h.id == 0) h.id = ++H.serial;
+    return h;
+}
+
+// Drops the history of every entity that is gone (destroyed, or the scene it belonged to was replaced), so a long session of
+// scenes and entities does not keep their undo steps (up to 128 MB each) for ever. Runs at the start of every foliage command.
+void prune_histories(const Engine::Impl& I, Histories& H) {
+    for (auto it = H.byEntity.begin(); it != H.byEntity.end();) {
+        if (I.world.find_by_id(it->first).is_null())
+            it = H.byEntity.erase(it);
+        else
+            ++it;
+    }
+}
+
+// Keeps all the histories together within kFoliageHistoryTotalBytes: clears the whole history of the Foliage edited longest ago
+// (never `keep`, the one being edited) until they fit. Returns the ids it cleared.
+std::vector<std::string> enforce_total_budget(Histories& H, const std::string& keep) {
+    std::vector<std::string> cleared;
+    for (;;) {
+        std::size_t total = 0;
+        for (const auto& [id, h] : H.byEntity) total += h.bytes();
+        if (total <= kFoliageHistoryTotalBytes) break;
+        History* oldest = nullptr;
+        const std::string* oldestId = nullptr;
+        for (auto& [id, h] : H.byEntity) {
+            if (id == keep || (h.undo.empty() && h.redo.empty())) continue;
+            if (!oldest || h.touched < oldest->touched) {
+                oldest = &h;
+                oldestId = &id;
+            }
+        }
+        if (!oldest) break;
+        cleared.push_back(*oldestId);
+        oldest->clear();
+    }
+    return cleared;
+}
 
 // A hash of the state a history is about: the field Foliage.instances, Foliage.meshes and the bytes of that file (none when it does not
 // exist). Eight bytes at a time through splitmix64: fast on a 50 MB file; it only has to tell "the same" from "changed".
@@ -633,6 +686,7 @@ void merge_into(Step& a, Step&& b) {
 // describe that state any more.
 struct Session {
     History* h = nullptr;
+    Histories* all = nullptr;  // every history of the engine (the total budget)
     Snapshot before;
     std::string resetNote;  // why the history was cleared ("" = it was not)
     bool cont = false;      // the call continues the newest step (`continueStroke`)
@@ -641,7 +695,9 @@ struct Session {
 Session begin_session(Histories& H, const Field& f, const Json& a, const char* label) {
     Session s;
     s.before = take_snapshot(f);
-    s.h = &H.byEntity[f.id];
+    s.h = &history_for(H, f.id);
+    s.all = &H;
+    s.h->touched = ++H.clock;
     if ((!s.h->undo.empty() || !s.h->redo.empty()) && s.h->state != s.before.hash) {
         s.h->clear();
         s.resetNote =
@@ -674,6 +730,10 @@ Json undo_command(const std::string& id) {
 void add_history_fields(Json& res, const History& h) {
     res["undoDepth"] = h.undo.size();
     res["redoDepth"] = h.redo.size();
+    // The editor numbers its undo rows with these: the step now on top of the undo list is number historyLost + undoDepth, and a
+    // `historyId` that changed means the history is another one (the entity was destroyed and came back).
+    res["historyId"] = h.id;
+    res["historyLost"] = h.lost;
 }
 
 // Writes the file of an edit of `f`: the records of the file before except `removed` (ascending indices; every one when
@@ -752,6 +812,7 @@ Json commit(Session& ses, Field& f, const std::string& file, std::vector<std::ui
             h.undo.erase(h.undo.begin());
             ++dropped;
         }
+        h.lost += dropped;
     } else {
         h.clear();
         ses.resetNote =
@@ -767,6 +828,13 @@ Json commit(Session& ses, Field& f, const std::string& file, std::vector<std::ui
             f.id, kHistorySteps, kHistoryBytes >> 20, dropped, dropped == 1 ? "edit" : "edits");
     }
     if (!ses.resetNote.empty()) res["historyReset"] = ses.resetNote;
+    if (const std::vector<std::string> evicted = enforce_total_budget(*ses.all, f.id); !evicted.empty()) {
+        res["historiesEvicted"] = evicted;
+        res["historiesEvictedNote"] = std::format(
+            "All the foliage undo histories together keep {} MB: the history of {} other Foliage {} was cleared (their "
+            "edits can no longer be undone).",
+            kFoliageHistoryTotalBytes >> 20, evicted.size(), evicted.size() == 1 ? "entity" : "entities");
+    }
     return res;
 }
 
@@ -781,15 +849,43 @@ std::vector<FoliageInstance> load_instances(const Field& f, const Snapshot& snap
     return std::move(*r);
 }
 
-std::vector<std::pair<double, double>> world_xz(const Mat4& toWorld, const std::vector<FoliageInstance>& v) {
-    std::vector<std::pair<double, double>> out;
-    out.reserve(v.size());
-    for (const FoliageInstance& in : v) {
-        const Vec3 w = toWorld.transform_point(in.position);
-        out.emplace_back(double(w.x), double(w.z));
+// Points of the ground plane in a grid of square cells of `cell` metres, for the ones within a distance (at most `cell`) of a place.
+class PointGrid {
+public:
+    explicit PointGrid(double cell) : cell_(std::max(cell, 1e-6)) {}
+    void add(double x, double z) {
+        pts_.emplace_back(x, z);
+        cells_[key(x, z)].push_back(std::uint32_t(pts_.size() - 1));
     }
-    return out;
-}
+    // Calls `f(index)` for every point within `r` (<= the cell size) of (x, z).
+    template <class F>
+    void each_within(double x, double z, double r, F f) const {
+        const auto [ci, cj] = key(x, z);
+        for (std::int64_t j = cj - 1; j <= cj + 1; ++j)
+            for (std::int64_t i = ci - 1; i <= ci + 1; ++i) {
+                const auto it = cells_.find({i, j});
+                if (it == cells_.end()) continue;
+                for (std::uint32_t k : it->second) {
+                    const double dx = pts_[k].first - x, dz = pts_[k].second - z;
+                    if (dx * dx + dz * dz <= r * r) f(k);
+                }
+            }
+    }
+    bool any_within(double x, double z, double r) const {
+        bool found = false;
+        each_within(x, z, r, [&](std::uint32_t) { found = true; });
+        return found;
+    }
+    const std::pair<double, double>& at(std::uint32_t k) const { return pts_[k]; }
+
+private:
+    std::pair<std::int64_t, std::int64_t> key(double x, double z) const {
+        return {std::int64_t(std::floor(x / cell_)), std::int64_t(std::floor(z / cell_))};
+    }
+    double cell_;
+    std::vector<std::pair<double, double>> pts_;
+    std::map<std::pair<std::int64_t, std::int64_t>, std::vector<std::uint32_t>> cells_;
+};
 
 // The result of a call that changed nothing.
 Json unchanged(const Session& ses, Json res) {
@@ -872,7 +968,10 @@ Setup open_setup(Engine::Impl& I, const Json& a, const Field& field, bool requir
 
 // ------------------------------------------------------------------------------------------------ foliage.scatter
 
+// (foliage.scatter and foliage.clear have no continueStroke: their schemas refuse it as an unknown property, so only a
+// foliage.paint call can join a stroke.)
 Json do_scatter(Engine::Impl& I, Histories& H, const Json& a) {
+    prune_histories(I, H);
     Field field = open_field(I, a);
     Setup s = open_setup(I, a, field, true, true, "foliage.scatter");
     const bool dry = a.contains("dryRun") && a["dryRun"].is_boolean() && a["dryRun"].get<bool>();
@@ -944,13 +1043,33 @@ double need_number(const Json& a, const char* key, const char* what, double lo, 
 }
 
 Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
+    prune_histories(I, H);
     Field f = open_field(I, a);
     const std::string mode = a.contains("mode") && a["mode"].is_string() ? a["mode"].get<std::string>() : "add";
     if (mode != "add" && mode != "remove") bad("/mode", "mode is '" + mode + "'", "Use \"add\" or \"remove\".");
-    if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2)
-        bad("/center", "center must be [x, z] in world metres", "Example: [10, 20].");
-    const double cx = number_at(a["center"][0], "/center/0", "center x in metres", -1e7, 1e7);
-    const double cz = number_at(a["center"][1], "/center/1", "center z in metres", -1e7, 1e7);
+    // The places of the brush: `center` is one, `points` several (a stroke sent in one call, one rewrite of the file).
+    std::vector<std::pair<double, double>> centers;
+    if (a.contains("center") && a.contains("points"))
+        bad("/points", "center and points are both given: they say the same thing",
+            "Give center for one stamp, or points for several (a list of [x, z]), not both.");
+    if (a.contains("points")) {
+        if (!a["points"].is_array() || a["points"].empty() || a["points"].size() > kMaxFoliagePaintPoints)
+            bad("/points",
+                "points must be a list of 1 to " + std::to_string(kMaxFoliagePaintPoints) + " [x, z] pairs in world metres",
+                "Example: [[10, 20], [12, 20]]. Send a longer stroke in several calls with continueStroke.");
+        for (std::size_t i = 0; i < a["points"].size(); ++i) {
+            const Json& p = a["points"][i];
+            const std::string at = "/points/" + std::to_string(i);
+            if (!p.is_array() || p.size() != 2) bad(at, "A point must be [x, z] in world metres", "Example: [10, 20].");
+            centers.emplace_back(number_at(p[0], at + "/0", "point x in metres", -1e7, 1e7),
+                                 number_at(p[1], at + "/1", "point z in metres", -1e7, 1e7));
+        }
+    } else {
+        if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2)
+            bad("/center", "center must be [x, z] in world metres (or give `points`)", "Example: [10, 20].");
+        centers.emplace_back(number_at(a["center"][0], "/center/0", "center x in metres", -1e7, 1e7),
+                             number_at(a["center"][1], "/center/1", "center z in metres", -1e7, 1e7));
+    }
     const double radius = need_number(a, "radius", "brush radius in metres", 1e-3, 1e5);
     int only = -1;  // the mesh index the brush is limited to
     if (a.contains("mesh")) {
@@ -970,15 +1089,24 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
     if (a.contains("seed"))
         seed =
             std::uint64_t(std::uint32_t(std::int32_t(need_number(a, "seed", "the seed", -2147483648.0, 2147483647.0))));
+    // The box of the whole stroke.
+    double bx0 = 1e300, bz0 = 1e300, bx1 = -1e300, bz1 = -1e300;
+    for (const auto& c : centers) {
+        bx0 = std::min(bx0, c.first - radius), bx1 = std::max(bx1, c.first + radius);
+        bz0 = std::min(bz0, c.second - radius), bz1 = std::max(bz1, c.second + radius);
+    }
     Session ses = begin_session(H, f, a, "foliage.paint");
     std::vector<FoliageInstance> all = load_instances(f, ses.before);
     const Mat4 toWorld = I.world.world_matrix(f.entity);
     if (mode == "remove") {  // removing needs neither a terrain nor a rule
+        PointGrid brush(radius);
+        for (const auto& c : centers) brush.add(c.first, c.second);
         std::vector<std::uint32_t> removed;
         for (std::size_t i = 0; i < all.size(); ++i) {
             const Vec3 w = toWorld.transform_point(all[i].position);
-            const double dx = double(w.x) - cx, dz = double(w.z) - cz;
-            if (dx * dx + dz * dz <= radius * radius && (only < 0 || all[i].mesh == only))
+            const double x = double(w.x), z = double(w.z);
+            if (x < bx0 || x > bx1 || z < bz0 || z > bz1) continue;
+            if ((only < 0 || all[i].mesh == only) && brush.any_within(x, z, radius))
                 removed.push_back(std::uint32_t(i));
         }
         if (removed.empty())
@@ -1017,17 +1145,43 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
     if (g.cum.empty())
         throw CommandError("invalid_argument", "Foliage '" + f.id + "' has no meshes to paint with.",
                            "Set Foliage.meshes, or run foliage.scatter first.");
+    // The work of the whole call is bounded like one scatter: the grid cells of every stamp together.
+    {
+        const double side = 2.0 * radius * std::sqrt(g.density) + 2.0;
+        if (side * side * double(centers.size()) > double(kMaxCandidates))
+            throw CommandError(
+                "too_many_candidates",
+                std::format("{} stamps of radius {} m at density {} visit about {:.0f} grid cells, but one command visits "
+                            "at most {}.",
+                            centers.size(), radius, g.density, side * side * double(centers.size()), kMaxCandidates),
+                "Lower `density` or `radius`, or send fewer `points` per call.");
+    }
     g.circle = true;
-    g.cx = cx, g.cz = cz, g.r = radius;
-    g.x0 = cx - radius, g.x1 = cx + radius, g.z0 = cz - radius, g.z1 = cz + radius;
-    std::vector<std::pair<double, double>> near;
-    for (const auto& p : world_xz(toWorld, all)) {
-        const double dx = p.first - cx, dz = p.second - cz, reach = radius + g.spacing;
-        if (dx * dx + dz * dz <= reach * reach) near.push_back(p);
+    g.r = radius;
+    // The instances that can block a new one: those near the stroke, in a grid (the stamps are placed one after the other, each
+    // one against everything placed before it, the earlier stamps of this call included).
+    const double reach = radius + g.spacing;
+    PointGrid pool(reach);
+    for (const FoliageInstance& in : all) {
+        const Vec3 w = toWorld.transform_point(in.position);
+        const double x = double(w.x), z = double(w.z);
+        if (x >= bx0 - g.spacing && x <= bx1 + g.spacing && z >= bz0 - g.spacing && z <= bz1 + g.spacing) pool.add(x, z);
     }
     std::vector<FoliageInstance> added;
     Counts c;
-    run_generator(g, near, all.size(), added, c);
+    for (const auto& ctr : centers) {
+        g.cx = ctr.first, g.cz = ctr.second;
+        g.x0 = g.cx - radius, g.x1 = g.cx + radius, g.z0 = g.cz - radius, g.z1 = g.cz + radius;
+        std::vector<std::pair<double, double>> nearby;
+        pool.each_within(g.cx, g.cz, reach, [&](std::uint32_t k) { nearby.push_back(pool.at(k)); });
+        std::vector<FoliageInstance> piece;
+        run_generator(g, nearby, all.size() + added.size(), piece, c);
+        for (const FoliageInstance& in : piece) {
+            const Vec3 w = toWorld.transform_point(in.position);
+            pool.add(double(w.x), double(w.z));
+            added.push_back(in);
+        }
+    }
     if (added.empty())
         return unchanged(
             ses, Json::object(
@@ -1050,6 +1204,7 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
 // ------------------------------------------------------------------------------------------------ foliage.clear
 
 Json do_clear(Engine::Impl& I, Histories& H, const Json& a) {
+    prune_histories(I, H);
     Field f = open_field(I, a);
     double r[4] = {0, 0, 0, 0};
     const bool hasRegion = a.contains("region");
@@ -1105,8 +1260,10 @@ Json do_clear(Engine::Impl& I, Histories& H, const Json& a) {
 }
 
 Json do_undo_redo(Engine::Impl& I, Histories& H, const Json& a, bool undo) {
+    prune_histories(I, H);
     Field f = open_field(I, a);
-    History& h = H.byEntity[f.id];
+    History& h = history_for(H, f.id);
+    h.touched = ++H.clock;
     std::vector<Step>& from = undo ? h.undo : h.redo;
     if (from.empty())
         throw CommandError(
@@ -1175,7 +1332,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                     "terrain give the "
                     "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, "
                     "placed, rejected: "
-                    "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth}. Example: "
+                    "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth, historyId, historyLost}. Example: "
                     "foliage.scatter {\"entity\":\"grass\"}",
                     parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -1190,7 +1347,9 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                    [&I, H](const Json& a) { return do_scatter(I, *H, a); });
     I.commands.add(
         {"foliage.paint", "Add or remove foliage instances by hand in a circle on the ground.",
-         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) with the placement rules of "
+         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) or of every one of `points` (a "
+         "stroke of up to 512 stamps in ONE call and one rewrite of the file; the stamps are placed in order, each one "
+         "against everything placed before it) with the placement rules of "
          "the "
          "ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) "
          "and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the "
@@ -1200,18 +1359,21 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest "
          "undo step (a brush that "
          "stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, "
-         "redoDepth, continued?}. Example: foliage.paint "
+         "redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?}. Each call rewrites the whole instances file "
+         "(a file of 2,000,000 instances is 52 MB): send a stroke as `points` in pieces a few times a second, not one call "
+         "per stamp. Example: foliage.paint "
          "{\"entity\":\"grass\",\"center\":[10,20],\"radius\":5}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
                "rule":{"type":"string","description":"Entity id with the ScatterRule whose placement rules apply (default: the Foliage entity, if it has one)."},
                "mode":{"type":"string","enum":["add","remove"],"default":"add","description":"Add instances or remove them."},
-               "center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"World metres [x, z]."},
-               "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in metres."},
+               "center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"World metres [x, z]. Give center or points, not both."},
+               "points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":1,"maxItems":512,"description":"Several stamps as world metres [[x, z], ...], at most 512: a brush stroke in one call (one file rewrite and one history step). Give center or points, not both."},
+               "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in metres (the same for every point)."},
                "density":{"type":"number","exclusiveMinimum":0,"description":"Instances per square metre when adding (default: the rule's density, 0.1 without a rule)."},
                "mesh":{"type":"string","description":"Limit the brush to this mesh of Foliage.meshes."},
                "seed":{"type":"integer","description":"Seed of the draw (default: the rule's seed). The same arguments always give the same instances."},
-               "continueStroke":{"type":"boolean","default":false,"description":"Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error. The first piece is sent without it."}},"required":["entity","center","radius"]})"),
+               "continueStroke":{"type":"boolean","default":false,"description":"Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error (foliage.scatter and foliage.clear refuse it). The first piece is sent without it."}},"required":["entity","radius"]})"),
          false, "world",
          "A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), "
          "so "
@@ -1227,7 +1389,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances "
          "inside "
          "`region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, "
-         "undo, undoDepth, redoDepth}. "
+         "undo, undoDepth, redoDepth, historyId, historyLost}. "
          "Example: foliage.clear {\"entity\":\"grass\",\"region\":[0,0,50,50]}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -1250,7 +1412,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                  "reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage "
                  "commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene "
                  "save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, "
-                 "redoDepth}. Example: " +
+                 "redoDepth, historyId, historyLost}. Example: " +
                  std::string(undo ? "foliage.undo" : "foliage.redo") + " {\"entity\":\"grass\"}",
              parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."}},"required":["entity"]})"),

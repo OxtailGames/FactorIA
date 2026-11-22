@@ -1,4 +1,4 @@
-// The brush that the editor's viewport tools share (terrain sculpt, paint and holes today; foliage paint next): its settings, the
+// The brush that the editor's viewport tools share (terrain sculpt, paint and holes, and foliage paint): its settings, the
 // collection of a stroke's points while the mouse is down, the geometry of the cursor ring and the ray that finds the ground under
 // the mouse. Plain functions and a small class of (floats, vectors): no ImGui, no renderer, no Editor, so the maths is tested in
 // brush_tests.cpp and a tool only adds what is its own (which command a stamp is sent to, and with which arguments).
@@ -35,7 +35,7 @@ inline constexpr std::size_t kBrushMaxStrokePoints = 20000;
 // Puts every field in its range (`maxRadius` caps the radius: a tool passes what its target allows).
 void brush_clamp(BrushSettings& b, float maxRadius = kBrushMaxRadius);
 // The distance between two stamps of a radius.
-float brush_spacing(float radius);
+float brush_spacing(float radius, float stampsPerRadius = kBrushStampsPerRadius);
 // The radius inside which the effect is at full strength: radius * (1 - falloff).
 float brush_inner_radius(const BrushSettings& b);
 // One press of `[` (steps < 0, smaller) or `]` (steps > 0, bigger): the radius times 1.25 per step (and 0.8 for a step down),
@@ -48,8 +48,9 @@ void brush_step_strength(BrushSettings& b, int steps);
 // over the same line give the same stamps up to the last partial step).
 class BrushStroke {
 public:
-    // Starts a stroke at `p` with stamps radius / 4 apart. Drops the points of any stroke before it.
-    void begin(Vec2 p, float radius);
+    // Starts a stroke at `p` with stamps radius / `stampsPerRadius` apart (4 unless a tool needs fewer, bigger stamps: the foliage
+    // brush uses 2). Drops the points of any stroke before it.
+    void begin(Vec2 p, float radius, float stampsPerRadius = kBrushStampsPerRadius);
     // The mouse is now at `p`: appends the stamps between the last stamp and `p`. Returns how many were added (0 while the mouse has
     // moved less than the spacing). Nothing happens outside a stroke, and once kBrushMaxStrokePoints are collected (`full()`).
     int add(Vec2 p);

@@ -536,7 +536,8 @@ bool finish_terrain_edit(const World&, UndoPlan& plan, const Json& result) {
 // foliage.scatter / foliage.paint / foliage.clear: the edit is one step of the Foliage's in-memory history (its instances file is
 // not in a scene snapshot), so the entry is the pair foliage.redo / foliage.undo, exactly like a terrain edit. A call that changed
 // nothing, or a dryRun, makes no step and so no entry (the finisher marks it a no-op: its result carries no `undo`); a continued
-// paint stroke (`continueStroke`) joins the newest step, which has its entry already.
+// paint stroke (`continueStroke`) joins the newest step, which has its entry already. foliage.scatter and foliage.clear have no
+// continueStroke (their schemas refuse it), so only a foliage.paint call can be a continued one.
 std::optional<UndoPlan> plan_foliage_edit(const World& w, const Json& a) {
     if (!a.is_object() || !a.contains("entity")) return std::nullopt;
     const Entity e = live_entity(w, a, "entity");
@@ -545,14 +546,38 @@ std::optional<UndoPlan> plan_foliage_edit(const World& w, const Json& a) {
     UndoPlan plan;
     plan.forward.push_back({"foliage.redo", args, ""});
     plan.inverse.push_back({"foliage.undo", args, ""});
-    const auto flag = [&](const char* key) { return a.contains(key) && a[key].is_boolean() && a[key].get<bool>(); };
-    plan.noop = flag("continueStroke") || flag("dryRun");
+    plan.noop = a.contains("dryRun") && a["dryRun"].is_boolean() && a["dryRun"].get<bool>();
     return plan;
 }
 
+// foliage.paint: the same, and a continued stroke (`continueStroke` true) makes no entry of its own.
+std::optional<UndoPlan> plan_foliage_paint(const World& w, const Json& a) {
+    std::optional<UndoPlan> plan = plan_foliage_edit(w, a);
+    if (plan && a.contains("continueStroke") && a["continueStroke"].is_boolean() && a["continueStroke"].get<bool>())
+        plan->noop = true;
+    return plan;
+}
+
+// The step the edit made is number `historyLost + undoDepth` of the history `historyId`: both commands carry it, so the editor can
+// tell later which of its rows a history let go of (drop_foliage_steps).
 bool finish_foliage_edit(const World&, UndoPlan& plan, const Json& result) {
     if (!result.is_object()) return false;
-    if (!result.contains("undo")) plan.noop = true;  // nothing changed, or the history could not keep the step
+    if (!result.contains("undo")) {
+        plan.noop = true;  // nothing changed, or the history could not keep the step
+        return true;
+    }
+    const auto number = [&](const char* key) -> std::uint64_t {
+        return result.contains(key) && result[key].is_number_unsigned() ? result[key].get<std::uint64_t>() : 0;
+    };
+    const std::uint64_t id = number("historyId"), step = number("historyLost") + number("undoDepth");
+    for (UndoCommand& c : plan.forward) {
+        c.historyId = id;
+        c.historyStep = step;
+    }
+    for (UndoCommand& c : plan.inverse) {
+        c.historyId = id;
+        c.historyStep = step;
+    }
     return true;
 }
 
@@ -572,7 +597,7 @@ const BuilderRow kBuilders[] = {
     {"terrain.holes", &plan_terrain_edit, &finish_terrain_edit},
     {"terrain.generate", &plan_terrain_edit, &finish_terrain_edit},
     {"foliage.scatter", &plan_foliage_edit, &finish_foliage_edit},
-    {"foliage.paint", &plan_foliage_edit, &finish_foliage_edit},
+    {"foliage.paint", &plan_foliage_paint, &finish_foliage_edit},
     {"foliage.clear", &plan_foliage_edit, &finish_foliage_edit},
 };
 
@@ -633,6 +658,46 @@ TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, st
         return true;
     });
     return out;
+}
+
+namespace {
+// Takes out of the inverse and forward lists of every entry the foliage.undo / foliage.redo commands of `entityId` for which
+// `gone(command)` is true; an entry left with nothing to undo leaves the list, one that keeps other commands stays (its bytes are
+// estimated again).
+template <class Gone>
+FoliageDrop drop_foliage_commands(UndoStack& stack, const std::string& entityId, Gone gone) {
+    FoliageDrop out;
+    stack.erase_if([&](UndoEntry& e) {
+        if (e.kind != UndoEntry::Kind::Command) return false;
+        const auto mine = [&](const UndoCommand& c) {
+            return (names_terrain(c, "foliage.undo", entityId) || names_terrain(c, "foliage.redo", entityId)) && gone(c);
+        };
+        const std::size_t before = e.inverse.size() + e.forward.size();
+        const std::size_t undos = std::size_t(std::count_if(e.inverse.begin(), e.inverse.end(), mine));
+        std::erase_if(e.inverse, mine);
+        std::erase_if(e.forward, mine);
+        if (e.inverse.size() + e.forward.size() == before) return false;
+        out.steps += undos;
+        if (e.inverse.empty()) {
+            ++out.entries;
+            return true;
+        }
+        e.refresh_bytes();
+        return false;
+    });
+    return out;
+}
+}  // namespace
+
+FoliageDrop drop_foliage_steps(UndoStack& stack, const std::string& entityId, std::uint64_t historyId,
+                               std::uint64_t lost) {
+    return drop_foliage_commands(stack, entityId, [&](const UndoCommand& c) {
+        return c.historyId != 0 && (c.historyId != historyId || c.historyStep <= lost);
+    });
+}
+
+FoliageDrop drop_foliage_all(UndoStack& stack, const std::string& entityId) {
+    return drop_foliage_commands(stack, entityId, [](const UndoCommand&) { return true; });
 }
 
 }  // namespace fa::editor

@@ -3,6 +3,8 @@
 #include <cmath>
 
 #include "brush.h"
+#include "fa/scene/foliage.h"
+#include "foliage_ui.h"
 #include "terrain_ui.h"
 #include "doctest.h"
 
@@ -221,4 +223,62 @@ TEST_CASE("terrain tool: the radius limit is measured in the plane the brush edi
           terrain_max_radius({4096, 4096}, terrain_plane_side(TerrainMode::Paint, 1024, 4096)));
     CHECK(terrain_max_radius({4096, 4096}, terrain_plane_side(TerrainMode::Paint, 1024, 4096)) ==
           doctest::Approx(900.0f));
+}
+
+TEST_CASE("foliage tool: a stroke piece becomes the arguments of one foliage.paint call") {
+    FoliageUi ui;
+    ui.strokeBrush = BrushSettings{4.0f, 0.5f, 1.0f};
+    ui.strokeMode = FoliageMode::Add;
+    ui.strokeRuleDensity = true;
+    const std::vector<Vec2> pts = {{1.123456f, 2.0f}, {2.5f, 2.0f}};
+
+    FoliageCall c = foliage_stroke_call(ui, "forest", pts, false);
+    CHECK(c.command == "foliage.paint");
+    CHECK(c.args["entity"] == "forest");
+    CHECK(c.args["mode"] == "add");
+    CHECK(c.args["points"].size() == 2);
+    CHECK(c.args["points"][0][0].get<double>() == doctest::Approx(1.1235));  // rounded to 4 decimals
+    CHECK(c.args["radius"].get<double>() == doctest::Approx(4.0));
+    CHECK_FALSE(c.args.contains("density"));  // the rule's density
+    CHECK_FALSE(c.args.contains("mesh"));
+    CHECK_FALSE(c.args.contains("continueStroke"));  // the first piece starts the undo step
+    CHECK(foliage_stroke_call(ui, "forest", pts, true).args["continueStroke"] == true);
+
+    ui.strokeRuleDensity = false;
+    ui.strokeDensity = 0.75f;
+    ui.strokeMesh = "assets/models/pine.glb";
+    c = foliage_stroke_call(ui, "forest", pts, false);
+    CHECK(c.args["density"].get<double>() == doctest::Approx(0.75));
+    CHECK(c.args["mesh"] == "assets/models/pine.glb");
+
+    ui.strokeInvert = true;  // Ctrl held: add erases, and an erase has no density
+    c = foliage_stroke_call(ui, "forest", pts, false);
+    CHECK(c.args["mode"] == "remove");
+    CHECK_FALSE(c.args.contains("density"));
+    ui.strokeMode = FoliageMode::Remove;  // remove with Ctrl adds
+    CHECK(foliage_stroke_call(ui, "forest", pts, false).args["mode"] == "add");
+}
+
+TEST_CASE("foliage tool: pieces are rate-limited by what the last call cost") {
+    CHECK(foliage_piece_interval(0.0) == doctest::Approx(kFoliageMinPieceSeconds));
+    CHECK(foliage_piece_interval(0.05) == doctest::Approx(kFoliageMinPieceSeconds));
+    CHECK(foliage_piece_interval(0.5) == doctest::Approx(1.0));  // twice the cost
+    CHECK(foliage_piece_interval(100.0) == doctest::Approx(kFoliageMaxPieceSeconds));
+    CHECK(foliage_piece_interval(-1.0) == doctest::Approx(kFoliageMinPieceSeconds));
+    CHECK(foliage_piece_interval(std::nan("")) == doctest::Approx(kFoliageMinPieceSeconds));
+}
+
+TEST_CASE("brush: a stroke can use bigger stamps than the default") {
+    BrushStroke fine, coarse;
+    fine.begin({0, 0}, 4.0f);
+    coarse.begin({0, 0}, 4.0f, kFoliageStampsPerRadius);
+    CHECK(fine.spacing() == doctest::Approx(1.0f));
+    CHECK(coarse.spacing() == doctest::Approx(2.0f));
+    fine.add({8, 0});
+    coarse.add({8, 0});
+    CHECK(fine.points().size() == 9);
+    CHECK(coarse.points().size() == 5);
+    CHECK(brush_spacing(4.0f, 2.0f) == doctest::Approx(2.0f));
+    // A whole stroke of pieces: kMaxFoliagePaintPoints is what one call takes.
+    CHECK(kMaxFoliagePaintPoints <= kBrushMaxStrokePoints);
 }
