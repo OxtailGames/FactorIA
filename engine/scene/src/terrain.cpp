@@ -401,11 +401,13 @@ bool terrain_height_at(const World& world, Entity terrain, float worldX, float w
 namespace {
 
 // Loads what Terrain.holes and Terrain.splatMaps name when it differs from what `h` holds (a path that cannot be read is
-// reported once and the plane is left empty until the path changes).
-void load_planes(TerrainHeights& h, const Terrain3D& t, std::string_view who) {
+// reported once and the plane is left empty until the path changes). It runs on every heights() call, so the entity's id (a string
+// the world builds) is only asked for when something is reported.
+void load_planes(TerrainHeights& h, const Terrain3D& t, const World& world, Entity entity) {
     std::string problems;
     auto fail = [&](const std::string& what, const Error& e) {
-        const std::string text = std::format("entity '{}': {}: {}. Hint: {}", who, what, e.message, e.hint);
+        const std::string text =
+            std::format("entity '{}': {}: {}. Hint: {}", world.id_of(entity), what, e.message, e.hint);
         FA_ERROR("terrain", "{}", text);
         problems += (problems.empty() ? "" : "\n") + text;
     };
@@ -444,7 +446,7 @@ void load_planes(TerrainHeights& h, const Terrain3D& t, std::string_view who) {
                         "terrain",
                         "entity '{}': Terrain.holes '{}' is {} x {} pixels but the terrain has {} x {} cells: it was "
                         "resampled (nearest). Make it {} x {} so one pixel is one cell.",
-                        who, t.holes, img->width, img->height, cells, cells, cells, cells);
+                        world.id_of(entity), t.holes, img->width, img->height, cells, cells, cells, cells);
             }
         }
     }
@@ -512,7 +514,7 @@ std::shared_ptr<TerrainHeights> TerrainStore::heights(const World& world, Entity
             }
         }
     }
-    if (entry.heights) load_planes(*entry.heights, *t, world.id_of(e));
+    if (entry.heights) load_planes(*entry.heights, *t, world, e);
     if (problem) *problem = entry.problem;
     return entry.heights;
 }
@@ -574,6 +576,19 @@ Error write_error(const std::string& path, const Error& e) {
                                      : e.hint);
 }
 
+// Where a terrain file goes: the path of the field resolved by the project write rules (a path inside the project; an absolute
+// or escaping one only for a caller that may write anywhere), in the spelling fs::write_bytes takes.
+Result<std::string> terrain_write_target(const std::string& who, const std::string& field, const std::string& path,
+                                         bool writeAnywhere) {
+    auto r = fs::resolve_for_write(path, fs::WriteRoot::Project, writeAnywhere);
+    if (!r.ok())
+        return make_error(std::format("entity '{}': {} is '{}', which cannot be written: {}", who, field, path,
+                                      r.error().message),
+                          "Set " + field + " to a path inside the project, such as assets/terrain/" + who +
+                              ".height.png (a path outside the project needs the writeAnywhere permission).");
+    return fs::project_spelling(r.value());
+}
+
 }  // namespace
 
 std::vector<std::uint8_t> encode_terrain_heightmap(const TerrainHeights& h, std::string_view path) {
@@ -594,7 +609,8 @@ std::vector<std::uint8_t> encode_terrain_heightmap(const TerrainHeights& h, std:
     return bytes;
 }
 
-Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written) {
+Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written,
+                                bool writeAnywhere) {
     const Terrain3D* t = world.get<Terrain3D>(terrain);
     if (!t) return {};
     auto h = world.terrain().find(terrain);
@@ -614,7 +630,9 @@ Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<
         const std::vector<std::uint8_t> bytes = encode_terrain_heightmap(*h, t->heightmap);
         if (bytes.empty())
             return make_error("The heightmap of '" + who + "' could not be encoded", "This is a bug: report it.");
-        if (auto r = fs::write_bytes(t->heightmap, bytes.data(), bytes.size()); !r.ok())
+        auto target = terrain_write_target(who, "Terrain.heightmap", t->heightmap, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
             return write_error(t->heightmap, r.error());
         h->heightsUnsaved = false;
         h->eightBit = false;
@@ -635,7 +653,9 @@ Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<
         const std::vector<std::uint8_t> bytes = encode_png_gray8(cells, cells, mask.data());
         if (bytes.empty())
             return make_error("The holes of '" + who + "' could not be encoded", "This is a bug: report it.");
-        if (auto r = fs::write_bytes(t->holes, bytes.data(), bytes.size()); !r.ok())
+        auto target = terrain_write_target(who, "Terrain.holes", t->holes, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
             return write_error(t->holes, r.error());
         h->holesUnsaved = false;
         h->holesSource = t->holes;
@@ -660,7 +680,10 @@ Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<
         const std::vector<std::uint8_t> bytes = encode_png(img);
         if (bytes.empty())
             return make_error("The splat map of '" + who + "' could not be encoded", "This is a bug: report it.");
-        if (auto r = fs::write_bytes(path, bytes.data(), bytes.size()); !r.ok()) return write_error(path, r.error());
+        auto target = terrain_write_target(who, std::format("Terrain.splatMaps[{}]", m), path, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
+            return write_error(path, r.error());
         s.unsaved = false;
         s.source = path;
         note(path);
@@ -668,11 +691,11 @@ Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<
     return {};
 }
 
-Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written) {
+Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written, bool writeAnywhere) {
     std::string firstProblem, hint;
     for (Entity e : world.terrain().entities()) {
         if (!world.alive(e)) continue;
-        if (auto r = save_terrain_files(world, e, written); !r.ok() && firstProblem.empty()) {
+        if (auto r = save_terrain_files(world, e, written, writeAnywhere); !r.ok() && firstProblem.empty()) {
             firstProblem = r.error().message;
             hint = r.error().hint;
         }

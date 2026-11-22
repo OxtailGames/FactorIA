@@ -394,7 +394,7 @@ TEST_CASE("encode_terrain_heightmap and save_terrain_files: the files hold the p
         h->splat[0].source = fs::path_to_utf8(dir / "g.splat0.png");
         // a grid that was never edited writes nothing
         std::vector<std::string> written;
-        REQUIRE(save_terrain_files(w, e, &written).ok());
+        REQUIRE(save_terrain_files(w, e, &written, true).ok());
         CHECK(written.empty());
         TerrainStep step;
         step.label = "terrain.sculpt";
@@ -420,7 +420,15 @@ TEST_CASE("encode_terrain_heightmap and save_terrain_files: the files hold the p
         std::string problem;
         REQUIRE_MESSAGE(h->apply_step(step, &problem), problem);
         CHECK(h->any_unsaved());
-        REQUIRE(save_terrain_files(w, e, &written).ok());
+        // an absolute path is outside the project rules: refused with the field and the path, nothing written, edits kept
+        auto refused = save_terrain_files(w, e, &written);
+        REQUIRE_FALSE(refused.ok());
+        CHECK(refused.error().message.find("Terrain.heightmap") != std::string::npos);
+        CHECK(refused.error().message.find("g.height.png") != std::string::npos);
+        CHECK_FALSE(refused.error().hint.empty());
+        CHECK(h->any_unsaved());
+        CHECK_FALSE(fs::exists(t.heightmap));
+        REQUIRE(save_terrain_files(w, e, &written, true).ok());
         CHECK(written.size() == 3);
         CHECK_FALSE(h->any_unsaved());
         auto loaded = load_terrain_heightmap(t.heightmap);

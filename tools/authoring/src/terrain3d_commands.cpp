@@ -33,6 +33,7 @@ constexpr int kMaxBrushCells = 1024;            // the largest brush radius, in 
 constexpr std::size_t kMaxStrokePoints = 4096;  // stamps of one command
 constexpr std::uint64_t kMaxBrushVisits = std::uint64_t(1)
                                           << 26;  // samples looked at by one command, over all its stamps
+constexpr std::uint64_t kMaxUnionSamples = std::uint64_t(1) << 25;  // the rectangle one command edits: 33 M samples
 constexpr std::uint16_t kFlatRaw = 32768;  // a new flat terrain: half way up, so it can be lowered as well as raised
 
 Json parse_schema(const char* text) {
@@ -66,6 +67,27 @@ std::string file_stem(const std::string& id) {
         out.push_back(ok ? ch : '_');
     }
     return out.empty() ? std::string("terrain") : out;
+}
+
+std::string lower_ascii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+    return s;
+}
+
+// The spelling of a project path that a command is about to write, judged by the project write rules: inside the project (an
+// absolute path or a '..' that leaves it only for a caller that may write anywhere), and not in a managed folder. `where`
+// names the argument ("/path") or the Terrain field ("Terrain.splatMaps[0]") in the error.
+std::string write_target(const std::string& where, const std::string& path) {
+    auto r = fs::resolve_for_write(path, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+    if (!r.ok()) {
+        const std::string code(fs::path_error_code(r.error()));
+        throw CommandError(code.empty() ? "invalid_argument" : code,
+                           "'" + path + "' (" + where + ") cannot be written: " + r.error().message,
+                           "Use a path inside the project, such as assets/terrain/ground.height.png. " +
+                               r.error().hint);
+    }
+    return fs::project_spelling(r.value());
 }
 
 bool ends_with_ci(const std::string& s, const char* suffix) {
@@ -125,6 +147,19 @@ Target open_target(Engine::Impl& I, const Json& a) {
                            problem.empty() ? "The heightmap of '" + tg.id + "' cannot be used." : problem,
                            "Fix Terrain.heightmap (a square 16-bit PNG or .r16, 33 to 4097 samples per side).");
     tg.m = I.world.world_matrix(tg.entity);
+    {  // Mat4::inverse() answers the identity for a singular matrix: a terrain scaled to nothing has no brush space.
+        const float* m = tg.m.m;
+        const float det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) +
+                          m[2] * (m[4] * m[9] - m[5] * m[8]);
+        bool finite = true;
+        for (int i = 0; i < 16; ++i) finite = finite && std::isfinite(m[i]);
+        if (!finite || !(std::fabs(det) > 1e-12f))
+            throw CommandError("invalid_argument",
+                               "The transform of terrain '" + tg.id +
+                                   "' cannot be inverted (a scale of 0 on an axis, or a value that is not a number), so "
+                                   "a brush has no place on it (at /entity).",
+                               "Give the entity's Transform a scale above 0 on every axis, such as [1, 1, 1].");
+    }
     tg.inv = tg.m.inverse();
     tg.sizeX = t.size.x;
     tg.sizeZ = t.size.y;
@@ -184,6 +219,9 @@ IRect stamp_rect(const Target& tg, const Lattice& l, float cx, float cz, float r
             minZ = std::min(minZ, p.z);
             maxZ = std::max(maxZ, p.z);
         }
+    if (!std::isfinite(minX) || !std::isfinite(maxX) || !std::isfinite(minZ) || !std::isfinite(maxZ))
+        bad("/center", "The brush position maps outside the numbers a terrain can hold",
+            "Use a centre and a radius within a few thousand kilometres of the terrain.");
     const float lim = float(l.n) + 2.0f;
     auto range = [&](float lo, float hi, float size, int& i0, int& i1) {
         const float step = size / l.denom;
@@ -265,6 +303,11 @@ Stroke plan_stroke(const Json& a, const Target& tg, const Lattice& l, int margin
             grown.y1 = std::min(grown.y1 + margin, l.n - 1);
         }
         s.all.join(grown);
+        if (s.all.area() > kMaxUnionSamples)
+            bad(hasPoints ? "/points" : "/radius",
+                std::format("The stroke edits a rectangle of {} samples, more than the {} one command takes",
+                            s.all.area(), kMaxUnionSamples),
+                "Send the stroke in several commands, each one over a smaller part of the terrain.");
         s.stamps.push_back(st);
     }
     return s;
@@ -369,7 +412,7 @@ Json rect_json(const IRect& r) { return Json::object({{"c0", r.x0}, {"r0", r.y0}
 // Writes the files of one terrain; an error keeps the edit in memory and says so.
 std::vector<std::string> save_files(Engine::Impl& I, Entity e) {
     std::vector<std::string> written;
-    auto r = save_terrain_files(I.world, e, &written);
+    auto r = save_terrain_files(I.world, e, &written, caller_capabilities().has(Capability::WriteAnywhere));
     if (!r.ok())
         throw CommandError("write_failed", r.error().message + " The edit stays in memory (terrain.undo reverts it).",
                            r.error().hint);
@@ -491,8 +534,33 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
 
 // ------------------------------------------------------------------------------------------------ terrain.holes
 
-std::string default_path(const std::string& id, const std::string& what, const char* ext) {
-    return "assets/terrain/" + file_stem(id) + "." + what + "." + ext;
+// True when `path` is a file already, or a Terrain of the world names it (compared without case: a project may be opened
+// on a system that does not tell "Ground" from "ground").
+bool terrain_path_taken(Engine::Impl& I, const std::string& path) {
+    if (fs::exists(path)) return true;
+    const std::string want = lower_ascii(path);
+    bool taken = false;
+    I.world.each<Terrain3D>([&](Entity, Terrain3D& t) {
+        if (lower_ascii(t.heightmap) == want || lower_ascii(t.holes) == want) taken = true;
+        if (t.splatMaps.is_array())
+            for (const Json& m : t.splatMaps)
+                if (m.is_string() && lower_ascii(m.get<std::string>()) == want) taken = true;
+    });
+    return taken;
+}
+
+// The file a terrain gets when it names none: assets/terrain/<stem>.<what>.<ext>, with _2, _3... after the stem until nothing
+// has that name (file_stem maps "a/b" and "a_b" to one stem, and two ids may differ only in case). Checked by the project
+// write rules.
+std::string default_path(Engine::Impl& I, const std::string& stem, const std::string& what, const char* ext,
+                         const std::string& where) {
+    for (int n = 1; n < 100000; ++n) {
+        const std::string name = n == 1 ? stem : stem + "_" + std::to_string(n);
+        const std::string path = "assets/terrain/" + name + "." + what + "." + ext;
+        if (!terrain_path_taken(I, path)) return write_target(where, path);
+    }
+    throw CommandError("invalid_argument", "No free file name was found for '" + stem + "." + what + "." + ext + "'.",
+                       "Delete the unused files in assets/terrain/ or name the file yourself.");
 }
 
 Json do_holes(Engine::Impl& I, const Json& a) {
@@ -520,7 +588,7 @@ Json do_holes(Engine::Impl& I, const Json& a) {
     const Changes ch = diff_rect(before, after, u, 1);
     if (ch.count > 0) {
         if (tg.terrain->holes.empty()) {  // the mask gets its file name before its first cell
-            const std::string path = default_path(tg.id, "holes", "png");
+            const std::string path = default_path(I, file_stem(tg.id), "holes", "png", "Terrain.holes");
             h.holesSource = path;
             tg.terrain->holes = path;
             out["holes"] = path;
@@ -607,42 +675,15 @@ Json do_paint(Engine::Impl& I, const Json& a) {
         out["note"] = "The brush is outside the terrain: nothing changed.";
         return finish(I, tg, a, out);
     }
-    // Make the maps that do not exist yet: map 0 starts as all layer 0, map 1 as all zeros.
-    Json created = Json::array();
-    for (int k = 0; k < wantMaps; ++k) {
-        TerrainSplat& m = h.splat[std::size_t(k)];
-        if (m.valid()) continue;
-        std::string path;
-        if (t.splatMaps.is_array() && std::size_t(k) < t.splatMaps.size() && t.splatMaps[std::size_t(k)].is_string())
-            path = t.splatMaps[std::size_t(k)].get<std::string>();
-        if (!path.empty() && fs::exists(path))
-            throw CommandError(
-                "invalid_argument",
-                "Terrain.splatMaps[" + std::to_string(k) + "] '" + path +
-                    "' exists but could not be loaded: " + h.planesProblem,
-                "Fix or delete the file, or point Terrain.splatMaps at another path; painting would overwrite it.");
-        if (path.empty()) path = default_path(tg.id, "splat" + std::to_string(k), "png");
-        m = TerrainSplat{};
-        m.size = size;
-        m.rgba.assign(std::size_t(size) * std::size_t(size) * 4, 0);
-        if (k == 0)
-            for (std::size_t p = 0; p < m.rgba.size(); p += 4) m.rgba[p] = 255;
-        m.source = path;
-        m.unsaved = true;
-        ++m.version;
-        if (!t.splatMaps.is_array()) t.splatMaps = Json::array();
-        while (t.splatMaps.size() <= std::size_t(k)) t.splatMaps.push_back("");
-        if (!t.splatMaps[std::size_t(k)].is_string() || t.splatMaps[std::size_t(k)].get<std::string>() != path) {
-            t.splatMaps[std::size_t(k)] = path;
-            out["sceneChanged"] = true;
-        }
-        created.push_back(path);
-    }
-    if (!created.empty()) out["created"] = created;
     const IRect u = s.all;
     std::vector<std::uint8_t> before[2], after[2];
     for (int k = 0; k < wantMaps; ++k) {
-        before[k] = read_rect(h.splat[std::size_t(k)].rgba.data(), size, u, 4);
+        // A map that does not exist yet is judged as it will start: map 0 all layer 0, map 1 all zeros. It is made only when the
+        // brush changes something.
+        const TerrainSplat& m = h.splat[std::size_t(k)];
+        before[k] = read_rect(m.valid() ? m.rgba.data() : nullptr, size, u, 4);
+        if (!m.valid() && k == 0)
+            for (std::size_t p = 0; p < before[k].size(); p += 4) before[k][p] = 255;
         after[k] = before[k];
     }
     const int channels = 4 * wantMaps;
@@ -685,6 +726,49 @@ Json do_paint(Engine::Impl& I, const Json& a) {
         changedRect.join(ch.rect);
     }
     if (!step.patches.empty()) {
+        // Make the maps that do not exist yet. Everything that can be refused is checked first, so a refusal changes nothing.
+        struct Fresh {
+            int k;
+            std::string path;
+        };
+        std::vector<Fresh> fresh;
+        for (int k = 0; k < wantMaps; ++k) {
+            if (h.splat[std::size_t(k)].valid()) continue;
+            std::string path;
+            if (t.splatMaps.is_array() && std::size_t(k) < t.splatMaps.size() &&
+                t.splatMaps[std::size_t(k)].is_string())
+                path = t.splatMaps[std::size_t(k)].get<std::string>();
+            const std::string where = "Terrain.splatMaps[" + std::to_string(k) + "]";
+            if (!path.empty() && fs::exists(path))
+                throw CommandError(
+                    "invalid_argument",
+                    where + " '" + path + "' exists but could not be loaded: " + h.planesProblem,
+                    "Fix or delete the file, or point Terrain.splatMaps at another path; painting would overwrite it.");
+            path = path.empty() ? default_path(I, file_stem(tg.id), "splat" + std::to_string(k), "png", where)
+                                : write_target(where, path);
+            fresh.push_back({k, path});
+        }
+        Json created = Json::array();
+        for (const Fresh& f : fresh) {
+            TerrainSplat& m = h.splat[std::size_t(f.k)];
+            m = TerrainSplat{};
+            m.size = size;
+            m.rgba.assign(std::size_t(size) * std::size_t(size) * 4, 0);
+            if (f.k == 0)
+                for (std::size_t p = 0; p < m.rgba.size(); p += 4) m.rgba[p] = 255;
+            m.source = f.path;
+            m.unsaved = true;
+            ++m.version;
+            if (!t.splatMaps.is_array()) t.splatMaps = Json::array();
+            while (t.splatMaps.size() <= std::size_t(f.k)) t.splatMaps.push_back("");
+            if (!t.splatMaps[std::size_t(f.k)].is_string() ||
+                t.splatMaps[std::size_t(f.k)].get<std::string>() != f.path) {
+                t.splatMaps[std::size_t(f.k)] = f.path;
+                out["sceneChanged"] = true;
+            }
+            created.push_back(f.path);
+        }
+        if (!created.empty()) out["created"] = created;
         commit(tg, std::move(step));
         out["changedTexels"] = changed;
         out["rect"] = rect_json(changedRect);
@@ -815,7 +899,7 @@ Json do_generate(Engine::Impl& I, const Json& a) {
     // Nothing above can fail any more: bind the grid to the terrain and apply the new heights as one step.
     Json out = Json::object();
     if (!hadFile) {
-        const std::string path = default_path(id, "height", "png");
+        const std::string path = default_path(I, file_stem(id), "height", "png", "Terrain.heightmap");
         h = TerrainHeights::flat(n, 0);
         I.world.terrain().adopt(e, path, h);
         t->heightmap = path;
@@ -856,7 +940,7 @@ Json do_generate(Engine::Impl& I, const Json& a) {
 // ------------------------------------------------------------------------------------------------ terrain.create
 
 Json do_create(Engine::Impl& I, const Json& a) {
-    const std::string name = a.contains("name") && a["name"].is_string() ? a["name"].get<std::string>() : std::string();
+    std::string name = a.contains("name") && a["name"].is_string() ? a["name"].get<std::string>() : std::string();
     if (!name.empty() && I.world.find_by_id(name))
         bad("/name", "An entity with the id '" + name + "' already exists",
             "Pick another name, or edit that terrain with terrain.sculpt.");
@@ -885,6 +969,20 @@ Json do_create(Engine::Impl& I, const Json& a) {
     if (a.contains("heightmap") && a.contains("resolution"))
         bad("/resolution", "'heightmap' (import) and 'resolution' (a new flat grid) were both given",
             "Give one: the imported file brings its own size.");
+    if (a.contains("heightmap") && a.contains("path"))
+        bad("/path", "'heightmap' (import: nothing is written) and 'path' (where a new file goes) were both given",
+            "Give one: 'path' for a new flat heightmap, or 'heightmap' to use an existing file.");
+    if (name.empty()) {  // no name: "terrain", "terrain_2"... the first that no entity has and no file of a new heightmap takes
+        const bool writesDefault = !a.contains("heightmap") && !a.contains("path");
+        for (int n = 1; name.empty(); ++n) {
+            const std::string candidate = n == 1 ? "terrain" : "terrain_" + std::to_string(n);
+            if (n > 100000)
+                throw CommandError("invalid_argument", "No free terrain name was found.", "Pass a 'name'.");
+            if (!I.world.find_by_id(candidate) &&
+                !(writesDefault && terrain_path_taken(I, "assets/terrain/" + candidate + ".height.png")))
+                name = candidate;
+        }
+    }
     Json terrain = Json::object({{"size", Json::array({size[0], size[1]})}, {"heightScale", heightScale}});
     Json out = Json::object();
     if (a.contains("heightmap")) {
@@ -899,8 +997,8 @@ Json do_create(Engine::Impl& I, const Json& a) {
     } else {
         const int n = a.contains("resolution") ? checked_samples(a["resolution"], "/resolution") : 513;
         std::string path = a.contains("path") && a["path"].is_string()
-                               ? resolve_caller_project_path(a["path"].get<std::string>(), "terrain.create")
-                               : "assets/terrain/" + file_stem(name.empty() ? "terrain" : name) + ".height.png";
+                               ? write_target("/path", a["path"].get<std::string>())
+                               : default_path(I, file_stem(name), "height", "png", "/name");
         if (!ends_with_ci(path, ".png") && !ends_with_ci(path, ".r16"))
             bad("/path", "The heightmap file '" + path + "' must end in .png or .r16",
                 "Example: assets/terrain/ground.height.png.");
@@ -924,12 +1022,8 @@ Json do_create(Engine::Impl& I, const Json& a) {
     }
     Json spec = Json::object(
         {{"components", Json::object({{"Terrain", terrain}, {"Transform", Json::object({{"position", position}})}})}});
-    if (!name.empty()) {
-        spec["name"] = name;
-        spec["id"] = name;
-    } else {
-        spec["name"] = "terrain";
-    }
+    spec["name"] = name;
+    spec["id"] = name;
     LoadReport report;
     Entity e = entity_from_json(I.world, spec, parent, report, "terrain.create");
     if (!e || !I.world.alive(e) || report.error_count() > 0) {
@@ -978,13 +1072,14 @@ Json do_undo_redo(Engine::Impl& I, const Json& a, bool undo) {
 
 Json do_save(Engine::Impl& I, const Json& a) {
     std::vector<std::string> written;
+    const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
     if (a.contains("entity")) {
         Terrain3D* t = nullptr;
         const Entity e = need_terrain_entity(I, a, t);
-        auto r = save_terrain_files(I.world, e, &written);
+        auto r = save_terrain_files(I.world, e, &written, anywhere);
         if (!r.ok()) throw CommandError("write_failed", r.error().message, r.error().hint);
     } else {
-        auto r = save_all_terrain_files(I.world, &written);
+        auto r = save_all_terrain_files(I.world, &written, anywhere);
         if (!r.ok()) throw CommandError("write_failed", r.error().message, r.error().hint);
     }
     Json files = Json::array();
@@ -994,9 +1089,9 @@ Json do_save(Engine::Impl& I, const Json& a) {
 
 // ------------------------------------------------------------------------------------------------ registration
 
-const char* kSaveProp =
+constexpr char kSaveProp[] =
     R"("save":{"type":"boolean","default":false,"description":"Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save."})";
-const char* kBrushProps =
+constexpr char kBrushProps[] =
     R"("center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"World metres [x, z] of one stamp. Give center or points, not both."},
        "points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":1,"maxItems":4096,"description":"A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step."},
        "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in world metres (at most 1024 samples of the edited image)."})";

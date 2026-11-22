@@ -10,6 +10,8 @@
 #include <string>
 
 #include "fa/authoring/authoring.h"
+#include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/runtime/engine.h"
@@ -85,6 +87,17 @@ struct Project {
 };
 
 bool contains(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+
+// FNV-1a over the samples (little endian): a pinned value fails on any change of the arithmetic, on any CPU.
+std::uint64_t checksum(const std::vector<std::uint16_t>& v) {
+    std::uint64_t h = 1469598103934665603ull;
+    for (std::uint16_t s : v)
+        for (int b = 0; b < 2; ++b) {
+            h ^= std::uint64_t((s >> (8 * b)) & 0xFF);
+            h *= 1099511628211ull;
+        }
+    return h;
+}
 
 }  // namespace
 
@@ -383,7 +396,7 @@ TEST_CASE("terrain.generate: seeded noise and erosion are deterministic, one und
     CHECK(p.heights("a")->data == p.heights("b")->data);
     CHECK(p.heights("a")->data != p.heights("c")->data);
     CHECK(ra["maxHeight"].get<double>() > ra["minHeight"].get<double>() + 10.0);
-    CHECK(ra["maxHeight"].get<double>() <= 100.0 + 1e-6 - 50.0 + 50.0);
+    CHECK(ra["maxHeight"].get<double>() <= 50.0);  // heightOffset -50 (baseHeight 0, half way up) + heightScale 100
     CHECK(ra["erosion"]["droplets"] == 3000);
     CHECK(p.heights("a")->undo_depth() == 1);
     p.ok("terrain.undo", R"({"entity":"a"})");
@@ -432,5 +445,91 @@ TEST_CASE("terrain commands: errors name the argument, the cause and the fix") {
     p.ok("scene.spawn", R"({"name":"bare","components":{"Terrain":{}}})");
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"bare","center":[0,0],"radius":3})"), "terrain.generate"));
     // nothing above changed the terrain
+    CHECK(p.heights("g")->undo_depth() == 0);
+}
+
+TEST_CASE("terrain commands: results are pinned bit for bit (the same on every CPU)") {
+    Project p;
+    p.make("a");
+    p.ok("terrain.generate", R"({"entity":"a","seed":7,"octaves":4,"frequency":0.03,"erosion":500,"thermal":2})");
+    CHECK(checksum(p.heights("a")->data) == 4190583852949114925ull);
+    p.make("b");
+    p.ok("terrain.sculpt", R"({"entity":"b","tool":"raise","points":[[-20,-10],[-10,0],[0,10]],"radius":7,"amount":9})");
+    p.ok("terrain.sculpt", R"({"entity":"b","tool":"smooth","center":[-10,0],"radius":9,"strength":0.8})");
+    p.ok("terrain.sculpt", R"({"entity":"b","tool":"flatten","center":[0,10],"radius":6,"strength":0.7,"height":12})");
+    CHECK(checksum(p.heights("b")->data) == 11291136079281194523ull);
+}
+
+TEST_CASE("terrain commands: every file is written inside the project") {
+    Project p;
+    CommandCapabilityScope scope(capability_sets::mcp());  // an agent: it may write the project, not anywhere
+    const std::string outside = fs::path_to_utf8(p.dir.parent_path() / "fa_terrain_outside.height.png");
+    // an absolute path and a path that leaves the project are refused by terrain.create, with the argument and the fix
+    const std::string abs = p.refused("terrain.create", R"({"name":"x","path":")" + outside + R"("})");
+    CHECK(contains(abs, "/path"));
+    CHECK(contains(abs, "inside the project"));
+    CHECK(contains(p.refused("terrain.create", R"({"name":"y","path":"../fa_terrain_outside.height.png"})"), "/path"));
+    CHECK_FALSE(fs::exists(outside));
+    CHECK_FALSE(fs::exists("../fa_terrain_outside.height.png"));
+    CHECK_FALSE(p.e.world().find("x"));
+    CHECK_FALSE(p.e.world().find("y"));
+    // 'path' with 'heightmap' contradict each other
+    p.make("g");
+    CHECK(contains(p.refused("terrain.create", R"({"name":"z","heightmap":"assets/terrain/g.height.png","path":"a.png"})"),
+                   "/path"));
+    // a terrain whose files are named by an absolute or an escaping path is not written by a save either
+    p.ok("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":5,"amount":3,"strength":1})");
+    p.ok("scene.set_component", R"({"id":"g","component":"Terrain","fields":{"holes":")" + outside + R"("}})");
+    p.ok("terrain.holes", R"({"entity":"g","center":[10,10],"radius":3})");
+    const std::string save = p.refused("terrain.save", R"({"entity":"g"})");
+    CHECK(contains(save, "Terrain.holes"));
+    CHECK(contains(save, "inside the project"));
+    CHECK_FALSE(fs::exists(outside));
+    CHECK(p.heights("g")->any_unsaved());
+    p.ok("scene.set_component", R"({"id":"g","component":"Terrain","fields":{"holes":"../fa_terrain_outside.holes.png"}})");
+    p.ok("terrain.holes", R"({"entity":"g","center":[10,10],"radius":3})");
+    CHECK(contains(p.refused("terrain.save", R"({})"), "Terrain.holes"));
+    CHECK_FALSE(fs::exists("../fa_terrain_outside.holes.png"));
+    // the scene save reports it too, and the scene file itself was written
+    CHECK(contains(p.refused("scene.save", "{}"), "Terrain.holes"));
+    CHECK_FALSE(fs::exists("../fa_terrain_outside.holes.png"));
+}
+
+TEST_CASE("terrain commands: default names are unique, a paint that changes nothing makes no map") {
+    Project p;
+    // no name: terrain, terrain_2; the files never collide
+    CHECK(p.ok("terrain.create", R"({"resolution":33})")["entity"] == "terrain");
+    Json second = p.ok("terrain.create", R"({"resolution":33})");
+    CHECK(second["entity"] == "terrain_2");
+    CHECK(second["heightmap"] == "assets/terrain/terrain_2.height.png");
+    // "a/b" and "a_b" map to one file stem, and ids that differ in case to one file name on some systems
+    p.ok("terrain.create", R"({"name":"a/b","resolution":33})");
+    Json clash = p.ok("terrain.create", R"({"name":"a_b","resolution":33})");
+    CHECK(clash["heightmap"] == "assets/terrain/a_b_2.height.png");
+    CHECK(p.ok("terrain.create", R"({"name":"Rock","resolution":33})")["heightmap"] == "assets/terrain/Rock.height.png");
+    CHECK(p.ok("terrain.create", R"({"name":"rock","resolution":33})")["heightmap"] == "assets/terrain/rock_2.height.png");
+    // holes get a unique file too
+    p.ok("scene.set_component", R"({"id":"a_b","component":"Terrain","fields":{"holes":"assets/terrain/terrain.holes.png"}})");
+    Json h = p.ok("terrain.holes", R"({"entity":"terrain","center":[0,0],"radius":30})");
+    CHECK(h["holes"] == "assets/terrain/terrain_2.holes.png");
+    // a paint with strength 0 changes nothing: no splat map, no scene change
+    Json none = p.ok("terrain.paint", R"({"entity":"terrain_2","layer":5,"center":[0,0],"radius":20,"strength":0})");
+    CHECK(none["changedTexels"] == 0);
+    CHECK_FALSE(none.contains("created"));
+    CHECK_FALSE(none.contains("sceneChanged"));
+    CHECK_FALSE(p.heights("terrain_2")->splat[0].valid());
+    CHECK_FALSE(p.heights("terrain_2")->splat[1].valid());
+    CHECK(p.heights("terrain_2")->undo_depth() == 0);
+    Json some = p.ok("terrain.paint", R"({"entity":"terrain_2","layer":5,"center":[0,0],"radius":20,"strength":1})");
+    CHECK(some["created"].size() == 2);
+    CHECK(p.heights("terrain_2")->splat[1].valid());
+}
+
+TEST_CASE("terrain commands: a terrain scaled to nothing is refused, not edited as if unscaled") {
+    Project p;
+    p.make("g");
+    p.ok("scene.set_component", R"({"id":"g","component":"Transform","fields":{"scale":[1,0,1]}})");
+    const std::string err = p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":5})");
+    CHECK(contains(err, "scale"));
     CHECK(p.heights("g")->undo_depth() == 0);
 }
