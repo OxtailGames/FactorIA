@@ -1,8 +1,7 @@
 # Big worlds
 
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
-kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (everything but what the renderer keeps,
-package M75.4b); the CPU occluders of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
+kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (the world, the physics, the audio and the renderer follow a rebase); the CPU occluders of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
 do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
 commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
 `world.origin`, `world.rebase`, `world.absolute_position` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
@@ -14,8 +13,8 @@ is "off" or "as before".
 | [Levels of detail](#levels-of-detail-planned-m751) | M75.1 | screen-size thresholds, dithered cross-fade, impostors, HLOD |
 | [Occlusion](#occlusion-m752) | M75.2 | occluders (CPU built; GPU planned), areas and portals (planned) |
 | [Streaming](#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
-| [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
-| [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it (the blend of the splat layers and the picture of the holes: planned) |
+| [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
+| [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
@@ -400,11 +399,33 @@ fails with `not_enabled` when the setting is off. `world.absolute_position {enti
 `World::origin()`, `absolute_position(Entity)`, `to_local(DVec3)`, `to_absolute(Vec3)`, `rebase(Vec3)`, `rebase_count()` and
 `on_origin_shifted(callback)` (one call per rebase, with the offset).
 
-### What M75.4b adds
+### What the renderer does
 
-The renderer keeps some state in world space (the camera history that motion vectors, SSR and temporal effects reproject from,
-the 2D global-illumination field's history, the realtime-GI grid anchors). Until M75.4b registers its `on_origin_shifted`
-observer, a rebase shows one frame of ghosting in those effects, and the GI grid is laid out again. Nothing else is missing.
+The renderer is an observer of the world it draws (`World::on_origin_shifted`, registered by `update()` / `render_world()` for the
+world they are given, and removed when the renderer shuts down or is given another world; a world destroyed first takes the
+observer with it). On a rebase it moves, by the same offset, what it keeps in world space from one frame to the next, so the frame
+drawn after a rebase is the frame it would have drawn without one: no smear, no flash, no jump.
+
+- **Motion blur and every effect that reprojects**: the view-projection of the frame before is rebuilt as if the previous camera had
+  been `offset` farther, so a static object has a zero motion vector on the frame of the rebase. The cameras `world_to_screen`,
+  `entity.bounds()` and picking answer from are rebuilt at once, so a script reading them in the `originShifted` event sees the new world.
+- **Shadow cascades**: the texel grid of each cascade is fixed in ABSOLUTE space (the snap is done on origin + position in double), so
+  a shadow stays on the same texels through a shift, whatever the texel size. Without a floating origin it is the plain snap.
+- **2D global illumination**: the field's texel grid is fixed in absolute space too, and the geometry and the history origin of the
+  field move with the world. The irradiance history (the bounce) is kept: the field lies on the same absolute texels, so the shift
+  between the history and the new frame is the camera's own movement (0 for a still camera), and the bounce is not primed again.
+- **Realtime GI grids**: the layout and the anchor that decides whether a grid moved by half a spacing shift with the world, so no
+  probe is captured again and the grid stays `ready`.
+- **Height fog and volumetric fog**: `fogHeightBase` and `volumetricHeightBase` are absolute heights, so they are used as
+  `base - origin.y` in local coordinates: a rebase on y does not move the fog layer. (`cloudAltitude` and the like are not positions of the
+  world.)
+- The occlusion debug boxes of the frame before shift too. Everything else the renderer draws from is rebuilt from the world each
+  frame (the cameras, the occluders, the terrain selection and its tile boxes, the 2D shadow rows, the light clusters, the particles and
+  trails, the probe volumes) or lives in a space that does not change (screen space, a terrain's own heights).
+
+Free when unused: a world that never rebases never calls the observer, and the cost of watching a world is one pointer compare per
+frame. A renderer that draws two worlds alternately registers in the one it is given each frame. The callback runs on the main thread
+between frames (after a fixed tick, a command or a script), when no render job exists.
 
 ## Terrain (M75.5)
 
