@@ -1229,13 +1229,15 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "with the camera's own "
          "PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of "
          "the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past "
-         "the last or with no shadow); `occlusion` keeps the game picture and draws the Occluder boxes green and the "
-         "boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS.md, "
-         "\"Occlusion\"; render.occlusion saves the occlusion depth buffer); `none` shows the game "
+         "the last or with no shadow); `none` shows the game "
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
-         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
+         "`occlusion` keeps the game picture and draws the Occluder boxes green and "
+         "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS.md, "
+         "\"Occlusion\"; render.occlusion saves its depth buffer). "
+         "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
@@ -1326,6 +1328,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},
                                                  {"render.gi2d_field", capability_sets::changes_state()},
+                                                 {"render.occlusion", capability_sets::changes_state()},
                                                  {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
