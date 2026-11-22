@@ -1,4 +1,4 @@
-// The commands of the big worlds of M75 that write project files (docs/BIG_WORLDS.md): model.bake_impostor and foliage.* (terrain.* is terrain3d_commands.cpp). M75-P0 registers them so the names, arguments and docs are
+// The commands of the big worlds of M75 that write project files (docs/BIG_WORLDS.md): foliage.* (terrain.* is terrain3d_commands.cpp). M75-P0 registers them so the names, arguments and docs are
 // fixed before the packages that build them: each one fails with `not_built` and names the package that fills it in, and changes
 // nothing. The later packages replace the handler and keep the name, the schema and the description (they may only add to them).
 #include "authoring_internal.h"
@@ -37,18 +37,6 @@ void register_big_world_commands(Engine& engine, Engine::Impl& I) {
     register_terrain3d_commands(engine, I);
     // world streaming
     // levels of detail: model.generate_lods lives in fa_tooling next to the model documents it edits (assets_model.cpp)
-    add_stub(
-        I, "model.bake_impostor", "Bake a billboard impostor texture of a model from several views.",
-        "Will render the model from `views` directions around it into an atlas of `resolution` pixels per view, write "
-        "the atlas "
-        "and its data file, and set MeshRenderer.impostor of the entities that use the model when `apply` is true. "
-        "Result: {file, views, resolution}. Example: model.bake_impostor {\"model\":\"models/tree.glb\",\"views\":8}",
-        R"({"type":"object","properties":{
-               "model":{"type":"string","description":"The model or mesh file to bake (project-relative path)."},
-               "views":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"How many directions around the model."},
-               "resolution":{"type":"integer","minimum":16,"maximum":2048,"default":256,"description":"Pixels of one view's side."},
-               "apply":{"type":"boolean","default":false,"description":"Also set MeshRenderer.impostor of the entities that use the model."}},"required":["model"]})",
-        "M75.1", "assets");
     // foliage
     add_stub(I, "foliage.scatter", "Fill a Foliage's instances by a ScatterRule over a terrain.",
              "Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's own ScatterRule), place "
@@ -84,8 +72,7 @@ void register_big_world_commands(Engine& engine, Engine::Impl& I) {
                "entity":{"type":"string","description":"Entity id of the Foliage."},
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[minX, minZ, maxX, maxZ] in world metres; omit for all."}},"required":["entity"]})",
              "M75.6", "world");
-    declare_command_capabilities(I.commands, {{"model.bake_impostor", capability_sets::edits_project()},
-                                              {"foliage.scatter", capability_sets::edits_project()},
+    declare_command_capabilities(I.commands, {{"foliage.scatter", capability_sets::edits_project()},
                                               {"foliage.paint", capability_sets::edits_project()},
                                               {"foliage.clear", capability_sets::edits_project()}});
 }

@@ -4,9 +4,9 @@ Part of [Big worlds](BIG_WORLDS.md) (the entry page lists every page).
 
 ## Levels of detail (M75.1)
 
-Drawn since M75-P1a: the selection by distance or screen size, `LodGroup`, and the dithered cross-fade. Not drawn yet: the
-HLOD proxy and the impostors (`hlodProxy`, `impostor`: saved and checked, no effect), and the two commands that make their
-files.
+Drawn since M75-P1a: the selection by distance or screen size, `LodGroup`, and the dithered cross-fade. Drawn since M75-P1c:
+the impostors (`impostor`, `impostorDistance`, `model.bake_impostor`, "Impostors" below). Not drawn yet: the HLOD proxy
+(`hlodProxy`: saved and checked, no effect).
 
 `MeshRenderer.lods` switches meshes by distance, as it always did (a scene that does not use the new fields draws exactly
 as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or the first child of a `LodGroup`), level k is
@@ -65,12 +65,72 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
     running) took 11.7 to 15.3 ms against 5.4 ms for `render.frame3d` in that build, on the CPU
     (docs/performance/PERFORMANCE_BENCH.md). Only while an entity fades does it also pay two draws and a lost batch for it.
     With `crossFade` 0 the pick keeps no state.
-- `MeshRenderer.impostor` and `impostorDistance`, and `LodGroup.hlodProxy` and `hlodThreshold` (the HLOD proxy of a whole cell):
-  saved and checked, **no effect yet**.
+- `MeshRenderer.impostor` and `impostorDistance`: drawn, see "Impostors" below. `LodGroup.hlodProxy` and `hlodThreshold` (the
+  HLOD proxy of a whole cell): saved and checked, **no effect yet**.
 - `model.generate_lods {model, levels, ratios, errors, maxError, screenSizes, ...}` simplifies a model into lower levels
   (deterministic) and wires them for screen-size LOD: it is real, see "Automatic LOD chain" below.
-  `model.bake_impostor {model, views, resolution, apply}` bakes the impostor atlas and fails with `not_built` today.
-- `renderStats.lodCrossFades` is drawn; `impostors` stays 0.
+  `model.bake_impostor {model, views, resolution, mode, apply, overwrite}` bakes the impostor atlas (see "Impostors").
+- `renderStats.lodCrossFades` and `renderStats.impostors` are drawn.
+
+### Impostors
+
+An impostor shows a far-away model as ONE camera-facing card that carries a picture of it. A tree 300 m away is a flat card with
+the tree painted on it, as seen from where the camera is, instead of thousands of triangles. The pictures are an atlas baked
+beforehand: the model drawn from `views` x `views` directions around it.
+
+1. Bake: `model.bake_impostor {"model": "assets/models/tree.glb", "views": 8, "resolution": 1024, "apply": true}`.
+   - `model`: the `.glb` or `.gltf` a `MeshRenderer` draws, or the `.model.json` whose `.glb` it is (baked first with
+     `model.bake`; an unbaked document says so).
+   - `views`: frames per side, 2 to 32 (default 8): `views` x `views` frames.
+   - `resolution`: pixels of the WHOLE atlas side, up to 4096 (default 1024). One frame is `resolution / views` pixels (at least
+     8: `views` 32 needs a `resolution` of at least 256). An atlas of 8 views at 1024 has 128-pixel frames.
+   - `mode`: `octahedral` (default, every direction, also from below) or `hemiOctahedral` (only from above: every frame of the grid
+     looks at the upper half, so a tree or a rock seen from the ground side gets twice the directions for the same atlas).
+   - `apply`: sets `MeshRenderer.impostor` of the entities of the LOADED scene that draw the model (the scene is not saved and
+     `impostorDistance` is yours to set: the result lists the entities).
+   - `overwrite`: replaces files at the output paths that this command did not write itself (without it the command refuses).
+   - Files, next to the model: `<name>.impostor.json` (the data, `"format": "factoria.impostor/1"`), `<name>.impostor.png` (the
+     colour atlas, straight alpha: the transparent part of a frame is the cutout) and `<name>.impostor.normal.png` (model-space
+     normals, `n * 0.5 + 0.5`, so the card can be lit). The same input gives the same bytes on every platform.
+2. Use: `MeshRenderer.impostor = "assets/models/tree.impostor.json"` and `impostorDistance` above 0, in the unit of `lodMode`
+   (metres, or a screen fraction below which the card is drawn; exactly the thresholds of `lods`).
+   The impostor replaces the LAST level (`lods` or the mesh itself): a `MeshRenderer` with `lods` of 30 and 60 m and an
+   `impostorDistance` of 120 draws level 0, 1 and 2 as before and the card from 120 m on. With `impostorDistance` 0 or an empty
+   `impostor` nothing changes.
+
+What is drawn:
+
+- The card is a square of side `2 * radius` (the radius of the baked bounding sphere times the entity's largest scale) around the
+  baked centre, turned to face the camera. For each pixel the shader finds the three frames of the atlas that are nearest to the
+  direction from the model to the camera (a triangle of the grid, weighed by barycentric weights, so a moving camera blends
+  from one frame to the next without a pop), blends their colour and normals, and cuts out the transparent part (`alphaMode`
+  `"clip"`, cut-off 0.5). The atlas normals are in model space and turn with the entity, so the card is lit by the sun, the
+  lights and the fog like the mesh would be (roughness 0.85 and not metallic: the atlas holds no material maps). `unlit` is
+  honoured. A card has no baked lightmap.
+- `lodCrossFade` fades the last level into the card (and back) with the same complementary dither as two levels: both are drawn
+  for the seconds it says (`renderStats.lodCrossFades` counts them), and the card then needs no extra program. A card that is
+  fading out casts no shadow, as a level that leaves does not.
+- Shadows: a `MeshRenderer` that casts shadows casts the shadow of the card, which is a SIMPLE shadow: the card turns to the
+  main camera, not to the light, so its shadow is a flat cut-out, right from the camera's side and a thin sliver from the
+  others. It is meant for the far trees whose shadows are small. Turn `castShadows` off on the entity to skip it.
+- Several entities with the same atlas draw as one instanced batch of cards (one draw), whatever the mesh they replace.
+- `renderStats.impostors` counts the cards drawn in the main pass; they are not in `meshes`. `renderer.supports` `impostors` is
+  true on every backend that draws them (GL, GLES3 and WebGL2, D3D11, Metal).
+- Cost. A scene with no `impostor` pays one flag per scene, like `lods`. The `render.frame3d` bench (1600 meshes, a Debug `-O1`
+  build on a machine with other builds running, the build with the feature and the one without it run back to back) took medians of 10.3,
+  12.3, 11.9 and 13.3 ms with it against 9.0, 11.8, 11.4 and 13.6 ms without it: the same, inside the noise of the load.
+  `render.impostor3d` (the same scene with every cube and sphere an impostor beyond 30 m: about 700 cards, 900 meshes) took 25.4 ms against
+  12.7 ms for `render.frame3d` in the same run, on the CPU: a card goes through the gather, the sun's cascades and the lights as a mesh does, and
+  the shader of the card reads six texels a pixel. What it saves is the GPU's triangles: a 50 000 triangle tree becomes two
+  (docs/performance/PERFORMANCE_BENCH.md).
+- The numbers of a software rasterizer (llvmpipe) and of D3D11/WARP were not measured on the Mac that built this.
+
+A missing or wrong atlas does not stop the frame: the file that cannot be read, a `.impostor.json` that does not validate (the
+message names the JSON pointer) or a picture of another size than `views * frameSize` gives ONE warning for that path, the last
+level keeps drawing, and the file is read again after a reload of the asset or 64 frames. The warning says `model.bake_impostor`
+is the way to make it. The fields are in the `MeshRenderer` reference (`impostor`, `impostorDistance`); non-uniform scales use the
+largest column; an impostor packed into an export atlas is refused with that warning (leave `*.impostor.png` out of
+`assets_pack_atlas`).
 
 ### Automatic LOD chain
 

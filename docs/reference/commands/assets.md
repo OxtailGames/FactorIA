@@ -2010,18 +2010,22 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 Not released yet (on main after 0.34.0).
 
-Bake a billboard impostor texture of a model from several views.
+Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.
 
-Capabilities: read, state, writeProject
+Capabilities: read, writeProject
 
-Will render the model from `views` directions around it into an atlas of `resolution` pixels per view, write the atlas and its data file, and set MeshRenderer.impostor of the entities that use the model when `apply` is true. Result: {file, views, resolution}. Example: model.bake_impostor {"model":"models/tree.glb","views":8} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+Draws `model` (a .glb or .gltf, or a .model.json: its baked .glb) from views x views directions with a CPU rasterizer (orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), `<name>.impostor.png` (colour with alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad is lit like the model). `resolution` is the side of the whole atlas in pixels (default 1024, at most 4096). Then set MeshRenderer.impostor and impostorDistance: the renderer draws the card from there on (docs/BIG_WORLDS_LOD.md, "Impostors"). Example: model.bake_impostor {"model":"assets/models/tree.glb","views":8,"mode":"hemiOctahedral"}.
+
+Frames cover a sphere around the model, so one frame size fits every direction. `mode` octahedral (default) covers every direction; hemiOctahedral only the upper half (y >= 0), with twice the angular resolution: for trees, rocks and buildings that are seen from above. Each frame gets resolution / views pixels, at least 8. Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of more than 4 million triangles, or whose triangles x views x views is above 400 million, is refused: bake from a lower LOD (model.generate_lods). Existing files of an earlier bake are replaced; others need `overwrite`. `apply` also sets MeshRenderer.impostor of the entities of the loaded scene that draw the model (the scene file is not saved: set the field in the scene to keep it). Result: {file, albedo, normal, mode, views, frameSize, resolution, radius, triangles, applied?, warnings?}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `model` | string | yes | The model or mesh file to bake (project-relative path). |
-| `views` | integer | no | How many directions around the model. Default 8. |
-| `resolution` | integer | no | Pixels of one view's side. Default 256. |
-| `apply` | boolean | no | Also set MeshRenderer.impostor of the entities that use the model. Default false. |
+| `model` | string | yes | The model to bake: a project-relative .glb or .gltf, or the .model.json whose .glb it is. Path the command reads. |
+| `views` | integer | no | Frames per side of the atlas: views x views directions. Default 8. |
+| `resolution` | integer | no | Pixels of the whole atlas side; one frame is resolution / views (at least 8). Default 1024. |
+| `mode` | string ["octahedral","hemiOctahedral"] | no | octahedral: every direction. hemiOctahedral: only from above (y >= 0), twice the resolution. Default "octahedral". |
+| `apply` | boolean | no | Set MeshRenderer.impostor of the loaded scene's entities that draw the model (not saved). Default false. |
+| `overwrite` | boolean | no | Replace files at the output paths that no earlier bake of this command wrote. Default false. |
 
 ## `model.bake_maps` (modifies state)
 
