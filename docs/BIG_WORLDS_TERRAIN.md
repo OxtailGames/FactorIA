@@ -5,10 +5,11 @@ Part of [Big worlds](BIG_WORLDS.md) (the entry page lists every page).
 ## Terrain (M75.5)
 
 The `Terrain` component draws a heightmap with a GPU level of detail and gives it a collider. In a scene and in scripts it is
-called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What it does:** the heightmap is drawn as tiles that coarsen with distance, painted with up to 8 material layers blended by the
-splat maps (P5d), with the holes cut out of the surface, its shadow and its collider, lit and shadowed like a mesh; `collision`;
-the counters; and the commands that create, sculpt, paint, cut holes in and generate a terrain, with undo (below). The brushes in
-the editor are P5c: View > Terrain tool ("Editing in the editor", below).
+called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What it does:** the heightmap is
+drawn as tiles that coarsen with distance, painted with up to 8 material layers blended by the splat maps (P5d), with the holes
+cut out of the surface, its shadow and its collider, lit and shadowed like a mesh; `collision`; the counters; and the commands
+that create, sculpt, paint, cut holes in and generate a terrain, with undo (below). The brushes in the editor are P5c: View >
+Terrain tool ("Editing in the editor", below).
 
 | Field | Meaning |
 |---|---|
@@ -31,68 +32,81 @@ a tile changes level), and the material is the mesh pipeline's: shadow maps, the
 post stack treat it as a MeshRenderer. The tiles are chosen on the CPU for each camera by the jobs system, culling every node's box
 against the frustum (against nothing when `castShadows`, so the shadow cascades see the terrain around the camera).
 
-`lodQuality` (clamped to 0.1 to 4) scales the distances: the range of level `l` is `3 * 32 * 2^l * cell * lodQuality` metres (never less than three node
-sizes beyond the level below), measured on the ground plane and in the terrain's own space, before `Transform.scale`. Above 1 the finer levels reach
-further, below 1 the finest levels are dropped (0.5 drops the finest, 0.25 the two finest). The default 1 draws about a tile
-per 32 cells near the camera. `renderStats.terrainTiles` and `terrainTriangles` count the tiles of the main pass and their
-triangles (2048 each, also in `triangles`; tiles are not in `meshes`). `render.supports {"feature": "terrain"}` is true on every
-backend, and its report has a `limits` object: `maxTextureSize` (the heightmap's side: a map of 4097 samples a side needs 4097, and a
-GPU that offers 4096 does not draw it: an error says so once, with the largest side that fits, and the terrain is skipped),
-`maxArrayLayers` (the layers of a texture array: 8 for the layers, 2 for the splat maps; the holes are a plain 2D texture of the heightmap's side minus one, so `maxTextureSize` covers them) and `maxArrayTextureSize` (the side
-of the layer textures and of the splat maps). A terrain whose layers or splat maps do not fit them is drawn with neutral grey layers and the log says why.
+`lodQuality` (clamped to 0.1 to 4) scales the distances: the range of level `l` is `3 * 32 * 2^l * cell * lodQuality` metres
+(never less than three node sizes beyond the level below), measured on the ground plane and in the terrain's own space, before
+`Transform.scale`. Above 1 the finer levels reach further, below 1 the finest levels are dropped (0.5 drops the finest, 0.25 the
+two finest). The default 1 draws about a tile per 32 cells near the camera. `renderStats.terrainTiles` and `terrainTriangles`
+count the tiles of the main pass and their triangles (2048 each, also in `triangles`; tiles are not in `meshes`). `render.supports
+{"feature": "terrain"}` is true on every backend, and its report has a `limits` object: `maxTextureSize` (the heightmap's side: a
+map of 4097 samples a side needs 4097, and a GPU that offers 4096 does not draw it: an error says so once, with the largest side
+that fits, and the terrain is skipped), `maxArrayLayers` (the layers of a texture array: 8 for the layers, 2 for the splat maps;
+the holes are a plain 2D texture of the heightmap's side minus one, so `maxTextureSize` covers them) and `maxArrayTextureSize`
+(the side of the layer textures and of the splat maps). A terrain whose layers or splat maps do not fit them is drawn with neutral
+grey layers and the log says why.
 
 **Layers and holes.** The albedo and normal textures are two texture arrays and the splat maps are the slices of a third one (the
-control array: RGBA8, one mip level, bilinear), so a terrain with layers reads 3 more textures in the fragment shader (the fragment
-stage is at 16 of the 16 texture units that WebGL2 and GLES3 guarantee, pinned by a test: a new texture has to take the place of
-another). The holes are not in the control array: they are their own R8 texture, one byte a cell, read by the vertex shader only, which
-is where the cut is made. The layers are blended
-in the fragment shader, and only a layer with a weight above 0 at a pixel is fetched, so a pixel costs the layers painted on it. Albedo is sRGB (or
-linear in a linear scene); normals are the usual tangent-space maps scaled by `normalScale`. The normals of the terrain itself come
-from 12 height fetches a pixel (it was 16; the `terrain` rows of `tools/bench`, docs/performance/PERFORMANCE_BENCH.md). A hole is cut in the
-GEOMETRY: a terrain with a holes mask draws every tile with a patch of 4 vertices per cell (4 times the vertices of the shared patch,
-4096 against 1089, and the same 2048 triangles), and the vertex shader collapses the quad of a cell whose mask is set, so the main
-pass, the shadows and the depth prepass all lose it, with no `discard`. The cut is exactly cell by cell at the finest level; at a
-coarser level a quad stands for several cells and its middle cell decides, so a far hole can be a little larger or smaller. A
-terrain without a holes mask keeps the shared patch.
+control array: RGBA8, one mip level, bilinear), so a terrain with layers reads 3 more textures in the fragment shader (the
+fragment stage is at 16 of the 16 texture units that WebGL2 and GLES3 guarantee, pinned by a test: a new texture has to take the
+place of another). The holes are not in the control array: they are their own R8 texture, one byte a cell, read by the vertex
+shader only, which is where the cut is made. The layers are blended in the fragment shader, and only a layer with a weight above 0
+at a pixel is fetched, so a pixel costs the layers painted on it. Albedo is sRGB (or linear in a linear scene); normals are the
+usual tangent-space maps scaled by `normalScale`. The normals of the terrain itself come from 12 height fetches a pixel (it was
+16; the `terrain` rows of `tools/bench`, docs/performance/PERFORMANCE_BENCH.md). A hole is cut in the GEOMETRY: a terrain with a
+holes mask draws every tile with a patch of 4 vertices per cell (4 times the vertices of the shared patch, 4096 against 1089, and
+the same 2048 triangles), and the vertex shader collapses the quad of a cell whose mask is set, so the main pass, the shadows and
+the depth prepass all lose it, with no `discard`. The cut is exactly cell by cell at the finest level; at a coarser level a quad
+stands for several cells and its middle cell decides, so a far hole can be a little larger or smaller. A terrain without a holes
+mask keeps the shared patch.
 
 **Loading and repainting.** The layer pictures are decoded and their mip levels built by a job, off the render thread (as the
 foliage files are): a terrain with new layers draws them neutral grey until the frame after the job finishes (a reload of the same
 layers keeps drawing the pictures it had), and the render thread then makes each array with one call, which is the only stall left
 (a few ms for 8 layers of 1024 x 1024). A test or a capture that needs the pictures calls `Renderer::wait_terrain_loaded()` and
-renders once more (`terrain_loading()` says a job is still running). A paint stroke (`mark_dirty` on a splat map) copies only the
+renders once more (`terrain_loading()` is true while a job runs and also after it finished, until a frame adopts its result: wait, render,
+then check it; `game.screenshot` does that itself). A paint stroke (`mark_dirty` on a splat map) copies only the
 texels it changed into the control array, through a staging buffer, one copy a frame: the first stroke after the layers load turns
 the array into a copyable one and sends it whole once, the next ones cost their rectangle. A backend that cannot copy, a map that
-was replaced or resampled, a change made without `mark_dirty`, or a second stroke in the same frame sends the whole array again.
+was replaced, a change made without `mark_dirty`, or a second stroke in the same frame sends the whole array again, and so does
+EVERY stroke when the splat maps have different sizes (the smaller one is resampled to the size of the biggest, and the rectangle
+it painted does not map to the same texels): give both maps the same size (`splatResolution`) to keep strokes cheap.
 Rewriting the `heightmap` file on disk and reloading the asset (the editor's file watcher, `Renderer::reload_asset`) makes the
 terrain read it again: the file is read with no lock held (on the render thread, a short stall: 33 MB for 4097 x 4097), and the
 heights are replaced only when they differ from the ones in memory and nothing is unsaved (an edit not yet saved always wins over the
-file); the undo history of the terrain is dropped with the old heights.
+file); the undo history of the terrain is dropped with the old heights. A heightmap that could not be read the first time (the terrain
+is not drawn and the log says why) is read again when the file is rewritten.
 
-**Cost.** Per terrain: 2 bytes per sample on the GPU (33.5 MB for 4097 x 4097) and on the CPU (the same, plus the tile bounds), and
-with `collision` 4 bytes per sample more for the collider (67 MB: it keeps its own copy of the heights, see "Collision"); the layer textures take 4/3 of 4 bytes a pixel each (about 45 MB for
-8 albedo layers of 1024 x 1024, refused above 256 MB per array with an error); the control array takes `side x side x 4` bytes a
-splat map, at most 2 maps: 128 MB for maps of 4096 x 4096 (it was 192 MB with the holes as a third slice); the holes texture takes
-one byte a cell, 16.8 MB for 4097 x 4097, and only a terrain with a holes mask has one. A sculpt (`TerrainHeights::mark_dirty`) updates the collider and the tile bounds only where the rectangle says, and uploads
-only that rectangle of the height texture (a sub-rectangle copy through a staging buffer, one a frame). The first sculpt of a
-terrain converts its texture to a copyable one and sends it whole once; a stroke after that costs the bytes of its rectangle. A
-backend that cannot copy sends the whole texture, 33.5 MB for 4097 x 4097, on the frame after each `mark_dirty`: batch the edits to
-one `mark_dirty` per frame. A hole stroke makes the holes texture again (one byte a cell) the frame after the mask changes; a paint stroke sends only its rectangle (see "Loading and repainting").
-Selecting the tiles for one camera is a quadtree walk that visits a few hundred nodes, also for 4097 x 4097 (the timing is printed
-by the `terrain_lod_tests.cpp` bench). A scene with no `Terrain` pays nothing: no texture, no program and no job.
+**Cost.** Per terrain: 2 bytes per sample on the GPU (33.5 MB for 4097 x 4097) and on the CPU (the same, plus the tile bounds),
+and with `collision` 4 bytes per sample more for the collider (67 MB: it keeps its own copy of the heights, see "Collision"); the
+layer textures take 4/3 of 4 bytes a pixel each (about 45 MB for 8 albedo layers of 1024 x 1024, refused above 256 MB per array
+with an error); the control array takes `side x side x 4` bytes a splat map, at most 2 maps: 128 MB for maps of 4096 x 4096 (it
+was 192 MB with the holes as a third slice); the holes texture takes one byte a cell, 16.8 MB for 4097 x 4097, and only a terrain
+with a holes mask has one. The first paint stroke of a terrain with maps of 4096 x 4096 converts the control array to a copyable
+one: for that one frame the old array (128 MB), the new one (128 MB), the staging buffer (128 MB) and the pixels packed for it
+(128 MB, on the CPU) exist together, about 512 MB of peak; the strokes after it cost their rectangle only. A sculpt
+(`TerrainHeights::mark_dirty`) updates the collider and the tile bounds only where the rectangle says, and uploads only that
+rectangle of the height texture (a sub-rectangle copy through a staging buffer, one a frame). The first sculpt of a terrain
+converts its texture to a copyable one and sends it whole once; a stroke after that costs the bytes of its rectangle. A backend
+that cannot copy sends the whole texture, 33.5 MB for 4097 x 4097, on the frame after each `mark_dirty`: batch the edits to one
+`mark_dirty` per frame. A hole stroke (`TerrainHeights::mark_holes_dirty`, what `terrain.holes` and its undo call) sends only the
+cells it changed, like a sculpt: the first one makes the holes texture a copyable one (whole, once); a mask replaced or changed
+without a rectangle makes the texture again whole the frame after. A paint stroke sends only its rectangle (see "Loading and
+repainting"). Selecting the tiles for one camera is a quadtree walk that visits a few hundred nodes, also for 4097 x 4097 (the
+timing is printed by the `terrain_lod_tests.cpp` bench). A scene with no `Terrain` pays nothing: no texture, no program and no
+job.
 
 **Collision.** `collision` (default true) makes the entity a static heightfield collider built from the same heights the renderer
 draws, with the diagonal the patch triangles use, so a ray and the picture meet within float rounding. The cells of the holes mask
 are left out of it (a ray, a ball and a character go through) and follow every hole edit. It needs no `Collider3D` or
-`Heightfield3D`; an entity with its own `Collider3D` keeps that one, and a non-static `RigidBody3D` on the entity is refused with a
-message; an own `Collider3D` that is DISABLED means no collider at all (disabling it never switches the terrain's on). `Transform`
-position, rotation and scale apply as for `Heightfield3D`. A map larger than `Heightfield3D`'s 4096 samples
-works here (up to 4097). The terrain's collider is a `Collider3D` with the defaults of the component, since the terrain has none to
-set them: layer 0, mask -1 (every layer), friction 0.4, restitution 0, not a trigger; they cannot be changed on
-the terrain (an entity's own `Collider3D` replaces the terrain's collider altogether, and would need a `Heightfield3D` of its own). The solver keeps its OWN copy of the heights as floats (4
-bytes a sample: 67 MB for 4097 x 4097, on top of the 33 MB of the `TerrainHeights`) and does not share them: a sculpt must tell the
-solver the old AND the new height of the samples it touched (bodies resting on the old surface, bodies inside the new one), which
-needs the old values in memory when the edit is seen, and a step must read a snapshot that a command editing the terrain in the
-middle of it cannot change.
+`Heightfield3D`; an entity with its own `Collider3D` keeps that one, and a non-static `RigidBody3D` on the entity is refused with
+a message; an own `Collider3D` that is DISABLED means no collider at all (disabling it never switches the terrain's on).
+`Transform` position, rotation and scale apply as for `Heightfield3D`. A map larger than `Heightfield3D`'s 4096 samples works here
+(up to 4097). The terrain's collider is a `Collider3D` with the defaults of the component, since the terrain has none to set them:
+layer 0, mask -1 (every layer), friction 0.4, restitution 0, not a trigger; they cannot be changed on the terrain (an entity's own
+`Collider3D` replaces the terrain's collider altogether, and would need a `Heightfield3D` of its own). The solver keeps its OWN
+copy of the heights as floats (4 bytes a sample: 67 MB for 4097 x 4097, on top of the 33 MB of the `TerrainHeights`) and does not
+share them: a sculpt must tell the solver the old AND the new height of the samples it touched (bodies resting on the old surface,
+bodies inside the new one), which needs the old values in memory when the edit is seen, and a step must read a snapshot that a
+command editing the terrain in the middle of it cannot change.
 
 **For code that edits or reads the terrain (sculpting, foliage).** `world.terrain().heights(world, entity)` returns the shared
 `TerrainHeights` (`data`, `samples`, `set`, `mark_dirty(rect)`, `version`); the renderer, the collider and the tile bounds each follow
@@ -144,12 +158,13 @@ chose is not undone: the path stays and the data is what goes back. A command th
 step. The result of an edit has `undoDepth`, `unsaved` (files with edits not written yet) and `undo` (the command that
 takes it back).
 
-**A stroke in pieces: `continueStroke`.** A command that edits (sculpt, paint, holes) takes `continueStroke: true` to add its changes
-to the newest undo step instead of making one: a tool that applies a stroke live, a few stamps per frame, makes the first call without it
-and the others with it, and the whole stroke is ONE step of `terrain.undo`. It is refused (with the pointer `/continueStroke`) when the
-terrain has no step to continue, when an edit was undone since, and when the newest step was made by another command. A piece that
-changes nothing adds nothing (and the stroke's first piece must have changed something for the next ones to continue it). Cut into pieces, a stroke gives the same ground as one call up to the rounding of
-the stamps' blending (at most two raw 16-bit units of a sample, about 0.003 m at a height scale of 100).
+**A stroke in pieces: `continueStroke`.** A command that edits (sculpt, paint, holes) takes `continueStroke: true` to add its
+changes to the newest undo step instead of making one: a tool that applies a stroke live, a few stamps per frame, makes the first
+call without it and the others with it, and the whole stroke is ONE step of `terrain.undo`. It is refused (with the pointer
+`/continueStroke`) when the terrain has no step to continue, when an edit was undone since, and when the newest step was made by
+another command. A piece that changes nothing adds nothing (and the stroke's first piece must have changed something for the next
+ones to continue it). Cut into pieces, a stroke gives the same ground as one call up to the rounding of the stamps' blending (at
+most two raw 16-bit units of a sample, about 0.003 m at a height scale of 100).
 
 **Errors teach.** Each error names the JSON pointer of the argument (`/radius`, `/points`, `/layer`, `/resolution`), what is wrong and
 the fix: a `resolution` that is not 2^k + 1 lists the ones that work, an unknown argument gets "did you mean", an entity without a
@@ -180,10 +195,13 @@ terrain's local space (before `Transform`).
 `terrain.paint` creates map 0 as all `layers[0]` (weight 255 in the red channel) and map 1 as all zeros on the first paint of a
 layer 4 to 7. A map that already exists keeps its size.
 
-**What a renderer or a tool of its own needs** (P5c): the planes are in `TerrainHeights` (`holes`, `holesVersion`, `splat[m]`
-with `rgba` and `version`, `any_unsaved()`, `undo_depth()`); follow `holesVersion` and `splat[m].version` as the collider follows
-`holesVersion` and the heights follow `dirty_since`. `save_terrain_files(world, entity)` and `save_all_terrain_files(world)` write the edited
-planes (each path goes through `fs::resolve_for_write`: inside the project unless the caller passes `writeAnywhere`); `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
+**What a renderer or a tool of its own needs** (P5c): the planes are in `TerrainHeights` (`holes`, `holesVersion`, `splat[m]` with
+`rgba` and `version`, `any_unsaved()`, `undo_depth()`); follow `holesVersion` and `splat[m].version` as the collider follows
+`holesVersion` and the heights follow `dirty_since`. A tool that writes the holes mask calls `mark_holes_dirty(cellRect)` (it
+bumps `holesVersion` and keeps the rectangle, read back by `holes_dirty_since`); a bare `++holesVersion` is a change with no
+rectangle, which the renderer answers by making the whole holes texture again. `save_terrain_files(world, entity)` and
+`save_all_terrain_files(world)` write the edited planes (each path goes through `fs::resolve_for_write`: inside the project unless
+the caller passes `writeAnywhere`); `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
 
 ## Foliage
 
@@ -208,20 +226,20 @@ Little endian, versioned; `fa/scene/foliage.h` reads and writes it (`read_foliag
 | 12..15 | mesh count, `u32` (how many meshes the writer's `Foliage.meshes` had; every mesh index is below it) |
 | 16.. | one 26-byte record per instance |
 
-A record is `x, y, z, yaw, scale` as `f32` (metres in the local space of the Foliage entity; yaw in radians about the instance's own up
-axis; scale uniform), the mesh index as `u16`, the up axis `nx, ny, nz` as three `i8` in 1/127 units (a lean towards the ground's
-normal; `0,0,0` = upright) and one reserved byte (0). A file that is
-too short, has the wrong size for its count, a NaN or infinity, a scale of 0 or less, or a mesh index past `Foliage.meshes` is
-invalid (so is a version, flags or magic this engine does not know): the message names the file, the byte and what to change ("foliage file 'x' at byte 40: ...").
+A record is `x, y, z, yaw, scale` as `f32` (metres in the local space of the Foliage entity; yaw in radians about the instance's
+own up axis; scale uniform), the mesh index as `u16`, the up axis `nx, ny, nz` as three `i8` in 1/127 units (a lean towards the
+ground's normal; `0,0,0` = upright) and one reserved byte (0). A file that is too short, has the wrong size for its count, a NaN
+or infinity, a scale of 0 or less, or a mesh index past `Foliage.meshes` is invalid (so is a version, flags or magic this engine
+does not know): the message names the file, the byte and what to change ("foliage file 'x' at byte 40: ...").
 
 ### Loading
 
 The renderer reads and chunks the file on a worker thread: a big file never stalls a frame, the instances appear when the job ends
-(a frame or two later for a small file, more for 2 million instances; `renderStats` `foliageInstances` is 0 until then) and a screenshot
-or capture taken before that does not contain them. The file is checked on disk every 30 frames (its modified time and size):
-saving it again, from `write_foliage` or a tool, shows the new instances without a restart, and changing `meshes` or `instances` reloads too.
-A missing or invalid file draws nothing and is warned about once (again only when its text changes); the file is not read again until it
-changes.
+(a frame or two later for a small file, more for 2 million instances; `renderStats` `foliageInstances` is 0 until then) and a
+screenshot or capture taken before that does not contain them. The file is checked on disk every 30 frames (its modified time and
+size): saving it again, from `write_foliage` or a tool, shows the new instances without a restart, and changing `meshes` or
+`instances` reloads too. A missing or invalid file draws nothing and is warned about once (again only when its text changes); the
+file is not read again until it changes.
 
 ### Drawing
 
@@ -237,16 +255,17 @@ The instances are grouped in chunks of 32 m with a bounding box. A frame draws, 
   the two (the switch is one hard step). Instances of the same mesh and LOD are drawn as one instanced draw, like any other meshes.
 - `density` keeps the instances whose fixed pseudo-random rank (from the instance index) is below it: the same instances stay when you
   raise or lower it, so nothing flickers.
-- `windStrength` shears the instance sideways in proportion to its height: the base is fixed, the top moves by up to `windStrength`
-  metres, with a phase that depends on the instance position, at `windFrequency` swings per second of the world time (so it pauses with the game and a
-  replay sways the same). It is done on the CPU when the instance is handed to the draw, so it
-  costs time per visible instance: it is meant for the near instances, and the fade removes the far ones.
+- `windStrength` shears the instance sideways in proportion to its height: the base is fixed, the top moves by up to
+  `windStrength` metres, with a phase that depends on the instance position, at `windFrequency` swings per second of the world
+  time (so it pauses with the game and a replay sways the same). It is done on the CPU when the instance is handed to the draw, so
+  it costs time per visible instance: it is meant for the near instances, and the fade removes the far ones.
 - `castShadows` puts the instances (with the wind and the fade) in the shadow maps; false (default) leaves them out.
 
-At most 262144 instances, over every Foliage entity together, are handed to the draw in a frame per camera (a camera with shadow passes
-counts its own). Whole chunks are taken, nearest first, and the rest counts as culled, with one warning in the log: lower `fadeEnd` or `density`, or split the
-field into several entities with a shorter reach. Costs: an empty scene or one with no `Foliage` pays nothing; with a field of 100000
-instances in view, the cost is the CPU time of one draw item per visible instance plus the instanced draws.
+At most 262144 instances, over every Foliage entity together, are handed to the draw in a frame per camera (a camera with shadow
+passes counts its own). Whole chunks are taken, nearest first, and the rest counts as culled, with one warning in the log: lower
+`fadeEnd` or `density`, or split the field into several entities with a shorter reach. Costs: an empty scene or one with no
+`Foliage` pays nothing; with a field of 100000 instances in view, the cost is the CPU time of one draw item per visible instance
+plus the instanced draws.
 
 `renderStats` has `foliageInstances` (instances drawn in the main view this frame) and `foliageInstancesCulled` (the ones the
 frame skipped: chunk culling, beyond `fadeEnd`, the per-instance frustum test and the shadow-only ones). Foliage instances are not
@@ -276,14 +295,14 @@ until then the commands are the way to fill a field.
   Result: `{file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes: [{mesh,
   count}], rule, terrain, undo}`. It is refused, before anything is written, with `too_many_instances` when the result would hold
   more than 2,000,000 instances and with `too_many_candidates` when the area holds more than 16.7 million grid cells.
-- `foliage.paint {entity, center, radius, mode?, density?, mesh?, seed?, rule?, continueStroke?}` adds (`mode` `add`, the default) instances inside
-  the circle of `radius` metres around `center` (world `[x, z]`) with the same placement rules as the scatter (the ScatterRule of
-  `rule` or of the entity itself; without one, the ScatterRule defaults and equal mesh weights) and the same hash grid, so the same
-  arguments always add the same instances. `density` is per square metre (default the rule's), `mesh` limits the brush to one of
-  `Foliage.meshes` (a wrong name is refused with the list), `seed` changes the draw. An added instance keeps at least
-  `max(minSpacing, 0.5 / sqrt(density))` metres from every instance already in the file, so stroking the same place twice does not
-  stack them. `mode` `remove` deletes the instances inside the circle (only those of `mesh` when given). Result: `{added, removed,
-  instances, file, counts, undo}`; a stroke that changes nothing says why and writes nothing.
+- `foliage.paint {entity, center, radius, mode?, density?, mesh?, seed?, rule?, continueStroke?}` adds (`mode` `add`, the default)
+  instances inside the circle of `radius` metres around `center` (world `[x, z]`) with the same placement rules as the scatter
+  (the ScatterRule of `rule` or of the entity itself; without one, the ScatterRule defaults and equal mesh weights) and the same
+  hash grid, so the same arguments always add the same instances. `density` is per square metre (default the rule's), `mesh`
+  limits the brush to one of `Foliage.meshes` (a wrong name is refused with the list), `seed` changes the draw. An added instance
+  keeps at least `max(minSpacing, 0.5 / sqrt(density))` metres from every instance already in the file, so stroking the same place
+  twice does not stack them. `mode` `remove` deletes the instances inside the circle (only those of `mesh` when given). Result:
+  `{added, removed, instances, file, counts, undo}`; a stroke that changes nothing says why and writes nothing.
 - `foliage.clear {entity, region?}` removes every instance (the file stays, empty), or only those inside `region` (`[minX, minZ,
   maxX, maxZ]` world metres, edges included). Result: `{removed, instances, file, undo}`.
 - `foliage.undo {entity}` and `foliage.redo {entity}` step the history of that Foliage entity back and forward: they put the

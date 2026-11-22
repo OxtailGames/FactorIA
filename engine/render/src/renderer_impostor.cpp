@@ -231,8 +231,7 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
     const bool reloaded = en.loaded && en.reloadSeen != generation && assets.reloaded_any_of(en.reloadSeen, en.watch);
     if (reloaded) en.settleUntil = serial + kSettleFrames;
     const bool settling = serial < en.settleUntil;
-    const bool retry = en.loaded && !en.ok &&
-                       (settling || en.settlePending || serial - en.triedAt >= kRetryFrames);
+    const bool retry = en.loaded && !en.ok && (settling || en.settlePending || serial - en.triedAt >= kRetryFrames);
     std::string problem;
     if (!en.loaded || reloaded || retry) {
         if (key.empty()) key = fs::normalize(mr.impostor);
@@ -346,7 +345,8 @@ void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const Imp
     item.keyed = true;
     item.sortKey = kImpostorSortKey + d->ordinal;
     item.impostor = d;
-    item.terrainNode = {centre.x, centre.y, centre.z, mirrored ? -radius : radius, toModel.x, toModel.y, toModel.z, toModel.w};
+    item.terrainNode = {centre.x,  centre.y,  centre.z,  mirrored ? -radius : radius,
+                        toModel.x, toModel.y, toModel.z, toModel.w};
 }
 
 }  // namespace fa::render

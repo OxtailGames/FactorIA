@@ -286,7 +286,8 @@ TEST_CASE("impostor render: a missing or wrong atlas warns once and the last lev
     g.renderer.clear_asset_cache();
 }
 
-TEST_CASE("impostor render: an atlas replaced file by file (json first, pictures after) warns about nothing while it settles") {
+TEST_CASE("impostor render: an atlas replaced file by file (json first, pictures after) warns about nothing while it "
+          "settles") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string atlas = write_atlas("replace", ImpostorMode::Octahedral, 3, 16);
@@ -419,7 +420,8 @@ TEST_CASE("impostor render: a mirrored entity (negative scale) shows the frame o
     }
 }
 
-TEST_CASE("impostor render: a lit card takes the atlas's normal, so a sun from above lights it and one from below does not") {
+TEST_CASE(
+    "impostor render: a lit card takes the atlas's normal, so a sun from above lights it and one from below does not") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::string atlas = write_atlas("lit");  // every texel's model-space normal is +y
@@ -429,7 +431,8 @@ TEST_CASE("impostor render: a lit card takes the atlas's normal, so a sun from a
         w.settings().ambientLight = Color{0.05f, 0.05f, 0.05f, 1};
         add_camera(w, {0, 0, 12});
         Entity sun = make(w, "sun", {0, 5, 0});
-        w.get<Transform>(sun)->rotation = {below ? 90.0f : -90.0f, 0, 0};  // -90: the light travels down, onto a +y normal
+        w.get<Transform>(sun)->rotation = {below ? 90.0f : -90.0f, 0,
+                                           0};  // -90: the light travels down, onto a +y normal
         auto& l = w.add<Light>(sun);
         l.type = LightType::Directional;
         l.intensity = 2.0f;

@@ -790,6 +790,54 @@ TEST_CASE("TerrainHeights: clone copies the planes with a new id and no history"
     CHECK(h->undo_depth() == 1);
 }
 
+TEST_CASE("TerrainHeights: the holes dirty history tells which cells changed, and when the whole mask must be taken") {
+    auto h = TerrainHeights::flat(65);  // 64 x 64 cells
+    h->holes.assign(64 * 64, 0);
+    TerrainRect r;
+    CHECK(h->holes_dirty_since(0, r));
+    CHECK(r.empty());
+    h->mark_holes_dirty({10, 20, 12, 22});
+    h->mark_holes_dirty({40, 5, 41, 5});
+    CHECK(h->holesVersion == 2);
+    REQUIRE(h->holes_dirty_since(0, r));
+    CHECK(r.c0 == 10);
+    CHECK(r.r0 == 5);
+    CHECK(r.c1 == 41);
+    CHECK(r.r1 == 22);
+    REQUIRE(h->holes_dirty_since(1, r));
+    CHECK(r.c0 == 40);
+    h->mark_holes_dirty({-9, -9, 500, 500});  // clamped to the cells
+    REQUIRE(h->holes_dirty_since(2, r));
+    CHECK(r.c0 == 0);
+    CHECK(r.c1 == 63);
+    // a bump with no rectangle (the mask replaced): a reader that has not seen it takes everything
+    ++h->holesVersion;
+    CHECK_FALSE(h->holes_dirty_since(2, r));
+    h->mark_holes_dirty({1, 1, 2, 2});
+    CHECK(h->holes_dirty_since(h->holesVersion - 1, r));
+    CHECK_FALSE(h->holes_dirty_since(h->holesVersion - 2, r));
+    for (int i = 0; i < 100; ++i) h->mark_holes_dirty({i % 60, 0, i % 60, 0});
+    CHECK_FALSE(h->holes_dirty_since(0, r));
+    CHECK(h->holes_dirty_since(h->holesVersion - 5, r));
+    // a Holes patch (a paint, an undo) writes through the history
+    auto c = TerrainHeights::flat(65);
+    c->holes.assign(64 * 64, 0);
+    TerrainPatch p;
+    p.plane = TerrainPlane::Holes;
+    p.x0 = 7;
+    p.y0 = 9;
+    p.w = 3;
+    p.h = 2;
+    p.before.assign(6, 0);
+    p.after.assign(6, 1);
+    REQUIRE(c->write_patch(p, true));
+    REQUIRE(c->holes_dirty_since(0, r));
+    CHECK(r.c0 == 7);
+    CHECK(r.r0 == 9);
+    CHECK(r.c1 == 9);
+    CHECK(r.r1 == 10);
+}
+
 TEST_CASE(
     "TerrainSplat: the dirty history tells a reader which rectangle of the map changed, and when it must take it all") {
     TerrainSplat s;

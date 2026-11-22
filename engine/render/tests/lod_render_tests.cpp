@@ -615,7 +615,8 @@ TEST_CASE("lod fades: an entity on a farther level keeps it until the metric pus
     CHECK(pick(0, 1) == 1);  // back inside it, but not 5% inside: stays
     CHECK(pick(0, 1) == 1);
     CHECK(pick(0, 0) == 0);  // 5% inside: the nearer level
-    CHECK(pick(0, 1) == 0);  // held level 0: the far pick says 1 only where the metric is near the threshold, and 0 is the level held
+    CHECK(pick(0, 1) ==
+          0);  // held level 0: the far pick says 1 only where the metric is near the threshold, and 0 is the level held
     // Several levels: 2 held, the near pick says 0 and the far pick 1: 1 is the nearest the far pick allows
     CHECK(pick(2, 2) == 2);
     CHECK(pick(0, 1) == 1);
@@ -674,7 +675,8 @@ TEST_CASE("lod render: a LodGroup keeps its farther child at a threshold the sam
     g.renderer.clear_asset_cache();
 }
 
-TEST_CASE("hlod: a group nested in a child of another group shows its proxy only while the outer group shows that child") {
+TEST_CASE(
+    "hlod: a group nested in a child of another group shows its proxy only while the outer group shows that child") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const int cube = triangles_of("cube"), sphere = triangles_of("sphere"), cylinder = triangles_of("cylinder");
@@ -702,9 +704,10 @@ TEST_CASE("hlod: a group nested in a child of another group shows its proxy only
         return std::array<int, 3>{int(g.renderer.stats().hlodProxies), int(g.renderer.stats().meshes),
                                   int(g.renderer.stats().triangles)};
     };
-    CHECK(at(10.0f) == std::array<int, 3>{0, 1, cube});         // the inner group's child
-    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});       // the inner group's proxy
-    CHECK(at(150.0f) == std::array<int, 3>{0, 1, cylinder});    // the outer group chose child 1: the proxy of child 0 goes with it
-    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});       // and back
+    CHECK(at(10.0f) == std::array<int, 3>{0, 1, cube});    // the inner group's child
+    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});  // the inner group's proxy
+    CHECK(at(150.0f) ==
+          std::array<int, 3>{0, 1, cylinder});  // the outer group chose child 1: the proxy of child 0 goes with it
+    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});  // and back
     g.renderer.clear_asset_cache();
 }

@@ -82,7 +82,8 @@ TEST_CASE("terrain: the drawn silhouette follows the CPU heights, and the stats 
     REQUIRE(g.ok);
     REQUIRE(g.renderer.supports("terrain"));
     {
-        // The limits the terrain's layers, splat maps and holes need are in the report: 8 layers and 3 control slices of 4096 pixels.
+        // The limits the terrain's layers, splat maps and holes need are in the report: 8 layers and 2 control slices of
+        // 4096 pixels.
         const Json limits = g.renderer.supports_report()["limits"];
         CHECK(limits["maxTextureSize"].get<int>() >= 2048);
         CHECK(limits["maxArrayLayers"].get<int>() >= 8);
@@ -546,6 +547,81 @@ TEST_CASE(
     ++heights->holesVersion;
     g.render(w);
     CHECK(g.renderer.texture_bytes() == withMap);
+}
+
+TEST_CASE("terrain: a stroke on the holes sends only the cells it changed") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_hole_strokes.png");
+    World w;
+    add_top_camera(w);
+    Entity sun = add_sun(w, false);
+    w.get<Transform>(sun)->rotation = {-90, 0, 0};
+    Entity ground = add_terrain(w, flat);
+    const Image whole = g.render(w);
+    const Color terrainColor = top_pixel(whole, 0.0f, 0.0f);
+    const Color sky = whole.pixel(1, 1);
+    std::string problem;
+    auto heights = w.terrain().heights(w, ground, &problem);
+    REQUIRE(heights);
+    heights->holes.assign(std::size_t(128) * 128, 0);
+    ++heights->holesVersion;  // the mask is made: no rectangle, the texture is made whole
+    g.render(w);
+    auto dig = [&](int c0, int r0, int c1, int r1) {
+        for (int r = r0; r <= r1; ++r)
+            for (int c = c0; c <= c1; ++c) heights->holes[std::size_t(r) * 128 + std::size_t(c)] = 1;
+        heights->mark_holes_dirty({c0, r0, c1, r1});
+    };
+    // The first stroke makes the texture one that takes copies (the whole of it once); the next ones send their cells.
+    dig(48, 48, 79, 79);
+    Image img = g.render(w);
+    CHECK(diff_from(top_pixel(img, 0.0f, 0.0f), sky) < 0.02f);
+    CHECK(diff_from(top_pixel(img, 28.0f, -22.0f), terrainColor) < 0.03f);
+    const auto before = g.renderer.terrain_uploads();
+    dig(90, 40, 93, 43);  // x 26 .. 30, z -24 .. -20
+    img = g.render(w);
+    const auto after = g.renderer.terrain_uploads();
+    CHECK(diff_from(top_pixel(img, 28.0f, -22.0f), sky) < 0.02f);
+    CHECK(diff_from(top_pixel(img, 0.0f, 0.0f), sky) < 0.02f);              // the first stroke is still there
+    CHECK(diff_from(top_pixel(img, -30.0f, 30.0f), terrainColor) < 0.03f);  // an untouched cell stays ground
+    INFO("holes whole " << before.holesWhole << " -> " << after.holesWhole << ", rectangles " << before.holesRects
+                        << " -> " << after.holesRects);
+    CHECK(after.holesWhole == before.holesWhole);
+    CHECK(after.holesRects == before.holesRects + 1);
+    // Nothing changed: nothing is sent.
+    for (int i = 0; i < 3; ++i) g.render(w);
+    CHECK(g.renderer.terrain_uploads().holesWhole == after.holesWhole);
+    CHECK(g.renderer.terrain_uploads().holesRects == after.holesRects);
+    // A bump with no rectangle (the mask replaced) makes the texture again whole.
+    heights->holes[std::size_t(5) * 128 + 5] = 1;
+    ++heights->holesVersion;
+    g.render(w);
+    CHECK(g.renderer.terrain_uploads().holesWhole == after.holesWhole + 1);
+    CHECK(diff_from(top_pixel(g.render(w), 28.0f, -22.0f), sky) < 0.02f);
+}
+
+TEST_CASE("terrain: a heightmap that failed to read is read again when its file shows up and is reloaded") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string file = fs::path_to_utf8(g.projectDir / "terrain_late_heights.png");
+    std::error_code ec;
+    std::filesystem::remove(g.projectDir / "terrain_late_heights.png", ec);
+    World w;
+    add_top_camera(w);
+    Entity sun = add_sun(w, false);
+    w.get<Transform>(sun)->rotation = {-90, 0, 0};
+    Entity ground = add_terrain(w, file);
+    const Image none = g.render(w);  // the file is not there: nothing is drawn, the log says why
+    const Color sky = none.pixel(1, 1);
+    CHECK(diff_from(top_pixel(none, 0.0f, 0.0f), sky) < 0.02f);
+    CHECK(w.terrain().heights(w, ground, nullptr) == nullptr);
+    const auto before = g.renderer.terrain_uploads();
+    write_flat("terrain_late_heights.png");
+    g.renderer.reload_asset(file);
+    const Image drawn = g.render(w);
+    REQUIRE(w.terrain().heights(w, ground, nullptr) != nullptr);
+    CHECK(diff_from(top_pixel(drawn, 0.0f, 0.0f), sky) > 0.05f);
+    CHECK(g.renderer.terrain_uploads().whole > before.whole);
 }
 
 TEST_CASE("terrain: a heightmap file rewritten on disk and reloaded replaces the heights") {

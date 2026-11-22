@@ -966,7 +966,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool masked = !fr.mask.empty();
     for (const SceneMesh& sm : shared) {
         if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
-        if (sm.hlodProxy && sm.hlodGroup == 0) continue;  // a proxy no group claimed would draw all the time, whatever the distance
+        if (sm.hlodProxy && sm.hlodGroup == 0)
+            continue;  // a proxy no group claimed would draw all the time, whatever the distance
         if (sm.hasLods || sm.liveTextures || sm.chainCount != 0 || sm.hlodGroup != 0)
             special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
@@ -1034,7 +1035,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
                                                                   : lod_group_level(*sg.group, sg.children, v);
             };
             const bool screenMode = sg.group->mode == LodMode::ScreenSize;
-            const int farLevel = level_at(screenMode ? value * (1.0f - kLodHysteresis) : value * (1.0f + kLodHysteresis));
+            const int farLevel =
+                level_at(screenMode ? value * (1.0f - kLodHysteresis) : value * (1.0f + kLodHysteresis));
             groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), level_at(value), sg.group->crossFade, farLevel);
         }
     }
