@@ -107,8 +107,6 @@ bool same_file(const FileId& a, const FileId& b) {
     return a.key == b.key;
 }
 
-bool same_file(const std::string& a, const std::string& b) { return same_file(file_id(a), file_id(b)); }
-
 Json read_json_file(const std::string& path, const char* what) {
     auto text = fs::read_text(path);
     if (!text.ok())
@@ -444,10 +442,11 @@ Json split_cells(Engine::Impl&, const Json& args) {
 
     {  // the command promises never to change the source scene, whatever `overwrite` says
         std::string clash;
-        if (same_file(indexPath, scenePath)) clash = indexPath;
-        if (clash.empty() && same_file(persistentPath, scenePath)) clash = persistentPath;
+        const FileId sceneId = file_id(scenePath);  // once: the cells are many
+        if (same_file(file_id(indexPath), sceneId)) clash = indexPath;
+        if (clash.empty() && same_file(file_id(persistentPath), sceneId)) clash = persistentPath;
         for (auto& [key, c] : plans)
-            if (clash.empty() && same_file(c.scene, scenePath)) clash = c.scene;
+            if (clash.empty() && same_file(file_id(c.scene), sceneId)) clash = c.scene;
         if (!clash.empty())
             fail("'" + clash + "' is the scene being split: the split never changes it.",
                  "Pass another \"out\" (for example worlds/level.world.json) so the index and the cells go to new "

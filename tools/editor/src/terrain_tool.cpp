@@ -485,8 +485,10 @@ void Editor::draw_terrain_tool_panel() {
             at_track(id);
             ImGui::SetItemTooltip("%s", tip);
         };
-        tool_button("Raise", SculptTool::Raise, "terrain:sculpt:raise", "Push the ground up (hold Ctrl to lower)");
-        tool_button("Lower", SculptTool::Lower, "terrain:sculpt:lower", "Dig the ground down (hold Ctrl to raise)");
+        tool_button("Raise", SculptTool::Raise, "terrain:sculpt:raise",
+                    "Push the ground up (hold Ctrl, Cmd on a Mac, to lower)");
+        tool_button("Lower", SculptTool::Lower, "terrain:sculpt:lower",
+                    "Dig the ground down (hold Ctrl, Cmd on a Mac, to raise)");
         tool_button("Smooth", SculptTool::Smooth, "terrain:sculpt:smooth", "Average the ground with its neighbours");
         tool_button("Flatten", SculptTool::Flatten, "terrain:sculpt:flatten", "Level the ground to one height");
         if (t.sculpt == SculptTool::Raise || t.sculpt == SculptTool::Lower) {
@@ -558,8 +560,8 @@ void Editor::draw_terrain_tool_panel() {
         ImGui::SameLine();
         if (ImGui::RadioButton("Fill", !t.cut)) t.cut = false;
         at_track("terrain:holes:fill");
-        ImGui::SetItemTooltip(
-            "Hold Ctrl while you paint to do the other one. A brush smaller than a cell can miss every cell.");
+        ImGui::SetItemTooltip("Hold Ctrl (Cmd on a Mac) while you paint to do the other one. A brush smaller than a "
+                              "cell can miss every cell.");
     }
 
     if (t.mode != TerrainMode::Off) {

@@ -1324,7 +1324,7 @@ bool Editor::save_scene_now() {
     // An edit the editor could not attribute (or one whose check still waits) has not reached the dirty marks yet: look at every loaded
     // cell now, so the choices below see what the save will find (as play() does).
     if (cells_.loaded_count() > 0) {
-        cells_.note_edit();
+        cells_.note_edit(world());
         cells_.update(world(), false);
     }
     std::vector<PrefabExpanded> expanded;
@@ -1536,7 +1536,7 @@ void Editor::note_cells_edit(const std::string& extraId) {
             }
         }
     }
-    if (!named || unknown) cells_.note_edit();
+    if (!named || unknown) cells_.note_edit(world());
 }
 
 bool Editor::begin_edit(const std::string& key) {
@@ -1597,7 +1597,7 @@ void Editor::drop_terrain_entries_past_history(const std::string& id) {
 }
 
 // Takes the foliage commands of `id` that `all` / `historyId` / `lost` pick (undo_inverse.h) out of both lists, with a toast that
-// starts with `why` when an undo row went.
+// starts with `why` when an undo row went (no toast when `why` is empty).
 void Editor::drop_foliage_rows(const std::string& id, bool all, std::uint64_t historyId, std::uint64_t lost,
                                const std::string& why) {
     FoliageDrop d;
@@ -1606,7 +1606,7 @@ void Editor::drop_foliage_rows(const std::string& id, bool all, std::uint64_t hi
         d.steps += part.steps;
         d.entries += part.entries;
     }
-    if (d.steps > 0)
+    if (d.steps > 0 && !why.empty())
         notify(std::format("{} {} foliage edit{} of '{}' can no longer be undone and {} taken out of the undo list.",
                            why, d.steps, d.steps == 1 ? "" : "s", id, d.steps == 1 ? "was" : "were"),
                1);
@@ -1642,6 +1642,11 @@ void Editor::note_foliage_result(const Json& args, const CommandResult& r) {
     const auto number = [&](const char* key) -> std::uint64_t {
         return res.contains(key) && res[key].is_number_unsigned() ? res[key].get<std::uint64_t>() : 0;
     };
+    // The foliage entity of these rows was deleted (and the engine dropped its history): the rows can only fail, even after an Undo of
+    // the delete brings the entity back. They go without a word: the delete is what the user did.
+    if (res.contains("historiesPruned") && res["historiesPruned"].is_array())
+        for (const Json& gone : res["historiesPruned"])
+            if (gone.is_string()) drop_foliage_rows(gone.get<std::string>(), true, 0, 0, std::string());
     const std::uint64_t historyId = number("historyId");
     if (id.empty() || historyId == 0) return;  // a dryRun, or a call that changed nothing
     if (res.contains("historyReset"))
@@ -1716,14 +1721,14 @@ void Editor::step_history(bool forward) {
         const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
         if (ok) to.push_back(std::move(entry));
         dirty_ = true;
-        cells_.note_edit();
+        cells_.note_edit(world());
         return;
     }
     to.push_back(UndoEntry::snapshot(snapshot_state()));
     UndoEntry s = from.take_back();
     restore_scene(s.data);
     dirty_ = true;
-    cells_.note_edit();
+    cells_.note_edit(world());
     lastEditKey_.clear();
 }
 

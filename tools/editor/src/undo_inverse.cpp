@@ -688,12 +688,23 @@ namespace {
 template <class Gone>
 FoliageDrop drop_foliage_commands(UndoStack& stack, const std::string& entityId, Gone gone) {
     FoliageDrop out;
+    const auto mine = [&](const UndoCommand& c) {
+        return (names_terrain(c, "foliage.undo", entityId) || names_terrain(c, "foliage.redo", entityId)) && gone(c);
+    };
+    // Every foliage result of every entity comes here, and most match nothing: a read-only pass first, so the stack is rebuilt
+    // (erase_if moves every entry and counts its bytes again) only when a command goes.
+    bool any = false;
+    for (const UndoEntry& e : stack) {
+        if (e.kind != UndoEntry::Kind::Command) continue;
+        if (std::any_of(e.inverse.begin(), e.inverse.end(), mine) ||
+            std::any_of(e.forward.begin(), e.forward.end(), mine)) {
+            any = true;
+            break;
+        }
+    }
+    if (!any) return out;
     stack.erase_if([&](UndoEntry& e) {
         if (e.kind != UndoEntry::Kind::Command) return false;
-        const auto mine = [&](const UndoCommand& c) {
-            return (names_terrain(c, "foliage.undo", entityId) || names_terrain(c, "foliage.redo", entityId)) &&
-                   gone(c);
-        };
         const std::size_t before = e.inverse.size() + e.forward.size();
         const std::size_t undos = std::size_t(std::count_if(e.inverse.begin(), e.inverse.end(), mine));
         std::erase_if(e.inverse, mine);

@@ -98,7 +98,7 @@ bool Editor::cells_load_around_view(std::string* message) {
                 std::to_string(CellEdit::kMaxAround) + " at a time)";
     if (!ok) text += ". " + err;
     if (message) *message = text;
-    cells_.note_edit();
+    cells_.note_edit(world());
     cellsUi_.rowsKey = INT64_MIN;
     if (!cells_.warnings().empty()) notify(cells_.warnings(), 1);
     return ok;
