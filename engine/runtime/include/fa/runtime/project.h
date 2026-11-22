@@ -93,8 +93,10 @@ LocalizationParse parse_localization(const Json& section);
 struct FloatingOriginSettings {
     bool enabled = false;
     double threshold = 2048.0;  // metres from the origin where a rebase happens; 16 .. 1e7
-    double step =
-        256.0;  // metres: the origin only moves in multiples of this (so a rebase is exact in float); at most threshold
+    // metres: the origin only moves in multiples of this, an integer power of two from 1 to 2^20 (a shift by one is exact in a float
+    // at any distance, any other step would round), at most threshold. When the file leaves it out it is the largest power of two that
+    // is at most min(256, threshold).
+    double step = 256.0;
     std::string anchor = "camera";  // "camera" or "entity:<id of an entity>": what is measured from the origin
     bool operator==(const FloatingOriginSettings&) const = default;
 };

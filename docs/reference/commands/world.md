@@ -43,7 +43,7 @@ Fill a Foliage's instances by a ScatterRule over a terrain.
 
 Capabilities: read, state, writeProject
 
-Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's own ScatterRule), place instances on the Terrain it names by density, slope, height and layers, deterministically from its seed, and write the Foliage's `instances` file. `dryRun` only counts. Result: {instances, file}. Example: foliage.scatter {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's own ScatterRule), place instances on the Terrain it names by density, slope, height and layers, deterministically from its seed, and write the Foliage's `instances` file, with each instance's mesh index into `Foliage.meshes`. It writes into the ONE Foliage entity, whose `meshes` it sets to all the meshes of the rule. `dryRun` only counts. Result: {instances, file}. Example: foliage.scatter {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -140,6 +140,20 @@ Will change the samples of the terrain's heightmap file within `radius` metres o
 | `radius` | number | yes | Brush radius in metres. |
 | `strength` | number | no | How much of the brush applies. Default 0.5. |
 
+## `world.absolute_position`
+
+Not released yet (on main after 0.34.0).
+
+Read an entity's position in double precision: the floating origin plus its local position.
+
+Capabilities: read
+
+Will return {entity, position: [x, y, z] (the origin plus the entity's world position, in doubles), origin: [x, y, z], local: [x, y, z] (the entity's world position in the engine's float space)} so a game far from the origin still knows where things are. Read-only. Example: world.absolute_position {"entity":"player"} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id. |
+
 ## `world.cells`
 
 Not released yet (on main after 0.34.0).
@@ -178,7 +192,7 @@ Read the floating origin: where the world's origin is, in double precision.
 
 Capabilities: read
 
-Will return {enabled, origin: [x, y, z] (metres, doubles: the world position of the engine's local (0, 0, 0)), rebases (how many times the origin moved since the scene loaded), threshold, step, anchor} from the project's `world.floatingOrigin` settings and the running world. Read-only. Result: {enabled, origin, rebases}. Example: world.origin {} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+Will return {enabled, origin: [x, y, z] (metres, doubles: the world position of the engine's local (0, 0, 0)), rebases (how many times the origin moved since the scene loaded), threshold, step, anchor} from the project's `world.floatingOrigin` settings and the running world. Read-only. Result (one shape, also when the floating origin is off, then enabled is false and origin [0, 0, 0]): {enabled, origin, rebases, threshold, step, anchor}. Example: world.origin {} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
 
 ## `world.rebase` (modifies state)
 

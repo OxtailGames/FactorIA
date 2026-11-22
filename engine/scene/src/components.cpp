@@ -2127,9 +2127,10 @@ void register_builtin_components(TypeRegistry& r) {
                "string and a `distance` number is "
                "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in "
                "the batch of the mesh they show. With lodMode \"screenSize\" an entry takes {\"mesh\": ..., "
-               "\"screenSize\": 0.25} instead of `distance`: the fraction 0..1 of the screen's height that the mesh's "
-               "bounding sphere covers, below which that mesh replaces the one before it (entries ordered from the "
-               "largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn "
+               "\"screenSize\": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's "
+               "diameter over the height of the view at that distance), below which that mesh replaces the one "
+               "before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are "
+               "saved and checked today and drawn "
                "from M75.1; until then only `distance` entries change what is drawn.")
         .field(
             "instances", &MeshRenderer::instances,
@@ -2263,9 +2264,11 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("lodMode", &MeshRenderer::lodMode, {"distance", "screenSize"},
                     "What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between "
                     "the camera and the entity's origin, as every scene made before M75 has it. screenSize: the "
-                    "fraction 0..1 of the screen's height that the mesh's bounding sphere covers (1 = it fills the "
-                    "screen, 0.1 = a tenth of it): it does not depend on the field of view, the zoom or the size of "
-                    "the object, so one threshold fits a pebble and a tower. No effect yet: M75.1 draws it.")
+                    "diameter of the mesh's world-space bounding sphere divided by the height of the view at that "
+                    "distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as "
+                    "the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; "
+                    "it does change with the field of view, the zoom and the size of the object. No effect yet: M75.1 "
+                    "draws it.")
         .field("lodCrossFade", &MeshRenderer::lodCrossFade,
                "Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the "
                "change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; "
