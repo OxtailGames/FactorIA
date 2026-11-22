@@ -617,15 +617,19 @@ Json do_holes(Engine::Impl& I, const Json& a) {
     }
     const Changes ch = diff_rect(before, after, u, 1);
     if (ch.count > 0) {
+        TerrainStep step;
+        step.label = "terrain.holes";
         if (tg.terrain->holes.empty()) {  // the mask gets its file name before its first cell
             const std::string path = default_path(I, file_stem(tg.id), "holes", "png", "Terrain.holes");
+            step.created.holes =
+                true;  // terrain.undo takes the name (and the mask) back, terrain.redo gives them again
+            step.created.holesPath = path;
+            step.created.holesBefore = tg.terrain->holes;
             h.holesSource = path;
             tg.terrain->holes = path;
             out["holes"] = path;
             out["sceneChanged"] = true;
         }
-        TerrainStep step;
-        step.label = "terrain.holes";
         step.patches.push_back(make_patch(TerrainPlane::Holes, ch.rect, u, 1, before, after));
         commit(tg, std::move(step), wants_continue(a));
         if (wants_continue(a)) out["continued"] = true;
@@ -780,7 +784,14 @@ Json do_paint(Engine::Impl& I, const Json& a) {
             fresh.push_back({k, path});
         }
         Json created = Json::array();
+        if (!fresh
+                 .empty()) {  // what terrain.undo puts back: the maps do not exist and Terrain.splatMaps is as it is now
+            step.created.splatMapsBefore = t.splatMaps;
+            step.created.splatSize = size;
+        }
         for (const Fresh& f : fresh) {
+            step.created.splat[std::size_t(f.k)] = true;
+            step.created.splatPath[std::size_t(f.k)] = f.path;
             TerrainSplat& m = h.splat[std::size_t(f.k)];
             m = TerrainSplat{};
             m.size = size;
@@ -1082,13 +1093,30 @@ Json do_undo_redo(Engine::Impl& I, const Json& a, bool undo) {
                            problem.empty() ? "The heightmap of '" + id + "' cannot be used." : problem,
                            "Fix Terrain.heightmap.");
     std::string label;
-    if (!(undo ? h->undo(&label) : h->redo(&label)))
+    TerrainCreated created;
+    if (!(undo ? h->undo(&label, &created) : h->redo(&label, &created)))
         throw CommandError(undo ? "nothing_to_undo" : "nothing_to_redo",
                            std::string("Terrain '") + id + "' has no edit to " + (undo ? "undo" : "redo") + ".",
                            undo ? "The history holds the last " + std::to_string(kTerrainHistorySteps) +
                                       " terrain edits since the scene loaded; terrain.redo brings back an undone one."
                                 : "Redo only follows an undo; a new edit clears the redo list.");
     Json out = Json::object({{"entity", id}, {undo ? "undone" : "redone", label}});
+    if (created.any()) {  // the edit had named the holes or splat files of the terrain: the fields follow the planes
+        if (created.holes) t->holes = undo ? created.holesBefore : created.holesPath;
+        if (created.splat[0] || created.splat[1]) {
+            if (undo) {
+                t->splatMaps = created.splatMapsBefore;
+            } else {
+                if (!t->splatMaps.is_array()) t->splatMaps = Json::array();
+                for (std::size_t k = 0; k < created.splat.size(); ++k) {
+                    if (!created.splat[k]) continue;
+                    while (t->splatMaps.size() <= k) t->splatMaps.push_back("");
+                    t->splatMaps[k] = created.splatPath[k];
+                }
+            }
+        }
+        out["sceneChanged"] = true;
+    }
     out["unsaved"] = h->any_unsaved();
     out["undoDepth"] = h->undo_depth();
     out["redoDepth"] = h->redo_depth();

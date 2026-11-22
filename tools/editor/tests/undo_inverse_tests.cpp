@@ -9,6 +9,8 @@
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
+#include "undo_stack.h"
 #include "fa/ui/ui.h"
 #include "undo_inverse.h"
 
@@ -757,4 +759,77 @@ TEST_CASE("undo inverse: restoring several roots under one parent adds a set_par
     int reorders = 0;
     for (const UndoCommand& c : mid.inverse) reorders += c.cmd == "scene.set_parent";
     CHECK(reorders == 1);
+}
+
+TEST_CASE("undo inverse: terrain.sculpt, paint and holes are one terrain.redo / terrain.undo entry, a continued stroke "
+          "none") {
+    Session s;
+    REQUIRE(
+        s.engine.commands().call("terrain.create", Json::parse(R"({"name":"g","size":[64,64],"resolution":65})")).ok);
+    CHECK(has_undo_builder("terrain.sculpt"));
+    CHECK(has_undo_builder("terrain.paint"));
+    CHECK(has_undo_builder("terrain.holes"));
+    CHECK(has_undo_builder("terrain.generate"));
+    const Json args = Json::parse(R"({"entity":"g","tool":"raise","center":[0,0],"radius":8,"amount":5,"strength":1})");
+    std::optional<UndoPlan> plan = plan_undo(s.world(), "terrain.sculpt", args);
+    REQUIRE(plan.has_value());
+    REQUIRE(plan->forward.size() == 1);
+    REQUIRE(plan->inverse.size() == 1);
+    CHECK(plan->forward[0].cmd == "terrain.redo");
+    CHECK(plan->inverse[0].cmd == "terrain.undo");
+    CHECK(plan->inverse[0].args["entity"] == "g");
+    CHECK_FALSE(plan->noop);
+    const CommandResult r = s.engine.commands().call("terrain.sculpt", args);
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(finish_undo_plan(s.world(), "terrain.sculpt", *plan, r.result));
+    CHECK_FALSE(plan->noop);
+    // undo and redo through the plan
+    const std::shared_ptr<TerrainHeights> h = s.world().terrain().find(s.world().find("g"));
+    REQUIRE(h);
+    const std::vector<std::uint16_t> edited = h->data;
+    REQUIRE(s.run(plan->inverse));
+    CHECK(h->data != edited);
+    REQUIRE(s.run(plan->forward));
+    CHECK(h->data == edited);
+    // a stroke that changes nothing (the tool "smooth" on flat ground) makes no entry
+    const Json flat =
+        Json::parse(R"({"entity":"g","tool":"smooth","center":[30,30],"radius":4,"amount":1,"strength":1})");
+    std::optional<UndoPlan> none = plan_undo(s.world(), "terrain.sculpt", flat);
+    REQUIRE(none.has_value());
+    const CommandResult r2 = s.engine.commands().call("terrain.sculpt", flat);
+    REQUIRE_MESSAGE(r2.ok, r2.error.dump());
+    REQUIRE(finish_undo_plan(s.world(), "terrain.sculpt", *none, r2.result));
+    CHECK(none->noop);
+    // a piece that continues the stroke joins the newest step: no entry of its own
+    Json cont = args;
+    cont["continueStroke"] = true;
+    const std::optional<UndoPlan> piece = plan_undo(s.world(), "terrain.sculpt", cont);
+    REQUIRE(piece.has_value());
+    CHECK(piece->noop);
+    // a terrain that does not exist has no plan
+    CHECK_FALSE(plan_undo(s.world(), "terrain.sculpt", Json::parse(R"({"entity":"nobody"})")).has_value());
+}
+
+TEST_CASE("undo inverse: the oldest terrain entries go when the terrain's history lets go of their steps") {
+    auto terrain_entry = [](const char* id) {
+        const Json args = Json::object({{"entity", id}});
+        return UndoEntry::command({{"terrain.redo", args, ""}}, {{"terrain.undo", args, ""}});
+    };
+    UndoStack st;
+    st.push_back(terrain_entry("g"));
+    st.push_back(UndoEntry::command({{"scene.destroy", Json::object({{"id", "x"}}), ""}}, {}));
+    st.push_back(terrain_entry("other"));
+    st.push_back(terrain_entry("g"));
+    st.push_back(terrain_entry("g"));
+    CHECK(terrain_undo_count(st[0], "g") == 1);
+    CHECK(terrain_undo_count(st[1], "g") == 0);
+    CHECK(terrain_undo_count(st[2], "g") == 0);
+    CHECK(drop_terrain_entries_beyond(st, "g", 3) == 0);  // the history still holds all three
+    CHECK(st.size() == 5);
+    CHECK(drop_terrain_entries_beyond(st, "g", 2) == 1);  // the oldest of the three goes, nothing else does
+    REQUIRE(st.size() == 4);
+    CHECK(st[0].forward[0].cmd == "scene.destroy");
+    CHECK(terrain_undo_count(st[1], "other") == 1);
+    CHECK(drop_terrain_entries_beyond(st, "g", 0) == 2);
+    CHECK(st.size() == 2);
 }

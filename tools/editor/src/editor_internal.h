@@ -52,6 +52,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/light_probes.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/qr.h"
 #include "fa/tooling/self_update.h"
@@ -225,7 +226,9 @@ public:
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);  // keepUndo: Ctrl+Z brings back what was on screen before
     // `withCells` false: the cells carried in the snapshot ("$cells") are not put back (Play streams them by distance and suspends the
-    // editor's cells); true: they come back, and the cells loaded since the snapshot stay as they are (cell_edit.h).
+    // editor's cells); true: they come back, and the cells loaded since the snapshot stay as they are (cell_edit.h). `withCells`
+    // false is also the start of Play: the terrains with edits are held in playTerrains_ and the game gets copies; true after that
+    // (Stop) puts the held ones back, the game's copies are dropped.
     void restore_scene(const Json& snapshot, bool withCells = true);
     // snapshot_scene plus the cells loaded for editing, under "$cells" (snapshot_scene leaves streamed cells out): what the undo stack,
     // Play and the AI's revert keep. restore_scene reads it back.
@@ -301,6 +304,8 @@ public:
     // the plan undo_inverse.h built before it ran (docs/EDITOR.md, "Undo entries").
     bool push_command_entry(const std::string& key, std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse,
                             CoalesceMode mode = CoalesceMode::Replace);
+    // Removes the oldest undo entries of terrain `id` whose step the terrain's own history let go (editor_app.cpp).
+    void drop_terrain_entries_past_history(const std::string& id);
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
@@ -1144,6 +1149,14 @@ public:
     std::function<bool()> slicedJob_;
     std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
+    // The terrains with unsaved edits or history that Play started with, held as they were (a terrain of the game world is a copy
+    // of each, with no history): Stop gives these back, so what the game did to a terrain never reaches the editor.
+    struct HeldTerrain {
+        std::string id, heightmap;
+        std::shared_ptr<TerrainHeights> heights;
+    };
+    std::vector<HeldTerrain> playTerrains_;
+    bool playHoldsTerrain_ = false;
     Selection selection_;
     UndoStack undo_, redo_;
     std::string lastEditKey_;

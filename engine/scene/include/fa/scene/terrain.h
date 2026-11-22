@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "fa/core/image.h"
+#include "fa/core/json.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
 #include "fa/scene/components_world.h"
@@ -68,9 +69,24 @@ struct TerrainPatch {
     int x0 = 0, y0 = 0, w = 0, h = 0;
     std::vector<std::uint8_t> before, after;
 };
+// What an edit made besides changing samples: the holes mask or the splat maps did not exist (the first terrain.holes or terrain.paint
+// of a terrain makes them) and the command named their files in Terrain.holes / Terrain.splatMaps. Undo takes the planes and those
+// two fields back to what they were; redo makes them again. A file already written to disk stays there (nothing deletes a file).
+struct TerrainCreated {
+    bool holes = false;
+    std::string holesPath;    // Terrain.holes the edit set
+    std::string holesBefore;  // Terrain.holes before it
+    std::array<bool, kTerrainSplatMaps> splat{};
+    std::array<std::string, kTerrainSplatMaps> splatPath;  // Terrain.splatMaps[k] the edit set
+    int splatSize = 0;                                     // texels per side of the maps it made
+    Json splatMapsBefore;                                  // Terrain.splatMaps before it (any JSON value)
+    bool any() const { return holes || splat[0] || splat[1]; }
+};
+
 struct TerrainStep {
     std::string label;  // the command that made it ("terrain.sculpt")
     std::vector<TerrainPatch> patches;
+    TerrainCreated created;
     std::size_t bytes() const;
 };
 
@@ -133,8 +149,13 @@ struct TerrainHeights {
     bool extend_step(TerrainStep step, std::string* problem = nullptr);
     // Puts the `before` data of the newest step back (and keeps it for redo) / applies the newest undone step again. False when
     // there is none; `label` gets the step's label.
-    bool undo(std::string* label = nullptr);
-    bool redo(std::string* label = nullptr);
+    // `created` (when given) gets what the step made besides samples (TerrainCreated): the caller sets Terrain.holes and
+    // Terrain.splatMaps to `holesBefore` / `splatMapsBefore` after an undo, to `holesPath` / `splatPath` after a redo.
+    bool undo(std::string* label = nullptr, TerrainCreated* created = nullptr);
+    bool redo(std::string* label = nullptr, TerrainCreated* created = nullptr);
+    // A copy of this terrain's planes (heights, holes, splat maps, their sources and unsaved flags) with its own id and no undo
+    // history: what the editor gives the game while it plays, so Stop can put the original back.
+    std::shared_ptr<TerrainHeights> clone() const;
     std::size_t undo_depth() const { return undo_.size(); }
     std::size_t redo_depth() const { return redo_.size(); }
     std::size_t history_bytes() const { return historyBytes_; }

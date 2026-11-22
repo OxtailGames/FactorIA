@@ -504,6 +504,35 @@ std::optional<UndoPlan> plan_set_parent(const World& w, const Json& a) {
     return plan;
 }
 
+// terrain.sculpt / terrain.paint / terrain.holes / terrain.generate: the edit is one step of the Terrain's own history (the terrain's data
+// is not in a scene snapshot), so the entry is the pair terrain.redo / terrain.undo the terrain tool pushes for a stroke, and a
+// Console, AI or MCP edit undoes like a brush stroke. A call that changed nothing makes no step and so no entry (the finisher marks it
+// a no-op); a continued stroke (`continueStroke`) joins the newest step, which has its entry already.
+std::optional<UndoPlan> plan_terrain_edit(const World& w, const Json& a) {
+    if (!a.is_object() || !a.contains("entity")) return std::nullopt;
+    const Entity e = live_entity(w, a, "entity");
+    if (e.is_null() || !w.has<Terrain3D>(e)) return std::nullopt;
+    const Json args = Json::object({{"entity", w.id_of(e)}});
+    UndoPlan plan;
+    plan.forward.push_back({"terrain.redo", args, ""});
+    plan.inverse.push_back({"terrain.undo", args, ""});
+    plan.noop = a.contains("continueStroke") && a["continueStroke"].is_boolean() && a["continueStroke"].get<bool>();
+    return plan;
+}
+
+bool finish_terrain_edit(const World&, UndoPlan& plan, const Json& result) {
+    if (!result.is_object()) return false;
+    auto count = [&](const char* key) -> std::int64_t {
+        return result.contains(key) && result[key].is_number() ? result[key].get<std::int64_t>() : 0;
+    };
+    // The first terrain.holes / terrain.paint and the first terrain.generate of a terrain with no file name Terrain fields too
+    // ("sceneChanged"): they always made a step.
+    const bool scene =
+        result.contains("sceneChanged") && result["sceneChanged"].is_boolean() && result["sceneChanged"].get<bool>();
+    if (count("changedSamples") == 0 && count("changedTexels") == 0 && !scene) plan.noop = true;
+    return true;
+}
+
 // The table: one row per command that has an inverse.
 const BuilderRow kBuilders[] = {
     {"scene.set_component", &plan_set_component, nullptr},
@@ -515,6 +544,10 @@ const BuilderRow kBuilders[] = {
     {"scene.set_parent", &plan_set_parent, nullptr},
     {"scene.paste_entities", &plan_paste, &finish_paste},
     {"bones.create", &plan_bones_create, &finish_bones_create},
+    {"terrain.sculpt", &plan_terrain_edit, &finish_terrain_edit},
+    {"terrain.paint", &plan_terrain_edit, &finish_terrain_edit},
+    {"terrain.holes", &plan_terrain_edit, &finish_terrain_edit},
+    {"terrain.generate", &plan_terrain_edit, &finish_terrain_edit},
 };
 
 const BuilderRow* find_row(const std::string& name) {
@@ -540,6 +573,31 @@ bool has_undo_plan(const World& world, const std::string& name, const Json& args
 bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& plan, const Json& result) {
     const BuilderRow* row = find_row(name);
     return !row || !row->finish || row->finish(world, plan, result);
+}
+
+std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entityId) {
+    if (entry.kind != UndoEntry::Kind::Command) return 0;
+    std::size_t n = 0;
+    for (const UndoCommand& c : entry.inverse)
+        if (c.cmd == "terrain.undo" && c.args.is_object() && c.args.contains("entity") &&
+            c.args["entity"].is_string() && c.args["entity"].get<std::string>() == entityId)
+            ++n;
+    return n;
+}
+
+std::size_t drop_terrain_entries_beyond(UndoStack& stack, const std::string& entityId, std::size_t historyDepth) {
+    std::size_t total = 0;
+    for (const UndoEntry& e : stack) total += terrain_undo_count(e, entityId);
+    if (total <= historyDepth) return 0;
+    std::size_t dropped = 0;
+    stack.erase_if([&](const UndoEntry& e) {  // oldest first: those are the steps the terrain's history let go
+        const std::size_t n = terrain_undo_count(e, entityId);
+        if (total <= historyDepth || n == 0) return false;
+        total -= n;
+        ++dropped;
+        return true;
+    });
+    return dropped;
 }
 
 }  // namespace fa::editor

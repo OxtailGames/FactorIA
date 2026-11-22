@@ -612,3 +612,40 @@ TEST_CASE("terrain.sculpt and terrain.paint: falloff sets how much of the radius
     CHECK(
         contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":16,"falloff":2})"), "/falloff"));
 }
+
+TEST_CASE(
+    "terrain.undo of the first holes and paint strokes takes the new mask and splat map back, redo makes them again") {
+    Project p;
+    p.make("g");
+    const Entity en = p.e.world().find("g");
+    auto fields = [&] {
+        const Terrain3D* t = p.e.world().get<Terrain3D>(en);
+        REQUIRE(t != nullptr);
+        return std::pair<std::string, std::size_t>(t->holes, t->splatMaps.is_array() ? t->splatMaps.size() : 0);
+    };
+    CHECK(fields().first.empty());
+    CHECK(fields().second == 0u);
+    p.ok("terrain.holes", R"({"entity":"g","center":[0,0],"radius":5})");
+    p.ok("terrain.paint", R"({"entity":"g","layer":1,"center":[10,10],"radius":6,"strength":1})");
+    CHECK_FALSE(fields().first.empty());
+    CHECK(fields().second >= 1u);
+    const std::string holesPath = fields().first;
+    const auto h = p.heights("g");
+    CHECK(std::count(h->holes.begin(), h->holes.end(), std::uint8_t(1)) > 0);
+    // the paint stroke is undone: the splat map the stroke created is gone from the Terrain and the heights
+    Json u = p.ok("terrain.undo", R"({"entity":"g"})");
+    CHECK(u["undone"] == "terrain.paint");
+    CHECK(fields().second == 0u);
+    CHECK(fields().first == holesPath);
+    // ...and the holes
+    u = p.ok("terrain.undo", R"({"entity":"g"})");
+    CHECK(u["undone"] == "terrain.holes");
+    CHECK(fields().first.empty());
+    CHECK(std::count(h->holes.begin(), h->holes.end(), std::uint8_t(1)) == 0);
+    // redo makes them again, with the same paths
+    p.ok("terrain.redo", R"({"entity":"g"})");
+    CHECK(fields().first == holesPath);
+    CHECK(std::count(h->holes.begin(), h->holes.end(), std::uint8_t(1)) > 0);
+    p.ok("terrain.redo", R"({"entity":"g"})");
+    CHECK(fields().second >= 1u);
+}

@@ -9,10 +9,12 @@
 #include <cstring>
 #include <thread>
 #include <filesystem>
+#include <format>
 
 #include "app_icon.h"
 #include "autotest_sections.h"
 #include "recent_projects.h"
+#include "undo_inverse.h"
 #include "editor_internal.h"
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
@@ -662,6 +664,8 @@ bool Editor::boot(const std::string& dirIn) {
     redo_.clear();
     selection_.clear();
     play_ = PlayState::Edit;
+    playTerrains_.clear();  // the held terrains belonged to the old engine
+    playHoldsTerrain_ = false;
     dirty_ = false;
     cells_.reset();
     feedbackMtime_ = INT64_MIN;
@@ -1165,16 +1169,24 @@ void Editor::restore_scene(const Json& snapshot, bool withCells) {
     // an undo of an unrelated edit, Play and Stop would silently take back the strokes the user has not saved yet (and the history
     // their Ctrl+Z needs). The terrains with edits or history are held across the load and given back to the entities that come
     // back with the same id and the same heightmap file.
-    struct KeptTerrain {
-        std::string id, heightmap;
-        std::shared_ptr<TerrainHeights> heights;
-    };
-    std::vector<KeptTerrain> kept;
-    for (Entity e : world().terrain().entities()) {
-        const Terrain3D* t = world().alive(e) ? world().get<Terrain3D>(e) : nullptr;
-        const std::shared_ptr<TerrainHeights> h = t ? world().terrain().find(e) : nullptr;
-        if (h && (h->any_unsaved() || h->undo_depth() > 0 || h->redo_depth() > 0))
-            kept.push_back({world().id_of(e), t->heightmap, h});
+    std::vector<HeldTerrain> kept;
+    if (withCells && playHoldsTerrain_) {
+        // Stop: the terrains as they were when Play began (the game's own copies, whatever it did to them, are dropped).
+        kept = std::move(playTerrains_);
+        playTerrains_.clear();
+        playHoldsTerrain_ = false;
+    } else {
+        for (Entity e : world().terrain().entities()) {
+            const Terrain3D* t = world().alive(e) ? world().get<Terrain3D>(e) : nullptr;
+            const std::shared_ptr<TerrainHeights> h = t ? world().terrain().find(e) : nullptr;
+            if (h && (h->any_unsaved() || h->undo_depth() > 0 || h->redo_depth() > 0))
+                kept.push_back({world().id_of(e), t->heightmap, h});
+        }
+        if (!withCells) {  // Play starts: the editor's terrains stay aside untouched, the game edits copies
+            playTerrains_ = kept;
+            playHoldsTerrain_ = true;
+            for (HeldTerrain& k : kept) k.heights = k.heights->clone();
+        }
     }
     std::string err;
     bool ok;
@@ -1191,7 +1203,7 @@ void Editor::restore_scene(const Json& snapshot, bool withCells) {
     else
         cells_.suspend();
     // After the cells: a Terrain3D inside a loaded cell is made again by cells_.restore, so its entity exists only now.
-    for (KeptTerrain& k : kept) {
+    for (HeldTerrain& k : kept) {
         const Entity e = world().find_by_id(k.id);
         const Terrain3D* t = e.is_null() ? nullptr : world().get<Terrain3D>(e);
         if (t && t->heightmap == k.heightmap) world().terrain().adopt(e, k.heightmap, std::move(k.heights));
@@ -1513,8 +1525,28 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
     lastEditKind_ = UndoEntry::Kind::Command;
     dirty_ = true;
     cells_.note_edit();
+    std::string terrainId;  // a terrain edit: its history may have let go of the steps of the oldest entries
+    for (const UndoCommand& c : inverse)
+        if (c.cmd == "terrain.undo" && c.args.is_object() && c.args.contains("entity") && c.args["entity"].is_string())
+            terrainId = c.args["entity"].get<std::string>();
     if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
+    if (!terrainId.empty()) drop_terrain_entries_past_history(terrainId);
     return true;
+}
+
+// The terrain keeps its last kTerrainHistorySteps edits (and a byte budget). The oldest entries of the undo list that name a step it
+// let go are removed (they could only answer "nothing to undo", in front of older entries that still work), with a toast.
+void Editor::drop_terrain_entries_past_history(const std::string& id) {
+    const Entity e = world().find_by_id(id);
+    const std::shared_ptr<TerrainHeights> h = e.is_null() ? nullptr : world().terrain().find(e);
+    if (!h) return;
+    const std::size_t dropped = drop_terrain_entries_beyond(undo_, id, h->undo_depth());
+    if (dropped > 0)
+        notify(std::format(
+                   "The terrain keeps its last {} edits: {} older terrain edit{} can no longer be undone and {} left "
+                   "the undo list.",
+                   kTerrainHistorySteps, dropped, dropped == 1 ? "" : "s", dropped == 1 ? "was" : "were"),
+               1);
 }
 
 // Runs the commands of a Command entry in order. A list of several commands that fails midway is run back: the scene is

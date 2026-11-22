@@ -14,6 +14,8 @@
 #include "editor_internal.h"
 #include "fa/core/fs.h"
 #include "fa/scene/terrain.h"
+#include "imgui.h"
+#include "imgui_internal.h"
 #include "sokol_app.h"
 
 namespace fa::editor {
@@ -143,6 +145,18 @@ void Editor::at_section_T3(AtScript& at) {
         m->undo0 = undo_depth();
     });
     step(4, [this] { pendingFocus_ = "Terrain tool"; });
+    // The panel docks next to the Inspector on a first run, but a layout saved on disk, a small display or a floating window can put
+    // it over the strokes: a panel that is not docked and overlaps the viewport image moves to the top-left, over the left column.
+    step(3, [this] {
+        ImGuiWindow* w = ImGui::FindWindowByName("Terrain tool");
+        at_check(w != nullptr, "the Terrain tool window exists");
+        if (!w || w->DockId != 0 || w->DockNode != nullptr) return;
+        const bool over = w->Pos.x < vpImageMin_.x + vpImageSize_.x && w->Pos.x + w->Size.x > vpImageMin_.x &&
+                          w->Pos.y < vpImageMin_.y + vpImageSize_.y && w->Pos.y + w->Size.y > vpImageMin_.y;
+        if (!over) return;
+        ImGui::SetWindowPos(w, ImVec2(8, 28));
+        ImGui::SetWindowSize(w, ImVec2(std::max(120.0f, std::min(340.0f, vpImageMin_.x - 16.0f)), 520));
+    });
     step(2, [this, heights] {
         at_check(heights() != nullptr, "the terrain's heights are loaded");
         at_check(at_visible("terrain:mode:sculpt") && at_visible("terrain:mode:paint") &&
@@ -318,6 +332,73 @@ void Editor::at_section_T3(AtScript& at) {
                  "an unsaved terrain edit counts as unsaved work on its own");
         forget_unsaved_terrain();
         at_check(!has_unsaved_work(), "Discard marks the terrains as written");
+    });
+
+    // ---- Esc cancels a stroke and gives back the dirty state it found (nothing was edited, so nothing is unsaved)
+    step(2, [this, heights, m, panel_at] {
+        dirty_ = false;
+        m->before = checksum(*heights());
+        inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_at(-6, 2));
+    });
+    step(2, [this, panel_at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, panel_at(-6, 2)); });
+    step(2, [this, panel_at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_at(0, 2)); });
+    step(3, [this, heights, m] {
+        at_check(terrain_.stroke.active() && checksum(*heights()) != m->before,
+                 "a stroke is live and changed the heights");
+        inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE);
+    });
+    step(3, [this, heights, m] {
+        inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE);
+        at_check(!terrain_.stroke.active(), "Esc ends the stroke");
+        at_check(checksum(*heights()) == m->before, "...and gives the heights back");
+        at_check(!dirty() && !heights()->any_unsaved() && !has_unsaved_work(),
+                 "...and the scene and the terrain are as clean as before the stroke");
+    });
+    step(2, [this, panel_at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, panel_at(0, 2)); });
+    step(3, [] {});
+
+    // ---- a click that misses the terrain keeps the selection and the tool
+    step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3}); });
+    step(3, [this] {
+        if (terrain_.hasHit) return;  // this camera sees the ground in that corner: nothing to check
+        inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3});
+    });
+    step(2, [this] {
+        if (terrain_.hasHit) return;
+        inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3});
+    });
+    step(4, [this] {
+        at_check(selected_id() == "t3_ground" && terrain_tool_active(),
+                 "a click that misses the terrain keeps it selected and the tool on");
+    });
+
+    // ---- Play and Stop: the game edits its own copy; Stop gives back the heights, the holes and the splat maps exactly
+    step(2, [this, heights, m] {
+        m->before = checksum(*heights());
+        m->history0 = heights()->undo_depth();
+        play();
+    });
+    step(6, [this, heights, m] {
+        at_check(play_ != PlayState::Edit, "Play started");
+        const std::shared_ptr<TerrainHeights> h = heights();
+        at_check(h != nullptr && checksum(*h) == m->before, "the game starts from the terrain as the editor has it");
+        const CommandResult c = engine_->commands().call(
+            "terrain.sculpt",
+            Json::parse(R"({"entity":"t3_ground","tool":"raise","center":[5,5],"radius":8,"amount":9,"strength":1})"));
+        at_check(c.ok, "the game can sculpt its terrain: " + c.error.dump());
+        at_check(h && checksum(*h) != m->before, "...and it changed during Play");
+        const CommandResult p = engine_->commands().call(
+            "terrain.holes", Json::parse(R"({"entity":"t3_ground","center":[-5,-5],"radius":4,"mode":"cut"})"));
+        at_check(p.ok, "...and cut holes: " + p.error.dump());
+    });
+    step(2, [this] { stop(); });
+    step(6, [this, heights, m] {
+        at_check(play_ == PlayState::Edit, "Stop returned to editing");
+        const std::shared_ptr<TerrainHeights> h = heights();
+        at_check(h != nullptr && checksum(*h) == m->before,
+                 "Stop gives back the exact heights, holes and splat maps of before Play");
+        at_check(h && h->undo_depth() == m->history0,
+                 "...and the terrain's history (" + std::to_string(m->history0) + ")");
     });
 
     // ---- leave the fixture the next sections expect
