@@ -584,8 +584,15 @@ Renderer::TerrainUploads Renderer::terrain_uploads() const {
         out.whole = impl_->terrains.uploads();
         out.rects = impl_->terrains.rect_uploads();
         out.arrays = impl_->terrains.layer_builds();
+        out.splatRects = impl_->terrains.splat_rect_uploads();
+        out.layerLoads = impl_->terrains.layer_loads();
     }
     return out;
+}
+
+bool Renderer::terrain_loading() const { return impl_ && impl_->terrains.loading(); }
+void Renderer::wait_terrain_loaded() {
+    if (impl_) impl_->terrains.wait_loaded();
 }
 
 bool Renderer::foliage_loading() const { return impl_ && impl_->foliage.loading(); }

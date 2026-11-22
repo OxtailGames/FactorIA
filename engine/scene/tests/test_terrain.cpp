@@ -691,3 +691,104 @@ TEST_CASE(
     std::error_code ec;
     fs::remove_tree(dir, ec);
 }
+
+TEST_CASE(
+    "TerrainSplat: the dirty history tells a reader which rectangle of the map changed, and when it must take it all") {
+    TerrainSplat s;
+    s.size = 64;
+    s.rgba.assign(64 * 64 * 4, 0);
+    CHECK(s.version == 0);
+    TerrainRect r;
+    CHECK(s.dirty_since(0, r));
+    CHECK(r.empty());
+    s.mark_dirty({10, 20, 12, 22});
+    s.mark_dirty({40, 5, 41, 5});
+    CHECK(s.version == 2);
+    CHECK(s.unsaved);
+    REQUIRE(s.dirty_since(0, r));
+    CHECK(r.c0 == 10);
+    CHECK(r.r0 == 5);
+    CHECK(r.c1 == 41);
+    CHECK(r.r1 == 22);
+    REQUIRE(s.dirty_since(1, r));
+    CHECK(r.c0 == 40);
+    CHECK(r.r1 == 5);
+    s.mark_dirty({-9, -9, 500, 500});  // clamped to the map
+    REQUIRE(s.dirty_since(2, r));
+    CHECK(r.c0 == 0);
+    CHECK(r.c1 == 63);
+    // a version bumped without a rectangle (code that fills `rgba` itself): a reader that has not seen it takes everything
+    ++s.version;
+    CHECK_FALSE(s.dirty_since(2, r));
+    CHECK_FALSE(s.dirty_since(0, r));
+    s.mark_dirty({1, 1, 2, 2});
+    CHECK(s.dirty_since(s.version - 1, r));  // the reader that saw the bump needs only the new edit
+    CHECK(r.c1 == 2);
+    CHECK_FALSE(s.dirty_since(s.version - 2, r));
+    // more edits than the history keeps
+    for (int i = 0; i < 100; ++i) s.mark_dirty({i % 60, 0, i % 60, 0});
+    CHECK_FALSE(s.dirty_since(0, r));
+    CHECK(s.dirty_since(s.version - 5, r));
+    // a map made again is another object: the reader must not trust its old version
+    const std::uint64_t serial = s.serial;
+    s = TerrainSplat{};
+    CHECK(s.serial != serial);
+    CHECK(TerrainSplat{}.serial != TerrainSplat{}.serial);
+}
+
+TEST_CASE(
+    "TerrainStore: the heightmap is read with no lock held, and reload() replaces it only when the file changed and "
+    "nothing is unsaved") {
+    ensure_builtin_components();
+    const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_reload").value();
+    {
+        const std::string file = fs::path_to_utf8(dir / "h.png");
+        auto write = [&](int slope) {
+            GrayImage16 g = ramp(33);
+            for (auto& v : g.samples) v = std::uint16_t(v / 8 * slope);
+            const auto png = encode_png_gray16(g);
+            REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+        };
+        write(1);
+        World w;
+        Entity e = w.create("ground");
+        w.add<Transform>(e);
+        Terrain3D t;
+        t.heightmap = file;
+        w.add<Terrain3D>(e) = t;
+        TerrainStore store;
+        CHECK_FALSE(store.reload(w, e));  // nothing loaded yet: nothing to replace
+        auto first = store.heights(w, e);
+        REQUIRE(first);
+        const std::uint64_t id = first->id;
+        CHECK_FALSE(store.reload(w, e));  // the file is the same: the object stays
+        CHECK(store.find(e)->id == id);
+        write(2);
+        CHECK(store.reload(w, e));
+        auto second = store.find(e);
+        REQUIRE(second);
+        CHECK(second->id != id);
+        CHECK(second->at(5, 0) == std::uint16_t(first->at(5, 0) * 2));
+        // an edit in memory wins over the file: nothing is replaced until it is saved
+        write(3);
+        second->set(1, 1, 7);
+        second->mark_dirty({1, 1, 1, 1});
+        second->heightsUnsaved = true;
+        CHECK_FALSE(store.reload(w, e));
+        CHECK(store.find(e)->id == second->id);
+        // a file that cannot be read keeps the loaded heights
+        second->heightsUnsaved = false;
+        std::error_code ec;
+        std::filesystem::remove(dir / "h.png", ec);
+        CHECK_FALSE(store.reload(w, e));
+        CHECK(store.find(e)->id == second->id);
+        // a terrain whose heightmap field changed is not reloaded by reload(): heights() loads the new key
+        w.get<Terrain3D>(e)->heightmap.clear();
+        CHECK_FALSE(store.reload(w, e));
+        auto flat = store.heights(w, e);
+        REQUIRE(flat);
+        CHECK(flat->id != second->id);
+    }
+    std::error_code ec;
+    fs::remove_tree(dir, ec);
+}

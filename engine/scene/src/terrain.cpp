@@ -93,6 +93,44 @@ bool TerrainHeights::dirty_since(std::uint64_t sinceVersion, TerrainRect& out) c
     return true;
 }
 
+std::uint64_t TerrainSplat::next_serial() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1);
+}
+
+void TerrainSplat::mark_dirty(TerrainRect rect) {
+    rect.c0 = std::max(rect.c0, 0);
+    rect.r0 = std::max(rect.r0, 0);
+    rect.c1 = std::min(rect.c1, size - 1);
+    rect.r1 = std::min(rect.r1, size - 1);
+    ++version;
+    unsaved = true;
+    edits_.push_back(
+        {version, rect});  // (an empty rectangle is kept: the version has an entry, so it is not "unknown")
+    if (edits_.size() > 64) {
+        oldestKept_ = edits_.front().version;
+        edits_.erase(edits_.begin());
+    }
+}
+
+bool TerrainSplat::dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const {
+    out = TerrainRect{};
+    if (sinceVersion >= version) return true;
+    if (sinceVersion < oldestKept_) return false;
+    std::uint64_t seen = 0;
+    for (const Edit& e : edits_)
+        if (e.version > sinceVersion) {
+            out.join(e.rect);
+            ++seen;
+        }
+    // A version bumped outside mark_dirty has no entry: the count of entries is then short of the versions that passed.
+    if (seen != version - sinceVersion) {
+        out = TerrainRect{};
+        return false;
+    }
+    return true;
+}
+
 std::shared_ptr<TerrainHeights> TerrainHeights::flat(int n, std::uint16_t raw) {
     auto h = std::make_shared<TerrainHeights>();
     h->samples = n;
@@ -190,8 +228,7 @@ bool TerrainHeights::write_patch(const TerrainPatch& p, bool useAfter) {
         case TerrainPlane::Splat0:
         case TerrainPlane::Splat1: {
             TerrainSplat& m = splat[p.plane == TerrainPlane::Splat0 ? 0 : 1];
-            ++m.version;
-            m.unsaved = true;
+            m.mark_dirty({p.x0, p.y0, p.x0 + p.w - 1, p.y0 + p.h - 1});
             break;
         }
     }
@@ -690,26 +727,37 @@ void load_planes(TerrainHeights& h, const Terrain3D& t, const World& world, Enti
 std::shared_ptr<TerrainHeights> TerrainStore::heights(const World& world, Entity e, std::string* problem) const {
     const Terrain3D* t = world.get<Terrain3D>(e);
     if (!t) return nullptr;
-    std::lock_guard<std::mutex> lock(mutex_);
-    Entry& entry = entries_[e.bits()];
-    if (!entry.loaded || entry.key != t->heightmap) {
-        entry = Entry{};
-        entry.loaded = true;
-        entry.key = t->heightmap;
-        if (t->heightmap.empty()) {
-            entry.heights = TerrainHeights::flat(kTerrainMinSamples);
+    const std::string key = t->heightmap;
+    bool needLoad = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(e.bits());
+        needLoad = it == entries_.end() || !it->second.loaded || it->second.key != key;
+    }
+    // The file is read and decoded (a 4097 x 4097 map is 33 MB of samples) with no lock held, so another thread asking for
+    // another terrain's heights never waits for it. Two threads that need the same file at once both read it and the first to
+    // finish keeps its copy (the other is dropped); that costs one extra read, once.
+    Entry fresh;
+    if (needLoad) {
+        fresh.loaded = true;
+        fresh.key = key;
+        if (key.empty()) {
+            fresh.heights = TerrainHeights::flat(kTerrainMinSamples);
         } else {
-            auto load = load_terrain_heightmap(t->heightmap);
+            auto load = load_terrain_heightmap(key);
             if (!load) {
-                entry.problem = std::format("entity '{}': Terrain.heightmap (/heightmap): {}. Hint: {}", world.id_of(e),
+                fresh.problem = std::format("entity '{}': Terrain.heightmap (/heightmap): {}. Hint: {}", world.id_of(e),
                                             load.error().message, load.error().hint);
-                FA_ERROR("terrain", "{}", entry.problem);
+                FA_ERROR("terrain", "{}", fresh.problem);
             } else {
-                entry.heights = load->heights;
+                fresh.heights = load->heights;
                 if (!load->warning.empty()) FA_WARN("terrain", "entity '{}': {}", world.id_of(e), load->warning);
             }
         }
     }
+    std::lock_guard<std::mutex> lock(mutex_);
+    Entry& entry = entries_[e.bits()];
+    if (needLoad && (!entry.loaded || entry.key != key)) entry = std::move(fresh);
     if (entry.heights) load_planes(*entry.heights, *t, world, e);
     if (problem) *problem = entry.problem;
     return entry.heights;
@@ -719,6 +767,37 @@ std::shared_ptr<TerrainHeights> TerrainStore::find(Entity e) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = entries_.find(e.bits());
     return it == entries_.end() ? nullptr : it->second.heights;
+}
+
+bool TerrainStore::reload(const World& world, Entity e) const {
+    const Terrain3D* t = world.get<Terrain3D>(e);
+    if (!t || t->heightmap.empty()) return false;
+    const std::string key = t->heightmap;
+    std::shared_ptr<TerrainHeights> old;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(e.bits());
+        if (it == entries_.end() || it->second.key != key || !it->second.heights) return false;
+        old = it->second.heights;
+    }
+    if (old->any_unsaved()) return false;
+    auto load = load_terrain_heightmap(key);  // outside the lock: a big file takes a while
+    if (!load || !load->heights) {
+        if (!load)
+            FA_WARN(
+                "terrain",
+                "entity '{}': Terrain.heightmap '{}' changed but cannot be read again, keeping the loaded heights: {}",
+                world.id_of(e), key, load.error().message);
+        return false;
+    }
+    if (load->heights->samples == old->samples && load->heights->data == old->data) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = entries_.find(e.bits());
+    // Another thread replaced the heights, or an edit started while the file was read: keep what is there.
+    if (it == entries_.end() || it->second.heights != old || old->any_unsaved()) return false;
+    it->second.heights = load->heights;
+    it->second.problem.clear();
+    return true;
 }
 
 void TerrainStore::prune(const World& world) {

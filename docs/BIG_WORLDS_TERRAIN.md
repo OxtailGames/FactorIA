@@ -38,11 +38,14 @@ per 32 cells near the camera. `renderStats.terrainTiles` and `terrainTriangles` 
 triangles (2048 each, also in `triangles`; tiles are not in `meshes`). `render.supports {"feature": "terrain"}` is true on every
 backend, and its report has a `limits` object: `maxTextureSize` (the heightmap's side: a map of 4097 samples a side needs 4097, and a
 GPU that offers 4096 does not draw it: an error says so once, with the largest side that fits, and the terrain is skipped),
-`maxArrayLayers` (the layers of a texture array: 8 for the layers, 3 for the splat maps and holes) and `maxArrayTextureSize` (the side
+`maxArrayLayers` (the layers of a texture array: 8 for the layers, 2 for the splat maps; the holes are a plain 2D texture of the heightmap's side minus one, so `maxTextureSize` covers them) and `maxArrayTextureSize` (the side
 of the layer textures and of the splat maps). A terrain whose layers or splat maps do not fit them is drawn with neutral grey layers and the log says why.
 
-**Layers and holes.** The albedo and normal textures are two texture arrays, the splat maps and the holes are the slices of a third
-one (RGBA8, one mip level, bilinear), so a terrain with layers reads 3 more textures in the fragment shader; the layers are blended
+**Layers and holes.** The albedo and normal textures are two texture arrays and the splat maps are the slices of a third one (the
+control array: RGBA8, one mip level, bilinear), so a terrain with layers reads 3 more textures in the fragment shader (the fragment
+stage is at 16 of the 16 texture units that WebGL2 and GLES3 guarantee, pinned by a test: a new texture has to take the place of
+another). The holes are not in the control array: they are their own R8 texture, one byte a cell, read by the vertex shader only, which
+is where the cut is made. The layers are blended
 in the fragment shader, and only a layer with a weight above 0 at a pixel is fetched, so a pixel costs the layers painted on it. Albedo is sRGB (or
 linear in a linear scene); normals are the usual tangent-space maps scaled by `normalScale`. The normals of the terrain itself come
 from 12 height fetches a pixel (it was 16; the `terrain` rows of `tools/bench`, docs/performance/PERFORMANCE_BENCH.md). A hole is cut in the
@@ -52,14 +55,28 @@ pass, the shadows and the depth prepass all lose it, with no `discard`. The cut 
 coarser level a quad stands for several cells and its middle cell decides, so a far hole can be a little larger or smaller. A
 terrain without a holes mask keeps the shared patch.
 
+**Loading and repainting.** The layer pictures are decoded and their mip levels built by a job, off the render thread (as the
+foliage files are): a terrain with new layers draws them neutral grey until the frame after the job finishes (a reload of the same
+layers keeps drawing the pictures it had), and the render thread then makes each array with one call, which is the only stall left
+(a few ms for 8 layers of 1024 x 1024). A test or a capture that needs the pictures calls `Renderer::wait_terrain_loaded()` and
+renders once more (`terrain_loading()` says a job is still running). A paint stroke (`mark_dirty` on a splat map) copies only the
+texels it changed into the control array, through a staging buffer, one copy a frame: the first stroke after the layers load turns
+the array into a copyable one and sends it whole once, the next ones cost their rectangle. A backend that cannot copy, a map that
+was replaced or resampled, a change made without `mark_dirty`, or a second stroke in the same frame sends the whole array again.
+Rewriting the `heightmap` file on disk and reloading the asset (the editor's file watcher, `Renderer::reload_asset`) makes the
+terrain read it again: the file is read with no lock held (on the render thread, a short stall: 33 MB for 4097 x 4097), and the
+heights are replaced only when they differ from the ones in memory and nothing is unsaved (an edit not yet saved always wins over the
+file); the undo history of the terrain is dropped with the old heights.
+
 **Cost.** Per terrain: 2 bytes per sample on the GPU (33.5 MB for 4097 x 4097) and on the CPU (the same, plus the tile bounds), and
-with `collision` 4 bytes per sample more for the collider (67 MB); the layer textures take 4/3 of 4 bytes a pixel each (about 45 MB for
+with `collision` 4 bytes per sample more for the collider (67 MB: it keeps its own copy of the heights, see "Collision"); the layer textures take 4/3 of 4 bytes a pixel each (about 45 MB for
 8 albedo layers of 1024 x 1024, refused above 256 MB per array with an error); the control array takes `side x side x 4` bytes a
-slice. A sculpt (`TerrainHeights::mark_dirty`) updates the collider and the tile bounds only where the rectangle says, and uploads
+splat map, at most 2 maps: 128 MB for maps of 4096 x 4096 (it was 192 MB with the holes as a third slice); the holes texture takes
+one byte a cell, 16.8 MB for 4097 x 4097, and only a terrain with a holes mask has one. A sculpt (`TerrainHeights::mark_dirty`) updates the collider and the tile bounds only where the rectangle says, and uploads
 only that rectangle of the height texture (a sub-rectangle copy through a staging buffer, one a frame). The first sculpt of a
 terrain converts its texture to a copyable one and sends it whole once; a stroke after that costs the bytes of its rectangle. A
 backend that cannot copy sends the whole texture, 33.5 MB for 4097 x 4097, on the frame after each `mark_dirty`: batch the edits to
-one `mark_dirty` per frame. A paint or a hole stroke makes the control array again (a few MB) the frame after the planes change.
+one `mark_dirty` per frame. A hole stroke makes the holes texture again (one byte a cell) the frame after the mask changes; a paint stroke sends only its rectangle (see "Loading and repainting").
 Selecting the tiles for one camera is a quadtree walk that visits a few hundred nodes, also for 4097 x 4097 (the timing is printed
 by the `terrain_lod_tests.cpp` bench). A scene with no `Terrain` pays nothing: no texture, no program and no job.
 
@@ -67,8 +84,15 @@ by the `terrain_lod_tests.cpp` bench). A scene with no `Terrain` pays nothing: n
 draws, with the diagonal the patch triangles use, so a ray and the picture meet within float rounding. The cells of the holes mask
 are left out of it (a ray, a ball and a character go through) and follow every hole edit. It needs no `Collider3D` or
 `Heightfield3D`; an entity with its own `Collider3D` keeps that one, and a non-static `RigidBody3D` on the entity is refused with a
-message. `Transform` position, rotation and scale apply as for `Heightfield3D`. A map larger than `Heightfield3D`'s 4096 samples
-works here (up to 4097).
+message; an own `Collider3D` that is DISABLED means no collider at all (disabling it never switches the terrain's on). `Transform`
+position, rotation and scale apply as for `Heightfield3D`. A map larger than `Heightfield3D`'s 4096 samples
+works here (up to 4097). The terrain's collider is a `Collider3D` with the defaults of the component, since the terrain has none to
+set them: layer 0, mask -1 (every layer), friction 0.4, restitution 0, not a trigger; they cannot be changed on
+the terrain (an entity's own `Collider3D` replaces the terrain's collider altogether, and would need a `Heightfield3D` of its own). The solver keeps its OWN copy of the heights as floats (4
+bytes a sample: 67 MB for 4097 x 4097, on top of the 33 MB of the `TerrainHeights`) and does not share them: a sculpt must tell the
+solver the old AND the new height of the samples it touched (bodies resting on the old surface, bodies inside the new one), which
+needs the old values in memory when the edit is seen, and a step must read a snapshot that a command editing the terrain in the
+middle of it cannot change.
 
 **For code that edits or reads the terrain (sculpting, foliage).** `world.terrain().heights(world, entity)` returns the shared
 `TerrainHeights` (`data`, `samples`, `set`, `mark_dirty(rect)`, `version`); the renderer, the collider and the tile bounds each follow

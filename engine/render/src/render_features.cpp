@@ -351,9 +351,11 @@ std::vector<FeatureDef> build_table() {
          "shadowed like a mesh, with up to 8 layers (albedo and normal texture arrays, roughness, metallic) blended by "
          "two RGBA splat maps, holes cut in the geometry, and an optional height collider. Every backend whose "
          "textures reach the sizes the report's `limits` give: maxTextureSize (the heightmap's side), and "
-         "maxArrayLayers and maxArrayTextureSize for the layer textures (up to 8 layers) and the splat maps and holes "
-         "(up to 3 layers); a terrain beyond them is not drawn (the heightmap) or is drawn with neutral grey layers "
-         "(the layers), and the log says which.",
+         "maxArrayLayers and maxArrayTextureSize for the layer textures (up to 8 layers) and the splat maps (up to 2 "
+         "layers), and maxTextureSize again for the holes (one texture a cell); a terrain beyond them is not drawn "
+         "(the "
+         "heightmap, the holes) or is drawn with neutral grey layers (the layers, the splat maps), and the log says "
+         "which.",
          nullptr},
         {"foliage", "",
          "Foliage: thousands of instances of a mesh drawn with instancing from a data file, with wind, LODs and a "
