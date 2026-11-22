@@ -1176,6 +1176,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     });
     // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
     // are not culled (they show the scene from a point the Occluders were not placed for).
+    // Areas and portals (M75.2) come first (a mesh in a room the portals do not show needs no depth test); the same single branch.
+    if (!fr.noProbes && !fr.giCapture && world.any<OcclusionArea>()) portal_cull_meshes(world, fr, meshes);
     // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
     const bool cullable = !fr.noProbes && !fr.giCapture;
     if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))

@@ -167,6 +167,10 @@ struct RenderStats {
         0;  // M75.2: meshes tested against that buffer, or against the depth pyramid (occlusionMode gpu, M75.2b)
     int meshesOccluded =
         0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders or the pyramid (still drawn into shadow maps)
+    int portalsVisited =
+        0;  // M75.2: distinct open OcclusionPortals the camera's walk went through, summed over the cameras (0 with no enabled OcclusionArea)
+    int meshesCulledByArea =
+        0;  // M75.2: meshes left out of the main pass because no chain of open portals leads to their area (also in meshesCulled)
     int lodCrossFades =
         0;  // M75.1: meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras (a fading
             // entity counts 2; probe and GI captures do not count)

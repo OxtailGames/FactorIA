@@ -232,6 +232,11 @@ std::vector<WorldProblem> occluder_problems(const Occluder& o, bool hasMeshRende
 
 std::vector<WorldProblem> occlusion_area_problems(const OcclusionArea& a) {
     std::vector<WorldProblem> out;
+    if (a.areaId < 1 || a.areaId > 65535)
+        problem(out, false, "/areaId",
+                "OcclusionArea.areaId is " + std::to_string(a.areaId) +
+                    ", but an area id is 1..65535 (0 is \"outside every area\"): the area is ignored",
+                "Give the room an id from 1 up, and name it in OcclusionPortal.areaA and areaB.");
     if (!(a.size.x > 0.0f) || !(a.size.y > 0.0f) || !(a.size.z > 0.0f))
         problem(out, true, "/size",
                 "OcclusionArea.size is [" + num(a.size.x) + ", " + num(a.size.y) + ", " + num(a.size.z) +
@@ -520,32 +525,40 @@ void register_world_components(TypeRegistry& r) {
 
     r.add<OcclusionArea>(
          "OcclusionArea",
-         "A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in "
-         "the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside "
-         "every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "
-         "\"Occlusion\").",
+         "A room of an interior, for portal culling (M75.2): a mesh whose world bounds touch this box belongs to the "
+         "area (and also to area 0, \"outside\", unless its bounds lie wholly inside one box), and is drawn in the "
+         "main pass only when one of its areas is reached: the camera is in it, or a chain of open OcclusionPortal "
+         "entities in view leads to it. Area 0 is an area like any other. The camera starts in every area whose box "
+         "holds it, and in both sides of every open portal whose box holds it. A scene with no OcclusionArea draws "
+         "everything as usual. Shadows and Foliage are not culled. renderStats.portalsVisited and meshesCulledByArea "
+         "count it (docs/BIG_WORLDS_LOD.md, \"Areas and portals\").",
          "3D")
         .field("size", &OcclusionArea::size,
                "Metres along the entity's local axes before Transform.scale, each above 0. Default [10, 4, 10].")
         .range(0, 100000)
         .field("areaId", &OcclusionArea::areaId,
-               "1..65535: the id that OcclusionPortal.areaA and areaB name. Two areas of one scene must not share "
-               "an id. Default 1.")
+               "1..65535: the id that OcclusionPortal.areaA and areaB name (0 is outside every area and is not valid "
+               "here: the area is ignored with a warning). Two boxes with the same id count as one area (a room of "
+               "several boxes). Default 1.")
         .range(1, 65535);
 
     r.add<OcclusionPortal>(
          "OcclusionPortal",
-         "An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from "
+         "An opening between two OcclusionArea rooms (M75.2; a door, a window, an archway): what is seen through it "
+         "from "
          "the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side "
-         "faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect "
-         "yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, \"Occlusion\").",
+         "faces areaA and its +Z side areaB. The camera's view walks (the same from both sides: areaA and areaB are "
+         "informative) through the open portals whose box is in view, "
+         "narrowing to each portal's screen rectangle. A portal with open false (a shut door) lets nothing "
+         "through (docs/BIG_WORLDS_LOD.md, \"Areas and portals\").",
          "3D")
         .field("size", &OcclusionPortal::size,
                "Metres along the entity's local axes before Transform.scale: width, height and depth of the opening's "
                "box, each above 0. Default [2, 2, 0.2].")
         .range(0, 100000)
         .field("areaA", &OcclusionPortal::areaA,
-               "The OcclusionArea.areaId on the entity's -Z side; 0 (default) = outside every area.")
+               "The OcclusionArea.areaId on the entity's -Z side; 0 (default) = outside every area. An id that no "
+               "OcclusionArea has is reported once in the log and the portal connects nothing.")
         .range(0, 65535)
         .field("areaB", &OcclusionPortal::areaB,
                "The OcclusionArea.areaId on the entity's +Z side; 0 (default) = outside every area. A portal with "

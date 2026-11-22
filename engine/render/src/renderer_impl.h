@@ -285,6 +285,9 @@ struct Renderer::Impl {
     OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
     // True when it rasterised an occlusion buffer for this camera (`occlusion` holds it), false when nothing was tested.
     bool occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    // M75.2, areas and portals (renderer_portals.cpp): (entity, what) pairs already warned about (what: an unknown areaId, or a code).
+    std::set<std::pair<std::uint64_t, std::int64_t>> warnedPortalEntities;
+    void portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes);
     void occlusion_overlay();
     // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
     // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
