@@ -46,7 +46,7 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 }
 
 namespace {
-auto material_key(const MeshItem& a, bool withProbe = true) {
+auto material_key(const MeshItem& a, bool main = true) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
                            r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.clearcoat,
@@ -56,7 +56,7 @@ auto material_key(const MeshItem& a, bool withProbe = true) {
                            r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material,
                            a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a,
                            a.lm.mesh ? a.entity.bits() : std::uint64_t(0), decal_recv(r), subsurface_of(r),
-                           withProbe ? a.probeKey : std::uint64_t(0));
+                           main ? a.probeKey : std::uint64_t(0), main ? a.lodFade : 0.0f);
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -85,7 +85,7 @@ auto order_key(const MeshItem& a) {
         order_float(r.uvScale.y), order_float(r.normalScale),
         (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash, a.colorsHash,
         order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a), decal_recv(r),
-        subsurface_of(r), a.probeKey);
+        subsurface_of(r), a.probeKey, order_float(a.lodFade));
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -94,8 +94,8 @@ bool same_material(const MeshItem& a, const MeshItem& b) {
     if (a.keyed && b.keyed && a.sortKey != b.sortKey) return false;
     return material_key(a) == material_key(b);
 }
-// The same, ignoring the light probe SH: the shadow pass never reads it, so batches that differ only there draw their
-// casters as one run (build_batches).
+// The same, ignoring the light probe SH and the LOD cross-fade: the shadow pass reads neither, so batches that differ only there
+// draw their casters as one run (build_batches).
 bool same_shadow_material(const MeshItem& a, const MeshItem& b) {
     return material_key(a, false) == material_key(b, false);
 }

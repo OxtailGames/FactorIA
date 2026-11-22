@@ -5015,9 +5015,10 @@
     // height, renderScale and more; docs/COMPONENTS.md lists every field under game.render_stats). lights are the 3D lights, lights2d
     // the Light2D ones (lights2dShadowed: those with a shadow); sceneCopies counts the copies of the picture drawn so far that
     // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). terrainTiles and
-    // terrainTriangles count the Terrain tiles drawn in the main pass and their triangles (also in triangles; not in meshes). The other
-    // big-world counters (M75, 0 until their package draws): lodCrossFades, impostors, occluders, occlusionTests, meshesOccluded,
-    // foliageInstances, foliageInstancesCulled. Throws
+    // terrainTriangles count the Terrain tiles drawn in the main pass and their triangles (also in triangles; not in meshes).
+    // lodCrossFades counts the meshes drawn as one level of a dithered LOD cross-fade, over every camera (an entity fading
+    // from one level to another counts two). The other big-world counters (M75, 0 until their package draws): impostors, occluders,
+    // occlusionTests, meshesOccluded, foliageInstances, foliageInstancesCulled. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();

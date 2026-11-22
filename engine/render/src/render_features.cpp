@@ -312,11 +312,11 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         // The big worlds of M75 (docs/BIG_WORLDS.md): planned "M75" until each package draws its row.
         {"lodCrossFade", "",
-         "Dithered cross-fade between two levels of detail (MeshRenderer.lodCrossFade, LodGroup.crossFade): both "
-         "levels "
-         "are drawn for the fade's duration, each with a screen-door mask, so a change of level does not pop. Every "
-         "backend (M75.1).",
-         "M75"},
+         "Level of detail by distance or screen size (MeshRenderer.lods with lodMode, LodGroup) and the dithered "
+         "cross-fade between two levels (MeshRenderer.lodCrossFade, LodGroup.crossFade): both levels are drawn for "
+         "the fade's duration, each on the pixels the other leaves (a screen-space dither, no texture), so a change "
+         "of level does not pop. Every backend (M75.1); a mesh with a full-shader material switches at once.",
+         nullptr},
         {"impostors", "",
          "Impostors: a mesh far away is drawn as one camera-facing quad that shows a baked picture of the model from "
          "the nearest of a ring of angles (MeshRenderer.impostor, the model.bake_impostor command). Every backend "

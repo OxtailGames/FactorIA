@@ -12,6 +12,7 @@
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
+#include "fa/scene/components_world.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -136,6 +137,33 @@ void build_3d(World& w) {
     }
 }
 
+// The 3D scene again, every cube and sphere with two lower levels by distance (a third of them with a cross-fade, which never runs
+// here: the bench's frames have no time delta and nothing moves) and 40 LodGroups of three meshes by screen size: what the
+// per-camera selection of the levels costs next to render.frame3d.
+void build_lod3d(World& w) {
+    build_3d(w);
+    int n = 0;
+    w.each<MeshRenderer>([&n](Entity, MeshRenderer& m) {
+        if (m.mesh != "cube" && m.mesh != "sphere") return;
+        m.lods = Json::array({Json{{"mesh", "sphere"}, {"distance", 30}}, Json{{"mesh", "cube"}, {"distance", 55}}});
+        if (++n % 3 == 0) m.lodCrossFade = 0.3f;
+    });
+    Rng rng(33);
+    for (int g = 0; g < 40; ++g) {
+        Entity group = make(w, {-30.0f + float(g) * 1.5f, 1.5f, -20.0f + float(rng.next_u32() % 40)});
+        LodGroup& lg = w.add<LodGroup>(group);
+        lg.mode = LodMode::ScreenSize;
+        lg.thresholds.push_back(0.25f);
+        lg.thresholds.push_back(0.08f);
+        lg.crossFade = 0.3f;
+        for (int level = 0; level < 3; ++level) {
+            Entity child = w.create();
+            w.set_parent(child, group);
+            w.add<MeshRenderer>(child).mesh = level == 0 ? "sphere" : "cube";
+        }
+    }
+}
+
 Bench render_bench(const char* name, const char* summary, void (*build)(World&), std::int64_t items, const char* unit) {
     Bench b;
     b.name = name;
@@ -176,6 +204,10 @@ void add_render_benches(std::vector<Bench>& out) {
     out.push_back(render_bench(
         "render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
         build_3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench(
+        "render.lod3d",
+        "render.frame3d with two lower levels on every mesh and 40 LodGroups of three meshes: the cost of picking the levels",
+        build_lod3d, 8 * 1600, "meshes"));
 }
 
 }  // namespace fa::bench

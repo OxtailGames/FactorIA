@@ -2129,9 +2129,10 @@ void register_builtin_components(TypeRegistry& r) {
                "the batch of the mesh they show. With lodMode \"screenSize\" an entry takes {\"mesh\": ..., "
                "\"screenSize\": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's "
                "diameter over the height of the view at that distance), below which that mesh replaces the one "
-               "before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are "
-               "saved and checked today and drawn "
-               "from M75.1; until then only `distance` entries change what is drawn.")
+               "before it (entries ordered from the largest screenSize to the smallest). The camera of the main view "
+               "chooses the level, and the shadows and the probe and GI captures draw the level it chose; a "
+               "split-screen camera chooses for its own view. With lodCrossFade above 0 the switch fades (see "
+               "lodCrossFade).")
         .field(
             "instances", &MeshRenderer::instances,
             "0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the "
@@ -2267,23 +2268,29 @@ void register_builtin_components(TypeRegistry& r) {
                     "diameter of the mesh's world-space bounding sphere divided by the height of the view at that "
                     "distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as "
                     "the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; "
-                    "it does change with the field of view, the zoom and the size of the object. No effect yet: M75.1 "
-                    "draws it.")
+                    "it does change with the field of view, the zoom and the size of the object. The distance d is the "
+                    "one to the entity's origin; the sphere's diameter is the diagonal of the mesh's box (the "
+                    "full-detail mesh) times the entity's largest scale. Drawn by the 3D renderer.")
         .field("lodCrossFade", &MeshRenderer::lodCrossFade,
                "Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the "
-               "change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; "
-               "`renderer.supports` lodCrossFade says whether the GPU backend can.")
+               "change does not pop. 0 (default) = a hard switch. 0..5. During the fade both levels are drawn, each "
+               "on a complementary screen-space dither (two draws of the entity; renderStats.lodCrossFades counts "
+               "them), so a mesh fades by dissolving, with no blending and no sorting. A mesh with a full-shader "
+               "material switches at once. The shadow passes draw the new level only. An entity that is fading is "
+               "drawn on its own, outside the instanced batch of its mesh. The fade lasts lodCrossFade seconds of the "
+               "frame delta and is never part of the simulation; going back to the first level during a fade turns "
+               "it round where it stands. `renderer.supports` lodCrossFade is true on every backend.")
         .range(0, 5)
         .asset_field("impostor", &MeshRenderer::impostor, "any",
                      "Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes "
                      "next to its atlas): a ring of pictures of the model that a camera-facing quad shows from "
                      "impostorDistance on, for trees and other things that are far away. \"\" (default) = none. No "
-                     "effect yet: M75.1 draws it; `model.bake_impostor` is not built yet either.")
+                     "effect yet: a later M75 package draws it; `model.bake_impostor` is not built yet either.")
         .field("impostorDistance", &MeshRenderer::impostorDistance,
                "Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a "
                "screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). "
                "0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` "
-               "warns. 0..100000. No effect yet: M75.1 draws it.")
+               "warns. 0..100000. No effect yet: a later M75 package draws it.")
         .range(0, 100000);
 
     r.add<Light>("Light",

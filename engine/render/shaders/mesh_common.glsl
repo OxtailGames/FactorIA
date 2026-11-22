@@ -475,7 +475,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_rpb_bz;
     // The realtime GI grids (RealtimeGI; fa_gi_light below): their records are in the light data texture.
     vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
-                                // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce)
+                                // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce),
+                                // w = the LOD cross-fade of the draw (fa_lod_dither): 0 = none, +a = the level fading in, -a = the level fading out
 };
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
@@ -489,6 +490,18 @@ in vec2 fa_uv;
 in vec4 fa_vertex_color;
 
 @include_block fa_types
+
+// The dithered cross-fade between two levels of detail (MeshRenderer.lodCrossFade, LodGroup.crossFade): the renderer draws both levels
+// for a few frames, the one fading in with fa_gi.w = +a and the one fading out with -a (0 < a < 1). A screen-space pattern (interleaved
+// gradient noise, no texture) picks the pixels: the level fading in keeps those where it is below a, the other those where it is not, so
+// the two levels cover every pixel exactly once. A draw with fa_gi.w = 0 (every draw of a scene without a fade) returns at once.
+void fa_lod_dither() {
+    float a = fa_gi.w;
+    if (a != 0.0) {
+        float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (a > 0.0 ? n >= a : n < -a) { discard; }
+    }
+}
 @end
 
 @block fa_fs_rest
@@ -1008,6 +1021,7 @@ void main() {
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif
+    fa_lod_dither();
 
     vec3 result;
     float fa_tr_blend = 0.0;  // fallback draw of a transmissive surface (no atlas): how much of the picture behind the plain blend lets through
@@ -1378,6 +1392,7 @@ void main() {
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif
+    fa_lod_dither();
     vec3 n = normalize(s.normal);
     vec3 nv = normalize(vec3(dot(fa_pre_r0, n), dot(fa_pre_r1, n), dot(fa_pre_r2, n)));
     // Octahedral encoding: the sphere folded onto the square -1..1 (decode: n = (e.x, e.y, 1 - |e.x| - |e.y|); where n.z < 0,

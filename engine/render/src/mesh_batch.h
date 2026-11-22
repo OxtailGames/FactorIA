@@ -43,6 +43,9 @@ struct MeshItem {
     std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // The LOD cross-fade of the item (M75.1, lod_fade_amount): 0 = none, +a = a level fading in, -a = a level fading out; the shader
+    // dithers with it (mesh_common.glsl fa_lod_dither). Items with different values never share a draw; the shadow pass ignores it.
+    float lodFade = 0.0f;
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
     // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
