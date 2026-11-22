@@ -6,7 +6,8 @@
 #   tools/shaders/compile_shaders.sh            # all shaders
 #   tools/shaders/compile_shaders.sh mesh quad  # only these
 #
-# A top file that needs defines names them in a `// shdc-defines: A:B` comment (sokol-shdc --defines).
+# A top file that needs defines names them in a `// shdc-defines: A:B` comment (sokol-shdc --defines), and one that only some
+# backends run names its dialects in `// shdc-slang: glsl430:metal_macos:...` (the default is the SLANG list below).
 # Only top files (the ones declaring an @program) are compiled. The others are templates they @include, with paths
 # relative to the including file (mesh_common.glsl: the mesh template every mesh program, built-in or a material's,
 # is made from; docs/design/CUSTOM_SHADERS.md).
@@ -82,7 +83,10 @@ for input in "$SRC"/*.glsl; do
     defines="$(sed -n 's|^// shdc-defines: *||p' "$input" | head -n 1 | tr -d '\r')"
     extra=()
     [ -z "$defines" ] || extra=(--defines "$defines")
-    "$SHDC" --input "$input" --output "$output" --slang "$SLANG" --format sokol --ifdef --no-log-cmdline ${extra[@]+"${extra[@]}"}
+    # A file that only some backends can run (hiz.glsl: a compute shader, which GLES3 and WebGL2 cannot) names the dialects it is made for:
+    # `// shdc-slang: glsl430:metal_macos`. The others have no code in its header, so the web and Android players do not grow.
+    slang="$(sed -n 's|^// shdc-slang: *||p' "$input" | head -n 1 | tr -d '\r')"
+    "$SHDC" --input "$input" --output "$output" --slang "${slang:-$SLANG}" --format sokol --ifdef --no-log-cmdline ${extra[@]+"${extra[@]}"}
     compiled=$((compiled + 1))
 done
 [ "$compiled" -gt 0 ] || { echo "no shader matches: $*" >&2; exit 1; }
