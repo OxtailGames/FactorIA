@@ -134,6 +134,9 @@ struct SceneMesh {
     // groups are known). A camera draws it only where hlod_proxy_shown says so.
     std::uint32_t hlodGroup = 0;
     bool hlodProxy = false;  // the mesh is a proxy (hlodGroup is set for it by build_lod_groups)
+    // The mesh is the HLOD proxy of a streamed cell that is not loaded (EntityInfo::streamedProxy, M75 P1e): an ordinary MeshRenderer that
+    // renderStats.hlodProxies counts too.
+    bool streamProxy = false;
 };
 
 // A LodGroup of the scene (M75.1) with the sphere that bounds the meshes of its whole subtree, in world space.

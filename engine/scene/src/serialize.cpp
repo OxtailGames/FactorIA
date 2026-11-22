@@ -1027,7 +1027,8 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
     if (opts.includeChildren && !world.children(e).empty()) {
         Json kids = Json::array();
         for (Entity c : world.children(e)) {
-            if (world.info(c).streamedCell) continue;  // a streamed cell is its own file (docs/BIG_WORLDS.md)
+            if (world.info(c).streamedCell || world.info(c).streamedProxy)
+                continue;  // a streamed cell is its own file (docs/BIG_WORLDS.md); its HLOD proxy is made again by the streamer
             if (opts.skipSpawned && skip_spawned_subtree(world, c, opts)) continue;
             kids.push_back(entity_to_json(world, c, opts));
         }
@@ -1210,7 +1211,8 @@ Json save_scene(const World& world, const SaveSceneOptions& options) {
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) {
-        if (world.info(e).streamedCell) continue;  // a streamed cell is its own file, loaded again by the streamer
+        if (world.info(e).streamedCell || world.info(e).streamedProxy)
+            continue;  // a streamed cell is its own file, loaded again by the streamer (and so is its proxy)
         if (skipSpawned && skip_spawned_subtree(world, e, eo)) continue;
         ents.push_back(entity_to_json(world, e, eo));
     }

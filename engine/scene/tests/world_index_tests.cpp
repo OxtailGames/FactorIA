@@ -244,3 +244,106 @@ TEST_CASE("world index: `persistent` names the scene of what stays loaded, is wr
     REQUIRE_FALSE(escape.ok());
     CHECK(all_text(escape).find("/persistent") != std::string::npos);
 }
+
+namespace {
+
+std::string cell_with_hlod(const std::string& hlod) {
+    return R"({"coord":[1,0],"scene":"cells/1_0.scene.json","bounds":{"min":[0,0,0],"max":[100,10,100]},"hlod":)" +
+           hlod + "}";
+}
+
+}  // namespace
+
+TEST_CASE("world index: a cell's hlod proxy is read, written back in the canonical order and found by its corner") {
+    auto r = parse_world_index(index_json(cell_with_hlod(R"({"mesh":"hlod/1_0.glb","maxDistance":900})")),
+                               "worlds/test.world.json", no_files());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : all_text(r)));
+    const WorldCell& c = r.value().cells.at(0);
+    CHECK(c.hlod == "hlod/1_0.glb");
+    CHECK(c.hlodMaxDistance == 900.0);
+    // the corner of cell [1, 0] of an index with origin [-100, 0] and cells of 100: x 0, z 0, height 0
+    const DVec3 corner = world_cell_corner(r.value(), c);
+    CHECK(corner.x == 0.0);
+    CHECK(corner.y == 0.0);
+    CHECK(corner.z == 0.0);
+    // a round trip keeps the proxy; maxDistance is written only when above 0
+    const Json back = world_index_to_json(r.value());
+    CHECK(back["cells"][0]["hlod"]["mesh"] == "hlod/1_0.glb");
+    CHECK(back["cells"][0]["hlod"]["maxDistance"] == 900.0);
+    CHECK(back["cells"][0].dump().find("hlod") > back["cells"][0].dump().find("bounds"));
+    auto again = parse_world_index(back, "worlds/test.world.json", no_files());
+    REQUIRE(again.ok());
+    CHECK(world_index_to_json(again.value()) == back);
+    auto plain = parse_world_index(index_json(cell_with_hlod(R"({"mesh":"hlod/1_0.glb"})")), "worlds/test.world.json",
+                                   no_files());
+    REQUIRE(plain.ok());
+    CHECK(plain.value().cells[0].hlodMaxDistance == 0.0);
+    CHECK_FALSE(world_index_to_json(plain.value())["cells"][0]["hlod"].contains("maxDistance"));
+    // a cell without one writes no "hlod" key
+    auto none = parse_world_index(index_json(kCellB), "worlds/test.world.json", no_files());
+    REQUIRE(none.ok());
+    CHECK(none.value().cells[0].hlod.empty());
+    CHECK_FALSE(world_index_to_json(none.value())["cells"][0].contains("hlod"));
+    // the corner of a 2d cell is on XY
+    auto flat = parse_json(
+        R"({"format":"factoria.world/1","version":1,"dimension":"2d","cellSize":64,"origin":[10,20],"cells":[
+            {"coord":[2,3],"scene":"c.scene.json","bounds":{"min":[138,212],"max":[190,260]}}]})",
+        "test");
+    auto flatIndex = parse_world_index(flat.value(), "w.world.json", no_files());
+    REQUIRE_MESSAGE(flatIndex.ok(), (flatIndex.ok() ? std::string() : all_text(flatIndex)));
+    const DVec3 c2 = world_cell_corner(flatIndex.value(), flatIndex.value().cells[0]);
+    CHECK(c2.x == 138.0);
+    CHECK(c2.y == 212.0);
+    CHECK(c2.z == 0.0);
+}
+
+TEST_CASE("world index: a wrong hlod entry is an error with its JSON pointer and a hint") {
+    struct Bad {
+        const char* hlod;
+        const char* pointer;
+    };
+    const Bad bad[] = {{R"("hlod/1_0.glb")", "/cells/0/hlod"},
+                       {R"({})", "/cells/0/hlod/mesh"},
+                       {R"({"mesh":5})", "/cells/0/hlod/mesh"},
+                       {R"({"mesh":""})", "/cells/0/hlod/mesh"},
+                       {R"({"mesh":"hlod/1_0.png"})", "/cells/0/hlod/mesh"},
+                       {R"({"mesh":"../outside.glb"})", "/cells/0/hlod/mesh"},
+                       {R"({"mesh":"a.glb","maxDistance":-1})", "/cells/0/hlod/maxDistance"},
+                       {R"({"mesh":"a.glb","maxDistance":"far"})", "/cells/0/hlod/maxDistance"}};
+    for (const Bad& b : bad) {
+        INFO(b.hlod);
+        auto r = parse_world_index(index_json(cell_with_hlod(b.hlod)), "worlds/test.world.json", no_files());
+        REQUIRE_FALSE(r.ok());
+        CHECK(all_text(r).find(b.pointer) != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    // an unknown key is a warning with a suggestion, not an error
+    std::vector<WorldIndexIssue> issues;
+    auto typo = parse_world_index(index_json(cell_with_hlod(R"({"mesh":"a.glb","maxDistence":5})")),
+                                  "worlds/test.world.json", no_files(), &issues);
+    REQUIRE(typo.ok());
+    bool warned = false;
+    for (const WorldIndexIssue& i : issues)
+        if (!i.error && i.pointer == "/cells/0/hlod/maxDistence" && i.hint.find("maxDistance") != std::string::npos)
+            warned = true;
+    CHECK(warned);
+}
+
+TEST_CASE("world index: a missing proxy file is a warning that names the cell and suggests the files that exist") {
+    // Only the shape of the message is checked: the files of the process's project are not the ones the index names.
+    std::vector<WorldIndexIssue> issues;
+    WorldIndexOptions files;
+    files.checkFiles = true;
+    auto r = parse_world_index(index_json(cell_with_hlod(R"({"mesh":"no_such_folder/1_0.glb"})")),
+                               "worlds/test.world.json", files, &issues);
+    bool proxyWarning = false;
+    for (const WorldIndexIssue& i : issues)
+        if (i.pointer == "/cells/0/hlod/mesh") {
+            proxyWarning = true;
+            CHECK_FALSE(i.error);
+            CHECK(i.message.find("[1,0]") != std::string::npos);
+            CHECK(i.message.find("no_such_folder/1_0.glb") != std::string::npos);
+        }
+    CHECK(proxyWarning);  // the scene file is missing too (an error), but the proxy is reported on its own
+    (void)r;
+}

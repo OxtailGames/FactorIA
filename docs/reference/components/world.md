@@ -17,6 +17,7 @@ Turns this scene into a streamed world: `world` names an index file (<name>.worl
 | `keepLoaded` | bool | `false` | Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. Default false. |
 | `cameraLoadRadius` | float | `0.0` | Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor. Range 0.0..1000000.0. |
 | `cameraUnloadRadius` | float | `0.0` | Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius. Range 0.0..1000000.0. |
+| `hlodDistance` | float | `0.0` | Metres, 0..1000000: a cell that is NOT loaded and lies within this distance of an anchor (or of the camera anchor) draws its HLOD proxy, the simplified mesh its index entry names ("hlod", written by world.bake_cell_hlods), so the horizon is not empty beyond the load radius. The proxy goes the frame the cell's entities appear and returns when they unload; it is a transient entity ("hlod i,j"): never saved. A cell's own hlod.maxDistance can only shorten this range. Proxies are read in the background; at most 512 are prepared at once (the nearest cells). It must exceed the load radius to show anything. 0 (default) = no proxy is drawn. Range 0.0..1000000.0. |
 
 ## StreamingAnchor
 

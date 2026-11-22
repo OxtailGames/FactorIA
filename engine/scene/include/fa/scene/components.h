@@ -42,6 +42,10 @@ struct EntityInfo {
     // Not serialized and not reflected: true on the root entity of a streamed cell (engine/runtime world_streamer.h). The cell's
     // content is its own file: scene.save and snapshots leave the whole subtree out. (Showing cells apart from the scene in the editor is planned, M75.3c.)
     bool streamedCell = false;
+    // Not serialized and not reflected: true on the entity the streamer makes to draw the HLOD proxy of a streamed cell that is not loaded
+    // (engine/runtime world_streamer.h, M75 P1e). It is transient: scene.save and snapshots leave it out, the streamer makes and
+    // destroys it, and the renderer counts its mesh in renderStats.hlodProxies.
+    bool streamedProxy = false;
     // Not serialized and not reflected: where the entity came from when a prefab made it. `prefab` is the project-relative
     // path of the prefab on the ROOT of an instance (a scene entry {"prefab": ...}, scene.spawn or instantiate_prefab) and
     // empty everywhere else. `fromPrefab` is true on the root of an instance and on every entity the prefab's own content

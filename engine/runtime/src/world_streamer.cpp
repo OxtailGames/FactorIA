@@ -47,6 +47,18 @@ const char* WorldStreamer::state_name(State s) {
     return "unloaded";
 }
 
+// What world.cells says about a cell's HLOD proxy: "none" (not wanted now), "loading", "ready" (prepared, not drawn: the cell is loaded or
+// its entity is not made yet), "shown" or "failed".
+const char* WorldStreamer::proxy_name(const CellState& st) {
+    switch (st.proxy) {
+        case Proxy::None: return "none";
+        case Proxy::Loading: return "loading";
+        case Proxy::Ready: return st.proxyEntity.is_null() ? "ready" : "shown";
+        case Proxy::Failed: return "failed";
+    }
+    return "none";
+}
+
 WorldStreamer::WorldStreamer(World& world, BackgroundLoader& loader) : world_(world), loader_(loader) {}
 
 WorldStreamer::Settings WorldStreamer::read_settings() const {
@@ -80,6 +92,7 @@ WorldStreamer::Settings WorldStreamer::read_settings() const {
     s.keepLoaded = chosen->keepLoaded;
     s.cameraLoad = chosen->cameraLoadRadius;
     s.cameraUnload = chosen->cameraUnloadRadius;
+    s.hlodDistance = std::isfinite(chosen->hlodDistance) ? std::clamp(double(chosen->hlodDistance), 0.0, 1.0e6) : 0.0;
     return s;
 }
 
@@ -271,6 +284,7 @@ void WorldStreamer::do_unload(std::size_t idx) {
 }
 
 void WorldStreamer::drop_everything(bool sendEvents) {
+    drop_proxies();
     const std::vector<std::size_t> ids(tracked_.begin(), tracked_.end());
     for (std::size_t idx : ids) {
         const State s = cells_[idx].state;
@@ -300,6 +314,9 @@ void WorldStreamer::reset() {
     for (std::size_t idx : std::vector<std::size_t>(tracked_.begin(), tracked_.end())) {
         if (cells_[idx].state == State::Loading) cancel_cell(idx);
     }
+    for (std::size_t idx : proxies_)  // their entities go with the world; only the jobs need to be stopped
+        if (cells_[idx].proxy == Proxy::Loading) loader_.cancel(cells_[idx].proxyJob, nullptr);
+    proxies_.clear();
     tracked_.clear();
     failed_.clear();
     cells_.clear();
@@ -315,6 +332,7 @@ void WorldStreamer::reset() {
     minJ_ = 0;
     maxJ_ = -1;
     loadsStarted_ = loadsCancelled_ = cellsApplied_ = unloadsDone_ = bytesLoaded_ = 0;
+    proxyLoadsStarted_ = 0;
     appliedThisFrame_ = unloadedThisFrame_ = unitsThisFrame_ = 0;
     anchorCount_ = 0;
     warnedMultiple_ = false;
@@ -450,6 +468,134 @@ void WorldStreamer::update() {
         ++loadsStarted_;
         ++inFlight;
     }
+    update_proxies(anchors);
+}
+
+// ---- HLOD proxies ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+// How far from an anchor a cell's proxy is wanted: the StreamedWorld's hlodDistance, shortened by the cell's own hlod.maxDistance.
+double proxy_range(const WorldCell& c, double worldRange) {
+    return c.hlodMaxDistance > 0.0 ? std::min(worldRange, c.hlodMaxDistance) : worldRange;
+}
+}  // namespace
+
+void WorldStreamer::release_proxy(std::size_t idx) {
+    CellState& st = cells_[idx];
+    if (st.proxy == Proxy::Loading) loader_.cancel(st.proxyJob, nullptr);
+    st.proxyJob = 0;
+    if (!st.proxyEntity.is_null() && world_.alive(st.proxyEntity)) world_.destroy(st.proxyEntity);
+    st.proxyEntity = Entity{};
+    st.proxy = Proxy::None;
+    proxies_.erase(idx);
+}
+
+void WorldStreamer::drop_proxies() {
+    for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end())) release_proxy(idx);
+    proxies_.clear();
+}
+
+void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
+    const Settings& s = settings_;
+    struct Near {
+        std::size_t idx;
+        double distance;
+    };
+    std::vector<Near> near;  // the cells with a proxy within reach of an anchor, nearest first, at most kMaxHlodProxies
+    // keepLoaded loads every cell, so no proxy would ever show.
+    if (s.enabled && s.hlodDistance > 0.0 && !s.keepLoaded && !anchors.empty()) {
+        std::map<std::size_t, double> best;  // by cell index: the order every tie-break uses
+        for (const Anchor& an : anchors) {
+            for (std::size_t k : candidates(an.a, an.b, s.hlodDistance * kProxyKeepFactor)) {
+                const WorldCell& c = index_.cells[k];
+                if (c.hlod.empty()) continue;
+                const double d = index_.distance_to(c, an.a, an.b);
+                if (d > proxy_range(c, s.hlodDistance) * kProxyKeepFactor) continue;
+                auto [it, fresh] = best.try_emplace(k, d);
+                if (!fresh) it->second = std::min(it->second, d);
+            }
+        }
+        for (const auto& [k, d] : best) near.push_back({k, d});
+        std::sort(near.begin(), near.end(), [](const Near& x, const Near& y) {
+            return x.distance != y.distance ? x.distance < y.distance : x.idx < y.idx;
+        });
+        if (near.size() > std::size_t(kMaxHlodProxies)) near.resize(std::size_t(kMaxHlodProxies));
+    }
+    std::set<std::size_t> allowed;
+    for (const Near& n : near) allowed.insert(n.idx);
+    for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end()))
+        if (!allowed.count(idx) && cells_[idx].proxy != Proxy::Failed) release_proxy(idx);
+    int inFlight = 0;
+    for (std::size_t idx : proxies_)
+        if (cells_[idx].proxy == Proxy::Loading) ++inFlight;
+    for (const Near& n : near) {
+        if (inFlight >= kMaxProxyLoadsInFlight) break;
+        CellState& st = cells_[n.idx];
+        const WorldCell& cell = index_.cells[n.idx];
+        if (st.proxy != Proxy::None || n.distance > proxy_range(cell, s.hlodDistance)) continue;
+        auto r = loader_.start(BackgroundLoader::Kind::HlodLoad, {cell.hlod}, std::nullopt,
+                               BackgroundLoader::Origin::Tool, nullptr);
+        proxies_.insert(n.idx);
+        if (!r) {
+            st.proxy = Proxy::Failed;
+            FA_WARN("stream",
+                    "cell {}: the HLOD proxy '{}' cannot be read: {} {} The cell draws nothing while it is not loaded.",
+                    cell.id(), cell.hlod, r.error().message, r.error().hint);
+            continue;
+        }
+        st.proxy = Proxy::Loading;
+        st.proxyJob = r.value();
+        ++proxyLoadsStarted_;
+        ++inFlight;
+    }
+}
+
+void WorldStreamer::take_proxy_result(const BackgroundLoader::CellResult& r) {
+    std::size_t found = cells_.size();
+    for (std::size_t idx : proxies_)
+        if (cells_[idx].proxy == Proxy::Loading && cells_[idx].proxyJob == r.id) {
+            found = idx;
+            break;
+        }
+    loader_.cancel(r.id, nullptr);       // gives back the files it kept warm: the model is in the renderer's cache now
+    if (found == cells_.size()) return;  // not wanted any more
+    CellState& st = cells_[found];
+    st.proxyJob = 0;
+    if (!r.error.empty()) {
+        st.proxy = Proxy::Failed;
+        const WorldCell& cell = index_.cells[found];
+        FA_WARN("stream",
+                "cell {}: the HLOD proxy '{}' cannot be read: {}{} The cell draws nothing while it is not loaded.",
+                cell.id(), cell.hlod, r.error, r.hint.empty() ? std::string() : " " + r.hint);
+        return;
+    }
+    st.proxy = Proxy::Ready;
+}
+
+void WorldStreamer::sync_proxies() {
+    for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end())) {
+        CellState& st = cells_[idx];
+        if (!st.proxyEntity.is_null() && !world_.alive(st.proxyEntity)) st.proxyEntity = Entity{};
+        const bool cellIn = (st.state == State::Loaded || st.state == State::Unloading) && world_.alive(st.root);
+        const bool want = st.proxy == Proxy::Ready && !cellIn;
+        const bool shown = !st.proxyEntity.is_null();
+        if (shown && !want) {
+            world_.destroy(st.proxyEntity);
+            st.proxyEntity = Entity{};
+        } else if (want && !shown) {
+            const WorldCell& cell = index_.cells[idx];
+            const Entity e =
+                world_.create("hlod " + cell.id(), "hlod_" + std::to_string(cell.i) + "_" + std::to_string(cell.j));
+            world_.info(e).streamedProxy = true;
+            // At the cell's absolute corner (the mesh is in that space), local to the floating origin; a rebase moves it like any root.
+            if (Transform* t = world_.get<Transform>(e)) t->position = world_.to_local(world_cell_corner(index_, cell));
+            MeshRenderer& mr = world_.add<MeshRenderer>(e);
+            mr.mesh = cell.hlod;
+            mr.lodCrossFade = 0.0f;
+            mr.lightmapScale = 0.0f;  // no lightmap was baked for it
+            st.proxyEntity = e;
+        }
+    }
 }
 
 void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, int units) {
@@ -457,6 +603,10 @@ void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, in
     unloadedThisFrame_ = 0;
     unitsThisFrame_ = units;
     for (BackgroundLoader::CellResult& r : results) {
+        if (r.proxy) {
+            take_proxy_result(r);
+            continue;
+        }
         std::size_t found = cells_.size();
         for (std::size_t idx : tracked_)
             if (cells_[idx].state == State::Loading && cells_[idx].job == r.id) {
@@ -485,7 +635,10 @@ void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, in
         st.doc = std::move(r.scene);  // the job stays Loading until the main thread has applied it
     }
     results.clear();
-    if (tracked_.empty()) return;
+    if (tracked_.empty()) {
+        sync_proxies();
+        return;
+    }
     int budget = std::clamp(settings_.maxApplies, 1, kMaxAppliesPerFrame);
     // Unloads first (they free memory), in index order; then the cells that are ready, in the order their jobs started.
     for (std::size_t idx : std::vector<std::size_t>(tracked_.begin(), tracked_.end())) {
@@ -504,6 +657,7 @@ void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, in
         do_apply(idx);
         --budget;
     }
+    sync_proxies();  // in this call, so the frame that gets a cell's entities loses its proxy (and the one that loses them gets it)
 }
 
 Json WorldStreamer::cells(const std::string& stateFilter, std::size_t limit) {
@@ -542,6 +696,7 @@ Json WorldStreamer::cells(const std::string& stateFilter, std::size_t limit) {
              {"distance", std::isinf(row.distance) ? Json() : Json(std::round(row.distance * 1000.0) / 1000.0)}});
         if (c.sizeBytes >= 0) item["sizeBytes"] = c.sizeBytes;
         if (st.failed) item["failed"] = true;
+        if (!c.hlod.empty()) item["proxy"] = proxy_name(st);
         list.push_back(std::move(item));
     }
     Json out = Json::object({{"world", indexPath_},
@@ -574,6 +729,16 @@ Json WorldStreamer::status() {
             case State::Unloaded: break;
         }
     }
+    std::int64_t proxiesLoading = 0, proxiesReady = 0, proxiesShown = 0, proxiesFailed = 0;
+    for (std::size_t idx : proxies_) {
+        const CellState& st = cells_[idx];
+        if (st.proxy == Proxy::Loading) ++proxiesLoading;
+        if (st.proxy == Proxy::Failed) ++proxiesFailed;
+        if (st.proxy == Proxy::Ready) {
+            ++proxiesReady;
+            if (!st.proxyEntity.is_null()) ++proxiesShown;
+        }
+    }
     Json pending = Json::array();
     std::vector<std::pair<int, std::size_t>>
         order;  // loading cells by job id (the order they were started), then the queued ones
@@ -604,6 +769,12 @@ Json WorldStreamer::status() {
                          {"unitsThisFrame", unitsThisFrame_},
                          {"maxLoadsInFlight", settings_.found ? settings_.maxLoads : 0},
                          {"maxAppliesPerFrame", settings_.found ? settings_.maxApplies : 0},
+                         {"hlodDistance", settings_.found ? settings_.hlodDistance : 0.0},
+                         {"hlodProxiesLoading", proxiesLoading},
+                         {"hlodProxiesReady", proxiesReady},
+                         {"hlodProxiesShown", proxiesShown},
+                         {"hlodProxiesFailed", proxiesFailed},
+                         {"hlodProxyLoadsStarted", proxyLoadsStarted_},
                          {"pending", pending},
                          {"lastError", lastError_}});
 }

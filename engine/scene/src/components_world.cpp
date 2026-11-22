@@ -291,6 +291,10 @@ std::vector<WorldProblem> streamed_world_problems(const StreamedWorld& w) {
                 "StreamedWorld.cameraUnloadRadius is " + num(w.cameraUnloadRadius) + ", not above cameraLoadRadius (" +
                     num(w.cameraLoadRadius) + "), so a cell on the border would load and unload every frame",
                 "Leave cameraUnloadRadius at 0 (1.25 times the load radius) or keep a margin of about 25%.");
+    if (w.hlodDistance < 0.0f || !std::isfinite(w.hlodDistance))
+        problem(out, true, "/hlodDistance",
+                "StreamedWorld.hlodDistance is " + num(w.hlodDistance) + ", which is not a distance",
+                "Use metres from 0 (no proxy is drawn) to 1000000, for example 1500.");
     return out;
 }
 
@@ -646,6 +650,15 @@ void register_world_components(TypeRegistry& r) {
             "cameraUnloadRadius", &StreamedWorld::cameraUnloadRadius,
             "Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = "
             "1.25 times cameraLoadRadius.")
+        .range(0, 1000000)
+        .field("hlodDistance", &StreamedWorld::hlodDistance,
+               "Metres, 0..1000000: a cell that is NOT loaded and lies within this distance of an anchor (or of the "
+               "camera anchor) draws its HLOD proxy, the simplified mesh its index entry names (\"hlod\", written by "
+               "world.bake_cell_hlods), so the horizon is not empty beyond the load radius. The proxy goes the frame "
+               "the cell's entities appear and returns when they unload; it is a transient entity (\"hlod i,j\"): "
+               "never saved. A cell's own hlod.maxDistance can only shorten this range. Proxies "
+               "are read in the background; at most 512 are prepared at once (the nearest cells). It must exceed the "
+               "load radius to show anything. 0 (default) = no proxy is drawn.")
         .range(0, 1000000);
 
     r.add<Terrain3D>(

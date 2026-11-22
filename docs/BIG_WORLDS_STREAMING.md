@@ -27,7 +27,8 @@ The index is a file `<name>.world.json`.
   "origin": [0, 0],
   "cells": [
     { "coord": [0, 0], "scene": "cells/0_0.scene.json",
-      "bounds": { "min": [0, 0, 0], "max": [128, 20, 128] }, "sizeBytes": 18234 },
+      "bounds": { "min": [0, 0, 0], "max": [128, 20, 128] }, "sizeBytes": 18234,
+      "hlod": { "mesh": "worlds/town_hlod/0_0.glb", "maxDistance": 900 } },
     { "coord": [-1, 2], "scene": "cells/-1_2.scene.json",
       "bounds": { "min": [-128, 0, 256], "max": [-1, 12, 383] } }
   ]
@@ -44,6 +45,11 @@ The schema is `schemas/world.schema.json`.
 - `bounds` is what the entities of the cell cover, **absolute**, and must lie inside the cell's square. A radius is measured to
   these bounds: an anchor inside them is at distance 0.
 - `scene` is a project-relative scene file. `sizeBytes` is optional (a hint for the debug view).
+- `hlod` is optional: the proxy the cell draws while it is NOT loaded ("HLOD proxies", below). `mesh` is a project-relative `.glb`
+  or `.gltf` (required inside `hlod`), `maxDistance` (0 to 1e9 metres, optional) is the farthest distance from an anchor at which
+  this cell's proxy is drawn. `world.bake_cell_hlods` writes both; every tool that writes an index keeps them. A proxy file that
+  does not exist is a warning (with "did you mean" over the `.glb` files of its folder), not an error: the cell streams, and draws
+  nothing while it is not loaded.
 - `persistent` is optional: the scene that holds what is not part of any cell (the camera, the lights, the player, the
   `StreamedWorld` itself and the scene's settings). `world.split_cells` writes it and `world.merge_cells` and the editor read it;
   the streamer ignores it (the open scene is what stays loaded).
@@ -63,7 +69,7 @@ fails when it is loaded and is reported the same way); `factoria validate` alway
 Put it on one entity of the main scene. `world` is the path of the index; `enabled` (default true) turns streaming off, and
 everything loaded unloads; `maxLoadsInFlight` (default 2, 1 to 16) is how many cells load at the same time; `maxAppliesPerFrame`
 (default 1, 1 to 64) is how many cells are added to or removed from the world per frame; `keepLoaded` (a debug aid: it costs O(cells) per fixed tick) loads every cell whatever
-the anchors say; `cameraLoadRadius` and `cameraUnloadRadius` make the active camera an anchor (0, the default, means it is not:
+the anchors say; `hlodDistance` (default 0 = no proxies, 0 to 1,000,000 metres) draws the cells' HLOD proxies ("HLOD proxies", below); `cameraLoadRadius` and `cameraUnloadRadius` make the active camera an anchor (0, the default, means it is not:
 put a `StreamingAnchor` on the player instead; an unload radius of 0 means 1.25 times the load radius). Only the first enabled
 `StreamedWorld` of the scene counts, and a second one is a warning in the log.
 
@@ -116,6 +122,53 @@ Rules for the cell scenes:
 - A cell is **not part of the main scene when it is saved**: `scene.save` and the editor's save leave out the cell roots and
   everything under them. Edit the cell's own file.
 
+### HLOD proxies
+
+A cell that is not loaded can still be seen from far away. With `StreamedWorld.hlodDistance` above 0, every cell whose index entry
+has an `hlod` draws that one simplified mesh while the cell is NOT loaded, as long as the cell is within `hlodDistance` metres of
+an anchor (the same plane distance to the cell's bounds as the load radius; a cell's own `hlod.maxDistance` can only make the range
+shorter, the nearer of the two wins). Put `hlodDistance` above the anchors' `loadRadius`, or nothing shows: the cells inside the
+load radius are loaded and the ones outside have no proxy yet.
+
+- **Which proxies exist.** Every fixed tick the streamer picks the cells with a proxy within the range of an anchor, nearest first
+  (ties by `[j, i]`), at most 512 of them, and reads their models in the background (at most four at a time) into the renderer's
+  mesh cache, so the first draw does not wait for the disk. A proxy stays prepared until every anchor is 10% farther than the range
+  (hysteresis) or the cell is not among the 512 nearest. The same run makes the same ones. `keepLoaded` loads every cell, so no
+  proxy is made while it is on.
+- **What is drawn.** A proxy is an ordinary entity `hlod i,j` (id `hlod_i_j`, `MeshRenderer.mesh` the `.glb`, `lodCrossFade` 0) at the
+  cell's absolute corner (the minimum corner of the cell on the plane, height 0: `origin + [i, j] * cellSize`). The mesh is in the
+  space of that corner, so its vertices stay small however far the cell is from the world's origin, and a floating-origin rebase
+  moves the entity like any root. The entity's `streamedProxy` flag is set: it is never saved by `scene.save`, `scene.snapshot`
+  or the editor, like the cell roots. It counts in `renderStats.hlodProxies`. It is a real entity: during play it is in
+  `scene.query`, in the editor's hierarchy and can be picked, and a script that iterates every `MeshRenderer` meets it.
+- **When it shows.** A proxy is shown only once its model is ready, and only while the cell's entities are not in the world:
+  the frame that adds the cell's root removes its proxy in the same call, and the frame that destroys a cell's root (an unload)
+  creates the proxy, so no frame draws both (and, once the proxy was prepared, no frame draws neither). A cell that is queued or
+  loading still shows its proxy until its entities arrive. There is no cross-fade between the proxy and the cell: the switch
+  pops, which is hidden by baking the proxy to match what the cell looks like from `hlodDistance`.
+- **When it cannot be read.** A proxy whose file is missing or does not decode logs ONE warning with the cell and the path, is
+  counted in `world.stream_status` `hlodProxiesFailed`, and draws nothing; it is not tried again until the index is read again (the
+  `StreamedWorld.world` path changes or the scene does). The cell itself streams as always.
+- `world.cells` gives each cell with an `hlod` a `proxy` field (`none`, `loading`, `ready`, `shown` or `failed`), and
+  `world.stream_status` has `hlodDistance`, `hlodProxiesLoading`, `hlodProxiesReady`, `hlodProxiesShown`, `hlodProxiesFailed` and
+  `hlodProxyLoadsStarted`.
+- A proxy is a snapshot: editing a cell's scene makes its proxy stale until `world.bake_cell_hlods` runs again, and a new
+  `world.split_cells` into the same index writes entries without `hlod` (bake again).
+
+`world.bake_cell_hlods {world, outDir?, cells?, ratio?, maxError?, maxDistance?, dryRun?}` makes them. For every cell of the index
+(or those in `cells`: `[i, j]` pairs or `{i, j}` objects) it loads the cell's scene on the side, merges every active `MeshRenderer`
+in it into one mesh in the space of the cell's corner (the merge and the simplifier of `world.bake_hlod`: `ratio` keeps that share
+of the triangles, default 0.1; `maxError` limits how far the surface may move), writes `<outDir>/<i>_<j>.glb` (`outDir` defaults to
+the index path without `.world.json` plus `_hlod`) and then writes `hlod.mesh` of those cells into the index (and `hlod.maxDistance`
+when you pass `maxDistance`; without it each cell keeps its value). Every file is written before the index, the index is read again
+and changed by ONE atomic write, so an index never names a file that is not there; a failure says how many files were written and
+leaves the index as it was. A cell with no mesh is listed in `cellsSkipped` and keeps whatever proxy it had. The files are the same
+bytes for the same scenes and arguments. `dryRun` bakes and reports the counts without writing a file. The index is rewritten in
+its canonical key order (comments or keys the engine does not know are not kept). The cell scenes are loaded on the side: procedural
+meshes, custom material files, per-entity overrides and textures embedded in a `.glb` are not carried (as in `world.bake_hlod`).
+Example: `world.bake_cell_hlods {"world":"worlds/town.world.json","maxDistance":900}`, then
+`StreamedWorld.hlodDistance` 900 on the streaming entity.
+
 ### Events
 
 `world.on("cellLoaded", (d, root) => ...)` and `world.on("cellUnloaded", (d) => ...)`. The data of `cellLoaded` is
@@ -127,11 +180,12 @@ queued when the cell is applied or unloaded and delivered with the other game ev
 
 - `world.cells {state, limit}` lists the cells of the index sorted by distance to the nearest anchor (cells with no anchor
   last): `{world, dimension, cellSize, total, matching, truncated, cells: [{id, coord, scene, bounds, state, entities, distance,
-  sizeBytes?, failed?}]}`. `state` is one of `unloaded`, `queued`, `loading`, `loaded` and `unloading` and filters the list;
+  sizeBytes?, failed?, proxy?}]}` (`proxy` only for a cell with an `hlod`). `state` is one of `unloaded`, `queued`, `loading`, `loaded` and `unloading` and filters the list;
   `limit` is 1 to 100000 (default 1000). Without a `StreamedWorld` or with a wrong index it fails with the code
   `no_streamed_world`, and the message says why.
 - `world.stream_status {}` says what streaming is doing: `enabled`, `world`, the cells per state (`cellsTotal`, `cellsLoaded`,
-  `cellsLoading`, `cellsQueued`, `cellsUnloading`), `inFlight`, `waitingToApply`, `anchors`, the totals since the scene started
+  `cellsLoading`, `cellsQueued`, `cellsUnloading`), `inFlight`, `waitingToApply`, `anchors`, the HLOD proxies (`hlodDistance`,
+  `hlodProxiesLoading`, `hlodProxiesReady`, `hlodProxiesShown`, `hlodProxiesFailed`, `hlodProxyLoadsStarted`), the totals since the scene started
   (`loadsStarted`, `loadsCancelled`, `cellsApplied`, `unloadsDone`, `bytesLoaded`), what the last frame did
   (`appliedThisFrame`, `unloadedThisFrame`, `unitsThisFrame`), `maxLoadsInFlight`, `maxAppliesPerFrame`, `budget`, `pending` (the
   cells that are not at rest) and `lastError`. A test steps frames until `pending` is empty and `cellsQueued` is 0.
