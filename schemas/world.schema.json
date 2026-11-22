@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/world.schema.json",
   "title": "FactorIA streamed world index (*.world.json)",
-  "description": "The index of a streamed world: the grid of cells (each one a scene file) that the engine loads and unloads around the StreamingAnchor entities. A StreamedWorld component names the file. Errors name the file and the JSON pointer; docs/BIG_WORLDS.md, \"Streaming\", explains the format and `world.cells {}` lists the cells at run time.",
+  "description": "The index of a streamed world: the grid of cells (each one a scene file) that the engine loads and unloads around the StreamingAnchor entities. A StreamedWorld component names the file. Errors name the file and the JSON pointer; docs/BIG_WORLDS_STREAMING.md, \"Streaming\", explains the format and `world.cells {}` lists the cells at run time.",
   "type": "object",
   "required": [
     "version",

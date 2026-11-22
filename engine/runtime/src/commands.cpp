@@ -1197,7 +1197,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "MeshRenderer.lodCrossFade, LodGroup.crossFade). "
          "occluders (the Occluders rasterised), occlusionTests (the meshes tested against them) and meshesOccluded "
          "(the ones hidden behind them and left out of the main pass, also in meshesCulled) count the CPU occlusion "
-         "culling of docs/BIG_WORLDS.md: 0 when no enabled Occluder is in the scene. "
+         "culling of docs/BIG_WORLDS_LOD.md: 0 when no enabled Occluder is in the scene. "
          "Three more are 0 until M75.6 draws them (big worlds: impostors, foliageInstances, "
          "foliageInstancesCulled; docs/BIG_WORLDS.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "

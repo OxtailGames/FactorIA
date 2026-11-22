@@ -433,7 +433,7 @@ by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
 
 ## Levels of detail (M75-P1a)
 
-The user page is docs/BIG_WORLDS.md, "Levels of detail". The selection is pure and lives in `engine/scene/{include/fa/scene,src}/lod.{h,cpp}`
+The user page is docs/BIG_WORLDS_LOD.md, "Levels of detail". The selection is pure and lives in `engine/scene/{include/fa/scene,src}/lod.{h,cpp}`
 (`lod_level_of` for a `MeshRenderer`, `lod_group_level` for a `LodGroup`, `lod_screen_size`, and the cross-fade state `LodFadeState` with
 `lod_fade_step` / `lod_fade_amount`; `lod_mesh` stays the bit-identical distance function). `engine/render/src/renderer_lod.{h,cpp}`
 (`LodFades`, a member of `Renderer::Impl`) holds the render-only state.
