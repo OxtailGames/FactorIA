@@ -157,6 +157,95 @@ bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, st
     }
 }
 
+struct AsyncBufferRead::Impl {
+    enum class State { Free, Pending, Discard };
+    struct Slot {
+        id<MTLBuffer> dst = nil;  // shared memory: the CPU reads it directly
+        id<MTLCommandBuffer> cmd = nil;
+        std::size_t bytes = 0;
+        State state = State::Free;
+    };
+    Slot slots[kSlots];
+    static bool finished(const Slot& s) {
+        return s.cmd.status == MTLCommandBufferStatusCompleted || s.cmd.status == MTLCommandBufferStatusError;
+    }
+    // A discarded slot becomes free when its copy has finished.
+    void sweep() {
+        for (Slot& s : slots)
+            if (s.state == State::Discard && finished(s)) {
+                s.cmd = nil;
+                s.state = State::Free;
+            }
+    }
+};
+
+AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::~AsyncBufferRead() {
+    for (Impl::Slot& s : impl_->slots)
+        if (s.cmd && s.state != Impl::State::Free) [s.cmd waitUntilCompleted];
+}
+
+bool AsyncBufferRead::supported() { return true; }
+
+int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+    @autoreleasepool {
+    impl_->sweep();
+    int slot = -1;
+    for (int i = 0; i < kSlots && slot < 0; ++i)
+        if (impl_->slots[i].state == Impl::State::Free) slot = i;
+    if (slot < 0) return -1;
+    const sg_mtl_buffer_info info = sg_mtl_query_buffer_info(buffer);
+    id<MTLBuffer> src = (__bridge id<MTLBuffer>)info.buf[info.active_slot];
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    if (!src || !queue || !device || bytes == 0 || bytes > std::size_t(src.length)) {
+        if (error) *error = "readback: no Metal buffer of that size to read";
+        return -1;
+    }
+    Impl::Slot& s = impl_->slots[slot];
+    if (!s.dst || s.bytes < bytes) {
+        s.dst = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
+        s.bytes = s.dst ? bytes : 0;
+        if (!s.dst) {
+            if (error) *error = "readback: Metal could not allocate " + std::to_string(bytes) + " bytes to read into";
+            return -1;
+        }
+    }
+    // After the sokol command buffer that wrote `src` (one queue, in order; the caller committed it).
+    id<MTLCommandBuffer> cmd = [queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+    [blit copyFromBuffer:src sourceOffset:0 toBuffer:s.dst destinationOffset:0 size:bytes];
+    [blit endEncoding];
+    [cmd commit];
+    s.cmd = cmd;
+    s.state = Impl::State::Pending;
+    return slot;
+    }
+}
+
+bool AsyncBufferRead::poll(int slot, std::vector<std::uint8_t>& out, bool wait) {
+    if (slot < 0 || slot >= kSlots || impl_->slots[slot].state != Impl::State::Pending) return false;
+    Impl::Slot& s = impl_->slots[slot];
+    if (!Impl::finished(s)) {
+        if (!wait) return false;
+        [s.cmd waitUntilCompleted];
+    }
+    const bool ok = s.cmd.status == MTLCommandBufferStatusCompleted;
+    if (ok) {
+        out.resize(s.bytes);
+        std::memcpy(out.data(), [s.dst contents], s.bytes);
+    }
+    s.cmd = nil;
+    s.state = Impl::State::Free;
+    return ok;
+}
+
+void AsyncBufferRead::release(int slot) {
+    if (slot < 0 || slot >= kSlots) return;
+    Impl::Slot& s = impl_->slots[slot];
+    if (s.state == Impl::State::Pending) s.state = Impl::State::Discard;
+}
+
 }  // namespace fa::render
 
 #endif

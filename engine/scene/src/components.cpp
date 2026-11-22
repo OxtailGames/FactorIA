@@ -4729,6 +4729,22 @@ void register_builtin_components(TypeRegistry& r) {
                     "web; medium (default) = half the size, 32 steps, 8 shaft lights: desktop and a good phone; high "
                     "= half the size, 48 steps, 16 shaft lights. The cost grows with the steps and the lights, "
                     "never with the number of lights in the scene. Only used with volumetricFog.")
+        .enum_field(
+            "occlusionMode", &SceneSettings::occlusionMode, {"cpu", "gpu", "auto"},
+            "Which occlusion culling the 3D cameras use (docs/BIG_WORLDS.md, \"Occlusion\"): cpu (default) = "
+            "the Occluder entities are rasterised on the CPU into a small depth buffer and the meshes behind "
+            "them are left out of the picture; gpu = the opaque meshes of the last frame (their depth and "
+            "normal prepass) are reduced to a hierarchical depth image by a compute shader, read back without "
+            "waiting, and every mesh is tested against it, so the Occluders are not needed and a mesh hides "
+            "what is behind it. The depth is one frame old (a mesh that comes out from behind another can "
+            "show one frame late, a camera cut draws everything for a frame) and the camera draws the "
+            "prepass every frame: it costs one more pass over the opaque meshes, so use it for scenes with "
+            "thousands of meshes behind buildings and hills. A camera culled this way does not use the Occluders. "
+            "Where the backend has no compute shaders (GLES3, WebGL2, macOS OpenGL; render.supports "
+            "occlusionGpu says no) gpu falls back to cpu with one warning and auto to cpu silently. "
+            "Perspective cameras only; a camera that draws into a CameraView keeps the cpu culling, and a "
+            "reflection probe's or realtime GI capture is never culled by the pyramid. Shadows are never "
+            "culled by it.")
         .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
                      "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
                      "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "

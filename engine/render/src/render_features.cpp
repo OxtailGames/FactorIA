@@ -329,10 +329,16 @@ std::vector<FeatureDef> build_table() {
          "with a later package.",
          nullptr},
         {"occlusionGpu", "compute",
-         "Occlusion culling on the GPU: a hierarchical depth image of the last frame culls the objects of a scene "
-         "with many thousands of meshes in a compute pass. Needs compute shaders (computeShaders: D3D11, Metal, "
-         "OpenGL 4.3; never GLES3 or WebGL2), where the CPU culling is used instead (M75.2).",
-         "M75"},
+         "Occlusion culling on the GPU (SceneSettings.occlusionMode \"gpu\" or \"auto\"): the camera's depth and "
+         "normal prepass is "
+         "reduced by a compute pass to a 256-cell-wide grid of nearest and farthest depths, read back without waiting "
+         "(one frame "
+         "late), and the boxes of the meshes are tested against its mip chain; a mesh behind a fully covered area is "
+         "left out of the "
+         "main pass (shadows still use it). Needs compute shaders (computeShaders: D3D11, Metal, OpenGL 4.3; never "
+         "GLES3 or "
+         "WebGL2, where occlusionMode \"auto\" uses the CPU Occluders). Perspective cameras only (M75).",
+         nullptr},
         {"terrain", "",
          "Terrain: a heightmap drawn as a quadtree of tiles that coarsen with distance (the Terrain component, M75): "
          "one 33 x 33 patch instanced per tile, the heights read in the vertex shader, morphed between levels, lit and "

@@ -443,6 +443,7 @@ void Renderer::shutdown() {
         im.waterFx.release();
         im.skyEnv.release();
         im.probes_release();
+        im.hiz_release();
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
@@ -500,6 +501,8 @@ int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 void Renderer::begin_frame() {
     if (!initialized()) return;
     impl_->inFrame = true;
+    impl_
+        ->hiz_submit();  // before sokol's frame begins: the copy of the last depth pyramid is queued after the frame that made it
     impl_->gpu.begin_frame();
 }
 
@@ -982,6 +985,8 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
     if (!r.impl_) return {};
     return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
 }
+int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
+int RendererTestAccess::hiz_cameras(Renderer& r) { return r.impl_ ? int(r.impl_->hizCams.size()) : 0; }
 std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
 bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {
     return r.impl_ && r.impl_->originWorld == world && r.impl_->originObserver != 0;
@@ -1137,6 +1142,10 @@ void Renderer::Impl::render(World& world, float dt) {
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
     occlusionShown = {};
     occlusion_overlay();
+    hiz_begin_frame(world);  // the mode, and the pictures of a world that is gone
+    hizPrev = std::move(hizShown);
+    hizShown = {};
+    hiz_overlay();
     assets->set_drawing(true);
     set_target_self({});
     collect_targets(

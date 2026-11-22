@@ -134,6 +134,8 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
+    HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
@@ -1029,7 +1031,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     });
     // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
     // are not culled (they show the scene from a point the Occluders were not placed for).
-    if (!fr.noProbes && !fr.giCapture && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
+    // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
+    const bool cullable = !fr.noProbes && !fr.giCapture;
+    if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))
+        ctx.hiz = hiz_cull(world, fr, meshes);
+    if (cullable && !ctx.hiz && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
@@ -2837,7 +2843,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals ||
           (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
         return false;
     bool anyMesh = false;
@@ -3982,6 +3988,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // The depth pyramid of the camera (renderer_hiz.cpp): a compute pass reduces the image to a small grid the CPU reads back a frame later.
+        if (ctx.hiz) {
+            HizCamera* hc = ctx.hiz;
+            add(
+                "hiz-reduce", {prepassRes}, {},
+                [this, &ctx, hc, prepassRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(prepassRes));
+                    if (t) hiz_reduce_pass(*hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                },
+                true);
+        }
         // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
         // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
         if (plan.gi) {

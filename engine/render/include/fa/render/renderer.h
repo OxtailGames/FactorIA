@@ -55,7 +55,8 @@ struct RendererTestAccess;
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
 // Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
-// the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`).
+// the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`). With the depth pyramid
+// (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
 enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
 
 enum class ScaleMode : std::int32_t {
@@ -162,9 +163,10 @@ struct RenderStats {
     // something (game.render_stats, perf.measure and the budgets of perf.check read them).
     int occluders =
         0;  // M75.2: Occluder entities rasterised into the occlusion depth buffer (0 with no enabled Occluder)
-    int occlusionTests = 0;  // M75.2: meshes tested against that buffer (the OcclusionArea portals are planned)
+    int occlusionTests =
+        0;  // M75.2: meshes tested against that buffer, or against the depth pyramid (occlusionMode gpu, M75.2b)
     int meshesOccluded =
-        0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders (still drawn into shadow maps)
+        0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders or the pyramid (still drawn into shadow maps)
     int lodCrossFades =
         0;  // M75.1: meshes drawn in a dithered LOD cross-fade (MeshRenderer.lodCrossFade, LodGroup.crossFade)
     int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
@@ -593,8 +595,10 @@ public:
     // {supported, debugView, active, limits, camera, width, height, occluders, triangles, coveredCells, tests, hidden}. `active` is false
     // (and the rest left out) when no camera of the last frame had an enabled Occluder. With `savePath` (a UTF-8 path of a .png) the
     // depth buffer of the last camera that had occluders is written as a grey picture (black = no occluder; the nearer, the brighter) and
-    // listed in "file"; a failure is in "error". A CPU read: no GPU involved. Empty object before init().
-    Json occlusion_report(std::string_view savePath = {});
+    // listed in "file"; a failure is in "error". A CPU read: no GPU involved. Empty object before init(). "gpu" holds what the depth pyramid
+    // did (mode, supported, active, camera, width, height, levels, coveredCells, ageFrames, tests, hidden, testResults, ...); with no
+    // Occluder buffer `savePath` writes the pyramid's mip `level` there instead (0 = 256 cells across).
+    Json occlusion_report(std::string_view savePath = {}, int level = 0);
     // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
     // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
     // below `captured` have a picture (exact unless a capture failed and is being retried).

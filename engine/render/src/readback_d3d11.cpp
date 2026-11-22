@@ -209,6 +209,109 @@ bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, st
     return true;
 }
 
+struct AsyncBufferRead::Impl {
+    enum class State { Free, Pending, Discard };
+    struct Slot {
+        ID3D11Buffer* staging = nullptr;
+        ID3D11Query* done = nullptr;  // an event query: signalled when the GPU has passed the copy
+        std::size_t bytes = 0, capacity = 0;
+        State state = State::Free;
+    };
+    Slot slots[kSlots];
+    static ID3D11Device* device() { return static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device())); }
+    static ID3D11DeviceContext* context() {
+        return static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
+    }
+    static bool finished(Slot& s) {
+        BOOL b = FALSE;
+        return context()->GetData(s.done, &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK && b;
+    }
+};
+
+AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::~AsyncBufferRead() {
+    for (Impl::Slot& s : impl_->slots) {
+        if (s.staging) s.staging->Release();
+        if (s.done) s.done->Release();
+    }
+}
+
+bool AsyncBufferRead::supported() { return true; }
+
+int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+    for (Impl::Slot& s : impl_->slots)
+        if (s.state == Impl::State::Discard && Impl::finished(s)) s.state = Impl::State::Free;
+    int slot = -1;
+    for (int i = 0; i < kSlots && slot < 0; ++i)
+        if (impl_->slots[i].state == Impl::State::Free) slot = i;
+    if (slot < 0) return -1;
+    ID3D11Device* device = Impl::device();
+    ID3D11DeviceContext* ctx = Impl::context();
+    auto* src = static_cast<ID3D11Buffer*>(const_cast<void*>(sg_d3d11_query_buffer_info(buffer).buf));
+    if (!device || !ctx || !src || bytes == 0 || bytes > 0xFFFFFFFFu) {
+        if (error) *error = "readback: no D3D11 buffer for the storage buffer";
+        return -1;
+    }
+    D3D11_BUFFER_DESC sd{};
+    src->GetDesc(&sd);
+    if (bytes > sd.ByteWidth) {
+        if (error) *error = "readback: the range is outside the storage buffer";
+        return -1;
+    }
+    Impl::Slot& s = impl_->slots[slot];
+    if (!s.staging || s.capacity < bytes) {
+        if (s.staging) s.staging->Release();
+        s.staging = nullptr;
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = UINT(bytes);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(device->CreateBuffer(&desc, nullptr, &s.staging))) {
+            if (error) *error = "readback: could not create the D3D11 staging buffer";
+            return -1;
+        }
+        s.capacity = bytes;
+    }
+    if (!s.done) {
+        D3D11_QUERY_DESC qd{};
+        qd.Query = D3D11_QUERY_EVENT;
+        if (FAILED(device->CreateQuery(&qd, &s.done))) {
+            if (error) *error = "readback: could not create the D3D11 event query";
+            return -1;
+        }
+    }
+    const D3D11_BOX box{0, 0, 0, UINT(bytes), 1, 1};
+    ctx->CopySubresourceRegion(s.staging, 0, 0, 0, 0, src, 0, &box);
+    ctx->End(s.done);
+    ctx->Flush();
+    s.bytes = bytes;
+    s.state = Impl::State::Pending;
+    return slot;
+}
+
+bool AsyncBufferRead::poll(int slot, std::vector<std::uint8_t>& out, bool wait) {
+    if (slot < 0 || slot >= kSlots || impl_->slots[slot].state != Impl::State::Pending) return false;
+    Impl::Slot& s = impl_->slots[slot];
+    if (!Impl::finished(s) && !wait) return false;
+    // Map without DO_NOT_WAIT blocks until the copy has run: only on `wait`.
+    D3D11_MAPPED_SUBRESOURCE map{};
+    if (FAILED(Impl::context()->Map(s.staging, 0, D3D11_MAP_READ, 0, &map))) {
+        s.state = Impl::State::Free;
+        return false;
+    }
+    out.resize(s.bytes);
+    std::memcpy(out.data(), map.pData, s.bytes);
+    Impl::context()->Unmap(s.staging, 0);
+    s.state = Impl::State::Free;
+    return true;
+}
+
+void AsyncBufferRead::release(int slot) {
+    if (slot < 0 || slot >= kSlots) return;
+    Impl::Slot& s = impl_->slots[slot];
+    if (s.state == Impl::State::Pending) s.state = Impl::State::Discard;
+}
+
 }  // namespace fa::render
 
 #endif

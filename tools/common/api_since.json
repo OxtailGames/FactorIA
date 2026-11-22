@@ -793,6 +793,7 @@
     "SceneSettings.lightScale": "0.3.0",
     "SceneSettings.music": "0.1.0",
     "SceneSettings.musicVolume": "0.1.0",
+    "SceneSettings.occlusionMode": "unreleased",
     "SceneSettings.paperWhiteNits": "0.31.0",
     "SceneSettings.skyColor": "0.1.0",
     "SceneSettings.skyMaterial": "0.32.0",
