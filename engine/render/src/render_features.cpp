@@ -328,7 +328,8 @@ std::vector<FeatureDef> build_table() {
          "shadows). Needs no GPU feature, so every backend draws it (M75.2).",
          nullptr},
         {"occlusionPortals", "",
-         "Area and portal culling: the OcclusionArea entities are rooms and the open OcclusionPortal entities the doors "
+         "Area and portal culling: the OcclusionArea entities are rooms and the open OcclusionPortal entities the "
+         "doors "
          "between them; the meshes of a room that no chain of open portals in view leads to are not drawn in the "
          "camera's pictures (they still cast shadows). Needs no GPU feature, so every backend draws it (M75.2).",
          nullptr},

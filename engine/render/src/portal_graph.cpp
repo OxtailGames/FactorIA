@@ -22,8 +22,8 @@ float axis_len(const Mat4& m, int col) {
 }
 
 float volume_of(const PortalAreaBox& a) {
-    return std::fabs(a.size.x) * axis_len(a.model, 0) * std::fabs(a.size.y) * axis_len(a.model, 1) * std::fabs(a.size.z) *
-           axis_len(a.model, 2);
+    return std::fabs(a.size.x) * axis_len(a.model, 0) * std::fabs(a.size.y) * axis_len(a.model, 1) *
+           std::fabs(a.size.z) * axis_len(a.model, 2);
 }
 
 bool inside(const PortalAreaBox& a, Vec3 p) {
@@ -83,7 +83,8 @@ struct Walker {
         seen.emplace_back(area, view);
         if (std::find(reached.begin(), reached.end(), area) == reached.end()) reached.push_back(area);
         if (int(path.size()) >= kPortalMaxDepth) {
-            capped = true;  // a deeper chain than any real building: the answer is not known, the caller draws everything
+            capped =
+                true;  // a deeper chain than any real building: the answer is not known, the caller draws everything
             return;
         }
         path.push_back(area);
@@ -104,7 +105,8 @@ struct Walker {
             }
             Rect pr;
             if (!project_box(p, viewProj, pr)) continue;
-            Rect next{std::max(view.x0, pr.x0), std::max(view.y0, pr.y0), std::min(view.x1, pr.x1), std::min(view.y1, pr.y1)};
+            Rect next{std::max(view.x0, pr.x0), std::max(view.y0, pr.y0), std::min(view.x1, pr.x1),
+                      std::min(view.y1, pr.y1)};
             if (next.empty()) continue;
             if (std::find(used.begin(), used.end(), i) == used.end()) used.push_back(i);
             visit(other, next);
