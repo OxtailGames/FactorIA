@@ -51,6 +51,31 @@ constexpr float kMinHalf = 0.005f;  // meters; Box2D dislikes degenerate polygon
 // body with fresh contacts: endless begin/end events, and a resting body that never falls asleep).
 std::int64_t scale_key(float s) { return std::llround(double(s) * 1e4); }
 
+// What makes a different Joint2D: the joint is rebuilt when it changes (the bodies themselves included, a rebuilt body loses
+// its joints). origin_shifted recomputes it for the joints pinned to the world, whose connectedAnchor moved with the origin.
+std::uint64_t joint_shape_hash(const Joint2D& j, const WorldPose& poseA, const WorldPose& poseB, b2BodyId bodyA,
+                               b2BodyId bodyB) {
+    Hasher sh;
+    sh.add(j.type);
+    sh.add(j.connected.bits());
+    sh.add(j.collideConnected);
+    sh.add(j.anchor.x);
+    sh.add(j.anchor.y);
+    sh.add(j.connectedAnchor.x);
+    sh.add(j.connectedAnchor.y);
+    sh.add(j.axis.x);
+    sh.add(j.axis.y);
+    sh.add(scale_key(poseA.scale.x));
+    sh.add(scale_key(poseA.scale.y));
+    sh.add(scale_key(poseB.scale.x));
+    sh.add(scale_key(poseB.scale.y));
+    sh.add(bodyA.index1);
+    sh.add(bodyA.generation);
+    sh.add(bodyB.index1);
+    sh.add(bodyB.generation);
+    return sh.h;
+}
+
 std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const WorldPose& pose) {
     Hasher h;
     h.add(rb != nullptr);
@@ -1036,24 +1061,7 @@ void Physics2D::sync_joints(World& world) {
         // and translation then move THIS entity counter-clockwise / along +axis relative to what it is joined to.
 
         // What makes a different joint: rebuilt when it changes (the bodies themselves included, a rebuilt body loses its joints).
-        Hasher sh;
-        sh.add(j->type);
-        sh.add(j->connected.bits());
-        sh.add(j->collideConnected);
-        sh.add(j->anchor.x);
-        sh.add(j->anchor.y);
-        sh.add(j->connectedAnchor.x);
-        sh.add(j->connectedAnchor.y);
-        sh.add(j->axis.x);
-        sh.add(j->axis.y);
-        sh.add(scale_key(poseA.scale.x));
-        sh.add(scale_key(poseA.scale.y));
-        sh.add(scale_key(poseB.scale.x));
-        sh.add(scale_key(poseB.scale.y));
-        sh.add(bodyA.index1);
-        sh.add(bodyA.generation);
-        sh.add(bodyB.index1);
-        sh.add(bodyB.generation);
+        const std::uint64_t shapeHash = joint_shape_hash(*j, poseA, poseB, bodyA, bodyB);
         // What is applied to the live joint.
         Hasher th;
         th.add(j->enableLimit);
@@ -1068,7 +1076,7 @@ void Physics2D::sync_joints(World& world) {
         th.add(j->length);
 
         auto it = joints_.find(key);
-        if (it != joints_.end() && (it->second.shape != sh.h || !b2Joint_IsValid(it->second.joint))) {
+        if (it != joints_.end() && (it->second.shape != shapeHash || !b2Joint_IsValid(it->second.joint))) {
             destroy_joint(key);
             it = joints_.end();
         }
@@ -1130,7 +1138,7 @@ void Physics2D::sync_joints(World& world) {
                     break;
                 }
             }
-            rec.shape = sh.h;
+            rec.shape = shapeHash;
             rec.tuning = ~th.h;  // never equal: the first pass applies the tuning
             it = joints_.emplace(key, rec).first;
         }
@@ -1698,6 +1706,43 @@ void Physics2D::debug_shapes(const World& world, std::vector<Physics::DebugShape
                          0.0f,
                          false});
         }
+    }
+}
+
+void Physics2D::origin_shifted(World& world, Vec3 offset) {
+    if (!inited_ || B2_IS_NULL(world_)) return;
+    const float inv = 1.0f / settings_.pixelsPerMeter;
+    const b2Vec2 off{offset.x * inv, offset.y * inv};
+    // SetTransform leaves a sleeping body asleep and wakes nothing around it (unlike a gameplay teleport, which wakes the
+    // bodies touching it): every body moves, so nothing needs waking and the contacts stay as they are.
+    for (auto& [key, b] : bodies_) {
+        (void)key;
+        if (B2_IS_NULL(b.body) || !b2Body_IsValid(b.body)) continue;
+        const b2Vec2 p = b2Body_GetPosition(b.body);
+        b2Body_SetTransform(b.body, {p.x - off.x, p.y - off.y}, b2Body_GetRotation(b.body));
+        b.lastB2Pos = b2Body_GetPosition(b.body);
+        if (world.alive(b.e))
+            b.lastPos = world_pose(world, b.e).position;  // what the next sync compares the Transform with
+    }
+    for (auto& [key, tb] : tiles_) {
+        (void)key;
+        if (B2_IS_NULL(tb.body) || !b2Body_IsValid(tb.body) || !world.alive(tb.e)) continue;
+        const WorldPose pose = world_pose(world, tb.e);
+        b2Body_SetTransform(tb.body, {pose.position.x * inv, pose.position.y * inv}, b2MakeRot(radians(pose.rotZ)));
+        tb.pos = pose.position;
+    }
+    // A joint pinned to the world holds the world point `connectedAnchor`, which moved with the origin: the static ground
+    // stays at Box2D's origin, so the joint's anchor on it moves instead, and the joint is not rebuilt.
+    for (auto& [key, rec] : joints_) {
+        if (B2_IS_NULL(rec.joint) || !b2Joint_IsValid(rec.joint)) continue;
+        const Entity e = Entity::from_bits(key);
+        if (!world.alive(e)) continue;
+        const Joint2D* j = world.get<Joint2D>(e);
+        auto itB = bodies_.find(key);
+        if (!j || !j->connected.is_null() || itB == bodies_.end()) continue;
+        const b2Vec2 la = b2Joint_GetLocalAnchorA(rec.joint);
+        b2Joint_SetLocalAnchorA(rec.joint, {la.x - off.x, la.y - off.y});
+        rec.shape = joint_shape_hash(*j, world_pose(world, e), WorldPose{}, ground_, itB->second.body);
     }
 }
 

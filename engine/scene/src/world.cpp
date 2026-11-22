@@ -363,6 +363,8 @@ void World::clear() {
     vfxLive_ = 0;
     particles_->clear();
     warnedSpriteClips_.clear();
+    origin_ = DVec3{};
+    rebaseCount_ = 0;
 }
 
 bool World::active_in_hierarchy(Entity e) const { return alive(e) && impl_->active_cached(e); }
@@ -774,6 +776,18 @@ int World::on_destroy(EntityCallback cb) {
     int id = impl_->nextObserver++;
     impl_->observers.emplace_back(id, std::move(cb));
     return id;
+}
+
+int World::on_origin_shifted(OriginCallback cb) {
+    const int id = nextOriginObserver_++;
+    originObservers_.emplace_back(id, std::move(cb));
+    return id;
+}
+
+void World::remove_origin_observer(int id) {
+    originObservers_.erase(
+        std::remove_if(originObservers_.begin(), originObservers_.end(), [&](const auto& p) { return p.first == id; }),
+        originObservers_.end());
 }
 
 void World::remove_observer(int id) {
