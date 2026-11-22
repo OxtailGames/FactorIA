@@ -37,7 +37,8 @@ Scene wall_scene(Vec3 eye = {0, 0, 0}, float holeX = -1, float holeY = -1) {
     auto covered = [&](float cx, float cy) {  // a point of the picture in cells -> is the wall there
         const float nx = cx / float(s.w) * 2.0f - 1.0f, ny = 1.0f - cy / float(s.h) * 2.0f;
         const float tanY = 1.0f / s.hist.p11, tanX = 1.0f / s.hist.p00;
-        const float wx = nx * tanX * 10.0f + eye.x, wy = ny * tanY * 10.0f + eye.y;  // where the ray from the eye meets the wall plane
+        const float wx = nx * tanX * 10.0f + eye.x,
+                    wy = ny * tanY * 10.0f + eye.y;  // where the ray from the eye meets the wall plane
         return std::fabs(wx) < 5.0f && std::fabs(wy) < 3.0f;
     };
     for (int y = 0; y < s.h; ++y)
@@ -93,7 +94,7 @@ TEST_CASE("hiz: the chain takes the nearest and the farthest, and a cell with no
     CHECK(p.cell(3, 0, 0).farthest == 16.0f);
     CHECK(p.cell(1, 0, 0).nearest == 1.0f);   // cells (0,0) (1,0) (0,1) (1,1)
     CHECK(p.cell(1, 0, 0).farthest == 8.0f);  // the children 2, 3, 7 and 8
-    cells[3] = kHizNoDepth;                    // cell 1: no mesh
+    cells[3] = kHizNoDepth;                   // cell 1: no mesh
     REQUIRE(p.build(5, 3, cells.data(), cells.size()));
     CHECK(p.cell(3, 0, 0).farthest >= kHizNoDepth);  // the hole reaches the top: never "all covered"
     CHECK(p.covered_cells() == 14);
@@ -221,8 +222,8 @@ TEST_CASE("hiz: no box is called hidden that a ray from the moved camera reaches
                          c.z + half.z * float(k / 9 - 1)};
             const float t = (-10.0f - eye.z) / (p.z - eye.z);
             const Vec3 hit = eye + (p - eye) * t;
-            INFO("box " << c.x << " " << c.y << " " << c.z << " half " << half.x << " " << half.y << " " << half.z << " move " << move.x
-                        << " " << move.y << " " << move.z);
+            INFO("box " << c.x << " " << c.y << " " << c.z << " half " << half.x << " " << half.y << " " << half.z
+                        << " move " << move.x << " " << move.y << " " << move.z);
             // The ray is blocked: it crosses the wall's plane inside the rectangle (the point is behind the plane: t < 1).
             CHECK(t < 1.0f);
             CHECK(std::fabs(hit.x) < 5.0f);

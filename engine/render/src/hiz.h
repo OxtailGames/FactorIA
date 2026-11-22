@@ -35,13 +35,16 @@
 
 namespace fa::render {
 
-inline constexpr int kHizWidth = 256;         // cells across (the CPU occlusion buffer's width too)
-inline constexpr int kHizMinHeight = 16;      // the height is kHizWidth / aspect, clamped to this and the next
+inline constexpr int kHizWidth = 256;     // cells across (the CPU occlusion buffer's width too)
+inline constexpr int kHizMinHeight = 16;  // the height is kHizWidth / aspect, clamped to this and the next
 inline constexpr int kHizMaxHeight = 512;
 inline constexpr float kHizNoDepth = 3.0e38f;  // the value of a cell (or a pixel) that shows no mesh
-inline constexpr int kHizMaxDilate = 12;       // cells; a box that needs more is not culled (a deterministic count, never time)
-inline constexpr float kHizDepthSlack = 1.0f / 256.0f;  // the box must clear the farthest occluder by this fraction of its depth
-inline constexpr float kHizMinW = 0.02f;       // a corner closer than this to the old camera's plane is "behind the near plane"
+inline constexpr int kHizMaxDilate =
+    12;  // cells; a box that needs more is not culled (a deterministic count, never time)
+inline constexpr float kHizDepthSlack =
+    1.0f / 256.0f;  // the box must clear the farthest occluder by this fraction of its depth
+inline constexpr float kHizMinW =
+    0.02f;  // a corner closer than this to the old camera's plane is "behind the near plane"
 // How many cameras keep a pyramid (and a compute buffer), in the order their jobs are declared; the others are not culled by it.
 inline constexpr int kHizMaxCameras = 8;
 // The frames a pyramid stays usable without a newer one (the camera was not drawn, or the GPU did not answer): past it the camera is
@@ -94,15 +97,24 @@ HizPose hiz_pose(const Mat4& proj, const Mat4& viewProj, Vec3 position);
 // What a test saw, for the tests of the maths and the debug view.
 struct HizTestInfo {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the cells read, inclusive, at level 0, with the dilation
-    int level = 0;                        // the level the cells were read at
-    int dilate = 0;                       // cells added on every side
-    float boxNear = 0, occluderFar = 0;   // the nearest depth of the box and the farthest depth of the cells
-    enum class Why : std::uint8_t { Hidden, Visible, NoPyramid, Cut, BehindNear, OutsideView, TooMuchMotion, NoOccluder } why = Why::NoPyramid;
+    int level = 0;                       // the level the cells were read at
+    int dilate = 0;                      // cells added on every side
+    float boxNear = 0, occluderFar = 0;  // the nearest depth of the box and the farthest depth of the cells
+    enum class Why : std::uint8_t {
+        Hidden,
+        Visible,
+        NoPyramid,
+        Cut,
+        BehindNear,
+        OutsideView,
+        TooMuchMotion,
+        NoOccluder
+    } why = Why::NoPyramid;
 };
 
 // True when the box bmin..bmax of an object drawn with `model` (world space) is proven hidden in the picture `now` will draw, by the
 // pyramid of `hist`. Thread-safe (reads only).
-bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& now, Vec3 bmin, Vec3 bmax, const Mat4& model,
-                HizTestInfo* info = nullptr);
+bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& now, Vec3 bmin, Vec3 bmax,
+                const Mat4& model, HizTestInfo* info = nullptr);
 
 }  // namespace fa::render
