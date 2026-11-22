@@ -527,3 +527,57 @@ TEST_CASE("streaming: the per-frame counters of world.stream_status go back to 0
     CHECK(s["unitsThisFrame"].get<int>() == 0);
     e.shutdown();
 }
+
+TEST_CASE("streaming: a world whose floating origin is shifted loads and unloads the same cells, at their absolute "
+          "positions") {
+    // The same walk twice: once with the origin at 0 and once after World::rebase moved it by (4096, 0, 4096). The index and the
+    // cell files hold ABSOLUTE positions, the anchor's local position is what moved. A cell loads under its root, which
+    // stands at the absolute (0, 0, 0) (a load under a parent is placed by the parent: load_scene shifts only the roots it creates).
+    auto walk = [&](bool shifted) {
+        StreamProject p;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+        if (shifted) e.world().rebase(Vec3{4096, 0, 4096});
+        CHECK(e.world().origin().x == (shifted ? 4096.0 : 0.0));
+        auto go = [&](double x, double z) {  // the anchor goes to the ABSOLUTE position (x, 0, z)
+            const Entity a = e.world().find_by_id("anchor");
+            REQUIRE(e.world().alive(a));
+            e.world().get<Transform>(a)->position = e.world().to_local(DVec3{x, 0.0, z});
+        };
+        go(50, 50);
+        settle(e);
+        std::vector<Ids> seen;
+        seen.push_back(ids_in_state(e, "loaded"));
+        CHECK(seen.back() == Ids{"0,0", "0,1", "1,0"});
+        // A cell's entity is at its absolute position (150, 1, 150) in the cell [1, 1] once it loads, whatever the origin is.
+        go(150, 150);
+        settle(e);
+        seen.push_back(ids_in_state(e, "loaded"));
+        const Entity marker = e.world().find_by_id("marker_1_1");
+        REQUIRE(e.world().alive(marker));
+        const DVec3 abs = e.world().absolute_position(marker);
+        CHECK(abs.x == doctest::Approx(150.0));
+        CHECK(abs.y == doctest::Approx(1.0));
+        CHECK(abs.z == doctest::Approx(150.0));
+        const Vec3 local = e.world().world_position(marker);
+        CHECK(double(local.x) == doctest::Approx(shifted ? 150.0 - 4096.0 : 150.0));
+        // A rebase while cells are loaded changes what is local, never what is loaded: no load or unload starts.
+        const Json before = call(e, "world.stream_status");
+        e.world().rebase(Vec3{256, 0, 256});
+        settle(e);
+        e.step(5);
+        const Json after = call(e, "world.stream_status");
+        CHECK(after["loadsStarted"] == before["loadsStarted"]);
+        CHECK(after["unloadsDone"] == before["unloadsDone"]);
+        seen.push_back(ids_in_state(e, "loaded"));
+        CHECK(seen.back() == seen[1]);
+        go(50, 170);
+        settle(e);
+        seen.push_back(ids_in_state(e, "loaded"));
+        CHECK(seen.back() == Ids{"0,0", "0,1", "0,2", "1,1", "1,2"});
+        e.shutdown();
+        return seen;
+    };
+    CHECK(walk(false) == walk(true));
+}

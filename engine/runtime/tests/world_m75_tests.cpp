@@ -128,8 +128,7 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
     CHECK(r.error().message.find("/world") != std::string::npos);
 }
 
-TEST_CASE("world.* runtime commands: registered, documented, and the ones not built yet fail with not_built naming "
-          "their package") {
+TEST_CASE("world.* streaming commands: registered, documented, and built (not stubs)") {
     TempProject p(project_with(""));
     EngineConfig c;
     c.projectDir = p.dir.generic_string();
@@ -144,11 +143,7 @@ TEST_CASE("world.* runtime commands: registered, documented, and the ones not bu
         const char* package;
         bool readOnly;
     };
-    const Row rows[] = {{"world.origin", "M75.4", true},
-                        {"world.absolute_position", "M75.4", true},
-                        {"world.rebase", "M75.4", false},
-                        {"world.cells", "M75.3", true},
-                        {"world.stream_status", "M75.3", true}};
+    const Row rows[] = {{"world.cells", "M75.3", true}, {"world.stream_status", "M75.3", true}};
     for (const Row& row : rows) {
         INFO(row.name);
         const CommandInfo* info = e.commands().info(row.name);
@@ -157,19 +152,7 @@ TEST_CASE("world.* runtime commands: registered, documented, and the ones not bu
         CHECK(info->readOnly == row.readOnly);
         CHECK(info->description.find("Example") != std::string::npos);
         CHECK(info->description.size() < 1500);
-        if (std::string(row.package) == "M75.3") {  // built: it answers (this scene has no StreamedWorld)
-            CHECK(info->description.find("Not built yet") == std::string::npos);
-            continue;
-        }
-        CHECK(info->description.find(row.package) != std::string::npos);
-        const Json args =
-            std::string(row.name) == "world.absolute_position" ? Json{{"entity", "player"}} : Json::object();
-        auto r = e.commands().call(row.name, args);
-        REQUIRE_FALSE(r.ok);
-        CHECK(r.error["code"] == "not_built");
-        CHECK(r.error.dump().find("planned for a coming version") != std::string::npos);
-        CHECK(r.error.dump().find(row.package) != std::string::npos);
-        CHECK(r.error.dump().find("BIG_WORLDS") != std::string::npos);
+        CHECK(info->description.find("Not built yet") == std::string::npos);  // M75.3 is built: it answers
     }
     e.shutdown();
 }

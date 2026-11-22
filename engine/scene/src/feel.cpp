@@ -222,6 +222,12 @@ float FeelState::knockback_remaining(Entity e) const {
     return r && r->knock ? std::max(0.0f, r->knock->lockRemaining) : 0.0f;
 }
 
+void FeelState::shift(Vec3 offset) {
+    for (FeelSpawn& sp : spawns) sp.position -= offset;
+    for (ScreenFx& fx : screenFx.live)
+        if (fx.o.atWorld) fx.o.world -= offset;
+}
+
 void FeelState::clear_scene() {
     entities.clear();
     hitStops.clear();

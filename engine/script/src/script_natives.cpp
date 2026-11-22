@@ -31,6 +31,7 @@
 #include "fa/render/renderer.h"
 #include "fa/render/text_measure.h"
 #include "fa/scene/camera_geometry.h"
+#include "fa/scene/floating_origin.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
 #include "fa/scene/animation.h"
@@ -1082,6 +1083,29 @@ NATIVE(worldPos) {
     ENTITY(e, 0);
     Vec3 p = W.world_position(e);
     return array_of(ctx, {p.x, p.y, p.z});
+}
+
+// entity.absolutePosition: the position that does not change when the world's origin shifts (origin + world position), in doubles.
+NATIVE(absolutePos) {
+    SETUP;
+    ENTITY(e, 0);
+    const DVec3 p = W.absolute_position(e);
+    return array_of(ctx, {p.x, p.y, p.z});
+}
+
+// game.origin: the world's origin (zero until a floating-origin rebase), in doubles.
+NATIVE(worldOrigin) {
+    SETUP;
+    const DVec3 o = W.origin();
+    return array_of(ctx, {o.x, o.y, o.z});
+}
+
+// Whether a rebase writes this entity's Transform.position (a root that is not screen-space): a tween of its position follows
+// the shift only then.
+NATIVE(followsOrigin) {
+    SETUP;
+    ENTITY(e, 0);
+    return JS_NewBool(ctx, W.parent(e).is_null() && follows_floating_origin(W, e));
 }
 
 NATIVE(setWorldPos) {
@@ -5339,6 +5363,9 @@ const Reg kRegs[] = {
     R(children, 1),
     R(setParent, 4),
     R(worldPos, 1),
+    R(absolutePos, 1),
+    R(worldOrigin, 0),
+    R(followsOrigin, 1),
     R(setWorldPos, 2),
     R(entityJson, 3),
     R(spawn, 3),

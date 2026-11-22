@@ -31,10 +31,9 @@ struct Eval {
 
 }  // namespace
 
-void absolute_plane_position(const WorldIndex& index, Vec3 local, double& a, double& b) {
-    // The floating origin of M75.4 is added here (in doubles); until it is built the origin is 0.
-    a = double(local.x);
-    b = index.dimension == WorldDimension::D3 ? double(local.z) : double(local.y);
+void absolute_plane_position(const WorldIndex& index, const DVec3& origin, Vec3 local, double& a, double& b) {
+    a = origin.x + double(local.x);
+    b = index.dimension == WorldDimension::D3 ? origin.z + double(local.z) : origin.y + double(local.y);
 }
 
 const char* WorldStreamer::state_name(State s) {
@@ -89,7 +88,7 @@ std::vector<WorldStreamer::Anchor> WorldStreamer::gather_anchors(const Settings&
     world_.each<StreamingAnchor>([&](Entity e, StreamingAnchor& a) {
         if (!a.enabled || !world_.active_in_hierarchy(e)) return;
         Anchor an;
-        absolute_plane_position(index_, world_.world_position(e), an.a, an.b);
+        absolute_plane_position(index_, world_.origin(), world_.world_position(e), an.a, an.b);
         if (!std::isfinite(an.a) || !std::isfinite(an.b))
             return;  // NaN or infinite position (a script's bug): it loads nothing
         an.loadRadius = std::max(0.0, double(a.loadRadius));
@@ -111,7 +110,7 @@ std::vector<WorldStreamer::Anchor> WorldStreamer::gather_anchors(const Settings&
         });
         if (have) {
             Anchor an;
-            absolute_plane_position(index_, world_.world_position(best), an.a, an.b);
+            absolute_plane_position(index_, world_.origin(), world_.world_position(best), an.a, an.b);
             an.loadRadius = double(s.cameraLoad);
             an.unloadRadius = s.cameraUnload > s.cameraLoad ? double(s.cameraUnload) : double(s.cameraLoad) * 1.25;
             an.priority = 0;
@@ -224,6 +223,9 @@ void WorldStreamer::do_apply(std::size_t idx) {
     const Entity root =
         world_.create("cell " + cell.id(), "cell_" + std::to_string(cell.i) + "_" + std::to_string(cell.j));
     world_.info(root).streamedCell = true;
+    // The root stands at the ABSOLUTE (0, 0, 0): the cell's file holds absolute positions, and an additive load under a parent leaves
+    // placing to the parent (place_loaded_entities shifts only the roots of a load that has none).
+    if (Transform* t = world_.get<Transform>(root)) t->position = world_.to_local(DVec3{0.0, 0.0, 0.0});
     SceneLoadOptions opts;
     opts.additive = true;
     opts.parent = root;

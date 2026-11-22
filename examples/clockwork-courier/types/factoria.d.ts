@@ -349,9 +349,14 @@ declare module "factoria" {
      */
     position: Vec3;
     /**
-     * World-space position (get/set).
+     * World-space position (get/set). With a floating origin (factoria.json floatingOrigin) it is relative to the world's current origin, so its value changes by -offset when the origin shifts: use absolutePosition for a place that must stay the same.
      */
     worldPosition: Vec3;
+    /**
+     * The world position in double precision, from the world's fixed zero: game.origin + worldPosition. It does not change when a floating-origin rebase shifts the origin (the entity did not move in the world), so keep this, not worldPosition, when a script remembers a place across frames (a waypoint, a spawn point, a saved position). To use it again: subtract game.origin and write the result to worldPosition. Without a floating origin it equals worldPosition. Example: const home = player.absolutePosition;
+     * @since unreleased
+     */
+    readonly absolutePosition: [number, number, number];
     /**
      * Live view of a component, or null if the entity lacks it.
      */
@@ -2620,6 +2625,16 @@ declare module "factoria" {
      * factoria.json contents.
      */
     readonly project: Readonly<Json>;
+    /**
+     * The world's origin as [x, y, z] doubles: [0, 0, 0] until a floating-origin rebase moved it (factoria.json floatingOrigin, or the world.rebase command). The positions the scripts read (worldPosition, a Transform.position of a root) are relative to it; entity.absolutePosition adds it back. Example: const abs = [p.x + game.origin[0], p.y + game.origin[1], p.z + game.origin[2]].
+     * @since unreleased
+     */
+    readonly origin: [number, number, number];
+    /**
+     * Listens for the floating origin moving (factoria.json floatingOrigin when the player or the camera gets far from the zero, or the world.rebase command). fn gets { offset, origin }: offset is how far the origin moved, in doubles (every position of a root entity, the physics, the audio and the particles already moved by -offset when fn runs) and origin is the new origin. Fires once per rebase, on the fixed step that rebased. Positions a script keeps in variables (a Vec3 copied from worldPosition, a waypoint list, a timer's target) are NOT shifted: subtract offset from them here, or keep entity.absolutePosition and convert when you use it. Running tweens of a root entity's position follow the shift on their own. Listeners end with the scene, like world.on. Example: game.on("originShifted", ({ offset }) => { waypoint.x -= offset[0]; waypoint.y -= offset[1]; waypoint.z -= offset[2]; });
+     * @since 0.3.0
+     */
+    on(event: "originShifted", fn: (shift: { readonly offset: readonly [number, number, number]; readonly origin: readonly [number, number, number] }) => void): () => void;
     readonly screenSize: Vec2;
     /**
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
