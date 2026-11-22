@@ -143,8 +143,7 @@ TEST_CASE("world.* streaming commands: registered, documented, and fail with not
         const char* package;
         bool readOnly;
     };
-    const Row rows[] = {{"world.cells", "M75.3", true},
-                        {"world.stream_status", "M75.3", true}};
+    const Row rows[] = {{"world.cells", "M75.3", true}, {"world.stream_status", "M75.3", true}};
     for (const Row& row : rows) {
         INFO(row.name);
         const CommandInfo* info = e.commands().info(row.name);

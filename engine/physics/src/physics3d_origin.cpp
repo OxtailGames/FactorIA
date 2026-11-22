@@ -22,7 +22,8 @@ void Physics3D::origin_shifted(World& world, Vec3 offset) {
         NavNote note{key, n.baked && n.sig == nav_signature(n), {}};
         for (const Body& b : bodies_) {
             auto it = n.obstacleSig.find(b.e.bits());
-            if (it != n.obstacleSig.end() && it->second == nav_obstacle_signature(b)) note.obstacles.push_back(it->first);
+            if (it != n.obstacleSig.end() && it->second == nav_obstacle_signature(b))
+                note.obstacles.push_back(it->first);
         }
         notes.push_back(std::move(note));
     }
@@ -48,7 +49,8 @@ void Physics3D::origin_shifted(World& world, Vec3 offset) {
         (void)key;
         if (j.seqB != 0) continue;
         j.anchorB -= offset;  // a world point when the joint holds to the world
-        if (j.conn.is_null()) j.sigConnAnchor -= offset;  // (World::rebase shifted the component's connectedAnchor the same)
+        if (j.conn.is_null())
+            j.sigConnAnchor -= offset;  // (World::rebase shifted the component's connectedAnchor the same)
     }
     for (auto& [key, n] : navs_) {
         (void)key;

@@ -785,9 +785,9 @@ int World::on_origin_shifted(OriginCallback cb) {
 }
 
 void World::remove_origin_observer(int id) {
-    originObservers_.erase(std::remove_if(originObservers_.begin(), originObservers_.end(),
-                                          [&](const auto& p) { return p.first == id; }),
-                           originObservers_.end());
+    originObservers_.erase(
+        std::remove_if(originObservers_.begin(), originObservers_.end(), [&](const auto& p) { return p.first == id; }),
+        originObservers_.end());
 }
 
 void World::remove_observer(int id) {

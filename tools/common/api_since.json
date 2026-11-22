@@ -2052,6 +2052,7 @@
     "GameAPI.focused": "0.3.0",
     "GameAPI.notices": "0.1.6",
     "GameAPI.on": "0.3.0",
+    "GameAPI.origin": "unreleased",
     "GameAPI.paused": "0.1.0",
     "GameAPI.phase": "0.18.0",
     "GameAPI.platform": "0.1.6",

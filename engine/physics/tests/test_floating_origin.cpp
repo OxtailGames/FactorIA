@@ -197,7 +197,8 @@ TEST_CASE("floating origin 2d: a body asleep stays asleep") {
     CHECK(s.world.absolute_position(rock).y == doctest::Approx(double(before.y)).epsilon(1e-4));
 }
 
-TEST_CASE("floating origin 3d: a baked navigation mesh moves with the world, is not baked again and gives the same paths") {
+TEST_CASE(
+    "floating origin 3d: a baked navigation mesh moves with the world, is not baked again and gives the same paths") {
     Sim s;
     box3(s.world, "floor", {0, -0.5f, 0}, {30, 1, 30}, false);
     box3(s.world, "wall", {0, 1.5f, 0}, {0.4f, 3, 8}, false);

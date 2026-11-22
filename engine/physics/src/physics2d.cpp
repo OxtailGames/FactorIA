@@ -1721,7 +1721,8 @@ void Physics2D::origin_shifted(World& world, Vec3 offset) {
         const b2Vec2 p = b2Body_GetPosition(b.body);
         b2Body_SetTransform(b.body, {p.x - off.x, p.y - off.y}, b2Body_GetRotation(b.body));
         b.lastB2Pos = b2Body_GetPosition(b.body);
-        if (world.alive(b.e)) b.lastPos = world_pose(world, b.e).position;  // what the next sync compares the Transform with
+        if (world.alive(b.e))
+            b.lastPos = world_pose(world, b.e).position;  // what the next sync compares the Transform with
     }
     for (auto& [key, tb] : tiles_) {
         (void)key;
