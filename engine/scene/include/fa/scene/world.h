@@ -68,6 +68,7 @@ struct WorldEvents {
 
 class ComponentPool;  // defined in src/component_pool.h
 class ParticleStore;  // scene/particle_store.h
+class TerrainStore;   // scene/terrain.h
 
 class World {
 public:
@@ -374,9 +375,45 @@ public:
     // scene and its Play session) never see each other's emitters. clear() empties it.
     ParticleStore& particles() { return *particles_; }
     const ParticleStore& particles() const { return *particles_; }
+    // The heights of this world's Terrain components (terrain.h): loaded from their heightmaps the first time the renderer, physics or
+    // a script asks, and shared by all of them. clear() releases them.
+    TerrainStore& terrain() { return *terrain_; }
+    const TerrainStore& terrain() const { return *terrain_; }
     // The "entity|clip" pairs update_sprite_animators() already warned about (a SpriteAnimator.clip its sheet does not
     // have), so each is said once per scene. clear() forgets them.
     std::set<std::string>& warned_sprite_clips() { return warnedSpriteClips_; }
+
+    // ------------------------------------------------- floating origin (M75.4, docs/BIG_WORLDS.md)
+    // The world position, in double precision, of the engine's local (0, 0, 0): (0, 0, 0) unless a rebase moved it. Transform stays a
+    // float, so the engine keeps what is near the camera near (0, 0, 0) by shifting every root entity by -offset and adding the offset
+    // here. The absolute position of an entity is origin() + its local world position (absolute_position); scene files, saves and
+    // network snapshots store absolute positions or the origin next to the locals. Set by a scene load and by rebase(); clear()
+    // puts it back to (0, 0, 0).
+    const DVec3& origin() const { return origin_; }
+    void set_origin(const DVec3& origin) { origin_ = origin; }
+    // How many times rebase() moved the origin since the scene was loaded (clear() resets it).
+    std::uint64_t rebase_count() const { return rebaseCount_; }
+    // origin() + world_position(e), added in double: exact to about a micrometre at 10 000 km. (0, 0, 0) for a dead entity's local part.
+    DVec3 absolute_position(Entity e) const { return origin_ + to_dvec3(world_position(e)); }
+    // The local position the absolute position `p` has now: float(p - origin()). Precise near the origin, rounded to a float far from it.
+    Vec3 to_local(const DVec3& p) const { return to_vec3(p - origin_); }
+    // The absolute position of a local position: origin() + local.
+    DVec3 to_absolute(Vec3 local) const { return origin_ + to_dvec3(local); }
+    // Moves the origin by `offset` (world metres; 2D: pixels) and shifts everything the World holds so nothing moves in the world:
+    // the position of every ROOT entity -= offset (children follow through the hierarchy; a root with a UI widget or a screen-space
+    // Sprite, Shape2D, Text or ParticleEmitter is screen-space and stays), the render interpolation records of those roots, the
+    // live particles and trails of world-space emitters, queued game feel spawns and screen effects at a world point, and the
+    // world-space points components hold (Joint2D/Joint3D connectedAnchor with no `connected`, NavLink3D.end, LightProbeGroup.points).
+    // Then every origin observer is called with the offset. Main thread, between fixed steps (Engine::rebase_origin does the
+    // physics, audio and navigation in the same call). `offset` should be a whole multiple of the project's floatingOrigin.step on
+    // every axis (a power of two: the shift of a position that is far from 0 is then exact in float and the origin, a sum of
+    // multiples, stays exact in double and reversible); rebase itself accepts any finite offset.
+    void rebase(Vec3 offset);
+    // Called by rebase() after the world shifted, with the offset. The renderer registers one to shift what it keeps in world space
+    // (motion-vector history, shadow snapping, probes...). Returns an id for remove_origin_observer.
+    using OriginCallback = std::function<void(const DVec3& offset)>;
+    int on_origin_shifted(OriginCallback cb);
+    void remove_origin_observer(int id);
 
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
@@ -418,7 +455,12 @@ private:
     int vfxLive_ = 0;
     MeshStore meshes_;
     std::unique_ptr<ParticleStore> particles_;
+    std::unique_ptr<TerrainStore> terrain_;
     std::set<std::string> warnedSpriteClips_;
+    DVec3 origin_;
+    std::uint64_t rebaseCount_ = 0;
+    std::vector<std::pair<int, OriginCallback>> originObservers_;
+    int nextOriginObserver_ = 1;
 };
 
 }  // namespace fa

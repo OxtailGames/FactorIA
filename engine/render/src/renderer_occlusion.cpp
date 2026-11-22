@@ -16,7 +16,8 @@ namespace fa {
 namespace {
 
 // The 12 edges of a box (corner bit 0 = x, 1 = y, 2 = z).
-constexpr int kBoxEdges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+constexpr int kBoxEdges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3},
+                                  {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
 }  // namespace
 
@@ -39,7 +40,8 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
             const Vec3 half = o.size * 0.5f;
             p.src.boxMin = o.center - half;
             p.src.boxMax = o.center + half;
-            if (!std::isfinite(p.src.boxMin.x + p.src.boxMin.y + p.src.boxMin.z + p.src.boxMax.x + p.src.boxMax.y + p.src.boxMax.z))
+            if (!std::isfinite(p.src.boxMin.x + p.src.boxMin.y + p.src.boxMin.z + p.src.boxMax.x + p.src.boxMax.y +
+                               p.src.boxMax.z))
                 return;
         } else {
             const MeshRenderer* mr = world.get<MeshRenderer>(e);
@@ -47,8 +49,10 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
             if (meshName.empty()) {
                 if (warnedOccluders.insert(e.bits()).second)
                     FA_WARN("render",
-                            "Occluder on '{}' has shape \"mesh\" but no mesh to rasterise: Occluder.mesh is empty and the entity has "
-                            "no MeshRenderer. Hint: set Occluder.mesh to a model path, add a MeshRenderer, or use shape \"box\". "
+                            "Occluder on '{}' has shape \"mesh\" but no mesh to rasterise: Occluder.mesh is empty and "
+                            "the entity has "
+                            "no MeshRenderer. Hint: set Occluder.mesh to a model path, add a MeshRenderer, or use "
+                            "shape \"box\". "
                             "The entity hides nothing until then.",
                             name);
                 return;
@@ -58,7 +62,8 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
             if (!p.src.mesh) {
                 if (warnedOccluders.insert(e.bits()).second)
                     FA_WARN("render",
-                            "Occluder on '{}' could not read its mesh '{}': {} Hint: fix Occluder.mesh, or use shape \"box\". The "
+                            "Occluder on '{}' could not read its mesh '{}': {} Hint: fix Occluder.mesh, or use shape "
+                            "\"box\". The "
                             "entity hides nothing until then.",
                             name, meshName, error);
                 return;
@@ -99,15 +104,18 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
     if (rs.occludersCapped > 0 && !warnedOccluderCap) {
         warnedOccluderCap = true;
         FA_WARN("render",
-                "{} Occluder mesh(es) have more than {} triangles (e.g. {}): only the first {} of each are rasterised (the occluder "
-                "hides less, never more). Hint: point Occluder.mesh at a low-poly proxy (a few hundred triangles), or use shape "
+                "{} Occluder mesh(es) have more than {} triangles (e.g. {}): only the first {} of each are rasterised "
+                "(the occluder "
+                "hides less, never more). Hint: point Occluder.mesh at a low-poly proxy (a few hundred triangles), or "
+                "use shape "
                 "\"box\".",
                 rs.occludersCapped, limits.perOccluder, names(rs.cappedEntities), limits.perOccluder);
     }
     if (rs.occludersDropped > 0 && !warnedOcclusionFrameCap) {
         warnedOcclusionFrameCap = true;
         FA_WARN("render",
-                "The occluders of one camera hold more than {} triangles in all: {} occluder(s) were left out or cut (e.g. {}), "
+                "The occluders of one camera hold more than {} triangles in all: {} occluder(s) were left out or cut "
+                "(e.g. {}), "
                 "the farthest ones first. Hint: use fewer or simpler Occluder meshes (boxes cost 12 triangles).",
                 limits.perFrame, rs.occludersDropped, names(rs.droppedEntities));
     }
@@ -169,10 +177,11 @@ void Renderer::Impl::occlusion_overlay() {
     if (debugView != DebugView::Occlusion || !occlusionPrev.valid) return;
     const Color green{0.2f, 1.0f, 0.3f, 1.0f}, red{1.0f, 0.2f, 0.2f, 1.0f};
     for (const OcclusionShown::Box& b : occlusionPrev.boxes)
-        for (const auto& e : kBoxEdges) debug.line(b.corners[std::size_t(e[0])], b.corners[std::size_t(e[1])], b.culled ? red : green);
+        for (const auto& e : kBoxEdges)
+            debug.line(b.corners[std::size_t(e[0])], b.corners[std::size_t(e[1])], b.culled ? red : green);
     debug.text({8.0f, 8.0f},
-               std::format("occlusion: {} occluders (green), {} tests, {} hidden (red)", occlusionPrev.occluders, occlusionPrev.tests,
-                           occlusionPrev.occluded),
+               std::format("occlusion: {} occluders (green), {} tests, {} hidden (red)", occlusionPrev.occluders,
+                           occlusionPrev.tests, occlusionPrev.occluded),
                Color::white(), 16.0f);
 }
 
@@ -188,9 +197,9 @@ Json Renderer::occlusion_report(std::string_view savePath) {
                                   {"trianglesPerOccluder", int(im.occlusionLimits.perOccluder)},
                                   {"trianglesPerCamera", int(im.occlusionLimits.perFrame)}});
     if (!s.valid) {
-        out["message"] =
-            "No camera of the last frame had an enabled Occluder, so nothing was rasterised. Hint: add an Occluder component "
-            "(shape box or mesh) to an entity, draw a frame (game.step), and call this again.";
+        out["message"] = "No camera of the last frame had an enabled Occluder, so nothing was rasterised. Hint: add an "
+                         "Occluder component "
+                         "(shape box or mesh) to an entity, draw a frame (game.step), and call this again.";
         return out;
     }
     out["camera"] = s.camera;
@@ -213,7 +222,8 @@ Json Renderer::occlusion_report(std::string_view savePath) {
         }
         const Result<void> saved = save_png(img, savePath);
         if (!saved)
-            out["error"] = std::format("could not write {}: {} {}", savePath, saved.error().message, saved.error().hint);
+            out["error"] =
+                std::format("could not write {}: {} {}", savePath, saved.error().message, saved.error().hint);
         else
             out["file"] = std::string(savePath);
     }

@@ -168,8 +168,8 @@ struct RenderStats {
     int lodCrossFades =
         0;  // M75.1: meshes drawn in a dithered LOD cross-fade (MeshRenderer.lodCrossFade, LodGroup.crossFade)
     int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
-    int terrainTiles = 0;      // M75.5: Terrain tiles drawn (after the GPU LOD and the culling)
-    int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`)
+    int terrainTiles = 0;      // M75.5: Terrain tiles drawn in the main pass (after the LOD selection and the culling)
+    int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`; the tiles are not in `meshes`)
     int foliageInstances = 0;  // M75.6: Foliage instances drawn (after the density, the fade and the culling)
     int foliageInstancesCulled =
         0;  // M75.6: Foliage instances left out by the frustum, the occlusion or the fade distance

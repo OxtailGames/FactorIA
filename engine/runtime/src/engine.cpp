@@ -688,6 +688,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_sprite_animators(world, float(fixedDt * scale));
             world.particles().update(world, float(fixedDt * scale));
         }
+        // Floating origin: the end of the fixed step is where the origin may move, after everything that moves things ran and
+        // before the events are dispatched, so a script hears `originShifted` in the step that rebased.
+        auto_rebase_origin();
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();

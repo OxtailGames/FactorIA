@@ -88,12 +88,14 @@ struct SetupCtx {
 };
 
 // The triangles of one occluder that face the camera, clipped, projected and snapped. Returns how many source triangles faced it.
-std::size_t setup_occluder(const SetupCtx& sc, const OccluderSource& src, std::size_t count, std::vector<RasterTri>& out) {
+std::size_t setup_occluder(const SetupCtx& sc, const OccluderSource& src, std::size_t count,
+                           std::vector<RasterTri>& out) {
     const OcclusionCamera& cam = *sc.cam;
     const float gx = float(sc.gw) / float(sc.w), gy = float(sc.gh) / float(sc.h);
-    const float det = src.model.at(0, 0) * (src.model.at(1, 1) * src.model.at(2, 2) - src.model.at(2, 1) * src.model.at(1, 2)) -
-                      src.model.at(1, 0) * (src.model.at(0, 1) * src.model.at(2, 2) - src.model.at(2, 1) * src.model.at(0, 2)) +
-                      src.model.at(2, 0) * (src.model.at(0, 1) * src.model.at(1, 2) - src.model.at(1, 1) * src.model.at(0, 2));
+    const float det =
+        src.model.at(0, 0) * (src.model.at(1, 1) * src.model.at(2, 2) - src.model.at(2, 1) * src.model.at(1, 2)) -
+        src.model.at(1, 0) * (src.model.at(0, 1) * src.model.at(2, 2) - src.model.at(2, 1) * src.model.at(0, 2)) +
+        src.model.at(2, 0) * (src.model.at(0, 1) * src.model.at(1, 2) - src.model.at(1, 1) * src.model.at(0, 2));
     const float mirror = det < 0.0f ? -1.0f : 1.0f;
     std::size_t facing = 0;
     for (std::size_t t = 0; t < count; ++t) {
@@ -139,8 +141,8 @@ std::size_t setup_occluder(const SetupCtx& sc, const OccluderSource& src, std::s
         }
         for (int k = 1; k + 1 < np; ++k) {
             int i0 = 0, i1 = k, i2 = k + 1;
-            std::int64_t area = std::int64_t(fx[i1] - fx[i0]) * (fy[i2] - fy[i0]) -
-                                std::int64_t(fx[i2] - fx[i0]) * (fy[i1] - fy[i0]);
+            std::int64_t area =
+                std::int64_t(fx[i1] - fx[i0]) * (fy[i2] - fy[i0]) - std::int64_t(fx[i2] - fx[i0]) * (fy[i1] - fy[i0]);
             if (area < 0) {
                 std::swap(i1, i2);
                 area = -area;
@@ -184,7 +186,8 @@ void raster_rows(const RasterTri& t, int r0, int r1, int gw, float* buf) {
         const int j = (e + 1) % 3;
         ex[e] = t.x[j] - t.x[e];
         ey[e] = t.y[j] - t.y[e];
-        include[e] = ey[e] > 0 || (ey[e] == 0 && ex[e] > 0);  // the tie break of an edge two triangles share: one of them keeps it
+        include[e] = ey[e] > 0 ||
+                     (ey[e] == 0 && ex[e] > 0);  // the tie break of an edge two triangles share: one of them keeps it
     }
     const float half = 0.5f * (std::fabs(t.a) + std::fabs(t.b));
     const int y0 = std::max(t.minY, r0), y1 = std::min(t.maxY, r1 - 1);
@@ -227,7 +230,8 @@ void OcclusionBuffer::reset(const OcclusionCamera& cam, int width, int height) {
     ready_ = true;
 }
 
-OcclusionRasterStats OcclusionBuffer::rasterize(const std::vector<OccluderSource>& occluders, const OcclusionLimits& limits) {
+OcclusionRasterStats OcclusionBuffer::rasterize(const std::vector<OccluderSource>& occluders,
+                                                const OcclusionLimits& limits) {
     OcclusionRasterStats st;
     if (!ready_) return st;
     // The caps first, serially and in the given order: how many triangles of each occluder go on.
@@ -302,8 +306,10 @@ bool OcclusionBuffer::hidden(Vec3 bmin, Vec3 bmax, const Mat4& model) const {
     if (hix < float(kOcclusionGuard) || lox > float(w_ + kOcclusionGuard) || hiy < float(kOcclusionGuard) ||
         loy > float(h_ + kOcclusionGuard))
         return false;
-    const int cx0 = std::clamp(int(std::floor(lox)), kOcclusionGuard, w_), cx1 = std::clamp(int(std::floor(hix)), kOcclusionGuard, w_);
-    const int cy0 = std::clamp(int(std::floor(loy)), kOcclusionGuard, h_), cy1 = std::clamp(int(std::floor(hiy)), kOcclusionGuard, h_);
+    const int cx0 = std::clamp(int(std::floor(lox)), kOcclusionGuard, w_),
+              cx1 = std::clamp(int(std::floor(hix)), kOcclusionGuard, w_);
+    const int cy0 = std::clamp(int(std::floor(loy)), kOcclusionGuard, h_),
+              cy1 = std::clamp(int(std::floor(hiy)), kOcclusionGuard, h_);
     // Every cell the box touches and the ring around them must hold an occluder nearer than the box's nearest corner (with a margin
     // for the rounding of the snapped triangle planes).
     const float need = nearest + 1.0e-5f * std::fabs(nearest) + 1.0e-7f;
@@ -326,9 +332,11 @@ std::vector<std::uint8_t> OcclusionBuffer::grey() const {
         for (int x = 0; x < w_; ++x) {
             const float n = nearness(x, y);
             if (!(n > kOcclusionEmpty)) continue;
-            const float k = perspective_ ? 10.0f / (10.0f + (n > 1.0e-9f ? 1.0f / n : 1.0e9f)) : std::clamp(n, 0.0f, 1.0f);
+            const float k =
+                perspective_ ? 10.0f / (10.0f + (n > 1.0e-9f ? 1.0f / n : 1.0e9f)) : std::clamp(n, 0.0f, 1.0f);
             // Row 0 of the picture is the top: the grid's y grows upwards.
-            g[std::size_t(h_ - 1 - y) * std::size_t(w_) + std::size_t(x)] = std::uint8_t(55 + int(std::lround(200.0f * k)));
+            g[std::size_t(h_ - 1 - y) * std::size_t(w_) + std::size_t(x)] =
+                std::uint8_t(55 + int(std::lround(200.0f * k)));
         }
     return g;
 }

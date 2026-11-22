@@ -123,6 +123,15 @@ ParticleEmitterState& ParticleStore::state_for(World& world, Entity e, const Par
     return st;
 }
 
+void ParticleStore::shift(World& world, Vec3 offset) {
+    for (auto& [bits, state] : states_) {
+        const Entity e = Entity::from_bits(bits);
+        const ParticleEmitter* em = world.alive(e) ? static_cast<const World&>(world).get<ParticleEmitter>(e) : nullptr;
+        if (!em || !em->worldSpace || particle_screen_space(*em)) continue;
+        state.sim.shift(offset);
+    }
+}
+
 void ParticleStore::queue_burst(World& world, Entity e, int count) {
     if (count <= 0 || e.is_null() || !world.alive(e) || !world.get<ParticleEmitter>(e)) return;
     // The emitter's own budgets cap what is born; this only keeps the queued count from overflowing an int.

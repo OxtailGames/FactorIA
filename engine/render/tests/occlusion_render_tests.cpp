@@ -76,8 +76,8 @@ TEST_CASE("occlusion on a GPU: a wall hides the cube behind it, the picture does
     const Image culled = g.render(with);
     const RenderStats on = g.renderer.stats();
     CHECK(on.occluders == 1);
-    CHECK(on.occlusionTests == 3);   // the cubes; the wall is the occluder and is not tested against itself
-    CHECK(on.meshesOccluded == 1);   // the cube straight behind the wall
+    CHECK(on.occlusionTests == 3);  // the cubes; the wall is the occluder and is not tested against itself
+    CHECK(on.meshesOccluded == 1);  // the cube straight behind the wall
     // The cube it hides was not drawn, and the picture is the same one, pixel for pixel.
     CHECK(on.drawCalls < off.drawCalls);
     CHECK(differing(plain, culled) == 0);
@@ -87,7 +87,8 @@ TEST_CASE("occlusion on a GPU: a wall hides the cube behind it, the picture does
     CHECK(g.renderer.stats().occluders == 1);
 }
 
-TEST_CASE("occlusion on a GPU: Occluder.enabled false, a removed component and a missing mesh take the path without it") {
+TEST_CASE(
+    "occlusion on a GPU: Occluder.enabled false, a removed component and a missing mesh take the path without it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -178,7 +179,8 @@ TEST_CASE("occlusion on a GPU: render.occlusion's report and the debug view") {
     CHECK(differing(before, back) == 0);
 }
 
-TEST_CASE("occlusion on a GPU: moving the camera in front of the cube shows it again, and a sprite scene has no occlusion") {
+TEST_CASE(
+    "occlusion on a GPU: moving the camera in front of the cube shows it again, and a sprite scene has no occlusion") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;

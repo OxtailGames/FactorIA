@@ -64,8 +64,8 @@ bool hidden_box(const OcclusionBuffer& b, Vec3 center, Vec3 size) {
     return b.hidden(size * -0.5f, size * 0.5f, Mat4::translate(center));
 }
 
-OcclusionBuffer make_buffer(const Cam& c, const std::vector<OccluderSource>& occluders, OcclusionRasterStats* out = nullptr,
-                            const OcclusionLimits& limits = {}) {
+OcclusionBuffer make_buffer(const Cam& c, const std::vector<OccluderSource>& occluders,
+                            OcclusionRasterStats* out = nullptr, const OcclusionLimits& limits = {}) {
     OcclusionBuffer b;
     b.reset(c.cam, c.w, c.h);
     const OcclusionRasterStats st = b.rasterize(occluders, limits);
@@ -109,7 +109,8 @@ float frac(int i, int salt) {
 bool segment_hits_box(Vec3 from, Vec3 to, Vec3 lo, Vec3 hi) {
     const Vec3 d = to - from;
     float t0 = 0.0f, t1 = 1.0f;
-    const float o[3] = {from.x, from.y, from.z}, dir[3] = {d.x, d.y, d.z}, l[3] = {lo.x, lo.y, lo.z}, h[3] = {hi.x, hi.y, hi.z};
+    const float o[3] = {from.x, from.y, from.z}, dir[3] = {d.x, d.y, d.z}, l[3] = {lo.x, lo.y, lo.z},
+                h[3] = {hi.x, hi.y, hi.z};
     for (int a = 0; a < 3; ++a) {
         if (std::fabs(dir[a]) < 1e-9f) {
             if (o[a] < l[a] || o[a] > h[a]) return false;
@@ -151,12 +152,12 @@ TEST_CASE("occlusion: a box behind a wall is hidden, one beside it, in front of 
         CHECK(st.sourceTriangles == 12);
         CHECK(st.frontTriangles == 2);  // only the face that looks at the camera is drawn
         CHECK(st.coveredCells > 500);
-        CHECK(hidden_box(b, {0, 2, -20}, {2, 2, 2}));         // straight behind
-        CHECK(hidden_box(b, {5, 1, -20}, {3, 3, 2}));          // inside the cone of the wall's edges
-        CHECK_FALSE(hidden_box(b, {0, 2, 5}, {1, 1, 1}));      // in front of the wall
-        CHECK_FALSE(hidden_box(b, {40, 2, -20}, {2, 2, 2}));   // far to the side
-        CHECK_FALSE(hidden_box(b, {9.5f, 2, -20}, {5, 2, 2})); // half in, half out of the wall's shadow
-        CHECK_FALSE(hidden_box(b, {0, 30, -20}, {2, 2, 2}));   // above it
+        CHECK(hidden_box(b, {0, 2, -20}, {2, 2, 2}));           // straight behind
+        CHECK(hidden_box(b, {5, 1, -20}, {3, 3, 2}));           // inside the cone of the wall's edges
+        CHECK_FALSE(hidden_box(b, {0, 2, 5}, {1, 1, 1}));       // in front of the wall
+        CHECK_FALSE(hidden_box(b, {40, 2, -20}, {2, 2, 2}));    // far to the side
+        CHECK_FALSE(hidden_box(b, {9.5f, 2, -20}, {5, 2, 2}));  // half in, half out of the wall's shadow
+        CHECK_FALSE(hidden_box(b, {0, 30, -20}, {2, 2, 2}));    // above it
         // A box whose near face is nearer than the wall is not behind it, however much of it is covered.
         CHECK_FALSE(hidden_box(b, {0, 2, 0.3f}, {2, 2, 1.2f}));
     }
@@ -178,10 +179,10 @@ TEST_CASE("occlusion: a box that crosses the near plane, holds the camera or is 
         // A huge wall further down: it covers the whole picture, so only the rules of the near plane keep these visible.
         const OcclusionBuffer b = make_buffer(c, {box_at({0, 2, 0}, {200, 200, 1})});
         CHECK(hidden_box(b, {0, 2, -30}, {2, 2, 2}));
-        CHECK_FALSE(hidden_box(b, {0, 2, 10}, {2, 2, 2}));       // holds the camera
-        CHECK_FALSE(hidden_box(b, {3, 2, 9.9f}, {2, 2, 2}));     // crosses the near plane (z = 9.9)
-        CHECK_FALSE(hidden_box(b, {0, 2, 20}, {2, 2, 2}));       // behind the camera
-        CHECK_FALSE(hidden_box(b, {0, 2, 10.2f}, {0.2f, 2, 3})); // behind, reaching to the near plane
+        CHECK_FALSE(hidden_box(b, {0, 2, 10}, {2, 2, 2}));        // holds the camera
+        CHECK_FALSE(hidden_box(b, {3, 2, 9.9f}, {2, 2, 2}));      // crosses the near plane (z = 9.9)
+        CHECK_FALSE(hidden_box(b, {0, 2, 20}, {2, 2, 2}));        // behind the camera
+        CHECK_FALSE(hidden_box(b, {0, 2, 10.2f}, {0.2f, 2, 3}));  // behind, reaching to the near plane
         // An occluder that crosses the near plane is drawn clipped, and still hides what lies behind it.
         // (x from 0.5 to 4, z from 9 to 11: the camera, at x = 0, is outside it.)
         const OcclusionBuffer c2 = make_buffer(c, {box_at({2.25f, 2, 10}, {3.5f, 4, 2})});
@@ -283,8 +284,8 @@ TEST_CASE("occlusion: soundness, nothing the brute-force ray test can see is eve
                     }
         }
         CHECK(tested == 400);
-        CHECK(hiddenCount > 5);   // the test is meaningful: some boxes are hidden
-        CHECK(hiddenCount < 380); // and some are not
+        CHECK(hiddenCount > 5);    // the test is meaningful: some boxes are hidden
+        CHECK(hiddenCount < 380);  // and some are not
     }
 }
 
@@ -334,7 +335,8 @@ TEST_CASE("occlusion: the buffer is the same bytes with the pool stopped, inline
         std::vector<char> hid;
         for (int i = 0; i < 100; ++i)
             hid.push_back(b.hidden({-1, -1, -1}, {1, 1, 1},
-                                   Mat4::translate({-30.0f + 60.0f * frac(i, 31), 12.0f * frac(i, 32), -10.0f - 40.0f * frac(i, 33)}))
+                                   Mat4::translate({-30.0f + 60.0f * frac(i, 31), 12.0f * frac(i, 32),
+                                                    -10.0f - 40.0f * frac(i, 33)}))
                               ? 1
                               : 0);
         const std::vector<std::uint8_t> grey = b.grey();
@@ -388,7 +390,8 @@ TEST_CASE("occlusion: the caps count triangles, keep the first occluders and nam
     {
         // Five boxes (60 triangles) with 30 for the whole camera: the first two go on whole, the third is cut, the rest are left out.
         std::vector<OccluderSource> occ;
-        for (int i = 0; i < 5; ++i) occ.push_back(box_at({float(i) * 3.0f - 6.0f, 2, 0}, {2, 2, 2}, std::uint64_t(i + 1)));
+        for (int i = 0; i < 5; ++i)
+            occ.push_back(box_at({float(i) * 3.0f - 6.0f, 2, 0}, {2, 2, 2}, std::uint64_t(i + 1)));
         OcclusionLimits limits;
         limits.perFrame = 30;
         OcclusionRasterStats st;

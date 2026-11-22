@@ -575,6 +575,7 @@
     set position(v) { this.$view(TRANSFORM).position = v; }
     get worldPosition() { const p = N.worldPos(this.$h); return new Vec3(p[0], p[1], p[2]); }
     set worldPosition(v) { N.setWorldPos(this.$h, vecArr(v, 3, "entity.worldPosition")); }
+    get absolutePosition() { return N.absolutePos(this.$h); }
     get(name) {
       const t = typeOf(name);
       return N.hasCompT(this.$h, t.id) ? this.$view(t) : null;
@@ -920,8 +921,36 @@
   // it never resumes; the promise and everything it holds become garbage as soon as nothing else refers to them.
   const tweens = {
     list: [], allPaused: false, timeScale: 1,
+    // The world's origin when the tweens last looked: a rebase (an automatic one, `world.rebase`, a script's command) moves it, and
+    // tickTweens shifts the running tweens by the difference BEFORE any of them writes, so none ever writes the old position.
+    origin: [0, 0, 0],
+    syncOrigin() {
+      const o = N.worldOrigin(), last = this.origin;
+      if (o[0] === last[0] && o[1] === last[1] && o[2] === last[2]) return;
+      this.origin = o;
+      this.shiftOrigin([o[0] - last[0], o[1] - last[1], o[2] - last[2]]);
+    },
+    // The world's origin moved by `offset` (floating origin): a running tween of a root entity's position holds its start and end
+    // as world numbers, so both move with the world and the entity keeps its way. Tweens of a child, of a UI element or of
+    // a value that is not a Transform.position are left alone.
+    shiftOrigin(offset) {
+      const posField = TRANSFORM.fields.findIndex((f) => f.name === "position");
+      const isPos = (v) => v !== null && typeof v === "object" && v.$t === TRANSFORM.id && v.$f === posField && N.followsOrigin(v.$h);
+      for (const t of this.list) {
+        if (!t.started || typeof t.target === "number") continue;
+        const whole = isPos(t.target);
+        for (const p of t.parts) {
+          if (p.num) {
+            const i = whole ? "xyz".indexOf(p.k) : -1;
+            if (i >= 0) { p.a -= offset[i]; p.b -= offset[i]; }
+          } else if (isPos(p.cur)) {
+            p.keys.forEach((c, i) => { const j = "xyz".indexOf(c); if (j >= 0) { p.a[i] -= offset[j]; p.b[i] -= offset[j]; } });
+          }
+        }
+      }
+    },
     dropAll() { for (const t of this.list.slice()) t.$drop(); this.list = []; },
-    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; },
+    reset() { this.dropAll(); this.allPaused = false; this.timeScale = 1; this.origin = N.worldOrigin(); },
   };
 
   class Tween {
@@ -1051,7 +1080,9 @@
     return t;
   }
   function tickTweens(dt) {
-    if (tweens.list.length === 0 || tweens.allPaused) return;
+    if (tweens.list.length === 0) return;
+    tweens.syncOrigin();
+    if (tweens.allPaused) return;
     dt *= tweens.timeScale;
     if (!(dt > 0)) return;
     for (const t of tweens.list.slice()) {
@@ -2235,7 +2266,7 @@
     get generation() { return N.sceneGeneration(); },
   };
 
-  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected"];
+  const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected", "originShifted"];
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -2245,6 +2276,9 @@
       else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
     },
     get project() { return Object.freeze(N.project()); },
+    // The world's origin as [x, y, z] doubles: [0, 0, 0] until a floating-origin rebase moved it (factoria.json "floatingOrigin",
+    // world.rebase). entity.absolutePosition is origin + entity.worldPosition: it does not change when the origin shifts.
+    get origin() { return N.worldOrigin(); },
     // The props the running scene was started with (scene.load(path, props), `factoria run --props`, game.load(path, props)): a
     // fresh plain object every call, {} when there are none. Valid from the first onStart.
     sceneProps() { return N.sceneProps(); },
@@ -2289,6 +2323,8 @@
           fn(ev);
         }, null);
       }
+      if (event === "originShifted")
+        return addListener("app.originShifted", (data) => fn(Object.freeze({ offset: Object.freeze(data.offset.slice()), origin: Object.freeze(data.origin.slice()) })), null);
       if (event === "gamepadConnected" || event === "gamepadDisconnected")
         return addListener("app." + event, (data) => fn(Object.freeze({ slot: data.slot, id: data.id, name: data.name, type: data.type })), null);
       return addListener("app." + event, () => (event === "dayChanged" ? fn(game.today()) : fn()), null);
@@ -4978,9 +5014,10 @@
     // have done): an object of counters (drawCalls, sprites, meshes, triangles, lights, lights2d, sceneCopies, textureMB, width,
     // height, renderScale and more; docs/COMPONENTS.md lists every field under game.render_stats). lights are the 3D lights, lights2d
     // the Light2D ones (lights2dShadowed: those with a shadow); sceneCopies counts the copies of the picture drawn so far that
-    // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). The big-world
-    // counters (M75, 0 until their package draws): lodCrossFades, impostors, occluders, occlusionTests, meshesOccluded,
-    // terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled. Throws
+    // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). terrainTiles and
+    // terrainTriangles count the Terrain tiles drawn in the main pass and their triangles (also in triangles; not in meshes). The other
+    // big-world counters (M75, 0 until their package draws): lodCrossFades, impostors, occluders, occlusionTests, meshesOccluded,
+    // foliageInstances, foliageInstancesCulled. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();
