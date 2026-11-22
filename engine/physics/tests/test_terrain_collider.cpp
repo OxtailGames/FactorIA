@@ -120,7 +120,11 @@ TEST_CASE("terrain collider: a sphere dropped on the terrain rests on its surfac
         std::string problem;
         auto heights = s.world.terrain().heights(s.world, ground, &problem);
         REQUIRE(heights);
-        const TerrainRect rect{20, 25, 40, 45};
+        // The rectangle follows where the ball came to rest (a slope this steep can roll it a different way on another CPU or another
+        // build of the solver), not a place chosen on one machine: cells are 1 m wide (x) and 1.5 m deep (z), the map starts at -32 / -48.
+        const int col = std::clamp(int(std::lround(p.x + 32.0f)), 7, 57);
+        const int row = std::clamp(int(std::lround((p.z + 48.0f) / 1.5f)), 7, 57);
+        const TerrainRect rect{col - 6, row - 6, col + 6, row + 6};
         for (int r = rect.r0; r <= rect.r1; ++r)
             for (int c2 = rect.c0; c2 <= rect.c1; ++c2) heights->set(c2, r, std::uint16_t(heights->at(c2, r) + 10922));
         heights->mark_dirty(rect);

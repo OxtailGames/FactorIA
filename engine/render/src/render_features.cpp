@@ -327,7 +327,7 @@ std::vector<FeatureDef> build_table() {
          "Impostors: a mesh far away (MeshRenderer.impostor beyond impostorDistance) is drawn as one camera-facing "
          "card that shows a baked atlas of the model (model.bake_impostor), blending the nearest three of its views "
          "and lit with the atlas's normals, with the dithered cross-fade of the last level. Every backend (M75-P1c); "
-         "a mesh that casts shadows casts the card's shadow.",
+         "a mesh that casts shadows casts a shadow shaped like the card (turned to the camera), not like the model.",
          nullptr},
         {"occlusionCpu", "",
          "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer "

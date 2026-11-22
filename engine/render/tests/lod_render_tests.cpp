@@ -3,10 +3,16 @@
 // shadow casters. The pure selection and the fade state are in engine/scene/tests/lod_tests.cpp; LodFades (no GPU) is tested here too.
 #include "test_util.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 
+#include "fa/core/log.h"
 #include "renderer_lod.h"
 
 using namespace fa;
@@ -25,6 +31,30 @@ Entity add_camera(World& w, Vec3 pos, Rect viewport = {0, 0, 1, 1}, int depth = 
     c.clearColor = Color::hex(0x202830);
     return cam;
 }
+
+// The warnings and errors logged while the object lives.
+struct ProblemLog {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    ProblemLog()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level < LogLevel::Warn) return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~ProblemLog() { remove_log_sink(id); }
+    ProblemLog(const ProblemLog&) = delete;
+    ProblemLog& operator=(const ProblemLog&) = delete;
+    int count(const std::string& needle) const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        return int(std::count_if(shared->lines.begin(), shared->lines.end(),
+                                 [&](const std::string& x) { return x.find(needle) != std::string::npos; }));
+    }
+};
 
 // A cube whose far level is a sphere beyond `at` metres (or below `screenSize` of the screen).
 Entity add_lod_cube(World& w, Vec3 pos, float crossFade = 0.0f, float at = 30.0f, Vec3 scale = {1, 1, 1}) {
@@ -454,6 +484,7 @@ TEST_CASE("hlod: an unreadable proxy draws the children as before, a group witho
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const int cube = triangles_of("cube");
+    ProblemLog log;
     World w;
     add_camera(w, {0, 0, 10});
     Entity group = make(w, "group", {0, 0, -30});
@@ -465,6 +496,9 @@ TEST_CASE("hlod: an unreadable proxy draws the children as before, a group witho
     w.add<MeshRenderer>(kid).mesh = "cube";
     g.render(w);
     g.render(w);  // the warning is logged once, and the group keeps drawing its child
+    g.render(w);
+    CHECK(log.count("never_baked.glb") == 1);  // one line, not one from Assets::mesh and another from the group
+    CHECK(log.count("world.bake_hlod") == 1);  // and it says how to fix it
     CHECK(g.renderer.stats().hlodProxies == 0);
     CHECK(g.renderer.stats().meshes == 1);
     CHECK(g.renderer.stats().triangles == cube);
@@ -565,4 +599,115 @@ TEST_CASE("hlod: the proxy is the group's level past every child, fading with th
     CHECK(fade == doctest::Approx(-0.25f));
     CHECK_FALSE(render::hlod_proxy_shown(pick, false, fade));
     CHECK(fade == 0.0f);
+}
+
+TEST_CASE("lod fades: an entity on a farther level keeps it until the metric pushed farther picks a nearer one too") {
+    render::LodFades f;
+    // crossFade 0 (a hard switch): the slot is kept for the hysteresis all the same.
+    const auto pick = [&](int target, int farTarget) {
+        f.begin_frame();
+        const render::LodPick p = f.step(1, 7, render::LodKind::Mesh, target, 0.0f, 0.016f, farTarget);
+        f.end_frame();
+        return p.level;
+    };
+    CHECK(pick(0, 0) == 0);  // first seen at level 0
+    CHECK(pick(1, 1) == 1);  // past the threshold: at once
+    CHECK(pick(0, 1) == 1);  // back inside it, but not 5% inside: stays
+    CHECK(pick(0, 1) == 1);
+    CHECK(pick(0, 0) == 0);  // 5% inside: the nearer level
+    CHECK(pick(0, 1) ==
+          0);  // held level 0: the far pick says 1 only where the metric is near the threshold, and 0 is the level held
+    // Several levels: 2 held, the near pick says 0 and the far pick 1: 1 is the nearest the far pick allows
+    CHECK(pick(2, 2) == 2);
+    CHECK(pick(0, 1) == 1);
+    // No far pick given: no hysteresis
+    f.begin_frame();
+    CHECK(f.step(1, 7, render::LodKind::Mesh, 0, 0.0f, 0.016f).level == 0);
+    f.end_frame();
+}
+
+TEST_CASE("lod render: a camera that shakes at a threshold does not flip a hard-switched level every frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube"), sphere = triangles_of("sphere");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity e = add_lod_cube(w, {0, 0, -20});  // 30 m: the sphere from 30 m on, crossFade 0
+    const auto tris = [&](float z) {
+        w.get<Transform>(e)->position = {0, 0, z};
+        g.render(w);
+        return g.renderer.stats().triangles;
+    };
+    CHECK(tris(-19.0f) == cube);    // 29 m
+    CHECK(tris(-20.5f) == sphere);  // 30.5 m: at once past the threshold
+    CHECK(tris(-19.5f) == sphere);  // 29.5 m: inside it, but not 5% (28.5 m): the sphere stays
+    CHECK(tris(-20.2f) == sphere);
+    CHECK(tris(-18.6f) == sphere);  // 28.6 m: the threshold over 1.05 is 28.57 m, not yet
+    CHECK(tris(-18.4f) == cube);    // 28.4 m: the cube is back
+    CHECK(tris(-19.9f) == cube);    // 29.9 m: and it stays until the threshold itself
+    CHECK(tris(-20.0f) == sphere);
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("lod render: a LodGroup keeps its farther child at a threshold the same way") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube"), sphere = triangles_of("sphere");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity group = make(w, "group", {0, 0, -20});
+    auto& lg = w.add<LodGroup>(group);
+    lg.thresholds = {30.0f};
+    Entity a = make(w, "a", {0, 0, 0}), b = make(w, "b", {0, 0, 0});
+    w.set_parent(a, group);
+    w.set_parent(b, group);
+    w.add<MeshRenderer>(a).mesh = "cube";
+    w.add<MeshRenderer>(b).mesh = "sphere";
+    const auto tris = [&](float z) {
+        w.get<Transform>(group)->position = {0, 0, z};
+        g.render(w);
+        return g.renderer.stats().triangles;
+    };
+    CHECK(tris(-19.0f) == cube);
+    CHECK(tris(-20.5f) == sphere);
+    CHECK(tris(-19.5f) == sphere);  // 29.5 m: inside the threshold, not 5%
+    CHECK(tris(-18.4f) == cube);    // 28.4 m
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE(
+    "hlod: a group nested in a child of another group shows its proxy only while the outer group shows that child") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube"), sphere = triangles_of("sphere"), cylinder = triangles_of("cylinder");
+    REQUIRE(cube != cylinder);
+    REQUIRE(sphere != cylinder);
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity outer = make(w, "outer", {0, 0, 0});
+    auto& og = w.add<LodGroup>(outer);
+    og.thresholds = {100.0f};
+    Entity inner = make(w, "inner", {0, 0, 0});  // the outer's child 0, itself a group with a proxy
+    w.set_parent(inner, outer);
+    auto& ig = w.add<LodGroup>(inner);
+    ig.hlodProxy = "sphere";
+    ig.hlodThreshold = 30.0f;
+    Entity kid = make(w, "kid", {0, 0, 0});
+    w.set_parent(kid, inner);
+    w.add<MeshRenderer>(kid).mesh = "cube";
+    Entity far = make(w, "far", {0, 0, 0});  // the outer's child 1
+    w.set_parent(far, outer);
+    w.add<MeshRenderer>(far).mesh = "cylinder";
+    const auto at = [&](float distance) {
+        w.get<Transform>(outer)->position = {0, 0, 10.0f - distance};
+        g.render(w);
+        return std::array<int, 3>{int(g.renderer.stats().hlodProxies), int(g.renderer.stats().meshes),
+                                  int(g.renderer.stats().triangles)};
+    };
+    CHECK(at(10.0f) == std::array<int, 3>{0, 1, cube});    // the inner group's child
+    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});  // the inner group's proxy
+    CHECK(at(150.0f) ==
+          std::array<int, 3>{0, 1, cylinder});  // the outer group chose child 1: the proxy of child 0 goes with it
+    CHECK(at(50.0f) == std::array<int, 3>{1, 1, sphere});  // and back
+    g.renderer.clear_asset_cache();
 }

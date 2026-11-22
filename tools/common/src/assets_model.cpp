@@ -1383,14 +1383,16 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
     }
     // Capabilities (capability.h): the documents and the .glb files they bake to are project files; info and select only look.
     using namespace capability_sets;
-    declare_command_capabilities(registry, {{"model.info", reads()},
-                                            {"model.select", reads()},
-                                            {"model.bake", writes_project()},
-                                            {"model.create", writes_project()},
-                                            {"model.edit", writes_project()},
-                                            {"model.game_ready", writes_project()},
-                                            {"model.generate_lods", writes_project()},
-                                            {"model.bake_impostor", writes_project()}});
+    declare_command_capabilities(registry,
+                                 {{"model.info", reads()},
+                                  {"model.select", reads()},
+                                  {"model.bake", writes_project()},
+                                  {"model.create", writes_project()},
+                                  {"model.edit", writes_project()},
+                                  {"model.game_ready", writes_project()},
+                                  {"model.generate_lods", writes_project()},
+                                  // `apply` also changes the open scene (state), so it is not a files-only writer
+                                  {"model.bake_impostor", edits_project()}});
 }
 
 }  // namespace fa::assets_detail
