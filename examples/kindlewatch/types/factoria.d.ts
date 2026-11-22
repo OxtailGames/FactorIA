@@ -596,7 +596,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -12124,6 +12124,49 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS.md, "Streaming").
+   * 
+   * Category: World
+   * @since unreleased
+   */
+  export interface StreamedWorldComponent {
+    /**
+     * Project-relative path of the world index, a *.world.json file. Read once when the scene starts (or when this field changes). "" (default) = nothing is streamed. (asset path: any)
+     * @since unreleased
+     */
+    world: string;
+    /**
+     * true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.
+     * @since unreleased
+     */
+    maxLoadsInFlight: number;
+    /**
+     * 1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the frame's load budget limits the reading, not this. Default 1.
+     * @since unreleased
+     */
+    maxAppliesPerFrame: number;
+    /**
+     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. Default false.
+     * @since unreleased
+     */
+    keepLoaded: boolean;
+    /**
+     * Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor.
+     * @since unreleased
+     */
+    cameraLoadRadius: number;
+    /**
+     * Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius.
+     * @since unreleased
+     */
+    cameraUnloadRadius: number;
+  }
+  /**
    * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
    * 
    * Category: 3D
@@ -12588,6 +12631,7 @@ declare module "factoria" {
     OcclusionArea: OcclusionAreaComponent;
     OcclusionPortal: OcclusionPortalComponent;
     StreamingAnchor: StreamingAnchorComponent;
+    StreamedWorld: StreamedWorldComponent;
     Terrain: TerrainComponent;
     Foliage: FoliageComponent;
     ScatterRule: ScatterRuleComponent;
@@ -12658,6 +12702,7 @@ declare module "factoria" {
     OcclusionArea: { size?: Vec3Like; areaId?: number };
     OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
     StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
+    StreamedWorld: { world?: string; enabled?: boolean; maxLoadsInFlight?: number; maxAppliesPerFrame?: number; keepLoaded?: boolean; cameraLoadRadius?: number; cameraUnloadRadius?: number };
     Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
     Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
     ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
