@@ -2,6 +2,8 @@
 #include "fa/runtime/project.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -288,11 +290,30 @@ Result<void> read_floating_origin(const Json& fo, FloatingOriginSettings& out) {
         return {};
     };
     FA_TRY(number("threshold", 16.0, 1.0e7, v.threshold, "2048"));
-    FA_TRY(number("step", 1.0, 1.0e7, v.step, "256"));
-    if (v.step > v.threshold)
-        return make_error(at(base + "/step") + ": step " + std::format("{}", v.step) + " is above threshold " +
-                              std::format("{}", v.threshold) + ", so the origin would jump past the anchor",
-                          "Make step smaller than threshold: threshold 2048 with step 256 is typical.");
+    // step: an integer power of two (1, 2, 4 ... 1048576), so that moving the origin by a multiple of it is exact in a float at
+    // any distance. Left out, it is the largest power of two that is at most 256 and at most threshold.
+    if (auto st = fo.find("step"); st != fo.end() && !st->is_null()) {
+        const std::string ptr = base + "/step";
+        if (!st->is_number()) return field_error(ptr, "a power of two of metres like 256", *st);
+        const double d = st->get<double>();
+        const bool whole = d == std::floor(d) && d >= 1.0 && d <= 1048576.0;
+        const bool pow2 = whole && (std::uint64_t(d) & (std::uint64_t(d) - 1)) == 0;
+        if (!pow2)
+            return make_error(
+                at(ptr) + ": " + std::format("{}", d) + " is not a power of two between 1 and 1048576 (2^20) metres",
+                "Use 1, 2, 4, 8 ... 256, 512 ... 1048576: a shift by a power of two is exact in a float, any "
+                "other step would round. Typical: 256. Remove the field to use the default.");
+        if (d > v.threshold)
+            return make_error(
+                at(ptr) + ": step " + std::format("{}", d) + " is above threshold " + std::format("{}", v.threshold) +
+                    ", so the origin would jump past the anchor",
+                "Make step a power of two that is at most threshold: threshold 2048 with step 256 is typical.");
+        v.step = d;
+    } else {
+        double s = 1.0;
+        while (s * 2.0 <= std::min(256.0, v.threshold)) s *= 2.0;
+        v.step = s;
+    }
     if (auto it = fo.find("anchor"); it != fo.end() && !it->is_null()) {
         if (!it->is_string()) return field_error(base + "/anchor", "\"camera\" or \"entity:<id>\"", *it);
         const std::string a = it->get<std::string>();
@@ -626,6 +647,11 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
         if (!it->is_object())
             return field_error("/world", "an object like {\"floatingOrigin\": {\"enabled\": true}}", *it);
+        static const std::vector<std::string> worldKeys = {"floatingOrigin"};
+        for (auto e = it->begin(); e != it->end(); ++e)
+            if (std::find(worldKeys.begin(), worldKeys.end(), e.key()) == worldKeys.end())
+                return make_error(at("/world/" + e.key()) + ": '" + e.key() + "' is not a \"world\" setting",
+                                  did_you_mean(e.key(), worldKeys));
         if (auto fo = it->find("floatingOrigin"); fo != it->end() && !fo->is_null()) {
             FA_TRY(read_floating_origin(*fo, s.floatingOrigin));
         }
@@ -1112,11 +1138,10 @@ constexpr const char* kSchemaText =
               "description": "Metres between the anchor and the origin beyond which the origin moves. Default 2048."
             },
             "step": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 10000000,
+              "type": "integer",
+              "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576],
               "default": 256,
-              "description": "Metres: the origin only moves in multiples of this, so a move is exact in float. At most `threshold`. Default 256."
+              "description": "Metres: the origin only moves in multiples of this. An integer power of two (1, 2, 4 ... 1048576), so a move is exact in a float at any distance, and at most `threshold`. Default 256, or the largest power of two at most `threshold` when `threshold` is below 256."
             },
             "anchor": {
               "type": "string",

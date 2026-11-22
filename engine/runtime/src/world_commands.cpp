@@ -18,17 +18,21 @@ Json parse_schema(const char* text) {
     return r.value();
 }
 
-void add_stub(Engine::Impl& I, const char* name, const char* summary, const std::string& description, const char* schema,
-              const char* package, bool readOnly = true) {
+void add_stub(Engine::Impl& I, const char* name, const char* summary, const std::string& description,
+              const char* schema, const char* package, bool readOnly = true) {
     const std::string cmd = name;
     const std::string pkg = package;
-    I.commands.add({name, summary, description + " Not built yet (planned, " + pkg + "): the command exists so its name and arguments are fixed.",
-                    parse_schema(schema), readOnly, "world"},
-                   [cmd, pkg](const Json&) -> Json {
-                       throw CommandError("not_built", cmd + " is not built yet (" + pkg + ").",
-                                          "Big worlds are planned for M75: read docs/BIG_WORLDS.md (docs.read BIG_WORLDS) for what " +
-                                              cmd + " will do and when. Nothing was changed.");
-                   });
+    I.commands.add(
+        {name, summary,
+         description + " Not built yet (planned, " + pkg + "): the command exists so its name and arguments are fixed.",
+         parse_schema(schema), readOnly, "world"},
+        [cmd, pkg](const Json&) -> Json {
+            throw CommandError(
+                "not_built", cmd + " is not built yet: it is planned for a coming version.",
+                "Package " + pkg +
+                    " of the big worlds builds it: read docs/BIG_WORLDS.md (docs.read BIG_WORLDS) for what " + cmd +
+                    " will do. Nothing was changed.");
+        });
 }
 
 }  // namespace
@@ -125,11 +129,12 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
                                  {"rebases", I.world.rebase_count()}});
         });
     I.commands.add(
-        {"world.absolute_position", "Read an entity's position in double precision from the world's fixed zero.",
-         "Returns origin + the entity's world position, added in double: the number that does not change when a floating-origin "
-         "rebase shifts the origin, exact to about a micrometre at 10 000 km. Read-only. Result: {entity, origin: [x, y, z], "
-         "position (the local world position the engine and scripts read), absolute: [x, y, z]}. Example: "
-         "world.absolute_position {\"entity\":\"player\"}",
+        {"world.absolute_position", "Read an entity's position in double precision: the floating origin plus its local position.",
+         "Returns {entity, position: [x, y, z] (the origin plus the entity's world position, added in double: the number that does "
+         "not change when a floating-origin rebase shifts the origin, exact to about a micrometre at 10 000 km), origin: [x, y, z], "
+         "local: [x, y, z] (the entity's world position in the engine's float space, what scripts and the editor read)}. Without "
+         "floating origin the origin is [0, 0, 0] and position equals local. Read-only. Example: world.absolute_position "
+         "{\"entity\":\"player\"}",
          parse_schema(R"({"type":"object","required":["entity"],"properties":{
            "entity":{"type":"string","description":"The entity id (or name)."}}})"),
          true, "world"},
@@ -138,23 +143,28 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
             const Vec3 p = I.world.world_position(e);
             const DVec3 o = I.world.origin(), abs = I.world.absolute_position(e);
             return Json::object({{"entity", I.world.id_of(e)},
+                                 {"position", Json::array({abs.x, abs.y, abs.z})},
                                  {"origin", Json::array({o.x, o.y, o.z})},
-                                 {"position", Json::array({p.x, p.y, p.z})},
-                                 {"absolute", Json::array({abs.x, abs.y, abs.z})}});
+                                 {"local", Json::array({p.x, p.y, p.z})}});
         });
     add_stub(I, "world.cells", "List the cells of the streamed world and which are loaded.",
-             "Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: {min, max}, "
-             "state: \"unloaded\" | \"loading\" | \"loaded\" | \"unloading\", entities, distance}]}, sorted by distance to the nearest "
+             "Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: "
+             "{min, max}, "
+             "state: \"unloaded\" | \"loading\" | \"loaded\" | \"unloading\", entities, distance}]}, sorted by "
+             "distance to the nearest "
              "StreamingAnchor. `state` filters the list. Read-only. Example: world.cells {\"state\":\"loaded\"}",
              R"({"type":"object","properties":{
                "state":{"type":"string","enum":["unloaded","loading","loaded","unloading"],"description":"Only the cells in this state."}}})",
              "M75.3");
     add_stub(I, "world.stream_status", "Read what the world streaming is doing: loads in flight, budget, cells loaded.",
-             "Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, frameBudgetMs, "
-             "pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player are in. "
+             "Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, "
+             "frameBudgetMs, "
+             "pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player "
+             "are in. "
              "Read-only. Result: the fields above. Example: world.stream_status {}",
              R"({"type":"object","properties":{}})", "M75.3");
     declare_command_capabilities(I.commands, {{"world.origin", capability_sets::reads()},
+                                              {"world.absolute_position", capability_sets::reads()},
                                               {"world.rebase", capability_sets::changes_state()},
                                               {"world.absolute_position", capability_sets::reads()},
                                               {"world.cells", capability_sets::reads()},
