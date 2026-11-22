@@ -30,12 +30,19 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 - [Animator](components/3d.md#animator): Plays animation clips: the skeletal clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`), or, when there is no glTF model, the keyframed 2D clips of `clips` (*.anim.json files that animate fields of this entity and its children: position, rotation.z, color.a, Sprite.region...). _Since 0.2.0._
 - [Decal](components/3d.md#decal): A texture projected onto the 3D meshes that stand inside the box of this entity: bullet holes, blood, graffiti, dirt, road markings, the cracks of a wall. _Since 0.33.0._
+- [Foliage](components/3d.md#foliage): Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of positions, rotations and scales, with wind, a fade-out and LODs. _Not released yet._
 - [IK3D](components/3d.md#ik3d): 3D inverse kinematics on the skinned model of the Animator on the same entity (docs/ANIMATION.md, "3D IK"). _Since 0.16.0._
 - [Light](components/3d.md#light): A light source for 3D meshes.
 - [LightProbeGroup](components/3d.md#lightprobegroup): Light probes for moving objects: a grid of points that lightmap.bake fills with the light around them (spherical harmonics, as the direct light of the baked lights, the sky and their bounces). _Since 0.33.0._
+- [LodGroup](components/3d.md#lodgroup): The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. _Not released yet._
 - [MeshRenderer](components/3d.md#meshrenderer): Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read).
+- [Occluder](components/3d.md#occluder): A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. _Not released yet._
+- [OcclusionArea](components/3d.md#occlusionarea): A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. _Not released yet._
+- [OcclusionPortal](components/3d.md#occlusionportal): An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. _Not released yet._
 - [RealtimeGI](components/3d.md#realtimegi): Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. _Since 0.33.0._
 - [ReflectionProbe](components/3d.md#reflectionprobe): Captures the scene around this entity into a small map (an octahedral image: the six directions of a cube unfolded onto a square) with its blurry versions for rough surfaces and the diffuse light as nine spherical harmonics, and keeps it in the engine's probe atlas. _Since 0.33.0._
+- [ScatterRule](components/3d.md#scatterrule): The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. _Not released yet._
+- [Terrain](components/3d.md#terrain): A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. _Not released yet._
 
 ### [Audio](components/audio.md)
 
@@ -91,6 +98,10 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [TouchButton](components/ui.md#touchbutton): On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. _Since 0.2.0._
 - [TouchStick](components/ui.md#touchstick): On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. _Since 0.2.0._
 - [Video](components/ui.md#video): A video on the screen (docs/menus/MENUS_RECIPES.md, "A studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. _Since 0.3.0._
+
+### [World](components/world.md)
+
+- [StreamingAnchor](components/world.md#streaminganchor): Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. _Not released yet._
 
 ## Commands
 
@@ -255,12 +266,14 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`lightmap.bake_start`](commands/assets.md#lightmapbake_start-modifies-state): Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel. _Since 0.33.0._
 - [`lightmap.bake_status`](commands/assets.md#lightmapbake_status-modifies-state): The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled. _Since 0.33.0._
 - [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
+- [`model.bake_impostor`](commands/assets.md#modelbake_impostor-modifies-state): Bake a billboard impostor texture of a model from several views. _Not released yet._
 - [`model.bake_maps`](commands/assets.md#modelbake_maps-modifies-state): Bake a model's ambient occlusion, curvature and thickness maps in its UV atlas and measure them (nothing is written): the masks that texturing wear is built from. Returns the maps as pictures. _Since 0.16.0._
 - [`model.check`](commands/assets.md#modelcheck): Measure a model document's mesh for faults an artist finds by eye: scale, origin, flipped or inconsistent triangles, open and non-manifold edges, degenerate triangles, platform budgets. Each finding says where, what and how to fix. _Since 0.16.0._
 - [`model.create`](commands/assets.md#modelcreate-modifies-state): Write a new model document (a tree of primitives, modifiers, groups and transforms) and bake it to a .glb. _Since 0.16.0._
 - [`model.decal`](commands/assets.md#modeldecal-modifies-state): Add, replace, remove or clear the decals of a model document: pictures (logos, stains, markings) projected on its surface and baked into the texture. _Since 0.16.0._
 - [`model.edit`](commands/assets.md#modeledit-modifies-state): Add, change, remove or move one node of a model document by its id (or JSON pointer), or change its materials, output or note; then bake it. _Since 0.16.0._
 - [`model.game_ready`](commands/assets.md#modelgame_ready-modifies-state): Make a model document game-ready: origin, merged submeshes, LODs, a collider and a triangle budget report per platform; the settings live in the document. _Since 0.16.0._
+- [`model.generate_lods`](commands/assets.md#modelgenerate_lods-modifies-state): Generate simplified LOD meshes of a model and write them to the project. _Not released yet._
 - [`model.import_clean`](commands/assets.md#modelimport_clean-modifies-state): Clean a generated or imported mesh (.glb, .gltf, .obj) into a game-ready model document: weld, drop floating bits, recentre, scale to a reference, decimate to a platform budget, optionally remesh, unwrap, and bake. _Since 0.16.0._
 - [`model.info`](commands/assets.md#modelinfo): Check a model document and measure what it builds; with no arguments, list the operations (primitives, modifiers, group) and their fields. _Since 0.16.0._
 - [`model.palette`](commands/assets.md#modelpalette-modifies-state): Colour a model with a palette without a texture: the `vertexColors` section (style palette or your own colours, one colour or a gradient per part, flat low-poly faces); returns the palette swatches. _Since 0.16.0._
@@ -650,4 +663,21 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ui.speak`](commands/ui.md#uispeak-modifies-state): Say a line aloud with the system's text to speech (or record it, headless). _Since 0.2.0._
 - [`ui.state`](commands/ui.md#uistate): List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus. _Since 0.1.6._
 - [`ui.stop_speaking`](commands/ui.md#uistop_speaking-modifies-state): Stop what is being said by ui.speak and drop the queued lines. _Since 0.2.0._
+
+### [world](commands/world.md)
+
+- [`foliage.clear`](commands/world.md#foliageclear-modifies-state): Remove every instance of a Foliage, or those in a rectangle. _Not released yet._
+- [`foliage.paint`](commands/world.md#foliagepaint-modifies-state): Add or remove foliage instances by hand in a circle on the ground. _Not released yet._
+- [`foliage.scatter`](commands/world.md#foliagescatter-modifies-state): Fill a Foliage's instances by a ScatterRule over a terrain. _Not released yet._
+- [`terrain.create`](commands/world.md#terraincreate-modifies-state): Create a Terrain entity with a heightmap file. _Not released yet._
+- [`terrain.generate`](commands/world.md#terraingenerate-modifies-state): Fill a Terrain's heightmap with seeded procedural noise and optional erosion. _Not released yet._
+- [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain in a circle. _Not released yet._
+- [`terrain.paint`](commands/world.md#terrainpaint-modifies-state): Paint a material layer of a Terrain in a circle. _Not released yet._
+- [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heightmap of a Terrain in a circle. _Not released yet._
+- [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
+- [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
+- [`world.origin`](commands/world.md#worldorigin): Read the floating origin: where the world's origin is, in double precision. _Not released yet._
+- [`world.rebase`](commands/world.md#worldrebase-modifies-state): Move the floating origin now, shifting every entity so the camera is near (0, 0, 0) again. _Not released yet._
+- [`world.split_cells`](commands/world.md#worldsplit_cells-modifies-state): Split a scene into streamable cells on a grid, with a manifest. _Not released yet._
+- [`world.stream_status`](commands/world.md#worldstream_status): Read what the world streaming is doing: loads in flight, budget, cells loaded. _Not released yet._
 

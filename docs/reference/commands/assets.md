@@ -2006,6 +2006,23 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no model document baked. Default false. |
 
+## `model.bake_impostor` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Bake a billboard impostor texture of a model from several views.
+
+Capabilities: read, state, writeProject
+
+Will render the model from `views` directions around it into an atlas of `resolution` pixels per view, write the atlas and its data file, and set MeshRenderer.impostor of the entities that use the model when `apply` is true. Result: {file, views, resolution}. Example: model.bake_impostor {"model":"models/tree.glb","views":8} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model or mesh file to bake (project-relative path). |
+| `views` | integer | no | How many directions around the model. Default 8. |
+| `resolution` | integer | no | Pixels of one view's side. Default 256. |
+| `apply` | boolean | no | Also set MeshRenderer.impostor of the entities that use the model. Default false. |
+
 ## `model.bake_maps` (modifies state)
 
 Since 0.16.0.
@@ -2147,6 +2164,24 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
 | `bake` | boolean | no | Bake after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+
+## `model.generate_lods` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Generate simplified LOD meshes of a model and write them to the project.
+
+Capabilities: read, state, writeProject
+
+Will simplify a model's meshes to `levels` lower levels of detail (each keeps `ratios[i]` of the triangles of the level above, within `maxError` metres of the original), write each as a mesh file and fill the MeshRenderer.lods of every entity that uses the model when `apply` is true. Result: {levels: [{file, triangles, error}]}. Example: model.generate_lods {"model":"models/rock.glb","levels":3} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model or mesh file to simplify (project-relative path). |
+| `levels` | integer | no | How many lower levels to make. Default 3. |
+| `ratios` | array | no | Share of triangles each level keeps of the one above (default 0.5 each). |
+| `maxError` | number | no | Largest distance in metres a vertex may move (default: none). |
+| `apply` | boolean | no | Also fill MeshRenderer.lods of the entities that use the model. Default false. |
 
 ## `model.import_clean` (modifies state)
 

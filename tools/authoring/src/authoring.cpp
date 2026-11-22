@@ -31,6 +31,8 @@ void register_authoring_commands(Engine& engine) {
     // lightmaps
     register_lightmap_commands(engine,
                                impl);  // lightmap.bake, lightmap.bake_start, lightmap.bake_status, lightmap.bake_cancel
+    // big worlds (M75 stubs)
+    register_big_world_commands(engine, impl);  // world.split_cells, model.generate_lods, terrain.*, foliage.*, ...
     // levels
     register_ascii_level_commands(engine, impl);
 }
