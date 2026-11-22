@@ -4614,7 +4614,7 @@ Remove every instance of a Foliage, or those in a rectangle.
 
 Capabilities: read, state, writeProject
 
-Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside `region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo, undoDepth, redoDepth}. Example: foliage.clear {"entity":"grass","region":[0,0,50,50]}
+Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside `region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo, undoDepth, redoDepth, historyId, historyLost}. Example: foliage.clear {"entity":"grass","region":[0,0,50,50]}
 
 A Foliage with no file, or a file with nothing in the region, changes nothing (no undo step). One undo step (foliage.undo).
 
@@ -4631,7 +4631,7 @@ Add or remove foliage instances by hand in a circle on the ground.
 
 Capabilities: read, state, writeProject
 
-Adds instances (mode "add") within `radius` metres of `center` (world [x, z]) with the placement rules of the ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush to one of Foliage.meshes, `seed` changes the draw. Mode "remove" deletes the instances in the circle (of `mesh` when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest undo step (a brush that stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, redoDepth, continued?}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5}
+Adds instances (mode "add") within `radius` metres of `center` (world [x, z]) or of every one of `points` (a stroke of up to 512 stamps in ONE call and one rewrite of the file; the stamps are placed in order, each one against everything placed before it) with the placement rules of the ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush to one of Foliage.meshes, `seed` changes the draw. Mode "remove" deletes the instances in the circle (of `mesh` when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest undo step (a brush that stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?}. Each call rewrites the whole instances file (a file of 2,000,000 instances is 52 MB): send a stroke as `points` in pieces a few times a second, not one call per stamp. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5}
 
 A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), so painting the same spot twice does not stack them. Instances of an added stroke are appended after the existing ones. An empty result changes nothing (no undo step) and says why in `counts.rejected`. The file is created next to the scene when Foliage.instances is empty. One undo step per call (foliage.undo); a continued stroke joins the newest step.
 
@@ -4640,12 +4640,13 @@ A stroke never puts two instances closer than half the average gap of `density` 
 | `entity` | string | yes | Entity id of the Foliage. |
 | `rule` | string | no | Entity id with the ScatterRule whose placement rules apply (default: the Foliage entity, if it has one). |
 | `mode` | string ["add","remove"] | no | Add instances or remove them. Default "add". |
-| `center` | array | yes | World metres [x, z]. |
-| `radius` | number | yes | Brush radius in metres. |
+| `center` | array | no | World metres [x, z]. Give center or points, not both. |
+| `points` | array | no | Several stamps as world metres [[x, z], ...], at most 512: a brush stroke in one call (one file rewrite and one history step). Give center or points, not both. |
+| `radius` | number | yes | Brush radius in metres (the same for every point). |
 | `density` | number | no | Instances per square metre when adding (default: the rule's density, 0.1 without a rule). |
 | `mesh` | string | no | Limit the brush to this mesh of Foliage.meshes. |
 | `seed` | integer | no | Seed of the draw (default: the rule's seed). The same arguments always give the same instances. |
-| `continueStroke` | boolean | no | Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error. The first piece is sent without it. Default false. |
+| `continueStroke` | boolean | no | Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error (foliage.scatter and foliage.clear refuse it). The first piece is sent without it. Default false. |
 
 ### `foliage.redo` (modifies state)
 
@@ -4655,7 +4656,7 @@ Redo the foliage edit the last foliage.undo took back.
 
 Capabilities: read, state, writeProject
 
-Applies the undone edit again. The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth}. Example: foliage.redo {"entity":"grass"}
+Applies the undone edit again. The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth, historyId, historyLost}. Example: foliage.redo {"entity":"grass"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -4669,7 +4670,7 @@ Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.
 
 Capabilities: read, state, writeProject
 
-Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain (one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth}. Example: foliage.scatter {"entity":"grass"}
+Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain (one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth, historyId, historyLost}. Example: foliage.scatter {"entity":"grass"}
 
 More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is refused before anything changes, with the knobs to turn. The edit is one step of the Foliage's undo history (foliage.undo, foliage.redo; in memory, the last 64 steps): `undo` is {command: "foliage.undo", args: {entity}}. A scatter over a filled file costs a history step about the size of both files.
 
@@ -4687,7 +4688,7 @@ Undo the last foliage.scatter, foliage.paint or foliage.clear of a Foliage.
 
 Capabilities: read, state, writeProject
 
-Puts the instances file, Foliage.meshes and Foliage.instances back as they were before the newest edit of this Foliage (one command's worth; a continued paint stroke is one). The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth}. Example: foliage.undo {"entity":"grass"}
+Puts the instances file, Foliage.meshes and Foliage.instances back as they were before the newest edit of this Foliage (one command's worth; a continued paint stroke is one). The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth, historyId, historyLost}. Example: foliage.undo {"entity":"grass"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

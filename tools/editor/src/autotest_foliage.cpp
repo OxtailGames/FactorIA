@@ -56,7 +56,8 @@ void Editor::at_section_F3(AtScript& at) {
     auto foliage_rows = [this]() {
         std::size_t n = 0;
         for (const UndoEntry& e : undo_)
-            if (e.kind == UndoEntry::Kind::Command && !e.forward.empty() && e.forward[0].cmd.rfind("foliage.", 0) == 0) ++n;
+            if (e.kind == UndoEntry::Kind::Command && !e.forward.empty() && e.forward[0].cmd.rfind("foliage.", 0) == 0)
+                ++n;
         return n;
     };
     auto error_toasts = [this]() {
@@ -160,7 +161,8 @@ void Editor::at_section_F3(AtScript& at) {
         at_check(foliage_.pieces >= 2,
                  "...sent as several foliage.paint pieces (" + std::to_string(foliage_.pieces) + ")");
         at_check(undo_depth() == m->undo0 + 1, "...and is ONE undo step of the editor (depth " +
-                                                   std::to_string(undo_depth()) + " from " + std::to_string(m->undo0) + ")");
+                                                   std::to_string(undo_depth()) + " from " + std::to_string(m->undo0) +
+                                                   ")");
         at_check(dirty(), "...and the scene is dirty");
     });
     hold_ctrl(true);
@@ -201,7 +203,8 @@ void Editor::at_section_F3(AtScript& at) {
     click("foliage:scatter");
     step(4, [this, m, count] {
         m->scattered = count();
-        at_check(m->scattered > 1000, "Scatter all fills the Foliage from its rule (" + std::to_string(m->scattered) + ")");
+        at_check(m->scattered > 1000,
+                 "Scatter all fills the Foliage from its rule (" + std::to_string(m->scattered) + ")");
         at_check(undo_depth() == m->undo0 + 2, "...as one undo step");
         undo();
     });
@@ -225,14 +228,15 @@ void Editor::at_section_F3(AtScript& at) {
         undo();  // the remove stroke
     });
     step(3, [this, count, m] {
-        at_check(count() == m->after, "the rows below are in order (the strip of the add stroke again)");
+        at_check(count() == m->after, "three undos go back to the strip of the add stroke");
         at_check(undo_depth() == m->undo0, "...with the add stroke still in the undo list");
         redo();
         redo();
         redo();
     });
     step(3, [this, m, count] {
-        at_check(count() == 0 || count() == m->scattered, "the redo rows run in order (" + std::to_string(count()) + ")");
+        at_check(count() == 0,
+                 "the three redo rows run in order and end with the Clear (" + std::to_string(count()) + ")");
         undo();
         undo();
         undo();
@@ -285,11 +289,11 @@ void Editor::at_section_F3(AtScript& at) {
         for (int i = 0; i < 70; ++i) {
             const float x = -27.0f + float(i % 10) * 6.0f, z = -27.0f + float(i / 10) * 6.0f;
             std::string error;
-            const CommandResult r = edit_command(
-                "f3:bulk:" + std::to_string(i), "foliage.paint",
-                Json::parse(std::string(R"({"entity":"f3_forest","center":[)") + std::to_string(x) + "," +
-                            std::to_string(z) + R"(],"radius":1.5,"density":3})"),
-                &error);
+            const CommandResult r =
+                edit_command("f3:bulk:" + std::to_string(i), "foliage.paint",
+                             Json::parse(std::string(R"({"entity":"f3_forest","center":[)") + std::to_string(x) + "," +
+                                         std::to_string(z) + R"(],"radius":1.5,"density":3})"),
+                             &error);
             if (!r.ok) at_check(false, "foliage.paint " + std::to_string(i) + " is accepted: " + error);
         }
     });

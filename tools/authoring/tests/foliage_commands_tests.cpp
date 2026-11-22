@@ -599,8 +599,8 @@ TEST_CASE("foliage.paint: points is one call with the same placements as the sta
     p.ok("foliage.scatter", R"({"entity":"b"})");
     p.ok("foliage.clear", R"({"entity":"a"})");
     p.ok("foliage.clear", R"({"entity":"b"})");
-    const Json one = p.ok(
-        "foliage.paint", R"({"entity":"a","points":[[0,0],[2,0],[4,0],[6,1]],"radius":3,"density":2,"seed":5})");
+    const Json one =
+        p.ok("foliage.paint", R"({"entity":"a","points":[[0,0],[2,0],[4,0],[6,1]],"radius":3,"density":2,"seed":5})");
     CHECK(one["undoDepth"] == 3);  // scatter, clear and ONE stroke
     for (const char* c : {"[0,0]", "[2,0]", "[4,0]", "[6,1]"})
         p.ok("foliage.paint", std::string(R"({"entity":"b","center":)") + c +
@@ -620,7 +620,8 @@ TEST_CASE("foliage.paint: points is one call with the same placements as the sta
     p.ok("foliage.undo", R"({"entity":"a"})");
     CHECK(p.load("a").size() == a.size());
     // the arguments say what is wrong, with a pointer
-    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","center":[0,0],"points":[[0,0]],"radius":3})"), "/points"));
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","center":[0,0],"points":[[0,0]],"radius":3})"),
+                   "/points"));
     CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","points":[],"radius":3})"), "/points"));
     CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","points":[[0,0],[1]],"radius":3})"), "/points/1"));
     CHECK(contains(p.refused("foliage.paint", R"({"entity":"a","radius":3})"), "/center"));
@@ -652,8 +653,8 @@ TEST_CASE("foliage commands report historyId and historyLost so the editor can n
     CHECK(first["historyLost"] == 0);
     Json last = first;
     for (int i = 1; i < static_cast<int>(kFoliageHistorySteps) + 2; ++i)
-        last = p.ok("foliage.paint", "{\"entity\":\"f\",\"center\":[" + std::to_string(-30 + 2 * (i % 30)) + "," + std::to_string(-20 + 6 * (i / 30)) +
-                         "],\"radius\":1.5,\"density\":3}");
+        last = p.ok("foliage.paint", "{\"entity\":\"f\",\"center\":[" + std::to_string(-30 + 2 * (i % 30)) + "," +
+                                         std::to_string(-20 + 6 * (i / 30)) + "],\"radius\":1.5,\"density\":3}");
     CHECK(last["historyId"] == first["historyId"]);
     CHECK(last["undoDepth"].get<std::size_t>() == kFoliageHistorySteps);
     CHECK(last["historyLost"] == 2);  // 66 steps made, the 64 newest kept: the newest is number lost + depth = 66

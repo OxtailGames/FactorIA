@@ -316,8 +316,6 @@ public:
     void note_foliage_result(const Json& args, const CommandResult& r);
     void drop_foliage_rows(const std::string& id, bool all, std::uint64_t historyId, std::uint64_t lost,
                            const std::string& why);
-    std::map<std::string, std::size_t>
-        terrainLostSeen_;  // terrain id -> its history_lost() when the undo list last looked
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
@@ -881,7 +879,8 @@ public:
     // stroke is sent as a few foliage.paint pieces (rate-limited: each rewrites the whole instances file) and is ONE undo step
     // ([foliage.redo] / [foliage.undo]) pushed at the release.
     void draw_foliage_tool_panel();
-    bool foliage_tool_active();  // the panel is open, a mode is picked and the selected Foliage has a terrain (edit mode)
+    bool
+    foliage_tool_active();  // the panel is open, a mode is picked and the selected Foliage has a terrain (edit mode)
     bool foliage_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);  // true when the click was taken
     void foliage_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
     bool foliage_stroke_active() const;
@@ -1293,8 +1292,7 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false,
          showProject_ = true;
-    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false,
-         showFoliageTool_ = false;
+    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false, showFoliageTool_ = false;
     bool showLevelGen_ = false;
     LevelGenSession levelGen_;
     LevelGenOptions levelGenOpt_;
@@ -1976,6 +1974,7 @@ public:
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
     void at_section_T3(AtScript& at);  // autotest_terrain.cpp
+    void at_section_F3(AtScript& at);  // autotest_foliage.cpp
     void at_section_W2(AtScript& at);  // autotest_cells.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
