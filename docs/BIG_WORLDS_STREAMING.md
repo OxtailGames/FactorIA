@@ -186,7 +186,9 @@ the rest.
   absolute positions (the floating origin plus the local position), so a rebase of the origin never changes what is loaded.
 - `world.split_cells {scene, cellSize, out?, dimension?, overwrite?, dryRun?}` cuts a scene into cells and writes the index, one
   scene file per cell and the persistent scene; `world.merge_cells {world, out, overwrite?, dryRun?}` joins them back into one scene
-  so a level can be edited as one file. Both write project files under the project's write rules and never change the files they
+  so a level can be edited as one file. A `StreamedWorld` of the persistent scene stays in the merged scene (the entities are
+  written as they are, so split then merge gives the same ones) and the result's `warnings` name each one: playing the merged scene
+  would stream the cells it already holds, so remove it with `scene.remove_component {id, component: "StreamedWorld"}`. Both write project files under the project's write rules and never change the files they
   read. See below.
 
 ### Editing a streamed world
@@ -213,17 +215,22 @@ cell:
   memory in proportion to the loaded cells: unload what you are done with). Closing the scene, quitting or unloading a cell
   with unsaved changes asks first.
 - **Save** (the toolbar's, Ctrl+S, or the panel's Save cells) writes each unsaved cell to its own file and the open scene's file
-  only if it changed; the index is written only when a cell was added or a cell's height bounds had to grow (bounds only grow;
-  a save never shrinks them, and the plane rectangle of a cell never changes). Before anything is written every path is checked
-  against the project's write rules, and a cell file that is not in the index is never overwritten.
+  only if it changed; the index is written only when a cell was added, or a saved cell's height range or listed `sizeBytes` changed
+  (the plane rectangle of a cell never changes; in a 3D world the height range is recomputed from the lowest and highest position of
+  the cell's entities, the same rule as `world.split_cells`, so it also shrinks; a cell with no entities keeps its range; `sizeBytes`,
+  when the index lists it, is set to the size of the file just written). Before anything is written every path and the index the save
+  implies are checked (the write rules, an index that would be invalid), and a cell file that is not in the index is never
+  overwritten; a save that fails changes nothing in the editor either (no cell is made, no entity re-filed).
 - **Moving an entity into another cell** is just moving it (the Transform gizmos, the Inspector, a command). There is no command for it: Save files every top-level entity of a loaded cell into the cell its position is in, loading
   that cell for the purpose, or making a new one (a file `<index name>_cells/<i>_<j>.scene.json`, listed in the index). The
   Inspector says "Save moves it there" while the entity is in the wrong cell. Its children go with it; its id and components
   do not change. An entity that is dragged back before Save never moves.
 - **Global entities** live in the open scene (the persistent scene of a split world is what you open to edit them), not in
   the cells: the editor only writes what is under a cell root.
-- A reference from an entity to one in a cell that is not loaded is empty, as in the game (the load warns about it). Deleting a
-  cell's root entity closes the cell without changing its file.
+- A reference from an entity to one in a cell that is not loaded is empty, as in the game (the load warns about it). Deleting the
+  root entity of a cell closes it without changing its file; when the cell had unsaved changes it stays loaded as unsaved and
+  empty instead (the Cells list says "root deleted"): Save writes the cell with no entities and closes it, Undo brings the entities
+  back, and "Discard changes and unload" gives the edits up. Nothing is dropped without being asked.
 - **Play** streams the world as the game does and **Stop** brings back the cells you had loaded, with their unsaved changes;
   nothing you do while playing reaches a cell file.
 - The floating origin does not change any of this: cell contents are absolute, the root sits at the origin's negative and the

@@ -243,12 +243,14 @@ void Editor::draw_cells_panel() {
         std::vector<CellRow> rows = cellsUi_.rows;  // the buttons below change the list
         for (const CellRow& r : rows) {
             ImGui::TableNextRow();
-            ImGui::PushID(r.i * 100003 + r.j);
+            ImGui::PushID(r.i);  // two ids, never i * k + j: that overflows for large coordinates and can collide
+            ImGui::PushID(r.j);
             ImGui::TableSetColumnIndex(0);
             ImGui::Text("%d,%d", r.i, r.j);
             ImGui::TableSetColumnIndex(1);
             if (r.dirty)
-                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "unsaved%s", r.inIndex ? "" : " (new)");
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "unsaved%s%s", r.inIndex ? "" : " (new)",
+                                   r.rootGone ? " (root deleted: Save writes it empty)" : "");
             else if (r.loaded)
                 ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.55f, 1.0f), "loaded, %lld entities", (long long)r.entities);
             else
@@ -293,6 +295,7 @@ void Editor::draw_cells_panel() {
                 at_track(cell_widget("select", r));
                 tip("Select this cell's root entity: the Hierarchy and the Inspector show it, and the grid marks it.");
             }
+            ImGui::PopID();
             ImGui::PopID();
         }
         ImGui::EndTable();

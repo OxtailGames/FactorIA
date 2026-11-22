@@ -37,8 +37,8 @@ struct CellProject {
                   {"id":"streamer","components":{"StreamedWorld":{"world":"worlds/w.world.json"}}}]})");
         write("worlds/w.world.json",
               R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
-                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,0,0],"max":[100,10,100]}},
-                  {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,0,0],"max":[200,10,100]}}]})");
+                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,1,0],"max":[100,1,100]}},
+                  {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,2,0],"max":[200,2,100]}}]})");
         write("worlds/w_cells/0_0.scene.json",
               R"({"format":"factoria.scene/1","entities":[
                   {"id":"a","components":{"Transform":{"position":[10,1,10]}}},
@@ -212,7 +212,7 @@ TEST_CASE("cells: a position in no cell of the index makes a new cell, listed in
     CHECK(cells.index().cells.size() == 3);
 }
 
-TEST_CASE("cells: a cell's height bounds grow when an entity goes above them, and only then the index is written") {
+TEST_CASE("cells: a cell's height bounds follow its entities, up and down, and only a change writes the index") {
     CellProject p;
     CellEdit cells;
     cells.refresh(p.world());
@@ -224,7 +224,169 @@ TEST_CASE("cells: a cell's height bounds grow when an entity goes above them, an
     CHECK(rep.indexWritten);
     const Json idx = index_of(p);
     CHECK(idx["cells"][0]["bounds"]["max"][1].get<double>() == doctest::Approx(50.0));
-    CHECK(idx["cells"][0]["bounds"]["min"][1].get<double>() == doctest::Approx(0.0));
+    CHECK(idx["cells"][0]["bounds"]["min"][1].get<double>() == doctest::Approx(1.0));
+    // the entity comes back down: the bounds shrink with it (they are not a high-water mark)
+    p.move("a", 10, 1, 10);
+    cells.note_edit();
+    const CellSaveReport down = cells.save(p.world());
+    REQUIRE_MESSAGE(down.ok, down.error);
+    CHECK(down.indexWritten);
+    CHECK(index_of(p)["cells"][0]["bounds"]["max"][1].get<double>() == doctest::Approx(1.0));
+    // an edit that leaves the range alone does not write the index
+    p.move("a", 12, 1, 10);
+    cells.note_edit();
+    const CellSaveReport same = cells.save(p.world());
+    REQUIRE_MESSAGE(same.ok, same.error);
+    CHECK_FALSE(same.indexWritten);
+}
+
+TEST_CASE("cells: sizeBytes, when the index lists it, follows the file after a save") {
+    CellProject p;
+    p.write("worlds/w.world.json",
+            R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
+                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,1,0],"max":[100,1,100]},"sizeBytes":5},
+                  {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,2,0],"max":[200,2,100]}}]})");
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    p.move("a", 15, 1, 10);
+    p.move("b", 160, 2, 20);
+    cells.note_edit();
+    const CellSaveReport rep = cells.save(p.world());
+    REQUIRE_MESSAGE(rep.ok, rep.error);
+    CHECK(rep.indexWritten);
+    const Json idx = index_of(p);
+    CHECK(idx["cells"][0]["sizeBytes"].get<std::int64_t>() ==
+          std::int64_t(p.read("worlds/w_cells/0_0.scene.json").size()));
+    CHECK_FALSE(idx["cells"][1].contains("sizeBytes"));  // a cell that never listed it does not get one
+}
+
+TEST_CASE("cells: a save the index would refuse changes nothing in the editor") {
+    CellProject p;
+    // Cells of 35 m: the far cell [1000000, 0] starts at 3.5e7 and its far edge, 35000035, is not a float (it rounds up to
+    // 35000036), so an index with that cell in it is refused.
+    p.write("worlds/w.world.json",
+            R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":35,"origin":[0,0],"cells":[
+                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,1,0],"max":[35,1,35]}}]})");
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.has_index());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    const std::string cell0 = p.read("worlds/w_cells/0_0.scene.json");
+    const std::string indexText = p.read("worlds/w.world.json");
+    const Entity root = cells.root_of(0, 0);
+    p.move("a", 4.0e7, 1, 10);  // cell [1000000, 0], the last one the index can name
+    cells.note_edit();
+    const CellSaveReport rep = cells.save(p.world());
+    REQUIRE_FALSE(rep.ok);
+    CHECK(rep.error.find("Nothing was saved") != std::string::npos);
+    CHECK(rep.written.empty());
+    CHECK(rep.moved == 0);
+    // memory is as before the save: no cell was made, the entity is still under its cell, the index is the one on disk
+    CHECK(cells.loaded_count() == 1);
+    CHECK_FALSE(cells.is_loaded(1000000, 0));
+    CHECK(p.world().parent(p.world().find_by_id("a")) == root);
+    CHECK(cells.index().cells.size() == 1);
+    CHECK_FALSE(cells.index_changed());
+    CHECK(cells.is_dirty(0, 0));
+    CHECK(p.read("worlds/w_cells/0_0.scene.json") == cell0);
+    CHECK(p.read("worlds/w.world.json") == indexText);
+    // put the entity back in its cell and the same cells save normally
+    p.move("a", 15, 1, 10);
+    cells.note_edit();
+    const CellSaveReport again = cells.save(p.world());
+    REQUIRE_MESSAGE(again.ok, again.error);
+    CHECK(again.written.size() == 1);
+}
+
+TEST_CASE("cells: an edit names its cell and only that one is checked first, the others follow one per update") {
+    CellProject p;
+    p.write("worlds/w.world.json",
+            R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
+                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,1,0],"max":[100,1,100]}},
+                  {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,2,0],"max":[200,2,100]}},
+                  {"coord":[0,1],"scene":"worlds/w_cells/0_1.scene.json","bounds":{"min":[0,3,100],"max":[100,3,200]}}]})");
+    p.write(
+        "worlds/w_cells/0_1.scene.json",
+        R"({"format":"factoria.scene/1","entities":[{"id":"c","components":{"Transform":{"position":[10,3,150]}}}]})");
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 0, 1, nullptr));
+    p.move("a", 15, 1, 10);
+    p.move("c", 11, 3, 150);
+    cells.note_edit(p.world(), p.world().find_by_id("a"));
+    cells.update(p.world(), false);
+    CHECK(cells.is_dirty(0, 0));        // the named cell is checked at once
+    CHECK_FALSE(cells.is_dirty(0, 1));  // another cell waits for its turn...
+    int guard = 0;
+    while (cells.pending_checks() > 0 && guard++ < 10) cells.update(p.world(), false);
+    CHECK(cells.pending_checks() == 0);
+    CHECK(cells.is_dirty(0, 1));  // ...and is found within a few updates
+    CHECK(cells.dirty_count() == 2);
+    // the cell root itself counts as its cell
+    cells.note_edit();
+    cells.update(p.world(), false);
+    p.move("c", 10, 3, 150);
+    cells.note_edit(p.world(), cells.root_of(0, 1));
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_dirty(0, 1));
+    // an entity that is gone checks every cell in one update
+    p.move("c", 12, 3, 150);
+    cells.note_edit(p.world(), Entity{});
+    cells.update(p.world(), false);
+    CHECK(cells.is_dirty(0, 1));
+    CHECK(cells.pending_checks() == 0);
+}
+
+TEST_CASE("cells: deleting the root of a cell with unsaved changes keeps it unsaved and Save writes it empty") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    p.move("a", 15, 1, 10);
+    cells.note_edit();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_dirty(0, 0));
+    const Json before = cells.capture(p.world());
+    p.world().destroy(cells.root_of(0, 0));
+    p.world().destroy(cells.root_of(1, 0));  // a clean cell: it is only closed
+    p.world().flush();
+    cells.note_edit();
+    cells.update(p.world(), false);
+    CHECK(cells.is_loaded(0, 0));
+    CHECK(cells.is_dirty(0, 0));
+    CHECK(cells.any_dirty());
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK(cells.warnings().find("1,0") != std::string::npos);
+    const auto rows = cells.rows(p.world(), 50, 50, 10);
+    bool sawGone = false;
+    for (const CellRow& r : rows)
+        if (r.i == 0 && r.j == 0) sawGone = r.rootGone && r.dirty && r.entities == 0;
+    CHECK(sawGone);
+    // Undo brings the entities back from the snapshot taken before the delete
+    CHECK(cells.capture(p.world())["0,0"].empty());
+    cells.restore(p.world(), before, Json());
+    REQUIRE_FALSE(p.world().find_by_id("a").is_null());
+    cells.update(p.world(), false);
+    CHECK(cells.is_dirty(0, 0));
+    // the same delete again, then Save
+    p.world().destroy(cells.root_of(0, 0));
+    p.world().flush();
+    cells.note_edit();
+    cells.update(p.world(), false);
+    const CellSaveReport rep = cells.save(p.world());
+    REQUIRE_MESSAGE(rep.ok, rep.error);
+    REQUIRE(rep.written.size() == 1);
+    CHECK(rep.written[0] == "worlds/w_cells/0_0.scene.json");
+    const Json file = parse_json(p.read("worlds/w_cells/0_0.scene.json"), "cell").value();
+    CHECK(file["entities"].is_array());
+    CHECK(file["entities"].empty());
+    CHECK_FALSE(cells.is_loaded(0, 0));  // written empty: the cell is closed
+    CHECK_FALSE(cells.any_dirty());
 }
 
 TEST_CASE("cells: the write rules refuse a cell file in a managed folder and nothing is written") {

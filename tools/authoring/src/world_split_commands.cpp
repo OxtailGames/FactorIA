@@ -62,7 +62,29 @@ std::string write_path(const std::string& raw, const char* what, bool dryRun, co
     return fs::project_spelling(judged.value());
 }
 
-bool same_file(const std::string& a, const std::string& b) { return fs::path_from_utf8(a) == fs::path_from_utf8(b); }
+// True when two project paths name the same file. Both are resolved against the project folder first. When both files exist the
+// file system decides (std::filesystem::equivalent: a symlink, "a/../b" and, on a case-insensitive volume, "Town.world.json" and
+// "town.world.json" are one file). A file that does not exist yet (the `out` of a merge) is compared by its normalized path, with
+// ASCII case folded on Windows and macOS, whose default volumes ignore case (as fs::resolve_for_write does), never on Linux.
+bool same_file(const std::string& a, const std::string& b) {
+    std::error_code ec;
+    const std::filesystem::path pa = fs::resolve(a), pb = fs::resolve(b);
+    if (std::filesystem::exists(pa, ec) && std::filesystem::exists(pb, ec)) {
+        const bool same = std::filesystem::equivalent(pa, pb, ec);
+        if (!ec) return same;
+    }
+    auto key = [](const std::filesystem::path& p) {
+        std::error_code e;
+        std::filesystem::path canon = std::filesystem::weakly_canonical(p, e);
+        std::string text = fs::path_to_utf8(e ? p.lexically_normal() : canon);
+#if defined(_WIN32) || defined(__APPLE__)
+        for (char& c : text)
+            if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+#endif
+        return text;
+    };
+    return key(pa) == key(pb);
+}
 
 Json read_json_file(const std::string& path, const char* what) {
     auto text = fs::read_text(path);
@@ -125,6 +147,29 @@ void collect_ids(const Json& list, const std::string& pointer, const std::string
                                      where + " " + ptr);
         }
         if (e.contains("children")) collect_ids(e["children"], ptr + "/children", where, ids, duplicates);
+    }
+}
+
+// Every entity (with its children) that has a StreamedWorld component: a merged scene keeps it (the entities are written exactly as
+// their files have them), so playing the merged scene would stream the cells it already holds, every entity twice.
+void find_streamed_worlds(const Json& list, const std::string& pointer, const std::string& where,
+                          std::vector<std::string>& found) {
+    if (!list.is_array()) return;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const Json& e = list[i];
+        if (!e.is_object()) continue;
+        const std::string ptr = pointer + "/" + std::to_string(i);
+        if (e.contains("components") && e["components"].is_object() && e["components"].contains("StreamedWorld") &&
+            found.size() < kMaxWarnings) {
+            const std::string id = e.contains("id") && e["id"].is_string() ? e["id"].get<std::string>() : "(no id)";
+            found.push_back(
+                "Entity '" + id + "' (" + where + " " + ptr +
+                ") has a StreamedWorld component and it stays in the merged scene: playing that scene would "
+                "stream the cells it already contains, so every entity would exist twice. Remove it from the "
+                "merged scene (open it and run scene.remove_component {\"id\":\"" +
+                id + "\",\"component\":\"StreamedWorld\"}, or delete the entity if it only held that component).");
+        }
+        if (e.contains("children")) find_streamed_worlds(e["children"], ptr + "/children", where, found);
     }
 }
 
@@ -484,7 +529,7 @@ Json merge_cells(Engine::Impl&, const Json& args) {
     Json merged = Json::object({{"format", kSceneFormat}});
     Json list = Json::array();
     std::map<std::string, std::pair<std::string, std::string>> ids;
-    std::vector<std::string> duplicates;
+    std::vector<std::string> duplicates, streamedWorlds;
     std::int64_t persistentCount = 0, filesRead = 1;
     auto take = [&](const std::string& path, bool isPersistent) {
         const Json file = read_json_file(path, isPersistent ? "persistent scene" : "cell scene");
@@ -498,6 +543,7 @@ Json merge_cells(Engine::Impl&, const Json& args) {
             if (file.contains("origin")) merged["origin"] = file["origin"];
         }
         collect_ids(file["entities"], "/entities", path, ids, duplicates);
+        find_streamed_worlds(file["entities"], "/entities", path, streamedWorlds);
         for (const Json& e : file["entities"]) {
             list.push_back(e);
             if (isPersistent) ++persistentCount;
@@ -528,6 +574,7 @@ Json merge_cells(Engine::Impl&, const Json& args) {
     out["persistentEntities"] = persistentCount;
     out["filesRead"] = filesRead;
     out["written"] = wrote ? 1 : 0;
+    out["warnings"] = streamedWorlds;
     out["notes"] = Json::array({"The world files were not changed. The entities are the persistent scene's first, then "
                                 "each cell's in index order (by j, then i), each with its children, ids and "
                                 "components exactly as in its cell file."});
@@ -595,7 +642,12 @@ void register_world_split_commands(Engine& engine, Engine::Impl& I) {
          "Two files with the same entity id are an error (nothing is written). The world's files are never changed and "
          "`out` may not be one of them; an existing `out` is replaced only with `overwrite`; `dryRun` reports without "
          "writing. "
-         "Result: {scene, world, cells, persistent, entities, persistentEntities, filesRead, written, notes}. Example: "
+         "A StreamedWorld component in the files stays in the merged scene (the entities are written as they are), so "
+         "playing "
+         "that scene would stream the cells it already holds: `warnings` names each one and how to remove it. "
+         "Result: {scene, world, cells, persistent, entities, persistentEntities, filesRead, written, warnings, "
+         "notes}. "
+         "Example: "
          "world.merge_cells {\"world\":\"worlds/town.world.json\",\"out\":\"scenes/town_merged.scene.json\"}",
          parse_json(R"({"type":"object","properties":{
            "world":{"type":"string","description":"The index file (project-relative *.world.json)."},
