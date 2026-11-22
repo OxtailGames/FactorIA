@@ -321,7 +321,15 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
     }
     const sg_pipeline pip = gpu.compute_pipeline(hizShader);
     if (sg_query_pipeline_state(pip) != SG_RESOURCESTATE_VALID) {
-        hizShaderState = -1;  // refused (the pipeline getter logged it once): no more tries
+        // The driver refused the program (the pipeline getter logged the reason once): this GPU cannot cull with the pyramid, so the
+        // next frame's hiz_resolve answers "no" and the CPU culling of the Occluders takes over, with no more tries.
+        hizShaderState = -1;
+        hizSupport = -1;
+        hizWhy = "the depth reduction pipeline was refused by this graphics driver (see the log lines above)";
+        if (!warnedHizPipeline) {
+            warnedHizPipeline = true;
+            FA_WARN("render", "The depth pyramid cannot be used: {}. The CPU culling of the Occluders is used instead.", hizWhy);
+        }
         return;
     }
     sg_bindings bind{};

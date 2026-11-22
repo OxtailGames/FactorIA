@@ -181,8 +181,9 @@ is off until a scene asks for it and, while it is off, draws, counts and allocat
 
 With `"gpu"` the Occluders are not used: any opaque mesh hides what is behind it, with nothing to author.
 `"auto"` uses the GPU path on a backend that supports it (`renderer.supports {"feature":"occlusionGpu"}`) and keeps the CPU
-Occluders on one that does not. `"gpu"` on a backend that does not support it logs one warning and culls nothing. How it works,
-for every perspective main-view camera:
+Occluders on one that does not. `"gpu"` on a backend that does not support it (or whose driver refuses the reduce program) logs one
+warning and the CPU Occluders cull instead, as with `"auto"`, which says nothing. How it works, for every perspective main-view
+camera:
 
 1. The camera draws its depth and normal prepass every frame (the same one SSAO uses; it adds its draw calls, so `drawCalls` is
    not comparable between the modes). A compute pass (`hiz.glsl`, the graph pass `hiz-reduce`) reduces it to the same **256 x

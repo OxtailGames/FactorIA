@@ -4,7 +4,10 @@
 // frame knows is always the frame before: the tests count frames, never milliseconds. Skipped where the backend has no compute shaders.
 #include "test_util.h"
 
+#include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 #include "render_features.h"
 #include "render_internal.h"
@@ -227,4 +230,61 @@ TEST_CASE("hi-z on a GPU: auto uses the pyramid where the GPU can, and the debug
     g.renderer.set_debug_view(DebugView::None);
     frames(g, w, 2);
     CHECK(differing(before, g.draw(w)) == 0);
+}
+
+// A wall that covers only the TOP half of the picture (it is above the camera): the cube behind it in the top half is hidden, the one
+// below it is not. A picture the compute shader reads upside down (OpenGL's render targets have row 0 at the bottom) would cull the
+// bottom cube instead, which the identical picture below would show.
+TEST_CASE("hi-z on a GPU: a wall over the top half of the picture hides the top cube only (no flip of the rows)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!has_hiz()) return;
+    auto build = [](World& w, OcclusionMode mode) {
+        Entity cam = make(w, "cam", {0, 2, 12});
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        w.settings().ambientLight = Color{0.3f, 0.3f, 0.3f, 1};
+        w.settings().occlusionMode = mode;
+        add_mesh(w, "wall", {0, 8, 0}, {30, 6, 1}, Color::hex(0xb0a898));
+        add_mesh(w, "top", {0, 10, -10}, {2, 2, 2}, Color::hex(0xe03020));
+        add_mesh(w, "bottom", {0, -2, -10}, {2, 2, 2}, Color::hex(0x2060e0));
+    };
+    World plain, gpu;
+    build(plain, OcclusionMode::Cpu);
+    build(gpu, OcclusionMode::Gpu);
+    const Image reference = frames(g, plain, 2);
+    frames(g, gpu, 4);
+    CHECK(g.renderer.stats().meshesOccluded == 1);
+    const Image culled = g.draw(gpu);
+    CHECK(g.renderer.stats().meshesOccluded == 1);
+    CHECK(differing(culled, reference) == 0);
+}
+
+// The staging slots of AsyncBufferRead are reused for requests of other sizes (the grid follows the aspect): a smaller request after a
+// bigger one returns the smaller size, a bigger one after that grows the slot, and the bytes are the buffer's, never past its end.
+TEST_CASE("async read-back: a slot asked for a smaller size, then a bigger one, returns what was asked") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!render::AsyncBufferRead::supported()) return;
+    std::vector<std::uint8_t> data(8192);
+    for (std::size_t i = 0; i < data.size(); ++i) data[i] = std::uint8_t((i * 7 + 3) & 0xFF);
+    sg_buffer_desc bd{};
+    bd.usage.storage_buffer = true;
+    bd.data = {data.data(), data.size()};
+    bd.label = "async read test";
+    const sg_buffer buf = sg_make_buffer(&bd);
+    REQUIRE(sg_query_buffer_state(buf) == SG_RESOURCESTATE_VALID);
+    render::AsyncBufferRead ring;
+    for (const std::size_t bytes : {std::size_t(4096), std::size_t(512), std::size_t(8192), std::size_t(64), std::size_t(2048)}) {
+        std::string error;
+        const int slot = ring.request(buf, bytes, &error);
+        INFO("bytes " << bytes << " error " << error);
+        REQUIRE(slot >= 0);
+        std::vector<std::uint8_t> out;
+        REQUIRE(ring.poll(slot, out, true));
+        REQUIRE(out.size() == bytes);
+        CHECK(std::equal(out.begin(), out.end(), data.begin()));
+    }
+    sg_destroy_buffer(buf);
 }

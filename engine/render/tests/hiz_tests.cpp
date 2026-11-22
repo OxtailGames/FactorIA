@@ -234,3 +234,110 @@ TEST_CASE("hiz: no box is called hidden that a ray from the moved camera reaches
     CHECK(hiddenCount > 100);
     CHECK(hiddenCount < tested);
 }
+
+namespace {
+
+// A wall of any distance and extent, the rectangle x0 < x < x1, y0 < y < y1 on the plane z = -d seen from the origin, for the tests below.
+struct FarWall {
+    float d, x0, x1, y0, y1;
+};
+
+Scene far_wall_scene(const FarWall& wl) {
+    Scene s;
+    hiz_size_for(kAspect, s.w, s.h);
+    s.hist = pose_at({0, 0, 0}, {0, 0, -1});
+    std::vector<float> cells(std::size_t(s.w) * std::size_t(s.h) * 2, kHizNoDepth);
+    auto covered = [&](float cx, float cy) {
+        const float nx = cx / float(s.w) * 2.0f - 1.0f, ny = 1.0f - cy / float(s.h) * 2.0f;
+        const float wx = nx / s.hist.p00 * wl.d, wy = ny / s.hist.p11 * wl.d;
+        return wx > wl.x0 && wx < wl.x1 && wy > wl.y0 && wy < wl.y1;
+    };
+    for (int y = 0; y < s.h; ++y)
+        for (int x = 0; x < s.w; ++x) {
+            bool all = true;
+            for (float oy : {0.0f, 0.5f, 1.0f})
+                for (float ox : {0.0f, 0.5f, 1.0f}) all = all && covered(float(x) + ox, float(y) + oy);
+            if (all) {
+                float* c = &cells[(std::size_t(y) * std::size_t(s.w) + std::size_t(x)) * 2];
+                c[0] = c[1] = wl.d;
+            }
+        }
+    REQUIRE(s.pyr.build(s.w, s.h, cells.data(), cells.size()));
+    return s;
+}
+
+// Boxes hidden by the test must be behind the wall for every ray from the moved camera to every corner of them.
+// `edgeNdc` > 0: the boxes are small and sit just behind the wall's edge as the old camera sees it (within 0.06 ndc of it), the
+// case where a footprint that is a bit too small shows.
+int count_false_culls(const Scene& s, const FarWall& wl, std::uint32_t seed, int rounds, float moveMax, bool diagonal, float xLo,
+                      float xHi, int& hiddenOut, float edgeNdc = -1.0f) {
+    std::uint32_t rng = seed;
+    auto rnd = [&](float lo, float hi) {
+        rng = rng * 1664525u + 1013904223u;
+        return lo + (hi - lo) * float(rng >> 8) / float(1u << 24);
+    };
+    int bad = 0;
+    hiddenOut = 0;
+    for (int n = 0; n < rounds; ++n) {
+        Vec3 eye{rnd(-moveMax, moveMax), rnd(-moveMax, moveMax), rnd(-moveMax, moveMax)};
+        if (diagonal) {  // x and y together, towards the wall's edge or away from it
+            const float m = rnd(-moveMax, moveMax);
+            eye = {m, rnd(0.0f, 1.0f) < 0.5f ? m : -m, rnd(-moveMax, moveMax) * 0.2f};
+        }
+        Vec3 half{rnd(0.05f, 0.8f), rnd(0.05f, 0.8f), rnd(0.05f, 0.8f)};
+        Vec3 c{rnd(xLo, xHi), rnd(-1.5f, 1.5f), rnd(-12.0f, -wl.d - 1.0f)};
+        if (edgeNdc > 0.0f) {
+            // Towards the edge and forward: the sideways and the depth parallax add up (the worst direction for the footprint).
+            eye = {moveMax * rnd(0.5f, 1.0f), moveMax * rnd(-0.2f, 0.2f), -moveMax * rnd(0.5f, 1.0f)};
+            half = {rnd(0.01f, 0.08f), rnd(0.01f, 0.08f), rnd(0.01f, 0.08f)};
+            const float zc = rnd(wl.d + 1.0f, 12.0f);
+            c = {(edgeNdc - rnd(0.0f, 0.06f)) / s.hist.p00 * zc - half.x, rnd(-0.8f, 0.8f) / s.hist.p11 * zc, -zc};
+        }
+        const HizPose now = pose_at(eye, eye + Vec3{0, 0, -1});
+        if (!hiz_hidden(s.pyr, s.hist, now, half * -1.0f, half, at(c))) continue;
+        ++hiddenOut;
+        for (int k = 0; k < 27; ++k) {
+            const Vec3 p{c.x + half.x * float(k % 3 - 1), c.y + half.y * float((k / 3) % 3 - 1), c.z + half.z * float(k / 9 - 1)};
+            const float t = (-wl.d - eye.z) / (p.z - eye.z);
+            const Vec3 hit = eye + (p - eye) * t;
+            if (!(t < 1.0f && hit.x > wl.x0 && hit.x < wl.x1 && hit.y > wl.y0 && hit.y < wl.y1)) ++bad;
+        }
+    }
+    return bad;
+}
+
+}  // namespace
+
+// A wall 2 to 3 m from the camera whose edge is at NDC x 0.8 to 0.95: far from the centre of the view the parallax of a move is bigger
+// than the projection's centre derivative says (the footprint bound uses sqrt(p^2 + 1)), and a box just behind the edge must never be
+// culled while a ray of the moved camera passes it.
+TEST_CASE("hiz: a wall's edge near the border of the view, 2 to 3 m away, hides nothing a ray reaches") {
+    for (const float d : {2.0f, 2.5f, 3.0f})
+        for (const float ndcEdge : {0.8f, 0.9f, 0.95f}) {
+            const float tanX = 1.0f / pose_at({0, 0, 0}, {0, 0, -1}).p00;
+            const FarWall wl{d, -50.0f, ndcEdge * tanX * d, -50.0f, 50.0f};
+            const Scene s = far_wall_scene(wl);
+            const float edge = wl.x1;
+            int hidden = 0;
+            INFO("distance " << d << " edge at ndc x " << ndcEdge);
+            CHECK(count_false_culls(s, wl, 777u + std::uint32_t(d * 10 + ndcEdge * 100), 3000, 0.12f, false, edge - 3.0f, edge + 2.0f,
+                                    hidden) == 0);
+            // Small boxes right behind the edge, the camera moving in every direction by up to 0.03 .. 0.12 m.
+            for (const float mv : {0.03f, 0.06f, 0.12f})
+                CHECK(count_false_culls(s, wl, 99u + std::uint32_t(d * 10 + ndcEdge * 100), 3000, mv, false, 0, 0, hidden, ndcEdge) == 0);
+        }
+}
+
+TEST_CASE("hiz: a diagonal move of the camera never shows a culled box, and boxes are still culled") {
+    const float tanX = 1.0f / pose_at({0, 0, 0}, {0, 0, -1}).p00;
+    int totalHidden = 0;
+    for (const float d : {2.5f, 6.0f}) {
+        const FarWall wl{d, -50.0f, 0.85f * tanX * d, -50.0f, 50.0f};
+        const Scene s = far_wall_scene(wl);
+        int hidden = 0;
+        CHECK(count_false_culls(s, wl, 4242u + std::uint32_t(d), 4000, 0.15f, true, wl.x1 - 4.0f, wl.x1 + 2.0f, hidden) == 0);
+        totalHidden += hidden;
+    }
+    // Not vacuous.
+    CHECK(totalHidden > 20);
+}

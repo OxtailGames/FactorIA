@@ -122,8 +122,11 @@ bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& n
         zBox = std::min(zBox, c.w);
     }
     out.boxNear = zBox;
-    // Cells per unit of (view x / depth): the picture is cw cells for 2 units of ndc.
-    const float kx = 0.5f * float(cw) * hist.p00, ky = 0.5f * float(ch) * hist.p11;
+    // Cells a point moves on the picture per unit of sideways move over its depth. At the centre of the view that is 0.5 * cells * p;
+    // towards the border a point also swings with its own angle, so the bound is sqrt(p^2 + 1) (the derivative of the projection of
+    // x / z at its largest on a field of view the matrix allows), which never underestimates it.
+    const float kx = 0.5f * float(cw) * std::sqrt(hist.p00 * hist.p00 + 1.0f);
+    const float ky = 0.5f * float(ch) * std::sqrt(hist.p11 * hist.p11 + 1.0f);
     const float k = std::max(kx, ky);
     constexpr float kPad = 0.002f;  // a hair of a cell: the matrices are floats
     const int fx0 = int(std::floor(minX - kPad)), fx1 = int(std::ceil(maxX + kPad)) - 1;
@@ -158,7 +161,8 @@ bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& n
             }
         if (farthest >= kHizNoDepth * 0.5f) return verdict(Why::NoOccluder);  // a cell shows no mesh in some pixel
         // The parallax between the box and what is in front of it, as the camera moves by s: bigger for a nearer occluder.
-        const float zOcc = std::max(nearestOccluder, kHizMinW);
+        // The occluder may now be s nearer than it was: its depth minus s, never closer to zero than the near-plane guard.
+        const float zOcc = std::max(nearestOccluder - s, kHizMinW);
         const float shift = s > 0.0f ? k * s * std::max(0.0f, 1.0f / zOcc - 1.0f / zBox) : 0.0f;
         const int need = s > 0.0f ? int(std::ceil(std::min(shift, 1.0e6f))) : 0;
         if (need > kHizMaxDilate) return verdict(Why::TooMuchMotion);
