@@ -29,10 +29,11 @@ namespace fa {
 
 namespace {
 
-constexpr int kMaxBrushCells = 1024;                   // the largest brush radius, in samples of the plane it edits
-constexpr std::size_t kMaxStrokePoints = 4096;         // stamps of one command
-constexpr std::uint64_t kMaxBrushVisits = std::uint64_t(1) << 26;  // samples looked at by one command, over all its stamps
-constexpr std::uint16_t kFlatRaw = 32768;              // a new flat terrain: half way up, so it can be lowered as well as raised
+constexpr int kMaxBrushCells = 1024;            // the largest brush radius, in samples of the plane it edits
+constexpr std::size_t kMaxStrokePoints = 4096;  // stamps of one command
+constexpr std::uint64_t kMaxBrushVisits = std::uint64_t(1)
+                                          << 26;  // samples looked at by one command, over all its stamps
+constexpr std::uint16_t kFlatRaw = 32768;  // a new flat terrain: half way up, so it can be lowered as well as raised
 
 Json parse_schema(const char* text) {
     auto r = parse_json(text, "command schema");
@@ -50,8 +51,7 @@ double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 // A finite number in [lo, hi] (the schema has checked the type; this keeps NaN, infinities and huge values out of every
 // narrowing).
 double number_at(const Json& v, const std::string& pointer, double lo, double hi) {
-    if (!v.is_number())
-        bad(pointer, "Expected a number", "Write a plain number such as 12.5.");
+    if (!v.is_number()) bad(pointer, "Expected a number", "Write a plain number such as 12.5.");
     const double d = v.get<double>();
     if (!std::isfinite(d) || d < lo || d > hi)
         bad(pointer, std::format("{} is outside {} .. {}", d, lo, hi), "Use a value inside that range.");
@@ -61,8 +61,8 @@ double number_at(const Json& v, const std::string& pointer, double lo, double hi
 std::string file_stem(const std::string& id) {
     std::string out;
     for (char ch : id) {
-        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' ||
-                        ch == '-';
+        const bool ok =
+            (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
         out.push_back(ok ? ch : '_');
     }
     return out.empty() ? std::string("terrain") : out;
@@ -86,9 +86,9 @@ struct Target {
     std::string id;
     Terrain3D* terrain = nullptr;
     std::shared_ptr<TerrainHeights> heights;
-    Mat4 m, inv;      // the entity's world matrix and its inverse
+    Mat4 m, inv;  // the entity's world matrix and its inverse
     float sizeX = 1, sizeZ = 1;
-    float scaleY = 1;  // world metres of one local metre of height
+    float scaleY = 1;   // world metres of one local metre of height
     float groundY = 0;  // world y of the entity (the plane the brushes work on)
 };
 
@@ -96,11 +96,10 @@ Entity need_terrain_entity(Engine::Impl& I, const Json& a, Terrain3D*& t) {
     Entity e = need_entity(I.world, a, "entity");
     t = I.world.get<Terrain3D>(e);
     if (!t)
-        throw CommandError(
-            "invalid_argument",
-            "Entity '" + I.world.id_of(e) + "' has no Terrain component (at /entity).",
-            "Make a terrain with terrain.create, or add the component: scene.set_component {\"id\":\"" +
-                I.world.id_of(e) + "\",\"component\":\"Terrain\"}.");
+        throw CommandError("invalid_argument",
+                           "Entity '" + I.world.id_of(e) + "' has no Terrain component (at /entity).",
+                           "Make a terrain with terrain.create, or add the component: scene.set_component {\"id\":\"" +
+                               I.world.id_of(e) + "\",\"component\":\"Terrain\"}.");
     return e;
 }
 
@@ -112,7 +111,8 @@ Target open_target(Engine::Impl& I, const Json& a) {
     if (t.heightmap.empty())
         throw CommandError(
             "invalid_argument",
-            "Terrain '" + tg.id + "' has no heightmap file (Terrain.heightmap is empty), so there is nothing to edit (at /entity).",
+            "Terrain '" + tg.id +
+                "' has no heightmap file (Terrain.heightmap is empty), so there is nothing to edit (at /entity).",
             "terrain.generate {\"entity\":\"" + tg.id +
                 "\"} fills it with noise and sets the file; or set Terrain.heightmap to a 16-bit PNG.");
     if (!(t.size.x > 0.0f) || !(t.size.y > 0.0f) || !std::isfinite(t.size.x) || !std::isfinite(t.size.y))
@@ -121,13 +121,15 @@ Target open_target(Engine::Impl& I, const Json& a) {
     std::string problem;
     tg.heights = I.world.terrain().heights(I.world, tg.entity, &problem);
     if (!tg.heights)
-        throw CommandError("invalid_argument", problem.empty() ? "The heightmap of '" + tg.id + "' cannot be used." : problem,
+        throw CommandError("invalid_argument",
+                           problem.empty() ? "The heightmap of '" + tg.id + "' cannot be used." : problem,
                            "Fix Terrain.heightmap (a square 16-bit PNG or .r16, 33 to 4097 samples per side).");
     tg.m = I.world.world_matrix(tg.entity);
     tg.inv = tg.m.inverse();
     tg.sizeX = t.size.x;
     tg.sizeZ = t.size.y;
-    tg.scaleY = std::sqrt(tg.m.at(1, 0) * tg.m.at(1, 0) + tg.m.at(1, 1) * tg.m.at(1, 1) + tg.m.at(1, 2) * tg.m.at(1, 2));
+    tg.scaleY =
+        std::sqrt(tg.m.at(1, 0) * tg.m.at(1, 0) + tg.m.at(1, 1) * tg.m.at(1, 1) + tg.m.at(1, 2) * tg.m.at(1, 2));
     tg.groundY = tg.m.translation().y;
     return tg;
 }
@@ -163,8 +165,12 @@ struct IRect {
     }
 };
 
-float lat_x(const Target& tg, const Lattice& l, int i) { return -tg.sizeX * 0.5f + (float(i) + l.off) * (tg.sizeX / l.denom); }
-float lat_z(const Target& tg, const Lattice& l, int j) { return -tg.sizeZ * 0.5f + (float(j) + l.off) * (tg.sizeZ / l.denom); }
+float lat_x(const Target& tg, const Lattice& l, int i) {
+    return -tg.sizeX * 0.5f + (float(i) + l.off) * (tg.sizeX / l.denom);
+}
+float lat_z(const Target& tg, const Lattice& l, int j) {
+    return -tg.sizeZ * 0.5f + (float(j) + l.off) * (tg.sizeZ / l.denom);
+}
 
 // The lattice indices whose world position can lie in the circle (cx, cz, radius): the bounding box of the circle in the
 // terrain's local space, clamped to the plane. `span` is the unclamped width in indices.
@@ -219,7 +225,8 @@ Stroke plan_stroke(const Json& a, const Target& tg, const Lattice& l, int margin
     auto read_point = [&](const Json& p, const std::string& pointer) {
         if (!p.is_array() || p.size() != 2)
             bad(pointer, "A point must be [x, z] in world metres", "Example: [120.5, -40].");
-        pts.push_back({float(number_at(p[0], pointer + "/0", -1e9, 1e9)), float(number_at(p[1], pointer + "/1", -1e9, 1e9))});
+        pts.push_back(
+            {float(number_at(p[0], pointer + "/0", -1e9, 1e9)), float(number_at(p[1], pointer + "/1", -1e9, 1e9))});
     };
     if (hasCenter) {
         read_point(a["center"], "/center");
@@ -228,8 +235,7 @@ Stroke plan_stroke(const Json& a, const Target& tg, const Lattice& l, int margin
         if (!arr.is_array() || arr.empty())
             bad("/points", "'points' must be a list of [x, z] pairs", "Example: [[0,0],[2,0],[4,1]].");
         if (arr.size() > kMaxStrokePoints)
-            bad("/points",
-                std::format("{} points is more than the {} one command takes", arr.size(), kMaxStrokePoints),
+            bad("/points", std::format("{} points is more than the {} one command takes", arr.size(), kMaxStrokePoints),
                 "Split the stroke over several commands (each one is one undo step).");
         for (std::size_t i = 0; i < arr.size(); ++i) read_point(arr[i], "/points/" + std::to_string(i));
     }
@@ -242,9 +248,10 @@ Stroke plan_stroke(const Json& a, const Target& tg, const Lattice& l, int margin
         st.rect = stamp_rect(tg, l, st.x, st.z, s.radius, span);
         if (span > 2 * kMaxBrushCells + 3)
             bad("/radius",
-                std::format("A radius of {} m covers about {} samples across, more than the {} a brush may", s.radius, span,
-                            2 * kMaxBrushCells),
-                "Use a smaller radius (at most " + std::to_string(kMaxBrushCells) + " samples) or edit in several steps.");
+                std::format("A radius of {} m covers about {} samples across, more than the {} a brush may", s.radius,
+                            span, 2 * kMaxBrushCells),
+                "Use a smaller radius (at most " + std::to_string(kMaxBrushCells) +
+                    " samples) or edit in several steps.");
         visits += st.rect.area();
         if (visits > kMaxBrushVisits)
             bad(hasPoints ? "/points" : "/radius",
@@ -328,7 +335,8 @@ TerrainPatch make_patch(TerrainPlane plane, const IRect& rect, const IRect& u, s
     p.before.resize(rowBytes * std::size_t(p.h));
     p.after.resize(rowBytes * std::size_t(p.h));
     for (int r = 0; r < p.h; ++r) {
-        const std::size_t at = (std::size_t(rect.y0 + r - u.y0) * std::size_t(u.w()) + std::size_t(rect.x0 - u.x0)) * elem;
+        const std::size_t at =
+            (std::size_t(rect.y0 + r - u.y0) * std::size_t(u.w()) + std::size_t(rect.x0 - u.x0)) * elem;
         std::memcpy(p.before.data() + std::size_t(r) * rowBytes, before.data() + at, rowBytes);
         std::memcpy(p.after.data() + std::size_t(r) * rowBytes, after.data() + at, rowBytes);
     }
@@ -356,9 +364,7 @@ Json world_bounds(const Target& tg, const Lattice& l, const IRect& r) {
     return Json::array({round3(minX), round3(minZ), round3(maxX), round3(maxZ)});
 }
 
-Json rect_json(const IRect& r) {
-    return Json::object({{"c0", r.x0}, {"r0", r.y0}, {"c1", r.x1}, {"r1", r.y1}});
-}
+Json rect_json(const IRect& r) { return Json::object({{"c0", r.x0}, {"r0", r.y0}, {"c1", r.x1}, {"r1", r.y1}}); }
 
 // Writes the files of one terrain; an error keeps the edit in memory and says so.
 std::vector<std::string> save_files(Engine::Impl& I, Entity e) {
@@ -397,7 +403,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
     if (!(metresPerRaw > 1e-9f))
         throw CommandError("invalid_argument",
                            "Terrain '" + tg.id + "' has heightScale " + std::to_string(tg.terrain->heightScale) +
-                               " (and a vertical scale of " + std::to_string(tg.scaleY) + "), so a sample has no height to edit.",
+                               " (and a vertical scale of " + std::to_string(tg.scaleY) +
+                               "), so a sample has no height to edit.",
                            "Set Terrain.heightScale to the metres of height of a white sample, such as 100.");
     const Lattice l = heights_lattice(tg);
     Stroke s = plan_stroke(a, tg, l, tool == "smooth" ? 1 : 0);
@@ -432,7 +439,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
         if (st.rect.empty()) continue;
         auto idx = [&](int i, int j) { return std::size_t(j - u.y0) * uw + std::size_t(i - u.x0); };
         if (tool == "raise" || tool == "lower") {
-            visit_stamp(tg, l, st.rect, st, s.radius, [&](int i, int j, float t) { work[idx(i, j)] += deltaRaw * falloff(t); });
+            visit_stamp(tg, l, st.rect, st, s.radius,
+                        [&](int i, int j, float t) { work[idx(i, j)] += deltaRaw * falloff(t); });
         } else if (tool == "flatten") {
             visit_stamp(tg, l, st.rect, st, s.radius, [&](int i, int j, float t) {
                 float& v = work[idx(i, j)];
@@ -466,7 +474,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
     }
     std::vector<std::uint8_t> after(q.size() * 2);
     std::memcpy(after.data(), q.data(), after.size());
-    const std::vector<std::uint8_t> before = read_rect(reinterpret_cast<const std::uint8_t*>(h.data.data()), h.samples, u, 2);
+    const std::vector<std::uint8_t> before =
+        read_rect(reinterpret_cast<const std::uint8_t*>(h.data.data()), h.samples, u, 2);
     const Changes ch = diff_rect(before, after, u, 2);
     if (ch.count > 0) {
         TerrainStep step;
@@ -555,12 +564,14 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     Target tg = open_target(I, a);
     TerrainHeights& h = *tg.heights;
     Terrain3D& t = *tg.terrain;
-    if (!a.contains("layer")) bad("/layer", "Missing 'layer'", "Give the layer index 0..7 (an index into Terrain.layers).");
+    if (!a.contains("layer"))
+        bad("/layer", "Missing 'layer'", "Give the layer index 0..7 (an index into Terrain.layers).");
     const int layer = int(number_at(a["layer"], "/layer", 0.0, double(kTerrainSplatMaps * 4 - 1)));
     const int layerCount = t.layers.is_array() ? int(t.layers.size()) : 0;
     if (layerCount > 0 && layer >= layerCount)
         bad("/layer", std::format("Layer {} does not exist: Terrain.layers has {} layer(s)", layer, layerCount),
-            "Add the layer to Terrain.layers first (scene.set_component), or paint a layer below " + std::to_string(layerCount) + ".");
+            "Add the layer to Terrain.layers first (scene.set_component), or paint a layer below " +
+                std::to_string(layerCount) + ".");
     const float strength = float(number_at(a.contains("strength") ? a["strength"] : Json(0.5), "/strength", 0.0, 1.0));
     const int mapOfLayer = layer / 4, channel = layer % 4;
     const int wantMaps = (mapOfLayer >= 1 || h.splat[1].valid()) ? 2 : 1;
@@ -570,7 +581,8 @@ Json do_paint(Engine::Impl& I, const Json& a) {
         if (h.splat[std::size_t(k)].valid()) {
             if (size != 0 && size != h.splat[std::size_t(k)].size)
                 throw CommandError("invalid_argument",
-                                   std::format("Splat map 0 is {0} x {0} and splat map 1 is {1} x {1} pixels: they must be the same size to paint (at /splatMaps).",
+                                   std::format("Splat map 0 is {0} x {0} and splat map 1 is {1} x {1} pixels: they "
+                                               "must be the same size to paint (at /splatMaps).",
                                                size, h.splat[std::size_t(k)].size),
                                    "Resize one of the two PNGs so both have the same size.");
             size = h.splat[std::size_t(k)].size;
@@ -578,14 +590,18 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     if (a.contains("splatResolution")) {
         const int want = int(number_at(a["splatResolution"], "/splatResolution", 16.0, double(kTerrainMaxSplatSide)));
         if (size != 0 && want != size)
-            bad("/splatResolution", std::format("The splat maps of '{}' already are {} x {} pixels, not {}", tg.id, size, size, want),
+            bad("/splatResolution",
+                std::format("The splat maps of '{}' already are {} x {} pixels, not {}", tg.id, size, size, want),
                 "Leave splatResolution out to keep their size.");
         size = want;
     }
     if (size == 0) size = std::min(h.cells(), 1024);
     const Lattice l = texel_lattice(size);
     Stroke s = plan_stroke(a, tg, l, 0);
-    Json out = Json::object({{"layer", layer}, {"map", mapOfLayer}, {"channel", channel}, {"stamps", s.stamps.size()},
+    Json out = Json::object({{"layer", layer},
+                             {"map", mapOfLayer},
+                             {"channel", channel},
+                             {"stamps", s.stamps.size()},
                              {"changedTexels", 0}});
     if (s.all.empty()) {
         out["note"] = "The brush is outside the terrain: nothing changed.";
@@ -600,9 +616,11 @@ Json do_paint(Engine::Impl& I, const Json& a) {
         if (t.splatMaps.is_array() && std::size_t(k) < t.splatMaps.size() && t.splatMaps[std::size_t(k)].is_string())
             path = t.splatMaps[std::size_t(k)].get<std::string>();
         if (!path.empty() && fs::exists(path))
-            throw CommandError("invalid_argument",
-                               "Terrain.splatMaps[" + std::to_string(k) + "] '" + path + "' exists but could not be loaded: " + h.planesProblem,
-                               "Fix or delete the file, or point Terrain.splatMaps at another path; painting would overwrite it.");
+            throw CommandError(
+                "invalid_argument",
+                "Terrain.splatMaps[" + std::to_string(k) + "] '" + path +
+                    "' exists but could not be loaded: " + h.planesProblem,
+                "Fix or delete the file, or point Terrain.splatMaps at another path; painting would overwrite it.");
         if (path.empty()) path = default_path(tg.id, "splat" + std::to_string(k), "png");
         m = TerrainSplat{};
         m.size = size;
@@ -661,7 +679,8 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     for (int k = 0; k < wantMaps; ++k) {
         const Changes ch = diff_rect(before[k], after[k], u, 4);
         if (ch.count == 0) continue;
-        step.patches.push_back(make_patch(k == 0 ? TerrainPlane::Splat0 : TerrainPlane::Splat1, ch.rect, u, 4, before[k], after[k]));
+        step.patches.push_back(
+            make_patch(k == 0 ? TerrainPlane::Splat0 : TerrainPlane::Splat1, ch.rect, u, 4, before[k], after[k]));
         changed = std::max(changed, ch.count);
         changedRect.join(ch.rect);
     }
@@ -683,7 +702,9 @@ int checked_samples(const Json& v, const std::string& pointer) {
     if (!pow2 || n < kTerrainMinSamples || n > kTerrainMaxSamples) {
         int near = kTerrainMinSamples - 1;
         while (near + 1 < n && near < kTerrainMaxSamples - 1) near *= 2;
-        bad(pointer, std::format("{} samples per side is not 2^k + 1 between {} and {}", n, kTerrainMinSamples, kTerrainMaxSamples),
+        bad(pointer,
+            std::format("{} samples per side is not 2^k + 1 between {} and {}", n, kTerrainMinSamples,
+                        kTerrainMaxSamples),
             "Use 33, 65, 129, 257, 513, 1025, 2049 or 4097 (nearest above: " + std::to_string(near + 1) + ").");
     }
     return n;
@@ -694,9 +715,12 @@ Json do_generate(Engine::Impl& I, const Json& a) {
     const Entity e = need_terrain_entity(I, a, t);
     const std::string id = I.world.id_of(e);
     if (!(t->size.x > 0.0f) || !(t->size.y > 0.0f))
-        throw CommandError("invalid_argument", "Terrain.size of '" + id + "' must be above 0 on both sides.", "Set it to metres such as [512, 512].");
+        throw CommandError("invalid_argument", "Terrain.size of '" + id + "' must be above 0 on both sides.",
+                           "Set it to metres such as [512, 512].");
     if (!(t->heightScale > 0.0f))
-        throw CommandError("invalid_argument", "Terrain.heightScale of '" + id + "' is " + std::to_string(t->heightScale) + ": heights have no range.",
+        throw CommandError("invalid_argument",
+                           "Terrain.heightScale of '" + id + "' is " + std::to_string(t->heightScale) +
+                               ": heights have no range.",
                            "Set Terrain.heightScale to the metres of height of a white sample, such as 100.");
     // The grid: the terrain's own, or `resolution` when it has no heightmap file yet.
     std::shared_ptr<TerrainHeights> h;
@@ -706,7 +730,8 @@ Json do_generate(Engine::Impl& I, const Json& a) {
         std::string problem;
         h = I.world.terrain().heights(I.world, e, &problem);
         if (!h)
-            throw CommandError("invalid_argument", problem.empty() ? "The heightmap of '" + id + "' cannot be used." : problem,
+            throw CommandError("invalid_argument",
+                               problem.empty() ? "The heightmap of '" + id + "' cannot be used." : problem,
                                "Fix Terrain.heightmap, or clear it so terrain.generate makes a new one.");
         n = h->samples;
         if (a.contains("resolution") && checked_samples(a["resolution"], "/resolution") != n)
@@ -722,29 +747,40 @@ Json do_generate(Engine::Impl& I, const Json& a) {
     np.type = NoiseType::Perlin;
     np.dimension = 2;
     const std::string fractal = a.contains("fractal") ? a["fractal"].get<std::string>() : "fbm";
-    np.fractal = fractal == "ridged" ? NoiseFractal::Ridged : fractal == "billow" ? NoiseFractal::Billow : NoiseFractal::Fbm;
+    np.fractal = fractal == "ridged"   ? NoiseFractal::Ridged
+                 : fractal == "billow" ? NoiseFractal::Billow
+                                       : NoiseFractal::Fbm;
     np.seed = std::uint64_t(std::int64_t(number_at(a.contains("seed") ? a["seed"] : Json(1), "/seed", -9e15, 9e15)));
     np.frequency = float(number_at(a.contains("frequency") ? a["frequency"] : Json(0.004), "/frequency", 1e-7, 1e4));
-    np.octaves = int(number_at(a.contains("octaves") ? a["octaves"] : Json(5), "/octaves", 1.0, double(kMaxNoiseOctaves)));
+    np.octaves =
+        int(number_at(a.contains("octaves") ? a["octaves"] : Json(5), "/octaves", 1.0, double(kMaxNoiseOctaves)));
     np.output = NoiseOutput::Unit;
     if (auto r = validate_noise_params(np); !r.ok()) fail(r.error());
-    const float amplitude = float(number_at(a.contains("amplitude") ? a["amplitude"] : Json(1.0), "/amplitude", 0.0, 1.0));
+    const float amplitude =
+        float(number_at(a.contains("amplitude") ? a["amplitude"] : Json(1.0), "/amplitude", 0.0, 1.0));
     // The erosion: hydraulic droplets, then thermal passes.
     HydraulicErosionParams hp;
     hp.seed = np.seed;
-    hp.droplets = std::int64_t(number_at(a.contains("erosion") ? a["erosion"] : Json(0), "/erosion", 0.0, double(kMaxDroplets)));
+    hp.droplets =
+        std::int64_t(number_at(a.contains("erosion") ? a["erosion"] : Json(0), "/erosion", 0.0, double(kMaxDroplets)));
     ThermalErosionParams tp;
-    tp.iterations = int(number_at(a.contains("thermal") ? a["thermal"] : Json(0), "/thermal", 0.0, double(kMaxThermalIterations)));
+    tp.iterations =
+        int(number_at(a.contains("thermal") ? a["thermal"] : Json(0), "/thermal", 0.0, double(kMaxThermalIterations)));
     if (hp.droplets > 0) {
         if (auto r = validate_hydraulic_params(hp, "/erosion"); !r.ok()) fail(r.error());
         if (hydraulic_work(hp) > kMaxHydraulicSteps)
-            bad("/erosion", std::format("{} droplets of {} steps is more than the {} steps one command runs", hp.droplets, hp.maxLifetime, kMaxHydraulicSteps),
-                "Use at most " + std::to_string(kMaxHydraulicSteps / std::uint64_t(hp.maxLifetime)) + " droplets, and run the command again for more.");
+            bad("/erosion",
+                std::format("{} droplets of {} steps is more than the {} steps one command runs", hp.droplets,
+                            hp.maxLifetime, kMaxHydraulicSteps),
+                "Use at most " + std::to_string(kMaxHydraulicSteps / std::uint64_t(hp.maxLifetime)) +
+                    " droplets, and run the command again for more.");
     }
     if (tp.iterations > 0) {
         if (auto r = validate_thermal_params(tp, "/thermal"); !r.ok()) fail(r.error());
         if (thermal_work(n, n, tp) > kMaxThermalWork)
-            bad("/thermal", std::format("{} passes over {} x {} samples is more than the {} updates one command runs", tp.iterations, n, n, kMaxThermalWork),
+            bad("/thermal",
+                std::format("{} passes over {} x {} samples is more than the {} updates one command runs",
+                            tp.iterations, n, n, kMaxThermalWork),
                 "Use fewer passes.");
     }
     std::vector<float> field(std::size_t(n) * std::size_t(n));
@@ -801,7 +837,8 @@ Json do_generate(Engine::Impl& I, const Json& a) {
         step.patches.push_back(std::move(p));
         std::string why;
         if (!h->apply_step(std::move(step), &why))
-            throw CommandError("internal_error", "The generated heights did not fit the terrain: " + why, "This is a bug: report it.");
+            throw CommandError("internal_error", "The generated heights did not fit the terrain: " + why,
+                               "This is a bug: report it.");
     }
     out["heightmap"] = t->heightmap;
     out["samples"] = n;
@@ -821,26 +858,33 @@ Json do_generate(Engine::Impl& I, const Json& a) {
 Json do_create(Engine::Impl& I, const Json& a) {
     const std::string name = a.contains("name") && a["name"].is_string() ? a["name"].get<std::string>() : std::string();
     if (!name.empty() && I.world.find_by_id(name))
-        bad("/name", "An entity with the id '" + name + "' already exists", "Pick another name, or edit that terrain with terrain.sculpt.");
+        bad("/name", "An entity with the id '" + name + "' already exists",
+            "Pick another name, or edit that terrain with terrain.sculpt.");
     Entity parent = kNullEntity;
     if (a.contains("parent")) parent = need_entity(I.world, a, "parent");
     float size[2] = {512.0f, 512.0f};
     if (a.contains("size")) {
-        if (!a["size"].is_array() || a["size"].size() != 2) bad("/size", "'size' must be [x, z] in metres", "Example: [1024, 1024].");
+        if (!a["size"].is_array() || a["size"].size() != 2)
+            bad("/size", "'size' must be [x, z] in metres", "Example: [1024, 1024].");
         size[0] = float(number_at(a["size"][0], "/size/0", 1e-3, 1e7));
         size[1] = float(number_at(a["size"][1], "/size/1", 1e-3, 1e7));
     }
-    const float heightScale = float(number_at(a.contains("heightScale") ? a["heightScale"] : Json(100.0), "/heightScale", 1e-3, 1e6));
-    const float baseHeight = float(number_at(a.contains("baseHeight") ? a["baseHeight"] : Json(0.0), "/baseHeight", -1e7, 1e7));
+    const float heightScale =
+        float(number_at(a.contains("heightScale") ? a["heightScale"] : Json(100.0), "/heightScale", 1e-3, 1e6));
+    const float baseHeight =
+        float(number_at(a.contains("baseHeight") ? a["baseHeight"] : Json(0.0), "/baseHeight", -1e7, 1e7));
     Json position = Json::array({0, 0, 0});
     if (a.contains("position")) {
         const Json& p = a["position"];
-        if (!p.is_array() || p.size() != 3) bad("/position", "'position' must be [x, y, z] in metres", "Example: [0, 0, 0].");
+        if (!p.is_array() || p.size() != 3)
+            bad("/position", "'position' must be [x, y, z] in metres", "Example: [0, 0, 0].");
         position = Json::array();
-        for (std::size_t i = 0; i < 3; ++i) position.push_back(number_at(p[i], "/position/" + std::to_string(i), -1e9, 1e9));
+        for (std::size_t i = 0; i < 3; ++i)
+            position.push_back(number_at(p[i], "/position/" + std::to_string(i), -1e9, 1e9));
     }
     if (a.contains("heightmap") && a.contains("resolution"))
-        bad("/resolution", "'heightmap' (import) and 'resolution' (a new flat grid) were both given", "Give one: the imported file brings its own size.");
+        bad("/resolution", "'heightmap' (import) and 'resolution' (a new flat grid) were both given",
+            "Give one: the imported file brings its own size.");
     Json terrain = Json::object({{"size", Json::array({size[0], size[1]})}, {"heightScale", heightScale}});
     Json out = Json::object();
     if (a.contains("heightmap")) {
@@ -854,26 +898,32 @@ Json do_create(Engine::Impl& I, const Json& a) {
         out["imported"] = true;
     } else {
         const int n = a.contains("resolution") ? checked_samples(a["resolution"], "/resolution") : 513;
-        std::string path = a.contains("path") && a["path"].is_string() ? resolve_caller_project_path(a["path"].get<std::string>(), "terrain.create")
-                                                                          : "assets/terrain/" + file_stem(name.empty() ? "terrain" : name) + ".height.png";
+        std::string path = a.contains("path") && a["path"].is_string()
+                               ? resolve_caller_project_path(a["path"].get<std::string>(), "terrain.create")
+                               : "assets/terrain/" + file_stem(name.empty() ? "terrain" : name) + ".height.png";
         if (!ends_with_ci(path, ".png") && !ends_with_ci(path, ".r16"))
-            bad("/path", "The heightmap file '" + path + "' must end in .png or .r16", "Example: assets/terrain/ground.height.png.");
+            bad("/path", "The heightmap file '" + path + "' must end in .png or .r16",
+                "Example: assets/terrain/ground.height.png.");
         if (fs::exists(path))
-            bad(a.contains("path") ? "/path" : "/name", "The file '" + path + "' already exists and would be overwritten",
+            bad(a.contains("path") ? "/path" : "/name",
+                "The file '" + path + "' already exists and would be overwritten",
                 "Pick another name or path, or import it: terrain.create {\"heightmap\":\"" + path + "\"}.");
         auto flat = TerrainHeights::flat(n, kFlatRaw);
         const std::vector<std::uint8_t> bytes = encode_terrain_heightmap(*flat, path);
-        if (bytes.empty()) throw CommandError("internal_error", "The heightmap could not be encoded.", "This is a bug: report it.");
+        if (bytes.empty())
+            throw CommandError("internal_error", "The heightmap could not be encoded.", "This is a bug: report it.");
         if (auto r = fs::write_bytes(path, bytes.data(), bytes.size()); !r.ok())
-            throw CommandError("write_failed", "The heightmap '" + path + "' could not be written: " + r.error().message,
-                               r.error().hint.empty() ? "Check that the folder is writable. Nothing was created." : r.error().hint);
+            throw CommandError(
+                "write_failed", "The heightmap '" + path + "' could not be written: " + r.error().message,
+                r.error().hint.empty() ? "Check that the folder is writable. Nothing was created." : r.error().hint);
         terrain["heightmap"] = path;
         // The flat surface sits at baseHeight: raw 32768 of 65535 is half way up the scale.
         terrain["heightOffset"] = double(baseHeight) - double(heightScale) * double(kFlatRaw) / 65535.0;
         out["heightmap"] = path;
         out["samples"] = n;
     }
-    Json spec = Json::object({{"components", Json::object({{"Terrain", terrain}, {"Transform", Json::object({{"position", position}})}})}});
+    Json spec = Json::object(
+        {{"components", Json::object({{"Terrain", terrain}, {"Transform", Json::object({{"position", position}})}})}});
     if (!name.empty()) {
         spec["name"] = name;
         spec["id"] = name;
@@ -902,12 +952,16 @@ Json do_undo_redo(Engine::Impl& I, const Json& a, bool undo) {
     const std::string id = I.world.id_of(e);
     std::string problem;
     auto h = I.world.terrain().heights(I.world, e, &problem);
-    if (!h) throw CommandError("invalid_argument", problem.empty() ? "The heightmap of '" + id + "' cannot be used." : problem, "Fix Terrain.heightmap.");
+    if (!h)
+        throw CommandError("invalid_argument",
+                           problem.empty() ? "The heightmap of '" + id + "' cannot be used." : problem,
+                           "Fix Terrain.heightmap.");
     std::string label;
     if (!(undo ? h->undo(&label) : h->redo(&label)))
         throw CommandError(undo ? "nothing_to_undo" : "nothing_to_redo",
                            std::string("Terrain '") + id + "' has no edit to " + (undo ? "undo" : "redo") + ".",
-                           undo ? "The history holds the last " + std::to_string(kTerrainHistorySteps) + " terrain edits since the scene loaded; terrain.redo brings back an undone one."
+                           undo ? "The history holds the last " + std::to_string(kTerrainHistorySteps) +
+                                      " terrain edits since the scene loaded; terrain.redo brings back an undone one."
                                 : "Redo only follows an undo; a new edit clears the redo list.");
     Json out = Json::object({{"entity", id}, {undo ? "undone" : "redone", label}});
     out["unsaved"] = h->any_unsaved();
@@ -940,12 +994,12 @@ Json do_save(Engine::Impl& I, const Json& a) {
 
 // ------------------------------------------------------------------------------------------------ registration
 
-const char* kSaveProp = R"("save":{"type":"boolean","default":false,"description":"Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save."})";
+const char* kSaveProp =
+    R"("save":{"type":"boolean","default":false,"description":"Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save."})";
 const char* kBrushProps =
     R"("center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"World metres [x, z] of one stamp. Give center or points, not both."},
        "points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":1,"maxItems":4096,"description":"A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step."},
        "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in world metres (at most 1024 samples of the edited image)."})";
-
 
 }  // namespace
 
@@ -955,16 +1009,21 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
     const std::string brush = std::string(kBrushProps);
     const std::string save = std::string(kSaveProp);
 
-    I.commands.add(
-        {"terrain.create", "Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap.",
-         "Writes a flat 16-bit greyscale PNG heightmap of `resolution` x `resolution` samples (2^k + 1: 33 ... 4097; the default 513) to "
-         "`path` (default assets/terrain/<name>.height.png; an existing file is never overwritten) and creates an entity with a Terrain "
-         "component that uses it, `size` metres wide, centred on the entity at `position`. The flat surface is at `baseHeight` "
-         "(default 0) and sits half way up the `heightScale` range, so terrain.sculpt can lower it as well as raise it. With `heightmap` "
-         "the entity uses that existing 16-bit PNG or .r16 file instead and writes nothing. The Terrain has no layers: add them with "
-         "scene.set_component (each needs an albedo texture). Result: {entity, heightmap, samples, size}. "
-         "Example: terrain.create {\"name\":\"ground\",\"size\":[1024,1024],\"resolution\":513}",
-         parse_schema(R"({"type":"object","properties":{
+    I.commands.add({"terrain.create",
+                    "Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap.",
+                    "Writes a flat 16-bit greyscale PNG heightmap of `resolution` x `resolution` samples (2^k + 1: 33 "
+                    "... 4097; the default 513) to "
+                    "`path` (default assets/terrain/<name>.height.png; an existing file is never overwritten) and "
+                    "creates an entity with a Terrain "
+                    "component that uses it, `size` metres wide, centred on the entity at `position`. The flat surface "
+                    "is at `baseHeight` "
+                    "(default 0) and sits half way up the `heightScale` range, so terrain.sculpt can lower it as well "
+                    "as raise it. With `heightmap` "
+                    "the entity uses that existing 16-bit PNG or .r16 file instead and writes nothing. The Terrain has "
+                    "no layers: add them with "
+                    "scene.set_component (each needs an albedo texture). Result: {entity, heightmap, samples, size}. "
+                    "Example: terrain.create {\"name\":\"ground\",\"size\":[1024,1024],\"resolution\":513}",
+                    parse_schema(R"({"type":"object","properties":{
                "name":{"type":"string","description":"Entity id and name of the terrain (default: terrain, made unique)."},
                "size":{"type":"array","items":{"type":"number","exclusiveMinimum":0},"minItems":2,"maxItems":2,"description":"Metres [x, z] the terrain covers (default [512, 512])."},
                "resolution":{"type":"integer","minimum":33,"maximum":4097,"description":"Samples per side of a new heightmap: 2^k + 1 (33, 65, 129, 257, 513, 1025, 2049, 4097; default 513). Not with heightmap."},
@@ -974,70 +1033,100 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
                "baseHeight":{"type":"number","default":0,"description":"New flat terrain: the height of its surface in metres. Imported: Terrain.heightOffset."},
                "position":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"World position [x, y, z] of the terrain's centre (default [0, 0, 0])."},
                "parent":{"type":"string","description":"Parent entity id."}}})"),
-         false, "world"},
-        [&I](const Json& a) { return do_create(I, a); });
+                    false, "world"},
+                   [&I](const Json& a) { return do_create(I, a); });
 
     I.commands.add(
-        {"terrain.sculpt", "Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step).",
-         "Edits the samples of the terrain's heightmap within `radius` world metres of `center` (or of every point of `points`, a stroke) "
-         "with the brush `tool`: raise or lower by `amount` metres x `strength` at the middle of the brush, smooth toward the mean of the "
-         "neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. The effect fades "
-         "smoothly to nothing at the edge of the circle. The edit is live in memory (the renderer and the physics collider follow it) "
-         "and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a scene save. "
-         "Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, rect (sample "
+        {"terrain.sculpt",
+         "Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step).",
+         "Edits the samples of the terrain's heightmap within `radius` world metres of `center` (or of every point of "
+         "`points`, a stroke) "
+         "with the brush `tool`: raise or lower by `amount` metres x `strength` at the middle of the brush, smooth "
+         "toward the mean of the "
+         "neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. "
+         "The effect fades "
+         "smoothly to nothing at the edge of the circle. The edit is live in memory (the renderer and the physics "
+         "collider follow it) "
+         "and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a "
+         "scene save. "
+         "Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, "
+         "rect (sample "
          "indices), bounds ([minX, minZ, maxX, maxZ] world), undoDepth, unsaved, undo}. "
-         "Example: terrain.sculpt {\"entity\":\"ground\",\"tool\":\"raise\",\"center\":[100,50],\"radius\":20,\"amount\":5}",
-         parse_schema(("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
-                       R"("tool":{"type":"string","enum":["raise","lower","smooth","flatten"],"default":"raise","description":"The brush."},)" +
-                       brush + "," +
-                       R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the brush applies per stamp (0 nothing, 1 all)."},
+         "Example: terrain.sculpt "
+         "{\"entity\":\"ground\",\"tool\":\"raise\",\"center\":[100,50],\"radius\":20,\"amount\":5}",
+         parse_schema(
+             ("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
+              R"("tool":{"type":"string","enum":["raise","lower","smooth","flatten"],"default":"raise","description":"The brush."},)" +
+              brush + "," +
+              R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the brush applies per stamp (0 nothing, 1 all)."},
                           "amount":{"type":"number","exclusiveMinimum":0,"default":1,"description":"raise and lower: metres a stamp changes the height at the middle of the brush when strength is 1."},
                           "height":{"type":"number","description":"flatten: the world y to flatten to (default: the surface under the first stamp)."},)" +
-                       save + "}, \"required\":[\"entity\",\"radius\"]}").c_str()),
+              save + "}, \"required\":[\"entity\",\"radius\"]}")
+                 .c_str()),
          false, "world"},
         [&I](const Json& a) { return do_sculpt(I, a); });
 
     I.commands.add(
         {"terrain.paint", "Paint a material layer of a Terrain with a brush (splat maps, live, one undo step).",
-         "Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `radius` world metres of `center` (or along "
-         "`points`) by `strength` with a smooth falloff and lowers the others in proportion, so the 8 weights of every texel always add "
-         "up to 255 (renormalised). Layer L is channel L % 4 (r, g, b, a) of splat map L / 4. The maps are created on the first paint "
-         "(assets/terrain/<name>.splat0.png and .splat1.png, RGBA8 linear, `splatResolution` texels per side, default the terrain's "
-         "cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written by `save` true, "
-         "terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, undoDepth}. "
+         "Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `radius` world metres of "
+         "`center` (or along "
+         "`points`) by `strength` with a smooth falloff and lowers the others in proportion, so the 8 weights of every "
+         "texel always add "
+         "up to 255 (renormalised). Layer L is channel L % 4 (r, g, b, a) of splat map L / 4. The maps are created on "
+         "the first paint "
+         "(assets/terrain/<name>.splat0.png and .splat1.png, RGBA8 linear, `splatResolution` texels per side, default "
+         "the terrain's "
+         "cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written "
+         "by `save` true, "
+         "terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, "
+         "undoDepth}. "
          "Example: terrain.paint {\"entity\":\"ground\",\"layer\":1,\"center\":[10,10],\"radius\":8}",
-         parse_schema(("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
-                       R"("layer":{"type":"integer","minimum":0,"maximum":7,"description":"Index into Terrain.layers (map = layer / 4, channel = layer % 4)."},)" +
-                       brush + "," +
-                       R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the layer's weight a stamp reaches at the middle of the brush."},
+         parse_schema(
+             ("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
+              R"("layer":{"type":"integer","minimum":0,"maximum":7,"description":"Index into Terrain.layers (map = layer / 4, channel = layer % 4)."},)" +
+              brush + "," +
+              R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the layer's weight a stamp reaches at the middle of the brush."},
                           "splatResolution":{"type":"integer","minimum":16,"maximum":4096,"description":"Texels per side of splat maps that do not exist yet (default: the terrain's cells, at most 1024). Existing maps keep their size."},)" +
-                       save + "}, \"required\":[\"entity\",\"layer\",\"radius\"]}").c_str()),
+              save + "}, \"required\":[\"entity\",\"layer\",\"radius\"]}")
+                 .c_str()),
          false, "world"},
         [&I](const Json& a) { return do_paint(I, a); });
 
     I.commands.add(
         {"terrain.holes", "Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one undo step).",
-         "Sets the cells of the terrain's holes mask whose centre is within `radius` world metres of `center` (or of the `points` of "
-         "a stroke): mode \"cut\" makes them holes, \"fill\" closes them. A hole is neither drawn nor collided: the physics collider "
-         "follows the edit at once. The mask has one byte per CELL (cells x cells, 1 = hole) and is saved as an 8-bit greyscale PNG "
-         "(255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller than a cell can "
+         "Sets the cells of the terrain's holes mask whose centre is within `radius` world metres of `center` (or of "
+         "the `points` of "
+         "a stroke): mode \"cut\" makes them holes, \"fill\" closes them. A hole is neither drawn nor collided: the "
+         "physics collider "
+         "follows the edit at once. The mask has one byte per CELL (cells x cells, 1 = hole) and is saved as an 8-bit "
+         "greyscale PNG "
+         "(255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller "
+         "than a cell can "
          "miss every cell centre. Live and ONE undo step; written by `save` true, terrain.save or a scene save. "
          "Result: {changedTexels, rect, bounds, undoDepth}. "
          "Example: terrain.holes {\"entity\":\"ground\",\"center\":[0,0],\"radius\":3}",
-         parse_schema(("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
-                       R"("mode":{"type":"string","enum":["cut","fill"],"default":"cut","description":"Make a hole or close one."},)" +
-                       brush + "," + save + "}, \"required\":[\"entity\",\"radius\"]}").c_str()),
+         parse_schema(
+             ("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
+              R"("mode":{"type":"string","enum":["cut","fill"],"default":"cut","description":"Make a hole or close one."},)" +
+              brush + "," + save + "}, \"required\":[\"entity\",\"radius\"]}")
+                 .c_str()),
          false, "world"},
         [&I](const Json& a) { return do_holes(I, a); });
 
     I.commands.add(
-        {"terrain.generate", "Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step).",
-         "Replaces the heights with fractal Perlin noise (`seed`, `frequency` features per metre, `octaves`, `fractal`) stretched to the "
-         "height range (`amplitude` is the share of Terrain.heightScale it uses), then `erosion` droplets of hydraulic erosion and "
-         "`thermal` passes of thermal erosion, all deterministic: the same arguments always give the same heights, on any machine "
+        {"terrain.generate",
+         "Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step).",
+         "Replaces the heights with fractal Perlin noise (`seed`, `frequency` features per metre, `octaves`, "
+         "`fractal`) stretched to the "
+         "height range (`amplitude` is the share of Terrain.heightScale it uses), then `erosion` droplets of hydraulic "
+         "erosion and "
+         "`thermal` passes of thermal erosion, all deterministic: the same arguments always give the same heights, on "
+         "any machine "
          "and thread count. A terrain with no heightmap gets a new grid of `resolution` samples and the path "
-         "assets/terrain/<name>.height.png. The noise follows the X axis: a terrain that is not square is stretched in z. All checks "
-         "(and the work caps) run before anything changes; the replacement is ONE undo step. Result: {heightmap, samples, "
+         "assets/terrain/<name>.height.png. The noise follows the X axis: a terrain that is not square is stretched in "
+         "z. All checks "
+         "(and the work caps) run before anything changes; the replacement is ONE undo step. Result: {heightmap, "
+         "samples, "
          "changedSamples, minHeight, maxHeight (metres, before Transform.scale), erosion, undoDepth}. "
          "Example: terrain.generate {\"entity\":\"ground\",\"seed\":7,\"octaves\":5,\"erosion\":50000}",
          parse_schema(("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
@@ -1049,32 +1138,40 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
                           "erosion":{"type":"integer","minimum":0,"maximum":100000000,"default":0,"description":"Droplets of hydraulic erosion (0 = none; 50000 is a good start for 513 samples). At most 8.9 million with the default droplet life."},
                           "thermal":{"type":"integer","minimum":0,"maximum":100000,"default":0,"description":"Passes of thermal erosion (slopes steeper than 35 degrees slide); 0 = none."},
                           "resolution":{"type":"integer","minimum":33,"maximum":4097,"description":"Only for a terrain without a heightmap: samples per side (2^k + 1, default 513)."},)" +
-                       save + "}, \"required\":[\"entity\"]}").c_str()),
+                       save + "}, \"required\":[\"entity\"]}")
+                          .c_str()),
          false, "world"},
         [&I](const Json& a) { return do_generate(I, a); });
 
-    I.commands.add(
-        {"terrain.save", "Write the edited files of one Terrain, or of every Terrain, to the project.",
-         "Writes what terrain.sculpt, terrain.paint, terrain.holes and terrain.generate changed since the files were loaded or last "
-         "written: the heightmap (16-bit PNG, or raw .r16), the holes mask (8-bit PNG) and the splat maps (RGBA PNG), each replaced "
-         "atomically. Nothing to write is fine. A scene save does the same for every terrain. Result: {saved: [paths]}. "
-         "Example: terrain.save {\"entity\":\"ground\"}",
-         parse_schema(R"({"type":"object","properties":{
+    I.commands.add({"terrain.save", "Write the edited files of one Terrain, or of every Terrain, to the project.",
+                    "Writes what terrain.sculpt, terrain.paint, terrain.holes and terrain.generate changed since the "
+                    "files were loaded or last "
+                    "written: the heightmap (16-bit PNG, or raw .r16), the holes mask (8-bit PNG) and the splat maps "
+                    "(RGBA PNG), each replaced "
+                    "atomically. Nothing to write is fine. A scene save does the same for every terrain. Result: "
+                    "{saved: [paths]}. "
+                    "Example: terrain.save {\"entity\":\"ground\"}",
+                    parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Terrain (default: every Terrain with edits)."}}})"),
-         false, "world"},
-        [&I](const Json& a) { return do_save(I, a); });
+                    false, "world"},
+                   [&I](const Json& a) { return do_save(I, a); });
 
     for (bool undo : {true, false}) {
         I.commands.add(
             {undo ? "terrain.undo" : "terrain.redo",
              undo ? "Undo the last terrain edit of a Terrain (one command's worth of heights, holes and splat maps)."
                   : "Redo the terrain edit the last terrain.undo took back.",
-             std::string(undo ? "Puts back the samples the newest sculpt, paint, holes or generate command changed, bit for bit. "
+             std::string(undo ? "Puts back the samples the newest sculpt, paint, holes or generate command changed, "
+                                "bit for bit. "
                               : "Applies the undone edit again. ") +
-                 "Each terrain keeps the last 64 edits (and at most 256 MB of before/after samples) since the scene loaded; a new "
-                 "edit clears the redo list. Only the data changes: components set by a command (a Terrain.holes or splatMaps path "
-                 "a first edit chose) stay. `save` writes the files afterwards. Result: {undone|redone, undoDepth, redoDepth, "
-                 "unsaved}. Example: " + std::string(undo ? "terrain.undo" : "terrain.redo") + " {\"entity\":\"ground\"}",
+                 "Each terrain keeps the last 64 edits (and at most 256 MB of before/after samples) since the scene "
+                 "loaded; a new "
+                 "edit clears the redo list. Only the data changes: components set by a command (a Terrain.holes or "
+                 "splatMaps path "
+                 "a first edit chose) stay. `save` writes the files afterwards. Result: {undone|redone, undoDepth, "
+                 "redoDepth, "
+                 "unsaved}. Example: " +
+                 std::string(undo ? "terrain.undo" : "terrain.redo") + " {\"entity\":\"ground\"}",
              parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Terrain."},
                "save":{"type":"boolean","default":false,"description":"Also write the changed files now."}},"required":["entity"]})"),
