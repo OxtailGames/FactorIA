@@ -37,6 +37,16 @@ struct Project {
       {"id": "dome", "name": "dome", "components": {"Transform": {"position": [3, 1, 0]}, "MeshRenderer": {"mesh": "sphere", "color": [0.8, 0.2, 0.2, 1]}}},
       {"id": "hidden", "name": "hidden", "active": false, "components": {"Transform": {"position": [0, 5, 0]}, "MeshRenderer": {"mesh": "cube"}}}
     ]},
+    {"id": "cell", "name": "cell", "components": {"Transform": {"position": [50, 0, 0]}}, "children": [
+      {"id": "lod0", "name": "lod0", "components": {"Transform": {}}, "children": [
+        {"id": "cell_wall", "name": "cell_wall", "components": {"Transform": {"position": [0, 1, 0]}, "MeshRenderer": {"mesh": "cube"}}},
+        {"id": "cell_dome", "name": "cell_dome", "components": {"Transform": {"position": [3, 1, 0]}, "MeshRenderer": {"mesh": "sphere"}}}
+      ]}
+    ]},
+    {"id": "group", "name": "group", "components": {"Transform": {"position": [90, 0, 0]}, "LodGroup": {"thresholds": [40]}, "MeshRenderer": {"mesh": "cube"}}, "children": [
+      {"id": "near", "name": "near", "components": {"Transform": {}, "MeshRenderer": {"mesh": "sphere"}}},
+      {"id": "far", "name": "far", "components": {"Transform": {"position": [0, 0, 20]}, "MeshRenderer": {"mesh": "cube"}}}
+    ]},
     {"id": "empty", "name": "empty", "components": {"Transform": {}}}
   ]
 })");
@@ -155,10 +165,10 @@ TEST_CASE("world.bake_hlod: apply sets LodGroup.hlodProxy and a default threshol
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    const Entity block = e.world().find_by_id("block");
+    const Entity block = e.world().find_by_id("cell");
     REQUIRE(e.world().alive(block));
     const Json r = call(e, "world.bake_hlod",
-                        Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"apply", true}}));
+                        Json::object({{"entity", "cell"}, {"out", "assets/hlod/block.glb"}, {"apply", true}}));
     CHECK(r["applied"] == true);
     const LodGroup* lg = e.world().get<LodGroup>(block);
     REQUIRE(lg != nullptr);
@@ -167,9 +177,45 @@ TEST_CASE("world.bake_hlod: apply sets LodGroup.hlodProxy and a default threshol
     CHECK(lg->hlodThreshold == doctest::Approx(r["hlodThreshold"].get<float>()));
     // a threshold the author chose stays; a second bake changes the proxy only
     e.world().get<LodGroup>(block)->hlodThreshold = 77.0f;
-    call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/hlod/block2.glb"}, {"apply", true}}));
+    call(e, "world.bake_hlod", Json::object({{"entity", "cell"}, {"out", "assets/hlod/block2.glb"}, {"apply", true}}));
     CHECK(e.world().get<LodGroup>(block)->hlodProxy == "assets/hlod/block2.glb");
     CHECK(e.world().get<LodGroup>(block)->hlodThreshold == 77.0f);
+}
+
+TEST_CASE("world.bake_hlod: apply refuses an entity with several children and no LodGroup, and tells how to wrap them") {
+    Project p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const std::string t = error_text(
+        e, Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"apply", true}}));
+    CHECK(t.find("/apply") != std::string::npos);
+    CHECK(t.find("LOD levels") != std::string::npos);
+    CHECK(t.find("ONE child entity") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.dir / "assets"));  // nothing is written
+    CHECK(e.world().get<LodGroup>(e.world().find_by_id("block")) == nullptr);
+    // without `apply` the same entity bakes (the children are merged), and the cell with ONE child accepts `apply`
+    call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}}));
+    CHECK(stdfs::exists(p.dir / "assets/hlod/block.glb"));
+}
+
+TEST_CASE("world.bake_hlod: under a LodGroup only child 0 is merged, and the entity's own MeshRenderer is left out") {
+    Project p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const Json r = call(e, "world.bake_hlod", Json::object({{"entity", "group"}, {"out", "assets/hlod/group.glb"}}));
+    CHECK(r["meshes"] == 1);  // `near` (a sphere): not `far` (level 1) and not the group's own cube
+    CHECK(r["levelsIgnored"] == 1);
+    CHECK(r["skippedList"][0]["entity"] == "group");
+    // apply is allowed on an entity that is already a group, whatever its children
+    const Json a = call(e, "world.bake_hlod",
+                        Json::object({{"entity", "group"}, {"out", "assets/hlod/group2.glb"}, {"apply", true}}));
+    CHECK(a["applied"] == true);
+    const LodGroup* lg = e.world().get<LodGroup>(e.world().find_by_id("group"));
+    REQUIRE(lg != nullptr);
+    CHECK(lg->thresholds.size() == 1);
+    CHECK(lg->hlodProxy == "assets/hlod/group2.glb");
 }
 
 TEST_CASE("world.bake_hlod: errors teach, with the JSON pointer and the fix, and write nothing") {
