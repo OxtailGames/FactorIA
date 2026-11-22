@@ -78,8 +78,11 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
     (docs/shaders/) or a custom material that is not `alphaMode` `"clip"` (their programs have no dither), and when it has
     subsurface scattering (its extra pass).
   - Cost. A scene with no `lods` and no `LodGroup` draws with the programs it always had and checks one flag per scene: the
-    `render.frame3d` bench reads the same with and without this feature. A scene with `lods` pays the pick of each mesh
-    (`render.lod3d`, docs/performance/PERFORMANCE_BENCH.md) and, only while an entity fades, two draws and a lost batch for it.
+    `render.frame3d` bench stays within its noise (the same machine, back to back, with and without the feature: best run
+    5.32 ms against 5.38 ms for 8 frames of 1600 meshes, a Debug `-O1` build). A scene with `lods` pays the pick of each mesh and
+    the draws the levels split into: `render.lod3d` (the same 1600 meshes with two lower levels each and 40 `LodGroup`s, no fade
+    running) took 11.7 to 15.3 ms against 5.4 ms for `render.frame3d` in that build, on the CPU
+    (docs/performance/PERFORMANCE_BENCH.md). Only while an entity fades does it also pay two draws and a lost batch for it.
     With `crossFade` 0 the pick keeps no state.
 - `MeshRenderer.impostor` and `impostorDistance`, and `LodGroup.hlodProxy` and `hlodThreshold` (the HLOD proxy of a whole cell):
   saved and checked, **no effect yet**.

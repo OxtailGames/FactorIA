@@ -1827,7 +1827,8 @@ public:
     sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
         blitKeepShader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
-    sg_shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{}, prepassSkinLodShader_{};  // made on the first fade
+    sg_shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
+        prepassSkinLodShader_{};  // made on the first fade
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
     sg_shader post_shader_{};
