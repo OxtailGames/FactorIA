@@ -12,6 +12,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/particle_store.h"
+#include "fa/scene/terrain.h"
 #include "fa/scene/ui_rect.h"
 
 namespace fa {
@@ -210,7 +211,9 @@ struct World::Impl {
     }
 };
 
-World::World() : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()) {
+World::World()
+    : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()),
+      terrain_(std::make_unique<TerrainStore>()) {
     ensure_builtin_components();
     impl_->infoPool = &impl_->pool(type_of<EntityInfo>());
     impl_->transformPool = &impl_->pool(type_of<Transform>());
@@ -362,6 +365,7 @@ void World::clear() {
     interp_.clear_scene();
     vfxLive_ = 0;
     particles_->clear();
+    terrain_->clear();
     warnedSpriteClips_.clear();
     origin_ = DVec3{};
     rebaseCount_ = 0;
