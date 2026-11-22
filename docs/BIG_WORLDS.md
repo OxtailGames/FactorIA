@@ -10,7 +10,7 @@ is "off" or "as before".
 
 | Part | Package | What it adds |
 |---|---|---|
-| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup` and dithered cross-fade (drawn); impostors and HLOD (planned) |
+| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup`, dithered cross-fade and impostor cards (drawn); HLOD (planned) |
 | [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders (CPU built; GPU planned), areas and portals (planned) |
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
@@ -18,7 +18,7 @@ is "off" or "as before".
 | [Foliage](BIG_WORLDS_TERRAIN.md#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
-"planned (M75)" until its package lands (`impostors`, `occlusionGpu`, `foliage`); `occlusionCpu` and `terrain` are `true` on every backend. Ask
+"planned (M75)" until its package lands (`occlusionGpu`, `foliage`); `impostors`, `occlusionCpu` and `terrain` are `true` on every backend. Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Pages
@@ -45,7 +45,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | `world.cells`, `world.stream_status` | M75.3 | no |
 | `tilemap.split_cells` | M75.3b | yes |
 | `world.split_cells`, `world.merge_cells` | M75.3 (planned) | yes |
-| `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
+| `model.generate_lods`, `model.bake_impostor` | M75.1 (built) | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
 | `foliage.scatter`, `foliage.paint`, `foliage.clear` | M75.6 | yes |
 

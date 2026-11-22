@@ -23,7 +23,9 @@ bool inside_project(const std::string& p) {
 
 }  // namespace
 
-const char* impostor_mode_name(ImpostorMode m) { return m == ImpostorMode::HemiOctahedral ? "hemiOctahedral" : "octahedral"; }
+const char* impostor_mode_name(ImpostorMode m) {
+    return m == ImpostorMode::HemiOctahedral ? "hemiOctahedral" : "octahedral";
+}
 
 bool impostor_mode_from_name(const std::string& s, ImpostorMode& out) {
     if (s == "octahedral") {
@@ -157,7 +159,8 @@ Result<ImpostorAtlas> impostor_from_json(const Json& j, const std::string& name)
             return bad(pointer, "is missing or not a whole number.", again);
         const long long v = j[key].get<long long>();
         if (v < lo || v > hi)
-            return bad(pointer, "is " + std::to_string(v) + ", outside " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
+            return bad(pointer,
+                       "is " + std::to_string(v) + ", outside " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
                        again);
         out = int(v);
         return true;

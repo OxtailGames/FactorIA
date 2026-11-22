@@ -35,7 +35,8 @@ TEST_CASE("model.bake_impostor: writes the json, the colour atlas and the normal
     AssetsProject p;
     write_all(p.file("assets/models/ball.model.json"), kBall);
     p.ok("model.bake", {{"path", "assets/models/ball.model.json"}});
-    const Json r = p.ok("model.bake_impostor", {{"model", "assets/models/ball.model.json"}, {"views", 4}, {"resolution", 128}});
+    const Json r =
+        p.ok("model.bake_impostor", {{"model", "assets/models/ball.model.json"}, {"views", 4}, {"resolution", 128}});
     CHECK(r["file"] == "assets/models/ball.impostor.json");
     CHECK(r["frameSize"] == 32);
     CHECK(r["views"] == 4);
@@ -134,13 +135,13 @@ TEST_CASE("model.bake_impostor: arguments that teach") {
         CHECK_MESSAGE(r.error.dump().find(what) != std::string::npos, r.error.dump());
         return r;
     };
-    fails({{"model", "assets/models/box.glb"}, {"view", 4}}, "views");                           // did you mean
+    fails({{"model", "assets/models/box.glb"}, {"view", 4}}, "views");  // did you mean
     fails({{"model", "assets/models/box.glb"}, {"views", 1}}, "/views");
     fails({{"model", "assets/models/box.glb"}, {"views", 99}}, "/views");
     fails({{"model", "assets/models/box.glb"}, {"views", 2.5}}, "/views");
     fails({{"model", "assets/models/box.glb"}, {"resolution", 99999}}, "/resolution");
     fails({{"model", "assets/models/box.glb"}, {"views", 32}, {"resolution", 128}}, "/resolution");  // 4 px frames
-    fails({{"model", "assets/models/box.glb"}, {"mode", "octahedron"}}, "octahedral");           // did you mean
+    fails({{"model", "assets/models/box.glb"}, {"mode", "octahedron"}}, "octahedral");               // did you mean
     fails({{"model", "assets/models/nothing.glb"}}, "not_found");
     fails({{"model", "assets/models/box.png"}}, "/model");
     fails({{"model", "../outside.glb"}}, "/model");
@@ -156,19 +157,22 @@ TEST_CASE("model.bake_impostor: it replaces its own files and refuses to replace
     make_box(p);
     p.ok("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 2}, {"resolution", 32}});
     // our own files: a second bake with other arguments replaces them
-    const Json again = p.ok("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 4}, {"resolution", 64}});
+    const Json again =
+        p.ok("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 4}, {"resolution", 64}});
     CHECK(again["frameSize"] == 16);
     CHECK(read_png(p.file("assets/models/box.impostor.png")).width == 64);
     // somebody else's picture at the path is not replaced
     p.file("assets/models/box.impostor.png");
     std::filesystem::remove(p.file("assets/models/box.impostor.json"));
     write_all(p.file("assets/models/box.impostor.png"), "not ours");
-    const CommandResult r = p.call("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 2}, {"resolution", 32}});
+    const CommandResult r =
+        p.call("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 2}, {"resolution", 32}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "exists");
     CHECK(r.error.dump().find("overwrite") != std::string::npos);
     CHECK(read_all(p.file("assets/models/box.impostor.png")) == "not ours");
-    p.ok("model.bake_impostor", {{"model", "assets/models/box.glb"}, {"views", 2}, {"resolution", 32}, {"overwrite", true}});
+    p.ok("model.bake_impostor",
+         {{"model", "assets/models/box.glb"}, {"views", 2}, {"resolution", 32}, {"overwrite", true}});
     CHECK(read_png(p.file("assets/models/box.impostor.png")).width == 32);
 }
 

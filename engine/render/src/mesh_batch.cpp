@@ -238,7 +238,7 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
         b.mainExtra = std::uint32_t(mainData.size());
         // The values of an entity: from the cache, or packed straight into the buffer that needs them.
         auto append = [&](std::vector<float>& data, const MeshItem& mi) {
-            if (mi.terrain) {  // a node of a terrain: its own two vec4
+            if (mi.terrain || mi.impostor) {  // a node of a terrain or a card of an impostor: its own two vec4
                 const std::size_t at = data.size();
                 data.resize(at + floats);
                 std::memcpy(data.data() + at, mi.terrainNode.data(),

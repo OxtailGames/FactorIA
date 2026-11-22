@@ -19,24 +19,24 @@
 namespace fa {
 
 enum class ImpostorMode { Octahedral, HemiOctahedral };
-const char* impostor_mode_name(ImpostorMode m);                  // "octahedral" or "hemiOctahedral"
+const char* impostor_mode_name(ImpostorMode m);  // "octahedral" or "hemiOctahedral"
 bool impostor_mode_from_name(const std::string& s, ImpostorMode& out);
 
 inline constexpr int kImpostorMinViews = 2, kImpostorMaxViews = 32;
-inline constexpr int kImpostorMinFrame = 8;    // pixels: a smaller frame has no picture worth drawing
+inline constexpr int kImpostorMinFrame = 8;     // pixels: a smaller frame has no picture worth drawing
 inline constexpr int kImpostorMaxAtlas = 4096;  // pixels per side
 inline constexpr const char* kImpostorFormat = "factoria.impostor/1";
 
 // The contents of a `*.impostor.json`.
 struct ImpostorAtlas {
     ImpostorMode mode = ImpostorMode::Octahedral;
-    int views = 8;       // frames per side of the atlas
-    int frameSize = 0;   // pixels of one frame's side
-    std::string albedo;  // project-relative PNG: base colour (straight alpha: the silhouette)
-    std::string normal;  // project-relative PNG: the model-space normal * 0.5 + 0.5
-    Vec3 center{};       // the model-space point every frame looks at
-    float radius = 1.0f; // the frames show the square 2 * radius wide around `center`
-    std::string source;  // the model the atlas was baked from (for people and tools; the renderer does not read it)
+    int views = 8;        // frames per side of the atlas
+    int frameSize = 0;    // pixels of one frame's side
+    std::string albedo;   // project-relative PNG: base colour (straight alpha: the silhouette)
+    std::string normal;   // project-relative PNG: the model-space normal * 0.5 + 0.5
+    Vec3 center{};        // the model-space point every frame looks at
+    float radius = 1.0f;  // the frames show the square 2 * radius wide around `center`
+    std::string source;   // the model the atlas was baked from (for people and tools; the renderer does not read it)
     int atlasSize() const { return views * frameSize; }
 };
 
