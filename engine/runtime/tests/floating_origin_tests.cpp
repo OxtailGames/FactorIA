@@ -25,26 +25,23 @@ constexpr double kFixedDt = 1.0 / 60.0;
 struct OriginProject {
     stdfs::path dir = fs::make_temp_dir("fa_floating_origin").value();
     explicit OriginProject(bool enabled) {
-        write("factoria.json",
-              std::string(R"({"format":"factoria.project/1","name":"Origin","id":"com.example.origin",
+        write("factoria.json", std::string(R"({"format":"factoria.project/1","name":"Origin","id":"com.example.origin",
                 "mainScene":"main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60},
                 "world":{"floatingOrigin":{"enabled":)") +
-                  (enabled ? "true" : "false") + R"(,"threshold":128,"step":64}}})");
-        write("counter.js",
-              "import { Behaviour, game } from 'factoria';\n"
-              "export default class C extends Behaviour {\n"
-              "  onStart() {\n"
-              "    game.on('originShifted', (s) => {\n"
-              "      const p = this.entity.position;\n"
-              "      p.x += 1; p.y = s.offset[0]; p.z = s.origin[0];\n"
-              "    });\n"
-              "  }\n"
-              "}\n");
-        write("mover.js",
-              "import { Behaviour } from 'factoria';\n"
-              "export default class M extends Behaviour {\n"
-              "  onStart() { this.tween(this.entity.position, { x: 1000 }, { duration: 100 }); }\n"
-              "}\n");
+                                   (enabled ? "true" : "false") + R"(,"threshold":128,"step":64}}})");
+        write("counter.js", "import { Behaviour, game } from 'factoria';\n"
+                            "export default class C extends Behaviour {\n"
+                            "  onStart() {\n"
+                            "    game.on('originShifted', (s) => {\n"
+                            "      const p = this.entity.position;\n"
+                            "      p.x += 1; p.y = s.offset[0]; p.z = s.origin[0];\n"
+                            "    });\n"
+                            "  }\n"
+                            "}\n");
+        write("mover.js", "import { Behaviour } from 'factoria';\n"
+                          "export default class M extends Behaviour {\n"
+                          "  onStart() { this.tween(this.entity.position, { x: 1000 }, { duration: 100 }); }\n"
+                          "}\n");
         write("main.scene.json",
               R"({"format":"factoria.scene/1","entities":[
                 {"id":"cam","components":{"Transform":{},"Camera":{}}},
@@ -176,7 +173,8 @@ TEST_CASE("floating origin engine: world.origin, world.rebase and world.absolute
 
     auto centred = s.call("world.rebase", R"({"entity":"cam"})");
     REQUIRE(centred.ok);
-    CHECK(centred.result["origin"][0].get<double>() == 0.0);  // the camera is at 10 (absolute): the nearest multiple of 64 is 0
+    CHECK(centred.result["origin"][0].get<double>() ==
+          0.0);  // the camera is at 10 (absolute): the nearest multiple of 64 is 0
     CHECK(centred.result["shift"][0].get<double>() == 0.0);  // already centred: nothing moved
 
     auto both = s.call("world.rebase", R"({"offset":[0,0,0],"entity":"cam"})");
