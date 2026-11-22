@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.33](chang
 
 ## Unreleased
 
+- A shader program that reads more than 16 image-sampler pairs in one stage (the units GLES3 and WebGL2 guarantee) is rejected with the count, which ones the engine's own bindings and the material's textures take, and what to drop.
+
 ## 0.34.0
 
 Ambitious 2D lighting and effects (M74): 2D lights cast soft shadows whose penumbra widens with `Light2D.size` from `ShadowCaster2D` boxes, polygons or sprite outlines, and light only the sprites whose `lightLayers` they share; sprites and tilemaps glow with `emissive` colours and maps, lights carry cookies, and a normal map can be generated from a sprite or a height map (`normalFrom`, the image editor's `image.normal.generate`); an enabled `GlobalIllumination2D` adds bounced and emitted light with radiance cascades (quality low, medium or high, with a memory budget that turns it off where it does not fit); `Water2D` refracts and reflects what is drawn behind it and `DistortionZone2D` bends it, and any sprite material can read the scene so far with `fa_scene_color`; the menu kit's Graphics tab gains a 2D lighting button. The entries below list each part.

@@ -232,9 +232,9 @@ int clamp_or_wrap(int i, int n, bool tile) {
 
 std::uint8_t normal_byte(double v) { return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5), 0.0, 255.0)); }
 
-double luminance01(const std::uint8_t* px) { return (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255.0; }
-
 }  // namespace
+
+double luminance01(const std::uint8_t* px) { return (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255.0; }
 
 Image normal_map_from_height(const std::vector<double>& height, int w, int h, bool tile, double strength) {
     Image img;
