@@ -154,11 +154,12 @@ Target open_target(Engine::Impl& I, const Json& a) {
         bool finite = true;
         for (int i = 0; i < 16; ++i) finite = finite && std::isfinite(m[i]);
         if (!finite || !(std::fabs(det) > 1e-12f))
-            throw CommandError("invalid_argument",
-                               "The transform of terrain '" + tg.id +
-                                   "' cannot be inverted (a scale of 0 on an axis, or a value that is not a number), so "
-                                   "a brush has no place on it (at /entity).",
-                               "Give the entity's Transform a scale above 0 on every axis, such as [1, 1, 1].");
+            throw CommandError(
+                "invalid_argument",
+                "The transform of terrain '" + tg.id +
+                    "' cannot be inverted (a scale of 0 on an axis, or a value that is not a number), so "
+                    "a brush has no place on it (at /entity).",
+                "Give the entity's Transform a scale above 0 on every axis, such as [1, 1, 1].");
     }
     tg.inv = tg.m.inverse();
     tg.sizeX = t.size.x;
@@ -741,8 +742,7 @@ Json do_paint(Engine::Impl& I, const Json& a) {
             const std::string where = "Terrain.splatMaps[" + std::to_string(k) + "]";
             if (!path.empty() && fs::exists(path))
                 throw CommandError(
-                    "invalid_argument",
-                    where + " '" + path + "' exists but could not be loaded: " + h.planesProblem,
+                    "invalid_argument", where + " '" + path + "' exists but could not be loaded: " + h.planesProblem,
                     "Fix or delete the file, or point Terrain.splatMaps at another path; painting would overwrite it.");
             path = path.empty() ? default_path(I, file_stem(tg.id), "splat" + std::to_string(k), "png", where)
                                 : write_target(where, path);
@@ -976,8 +976,7 @@ Json do_create(Engine::Impl& I, const Json& a) {
         const bool writesDefault = !a.contains("heightmap") && !a.contains("path");
         for (int n = 1; name.empty(); ++n) {
             const std::string candidate = n == 1 ? "terrain" : "terrain_" + std::to_string(n);
-            if (n > 100000)
-                throw CommandError("invalid_argument", "No free terrain name was found.", "Pass a 'name'.");
+            if (n > 100000) throw CommandError("invalid_argument", "No free terrain name was found.", "Pass a 'name'.");
             if (!I.world.find_by_id(candidate) &&
                 !(writesDefault && terrain_path_taken(I, "assets/terrain/" + candidate + ".height.png")))
                 name = candidate;

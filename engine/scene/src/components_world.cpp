@@ -663,7 +663,8 @@ void register_world_components(TypeRegistry& r) {
             "plain terrain. [] (default) = a plain grey terrain.")
         .asset_field(
             "holes", &Terrain3D::holes, "texture",
-            "Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a side, "
+            "Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a "
+            "side, "
             "so a 513-sample terrain has a 512 x 512 mask; other sizes are resampled nearest): where a pixel is 128 or "
             "more the cell is a hole, a cave mouth or a well. The physics collider cuts the holes today (a ray, a ball "
             "or a character passes through them); the renderer still draws those cells (planned). terrain.holes cuts "

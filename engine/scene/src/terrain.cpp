@@ -582,10 +582,10 @@ Result<std::string> terrain_write_target(const std::string& who, const std::stri
                                          bool writeAnywhere) {
     auto r = fs::resolve_for_write(path, fs::WriteRoot::Project, writeAnywhere);
     if (!r.ok())
-        return make_error(std::format("entity '{}': {} is '{}', which cannot be written: {}", who, field, path,
-                                      r.error().message),
-                          "Set " + field + " to a path inside the project, such as assets/terrain/" + who +
-                              ".height.png (a path outside the project needs the writeAnywhere permission).");
+        return make_error(
+            std::format("entity '{}': {} is '{}', which cannot be written: {}", who, field, path, r.error().message),
+            "Set " + field + " to a path inside the project, such as assets/terrain/" + who +
+                ".height.png (a path outside the project needs the writeAnywhere permission).");
     return fs::project_spelling(r.value());
 }
 
