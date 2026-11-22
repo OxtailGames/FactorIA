@@ -849,6 +849,55 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.occlusion",
+         "The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and "
+         "hidden; optionally the depth buffer as a PNG.",
+         "Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that "
+         "had "
+         "an enabled Occluder (docs/BIG_WORLDS.md, \"Occlusion\"): the size of its depth buffer, the Occluders and "
+         "triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in "
+         "renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no "
+         "occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view "
+         "{\"view\":\"occlusion\"} draws the boxes over the game picture. Errors: `unavailable` without graphics; "
+         "`invalid_argument` for a `save` that is not a string or does not end in .png. Example: render.occlusion "
+         "{\"save\": \".factoria/tmp/occlusion.png\"}" FA_COMMAND_DETAILS
+         "Result: {supported, debugView, active, limits: {width, trianglesPerOccluder, trianglesPerCamera}, camera, "
+         "width, "
+         "height, occluders, triangles, coveredCells, tests, hidden, file?, error?}. `active` is false when no camera "
+         "of the last frame had an enabled Occluder (then only `message` and `limits` follow). `width` x `height` "
+         "is the buffer without its one-cell guard ring (256 across; 256 / aspect down). `save` needs the writeProject "
+         "capability.",
+         parse_schema(R"({"type":"object","properties":{
+               "save":{"type":"string","x-fa-path":"write","description":"A .png path (inside the project; absolute paths need writeAnywhere) for the depth buffer as a grey picture. Omitted: nothing is written."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"save"}, "render.occlusion");
+            std::string save;
+            if (a.is_object() && a.contains("save") && !a["save"].is_null()) {
+                if (!a["save"].is_string())
+                    throw CommandError("invalid_argument",
+                                       std::string("render.occlusion: `save` is a path, got ") + a["save"].type_name() +
+                                           ".",
+                                       "Pass \"save\": \".factoria/tmp/occlusion.png\" or leave it out.");
+                save = a["save"].get<std::string>();
+                std::string lower = save;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char c) { return char(std::tolower(c)); });
+                if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".png") != 0)
+                    throw CommandError("invalid_argument",
+                                       "render.occlusion: `save` is \"" + save + "\", which is not a .png file name.",
+                                       "Pass a path that ends in .png, e.g. \".factoria/tmp/occlusion.png\".");
+                save = resolve_caller_write_path(save, "render.occlusion");
+            }
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no occlusion culling is done.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            engine.render_now();
+            return I.renderer->occlusion_report(save);
+        });
+
+    I.commands.add(
         {"render.probe_refresh",
          "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
          "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
@@ -1170,8 +1219,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"render.debug_view",
-         "Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the "
-         "sun's shadow, instead of the game picture, or report which view is on.",
+         "Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the "
+         "sun's shadow or the occlusion culling, instead of the game picture, or report which view is on.",
          "A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints "
          "the "
          "prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as "
@@ -1184,24 +1233,29 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
-         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
+         "`occlusion` keeps the game picture and draws the Occluder boxes green and "
+         "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS.md, "
+         "\"Occlusion\"; render.occlusion saves its depth buffer). "
+         "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao or cascades (with a "
+         "`view` that is not none, depth, normals, ao, cascades or occlusion (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in) or occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth      ? "depth"
-                       : v == DebugView::Normals  ? "normals"
-                       : v == DebugView::Ao       ? "ao"
-                       : v == DebugView::Cascades ? "cascades"
-                                                  : "none";
+                return v == DebugView::Depth       ? "depth"
+                       : v == DebugView::Normals   ? "normals"
+                       : v == DebugView::Ao        ? "ao"
+                       : v == DebugView::Cascades  ? "cascades"
+                       : v == DebugView::Occlusion ? "occlusion"
+                                                   : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -1213,11 +1267,12 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             const DebugView previous = I.renderer->debug_view();
             if (set)
-                I.renderer->set_debug_view(wanted == "depth"      ? DebugView::Depth
-                                           : wanted == "normals"  ? DebugView::Normals
-                                           : wanted == "ao"       ? DebugView::Ao
-                                           : wanted == "cascades" ? DebugView::Cascades
-                                                                  : DebugView::None);
+                I.renderer->set_debug_view(wanted == "depth"       ? DebugView::Depth
+                                           : wanted == "normals"   ? DebugView::Normals
+                                           : wanted == "ao"        ? DebugView::Ao
+                                           : wanted == "cascades"  ? DebugView::Cascades
+                                           : wanted == "occlusion" ? DebugView::Occlusion
+                                                                   : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 
@@ -1273,6 +1328,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},
                                                  {"render.gi2d_field", capability_sets::changes_state()},
+                                                 {"render.occlusion", capability_sets::changes_state()},
                                                  {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},
