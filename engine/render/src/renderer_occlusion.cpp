@@ -32,10 +32,11 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
     std::vector<std::uint64_t> occluderEntities;
     world.each<Occluder>([&](Entity e, Occluder& o) {
         if (!o.enabled || !entity_active_in_scope(world, fr.scopeRoot, e)) return;
+        // A camera that does not draw the entity (Camera.showTags / hideTags) does not see it hide anything either.
+        if (!fr.mask.empty() && !fr.mask.draws(world, e)) return;
         Pending p;
         p.src.entity = e.bits();
         p.src.model = world.drawn_matrix(e);
-        const std::string name = world.id_of(e);
         if (o.shape == OccluderShape::Box) {
             const Vec3 half = o.size * 0.5f;
             p.src.boxMin = o.center - half;
@@ -54,18 +55,23 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
                             "no MeshRenderer. Hint: set Occluder.mesh to a model path, add a MeshRenderer, or use "
                             "shape \"box\". "
                             "The entity hides nothing until then.",
-                            name);
+                            world.id_of(e));
                 return;
             }
-            std::string error;
-            p.src.mesh = mesh_geometry_for(world.meshes(), meshName, &error);
+            // A mesh that failed to load is not read from disk again every frame: the failure is remembered by name.
+            auto failed = occluderMeshErrors.find(meshName);
+            if (failed == occluderMeshErrors.end()) {
+                std::string error;
+                p.src.mesh = mesh_geometry_for(world.meshes(), meshName, &error);
+                if (!p.src.mesh) failed = occluderMeshErrors.emplace(meshName, error).first;
+            }
             if (!p.src.mesh) {
                 if (warnedOccluders.insert(e.bits()).second)
                     FA_WARN("render",
-                            "Occluder on '{}' could not read its mesh '{}': {} Hint: fix Occluder.mesh, or use shape "
+                            "Occluder.mesh: '{}' on '{}' could not be read: {} Hint: fix Occluder.mesh, or use shape "
                             "\"box\". The "
                             "entity hides nothing until then.",
-                            name, meshName, error);
+                            meshName, world.id_of(e), failed->second);
                 return;
             }
         }

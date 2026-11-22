@@ -249,6 +249,8 @@ struct Renderer::Impl {
     bool warnedOccluderCap = false, warnedOcclusionFrameCap = false;
     std::set<std::uint64_t>
         warnedOccluders;  // entities whose Occluder was reported (no mesh, unreadable mesh): once each
+    // Occluder.mesh names that could not be read, with the error: not read from disk again every frame (a name is tried once per run).
+    std::map<std::string, std::string> occluderMeshErrors;
     struct OcclusionShown {
         struct Box {
             std::array<Vec3, 8> corners;  // world space; bit 0 = x, 1 = y, 2 = z of the corner

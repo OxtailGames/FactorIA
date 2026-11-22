@@ -14,7 +14,7 @@ using namespace fa::test;
 namespace {
 
 struct Scene {
-    Entity wall, hiddenCube, sideCube, frontCube, sun;
+    Entity cam, wall, hiddenCube, sideCube, frontCube, sun;
 };
 
 Entity add_mesh(World& w, const char* name, const char* mesh, Vec3 pos, Vec3 scale, Color color) {
@@ -32,6 +32,7 @@ Entity add_mesh(World& w, const char* name, const char* mesh, Vec3 pos, Vec3 sca
 Scene make_scene(World& w, bool occluder, bool sunShadows = false) {
     Scene s;
     Entity cam = make(w, "cam", {0, 2, 12});
+    s.cam = cam;
     auto& c = w.add<Camera>(cam);
     c.projection = Projection::Perspective;
     c.fov = 60;
@@ -85,6 +86,33 @@ TEST_CASE("occlusion on a GPU: a wall hides the cube behind it, the picture does
     g.render(with);
     CHECK(g.renderer.stats().meshesOccluded == 1);
     CHECK(g.renderer.stats().occluders == 1);
+}
+
+TEST_CASE("occlusion on a GPU: a camera that does not draw the Occluder's entity does not see it hide anything") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    const Scene s = make_scene(w, true);
+    w.info(s.wall).tags = {"roof"};
+    for (Entity e : {s.hiddenCube, s.sideCube, s.frontCube}) w.info(e).tags = {"thing"};
+    Camera& cam = *w.get<Camera>(s.cam);
+    // Hides the wall's tag: the wall is not drawn, so it hides nothing and nothing is counted.
+    cam.hideTags = Json::array({"roof"});
+    g.render(w);
+    CHECK(g.renderer.stats().occluders == 0);
+    CHECK(g.renderer.stats().occlusionTests == 0);
+    CHECK(g.renderer.stats().meshesOccluded == 0);
+    // Shows the wall's tag and the cubes': the wall is drawn and hides the cube behind it.
+    cam.hideTags = Json::array();
+    cam.showTags = Json::array({"roof", "thing"});
+    g.render(w);
+    CHECK(g.renderer.stats().occluders == 1);
+    CHECK(g.renderer.stats().meshesOccluded == 1);
+    // Shows only the cubes: the wall is not drawn, so the cube behind it is.
+    cam.showTags = Json::array({"thing"});
+    g.render(w);
+    CHECK(g.renderer.stats().occluders == 0);
+    CHECK(g.renderer.stats().meshesOccluded == 0);
 }
 
 TEST_CASE(
