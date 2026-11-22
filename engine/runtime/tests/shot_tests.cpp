@@ -656,7 +656,8 @@ TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error
     CHECK(r.error["code"] == "unavailable");
 }
 
-TEST_CASE("render.occlusion: without graphics it is unavailable, and a wrong argument is an error that says what to pass") {
+TEST_CASE(
+    "render.occlusion: without graphics it is unavailable, and a wrong argument is an error that says what to pass") {
     TempProject p("occlusion-command");
     Engine e;
     std::string err;
