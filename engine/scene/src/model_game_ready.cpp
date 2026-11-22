@@ -238,7 +238,8 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
                 for (const char* key : {"enabled", "lockBorder"})
                     if (auto b = it->find(key); b != it->end()) {
                         if (!b->is_boolean())
-                            r.err(cat + "/" + key, std::string(key) + " must be true or false, got " + describe_json_value(*b),
+                            r.err(cat + "/" + key,
+                                  std::string(key) + " must be true or false, got " + describe_json_value(*b),
                                   "Example: {\"enabled\": true}.");
                         else
                             (std::string(key) == "enabled" ? c.enabled : c.lockBorder) = b->get<bool>();
@@ -250,14 +251,16 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
                 const std::size_t n = std::size_t(c.levels);
                 read_number_list(r, *it, cat, "ratios", 0.001, 1.0, n, c.ratios,
                                  "One share per level of the triangles of the level above, e.g. [0.5, 0.5, 0.5].");
-                read_number_list(r, *it, cat, "errors", 0.0, 1000.0, n, c.errors,
-                                 "One limit per level in metres the surface may move (0 = no limit), e.g. [0, 0.01, 0.05].");
+                read_number_list(
+                    r, *it, cat, "errors", 0.0, 1000.0, n, c.errors,
+                    "One limit per level in metres the surface may move (0 = no limit), e.g. [0, 0.01, 0.05].");
                 read_number_list(r, *it, cat, "screenSizes", 0.0001, 1.0, n, c.screenSizes,
                                  "One screen size per level, falling: the level is drawn when the model covers less "
                                  "than this fraction of the view, e.g. [0.5, 0.25, 0.12].");
                 for (std::size_t i = 1; i < c.screenSizes.size(); ++i)
                     if (c.screenSizes[i] >= c.screenSizes[i - 1])
-                        r.err(cat + "/screenSizes/" + std::to_string(i), "screenSizes must fall from one level to the next",
+                        r.err(cat + "/screenSizes/" + std::to_string(i),
+                              "screenSizes must fall from one level to the next",
                               "Each level takes over when the model is smaller on screen than the level before.");
                 if (read_number(r, *it, cat, "minTriangles", 1, 1000000, true, v,
                                 "A level that would have fewer triangles than this is not made (default 32)."))
@@ -272,7 +275,8 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
         }
         if (g.lodChain.enabled && !g.lods.empty())
             r.err(at + "/lodChain", "lodChain.enabled and lods are both given: they are two ways to make the same LODs",
-                  "Keep lods (explicit levels drawn by distance) or lodChain (an automatic chain drawn by screen size), not both.");
+                  "Keep lods (explicit levels drawn by distance) or lodChain (an automatic chain drawn by screen "
+                  "size), not both.");
         if (auto it = json.find("collider"); it != json.end()) {
             const std::string cat = at + "/collider";
             if (!it->is_object())
@@ -379,13 +383,12 @@ Json game_ready_to_json(const ModelGameReady& g) {
     if (!g.collider.part.empty()) collider["part"] = g.collider.part;
     if (g.collider.radius > 0) collider["radius"] = g.collider.radius;
     if (g.collider.height > 0) collider["height"] = g.collider.height;
-    return Json::object(
-        {{"origin", g.origin},
-         {"merge", g.merge},
-         {"lods", lods},
-         {"lodChain", chain},
-         {"collider", collider},
-         {"platforms", g.platforms}});
+    return Json::object({{"origin", g.origin},
+                         {"merge", g.merge},
+                         {"lods", lods},
+                         {"lodChain", chain},
+                         {"collider", collider},
+                         {"platforms", g.platforms}});
 }
 
 namespace {
@@ -410,12 +413,24 @@ Json lod_chain_schema() {
          {"properties",
           Json::object(
               {{"enabled", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Make the chain."}})},
-               {"levels", num("integer", 1, kLodChainMaxLevels, "How many lower levels besides the full mesh. Default 3.")},
-               {"ratios", list(0.001, 1, "Per level, the share of the level above's triangles it keeps. Default 0.5 each.")},
-               {"errors", list(0, 1000, "Per level, the most the surface may move in metres (0 = no limit). Default none.")},
-               {"screenSizes", list(0.0001, 1, "Per level, the screen size (falling) below which it is drawn. Default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, 0.008.")},
-               {"minTriangles", num("integer", 1, 1000000, "A level with fewer triangles than this, and the ones after it, are not made. Default 32.")},
-               {"lockBorder", Json::object({{"type", "boolean"}, {"default", true}, {"description", "Open edges and borders between parts do not move (so parts and UV islands stay apart)."}})},
+               {"levels",
+                num("integer", 1, kLodChainMaxLevels, "How many lower levels besides the full mesh. Default 3.")},
+               {"ratios",
+                list(0.001, 1, "Per level, the share of the level above's triangles it keeps. Default 0.5 each.")},
+               {"errors",
+                list(0, 1000, "Per level, the most the surface may move in metres (0 = no limit). Default none.")},
+               {"screenSizes", list(0.0001, 1,
+                                    "Per level, the screen size (falling) below which it is drawn. Default 0.5, 0.25, "
+                                    "0.12, 0.06, 0.03, 0.015, 0.008.")},
+               {"minTriangles",
+                num("integer", 1, 1000000,
+                    "A level with fewer triangles than this, and the ones after it, are not made. Default 32.")},
+               {"lockBorder",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", true},
+                     {"description",
+                      "Open edges and borders between parts do not move (so parts and UV islands stay apart)."}})},
                {"normalWeight", num("number", 0, 100, "How much bending a normal costs a collapse. Default 1.")},
                {"uvWeight", num("number", 0, 100, "How much smearing a UV seam costs a collapse. Default 0.5.")}})}});
 }
@@ -768,7 +783,8 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
         for (std::size_t i = 0; i < std::size_t(c.levels); ++i) {
             cumulative *= c.ratios.empty() ? 0.5 : c.ratios[i];
             const std::size_t want = std::size_t(std::ceil(double(full) * cumulative));
-            const std::string skipped = std::format("LOD{} and the {} level(s) after it were not made: ", i + 1, std::size_t(c.levels) - i - 1);
+            const std::string skipped =
+                std::format("LOD{} and the {} level(s) after it were not made: ", i + 1, std::size_t(c.levels) - i - 1);
             if (want < c.minTriangles || previous <= c.minTriangles) {
                 out.notes.push_back(skipped + std::format("it would have {} triangles, under minTriangles ({}); the "
                                                           "model has {} triangles. Lower minTriangles or raise ratios.",
@@ -785,18 +801,20 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
             auto lod = model_make_lod(out.mesh, spec, &li);
             if (!lod.ok()) return make_error(std::format("LOD{}: {}", i + 1, lod.error().message), lod.error().hint);
             if (li.triangles >= previous || li.triangles < c.minTriangles) {
-                out.notes.push_back(skipped + std::format("the simplifier left {} triangles (the level above has {}, "
-                                                          "minTriangles is {}): the surface has nothing left to collapse "
-                                                          "within its limits.",
-                                                          li.triangles, previous, c.minTriangles));
+                out.notes.push_back(skipped +
+                                    std::format("the simplifier left {} triangles (the level above has {}, "
+                                                "minTriangles is {}): the surface has nothing left to collapse "
+                                                "within its limits.",
+                                                li.triangles, previous, c.minTriangles));
                 break;
             }
             li.screenSize = c.screenSizes.empty() ? model_lod_chain_default_screen_size(i + 1) : c.screenSizes[i];
             li.distance = 0;
             if (!li.reachedTarget)
-                out.warnings.push_back(std::format("LOD{} stopped at {} triangles, above its target: the borders between "
-                                                   "parts and open edges stay fixed (or errors is too low).",
-                                                   i + 1, li.triangles));
+                out.warnings.push_back(
+                    std::format("LOD{} stopped at {} triangles, above its target: the borders between "
+                                "parts and open edges stay fixed (or errors is too low).",
+                                i + 1, li.triangles));
             previous = li.triangles;
             out.lodInfo.push_back(li);
             out.lods.push_back(std::move(*lod));

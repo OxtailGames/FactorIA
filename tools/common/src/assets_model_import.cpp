@@ -162,9 +162,10 @@ double reference_height(const std::string& projectDir, const std::string& ref, s
 
 Json model_import_clean_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("model.import_clean", a, "",
-                   {"source", "out", "overwrite", "upAxis", "weldDistance", "removeFloating", "minPieceSize", "origin",
-                    "height", "reference", "scale", "platform", "triangles", "remesh", "remeshCells", "remeshVoxel",
-                    "unwrap", "texelsPerUnit", "lodChain", "bake"});
+                   {"source",         "out",          "overwrite",     "upAxis",   "weldDistance",
+                    "removeFloating", "minPieceSize", "origin",        "height",   "reference",
+                    "scale",          "platform",     "triangles",     "remesh",   "remeshCells",
+                    "remeshVoxel",    "unwrap",       "texelsPerUnit", "lodChain", "bake"});
     ModelCleanOptions o;
     // ---- arguments ----
     const std::string sourceArg = tooling_detail::arg_string(a, "source", true);
@@ -603,11 +604,12 @@ void register_model_import_clean_command(CommandRegistry& registry, const std::s
                {"texelsPerUnit",
                 num("Texels per metre of the unwrap (default the project's style guide, else 128).", 0)},
                {"lodChain",
-                Json::object({{"description",
-                               "true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, "
-                               "minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with "
-                               "the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS.md, "
-                               "\"Automatic LOD chain\"). Skinned meshes are not read, so the chain is of the static mesh."}})},
+                Json::object(
+                    {{"description",
+                      "true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, "
+                      "minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with "
+                      "the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS.md, "
+                      "\"Automatic LOD chain\"). Skinned meshes are not read, so the chain is of the static mesh."}})},
                {"bake", boolean("Bake the document to its .glb.", true)}})}});
     mark_paths(info.inputSchema, "read", {"source", "reference"});
     mark_paths(info.inputSchema, "write", {"out"});

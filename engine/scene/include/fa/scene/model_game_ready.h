@@ -48,10 +48,11 @@ inline constexpr int kLodChainMaxLevels = 7;  // kMaxLodThresholds - 1: the leve
 struct ModelLodChain {
     bool enabled = false;
     int levels = 3;
-    std::vector<double> ratios;       // per level: the share of the level above's triangles it keeps (empty: 0.5 each)
-    std::vector<double> errors;       // per level: the most the surface may move, metres (empty: no limit)
-    std::vector<double> screenSizes;  // per level: it is drawn below this screen size (empty: 0.5, 0.25, 0.12, 0.06, ...)
-    std::size_t minTriangles = 32;    // a level that would have fewer triangles (and the ones after it) is not made
+    std::vector<double> ratios;  // per level: the share of the level above's triangles it keeps (empty: 0.5 each)
+    std::vector<double> errors;  // per level: the most the surface may move, metres (empty: no limit)
+    std::vector<double>
+        screenSizes;                // per level: it is drawn below this screen size (empty: 0.5, 0.25, 0.12, 0.06, ...)
+    std::size_t minTriangles = 32;  // a level that would have fewer triangles (and the ones after it) is not made
     bool lockBorder = true;
     double normalWeight = 1;
     double uvWeight = 0.5;
@@ -113,8 +114,8 @@ Result<MeshData> model_merge_by_material(const MeshData& mesh, ModelMergeInfo* i
 
 struct ModelLodInfo {
     std::size_t triangles = 0, vertices = 0, submeshes = 0;
-    double error = 0;     // metres: the largest deviation from the full mesh the simplifier measured (an upper bound)
-    double distance = 0;  // metres from which the game draws it (0 for the full mesh)
+    double error = 0;       // metres: the largest deviation from the full mesh the simplifier measured (an upper bound)
+    double distance = 0;    // metres from which the game draws it (0 for the full mesh)
     double screenSize = 0;  // lodChain: the screen size below which the game draws it (0 = not a chain level)
     bool reachedTarget = true;
 };

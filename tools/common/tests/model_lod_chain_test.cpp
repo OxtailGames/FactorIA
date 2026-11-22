@@ -68,7 +68,8 @@ TEST_CASE("model.generate_lods: a chain of falling triangle counts, screen-size 
 
     // dryRun reports and writes nothing
     const std::string before = read_all(p.file("assets/models/ball.model.json"));
-    const Json dry = p.ok("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"levels", 1}, {"dryRun", true}});
+    const Json dry =
+        p.ok("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"levels", 1}, {"dryRun", true}});
     CHECK(dry["written"] == false);
     CHECK(read_all(p.file("assets/models/ball.model.json")) == before);
 }
@@ -82,7 +83,8 @@ TEST_CASE("model.generate_lods: a tiny mesh skips the levels under minTriangles 
     CHECK(r["notes"][0].get<std::string>().find("minTriangles") != std::string::npos);
     CHECK_FALSE(p.exists("assets/models/cube.prefab.json"));
     // minTriangles 2 lets the cube lose triangles
-    const Json r2 = p.ok("model.generate_lods", {{"model", "assets/models/cube.model.json"}, {"minTriangles", 2}, {"levels", 1}});
+    const Json r2 =
+        p.ok("model.generate_lods", {{"model", "assets/models/cube.model.json"}, {"minTriangles", 2}, {"levels", 1}});
     CHECK(r2["levels"].size() <= 1);
 }
 
@@ -100,7 +102,8 @@ TEST_CASE("model.generate_lods: errors name the JSON pointer and the fix") {
     CHECK(r.error.dump().find("ball.model.json") != std::string::npos);
     // a falling list must fall, with a pointer; nothing written
     const std::string before = read_all(p.file("assets/models/ball.model.json"));
-    r = p.call("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"levels", 2}, {"screenSizes", {0.2, 0.4}}});
+    r = p.call("model.generate_lods",
+               {{"model", "assets/models/ball.model.json"}, {"levels", 2}, {"screenSizes", {0.2, 0.4}}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("/gameReady/lodChain/screenSizes/1") != std::string::npos);
     CHECK(read_all(p.file("assets/models/ball.model.json")) == before);
@@ -109,7 +112,8 @@ TEST_CASE("model.generate_lods: errors name the JSON pointer and the fix") {
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("/gameReady/lodChain/ratios") != std::string::npos);
     // contradiction: maxError and errors
-    r = p.call("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"maxError", 0.1}, {"errors", {0.1, 0.1, 0.1}}});
+    r = p.call("model.generate_lods",
+               {{"model", "assets/models/ball.model.json"}, {"maxError", 0.1}, {"errors", {0.1, 0.1, 0.1}}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error.dump().find("/maxError") != std::string::npos);
     // explicit distance LODs and a chain are two ways of the same thing
@@ -139,7 +143,8 @@ TEST_CASE("model.generate_lods: a skinned mesh (a rig's .glb) is refused") {
 }
 
 TEST_CASE("gameReady.lodChain: parse, defaults round trip, conflicts and unknown keys") {
-    auto good = parse_game_ready(Json::parse(R"({"lodChain": {"enabled": true, "levels": 2, "screenSizes": [0.4, 0.1]}})"), "/gameReady");
+    auto good = parse_game_ready(
+        Json::parse(R"({"lodChain": {"enabled": true, "levels": 2, "screenSizes": [0.4, 0.1]}})"), "/gameReady");
     REQUIRE(good.ok());
     CHECK(good->lodChain.enabled);
     CHECK(good->lodChain.levels == 2);
@@ -147,7 +152,8 @@ TEST_CASE("gameReady.lodChain: parse, defaults round trip, conflicts and unknown
     auto again = parse_game_ready(game_ready_to_json(*good), "/gameReady");
     REQUIRE(again.ok());
     CHECK(game_ready_to_json(*again) == game_ready_to_json(*good));
-    auto both = parse_game_ready(Json::parse(R"({"lods": [{"ratio": 0.5}], "lodChain": {"enabled": true}})"), "/gameReady");
+    auto both =
+        parse_game_ready(Json::parse(R"({"lods": [{"ratio": 0.5}], "lodChain": {"enabled": true}})"), "/gameReady");
     REQUIRE_FALSE(both.ok());
     CHECK(both.error().message.find("/gameReady/lodChain") != std::string::npos);
     auto typo = parse_game_ready(Json::parse(R"({"lodChain": {"enabled": true, "minTriangle": 3}})"), "/gameReady");
