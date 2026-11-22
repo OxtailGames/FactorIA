@@ -1684,7 +1684,7 @@ A large landscape: a heightmap drawn as a mesh that coarsens with distance, pain
 
 Not released yet (on main after 0.34.0).
 
-Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.restore` puts a previous file back (the undo of the three).
+Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.undo` and `foliage.redo` step back and forward through the last edits of the three (an in-memory history).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -4614,9 +4614,9 @@ Remove every instance of a Foliage, or those in a rectangle.
 
 Capabilities: read, state, writeProject
 
-Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside `region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo}. Example: foliage.clear {"entity":"grass","region":[0,0,50,50]}
+Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside `region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo, undoDepth, redoDepth}. Example: foliage.clear {"entity":"grass","region":[0,0,50,50]}
 
-A Foliage with no file, or a file with nothing in the region, changes nothing. `undo` as foliage.scatter.
+A Foliage with no file, or a file with nothing in the region, changes nothing (no undo step). One undo step (foliage.undo).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -4631,9 +4631,9 @@ Add or remove foliage instances by hand in a circle on the ground.
 
 Capabilities: read, state, writeProject
 
-Adds instances (mode "add") within `radius` metres of `center` (world [x, z]) with the placement rules of the ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush to one of Foliage.meshes, `seed` changes the draw. Mode "remove" deletes the instances in the circle (of `mesh` when given). Deterministic. Result: {added, removed, instances, file, undo}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5}
+Adds instances (mode "add") within `radius` metres of `center` (world [x, z]) with the placement rules of the ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush to one of Foliage.meshes, `seed` changes the draw. Mode "remove" deletes the instances in the circle (of `mesh` when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest undo step (a brush that stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, redoDepth, continued?}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5}
 
-A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), so painting the same spot twice does not stack them. Instances of an added stroke are appended after the existing ones. An empty result changes nothing and says why in `counts.rejected`. The file is created next to the scene when Foliage.instances is empty. `undo` as foliage.scatter. The editor's brush tool is a later package (M75 P6c).
+A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), so painting the same spot twice does not stack them. Instances of an added stroke are appended after the existing ones. An empty result changes nothing (no undo step) and says why in `counts.rejected`. The file is created next to the scene when Foliage.instances is empty. One undo step per call (foliage.undo); a continued stroke joins the newest step.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -4645,24 +4645,21 @@ A stroke never puts two instances closer than half the average gap of `density` 
 | `density` | number | no | Instances per square metre when adding (default: the rule's density, 0.1 without a rule). |
 | `mesh` | string | no | Limit the brush to this mesh of Foliage.meshes. |
 | `seed` | integer | no | Seed of the draw (default: the rule's seed). The same arguments always give the same instances. |
+| `continueStroke` | boolean | no | Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error. The first piece is sent without it. Default false. |
 
-### `foliage.restore` (modifies state)
+### `foliage.redo` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Put a Foliage's instances file back: the undo and redo of the foliage.* edits.
+Redo the foliage edit the last foliage.undo took back.
 
 Capabilities: read, state, writeProject
 
-Every foliage.scatter, foliage.paint and foliage.clear returns `undo` = {command: "foliage.restore", args}; calling it writes the previous file (base64 `data`, or deletes it when null) and sets Foliage.meshes and Foliage.instances back. Its own result carries the `undo` that goes forward again (redo). Example: pass the `undo` of the last edit as it was returned.
+Applies the undone edit again. The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth}. Example: foliage.redo {"entity":"grass"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Foliage. |
-| `file` | string | yes | The instances file that was written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `instances` | string | no | The value of Foliage.instances to set ("" = none). |
-| `meshes` | array | yes | The value of Foliage.meshes to set. |
-| `data` | any | yes | Base64 of the whole file to write, or null to delete it. |
 
 ### `foliage.scatter` (modifies state)
 
@@ -4672,15 +4669,29 @@ Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.
 
 Capabilities: read, state, writeProject
 
-Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain (one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes, undo}. Example: foliage.scatter {"entity":"grass"}
+Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain (one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth}. Example: foliage.scatter {"entity":"grass"}
 
-More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is refused before anything changes, with the knobs to turn. `undo` is {command: "foliage.restore", args} carrying the previous file (base64) and the previous Foliage.meshes and Foliage.instances: calling it puts them back and returns the redo. The editor's brush is a later package (M75 P6c).
+More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is refused before anything changes, with the knobs to turn. The edit is one step of the Foliage's undo history (foliage.undo, foliage.redo; in memory, the last 64 steps): `undo` is {command: "foliage.undo", args: {entity}}. A scatter over a filled file costs a history step about the size of both files.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Foliage. |
 | `rule` | string | no | Entity id with the ScatterRule (default: the Foliage entity). |
 | `dryRun` | boolean | no | Only count the instances: nothing is written or changed. Default false. |
+
+### `foliage.undo` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Undo the last foliage.scatter, foliage.paint or foliage.clear of a Foliage.
+
+Capabilities: read, state, writeProject
+
+Puts the instances file, Foliage.meshes and Foliage.instances back as they were before the newest edit of this Foliage (one command's worth; a continued paint stroke is one). The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a scene reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, redoDepth}. Example: foliage.undo {"entity":"grass"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Foliage. |
 
 ## fs
 
@@ -23555,7 +23566,7 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.restore` puts a previous file back (the undo of the three).
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.undo` and `foliage.redo` step back and forward through the last edits of the three (an in-memory history).
    * 
    * Category: 3D
    * @since unreleased

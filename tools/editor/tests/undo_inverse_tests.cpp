@@ -833,3 +833,57 @@ TEST_CASE("undo inverse: the oldest terrain entries go when the terrain's histor
     CHECK(drop_terrain_entries_beyond(st, "g", 0) == 2);
     CHECK(st.size() == 2);
 }
+
+TEST_CASE(
+    "undo inverse: foliage.scatter, paint and clear are one foliage.redo / foliage.undo entry, a continued stroke or a "
+    "dry run none") {
+    Session s;
+    auto call = [&](const char* name, const char* args) {
+        const CommandResult r = s.engine.commands().call(name, Json::parse(args));
+        REQUIRE_MESSAGE(r.ok, name << " " << args << " -> " << r.error.dump());
+        return r.result;
+    };
+    call("terrain.create", R"({"name":"g","size":[64,64],"resolution":65})");
+    call("scene.spawn", R"({"id":"grass","components":{"Foliage":{},"ScatterRule":{"terrain":"g",
+         "meshes":[{"mesh":"assets/models/pine.glb"}],"density":0.5,"seed":3}}})");
+    for (const char* name : {"foliage.scatter", "foliage.paint", "foliage.clear"}) CHECK(has_undo_builder(name));
+    const Json args = Json::parse(R"({"entity":"grass"})");
+    std::optional<UndoPlan> plan = plan_undo(s.world(), "foliage.scatter", args);
+    REQUIRE(plan.has_value());
+    REQUIRE(plan->forward.size() == 1);
+    REQUIRE(plan->inverse.size() == 1);
+    CHECK(plan->forward[0].cmd == "foliage.redo");
+    CHECK(plan->inverse[0].cmd == "foliage.undo");
+    CHECK(plan->inverse[0].args["entity"] == "grass");
+    CHECK_FALSE(plan->noop);
+    const Json r = call("foliage.scatter", R"({"entity":"grass"})");
+    REQUIRE(finish_undo_plan(s.world(), "foliage.scatter", *plan, r));
+    CHECK_FALSE(plan->noop);
+    const std::string file = r["file"].get<std::string>();
+    REQUIRE(fs::exists(file));
+    // undo and redo through the plan
+    REQUIRE(s.run(plan->inverse));
+    CHECK_FALSE(fs::exists(file));
+    REQUIRE(s.run(plan->forward));
+    CHECK(fs::exists(file));
+    // a clear of an empty region changes nothing: no entry
+    const Json none = Json::parse(R"({"entity":"grass","region":[500,500,501,501]})");
+    std::optional<UndoPlan> noneplan = plan_undo(s.world(), "foliage.clear", none);
+    REQUIRE(noneplan.has_value());
+    REQUIRE(finish_undo_plan(s.world(), "foliage.clear", *noneplan,
+                             call("foliage.clear", R"({"entity":"grass","region":[500,500,501,501]})")));
+    CHECK(noneplan->noop);
+    // a dry run and a continued stroke make no entry of their own
+    const std::optional<UndoPlan> dry =
+        plan_undo(s.world(), "foliage.scatter", Json::parse(R"({"entity":"grass","dryRun":true})"));
+    REQUIRE(dry.has_value());
+    CHECK(dry->noop);
+    const std::optional<UndoPlan> piece =
+        plan_undo(s.world(), "foliage.paint",
+                  Json::parse(R"({"entity":"grass","center":[0,0],"radius":3,"continueStroke":true})"));
+    REQUIRE(piece.has_value());
+    CHECK(piece->noop);
+    // an entity with no Foliage has no plan
+    CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"nobody"})")).has_value());
+    CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"g"})")).has_value());
+}

@@ -1,6 +1,7 @@
-// The foliage commands (M75-P6b, docs/BIG_WORLDS_TERRAIN.md "Foliage"): foliage.scatter, foliage.paint, foliage.clear and
-// foliage.restore (the undo of the three). They write the instances file of a Foliage (fa/scene/foliage.h) and set the fields
-// of the component that name it.
+// The foliage commands (M75-P6b / P6c-a, docs/BIG_WORLDS_TERRAIN.md "Foliage"): foliage.scatter, foliage.paint, foliage.clear and
+// their undo and redo, foliage.undo and foliage.redo (an in-memory history of diffs of the instances file, see "the undo
+// history" below). They write the instances file of a Foliage (fa/scene/foliage.h) and set the fields of the component that
+// name it.
 //
 // Determinism: the same rule, seed and terrain give the same file byte for byte. The candidates are the points of a jittered grid
 // anchored at the world origin (one candidate per cell of 1 / sqrt(density) metres, visited row by row), each one drawn from an
@@ -12,7 +13,10 @@
 #include <cstring>
 #include <format>
 #include <limits>
-#include <unordered_map>
+#include <map>
+#include <memory>
+#include <numeric>
+#include <optional>
 
 #include "authoring_internal.h"
 #include "fa/core/capability.h"
@@ -174,8 +178,7 @@ struct Counts {
 };
 
 struct Gen {
-    World* world = nullptr;
-    Entity terrain = kNullEntity;
+    const TerrainSampler* ground = nullptr;
     double density = 1, spacing = 0;
     double slopeMin = 0, slopeMax = 90, heightMin = -1e9, heightMax = 1e9, scaleMin = 1, scaleMax = 1, align = 0;
     std::int32_t layerMask = -1;
@@ -188,33 +191,56 @@ struct Gen {
     double cx = 0, cz = 0, r = 0;
 };
 
-// What the heap-light spatial hash of the accepted points holds: world (x, z) of each.
+// The accepted points (world x, z) in one flat grid of square cells: `head[cell]` is the newest point of a cell and `next[point]` the
+// one before it (-1 = none), so no cell owns an allocation. The cell is at least the spacing, so the points that can block a
+// candidate lie in its own cell and the eight around it. A grid of more than kMaxCells cells (a tiny spacing over a big area)
+// gets larger cells: still correct, the cells just hold more points.
 struct Spacing {
-    double cell = 0;
+    static constexpr double kMaxCells = 4.0e6;
+    double cell = 1, ox = 0, oz = 0;
+    std::int64_t nx = 1, nz = 1;
+    std::vector<std::int32_t> head, next;
     std::vector<std::pair<double, double>> pts;
-    std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> grid;
-    static std::uint64_t key(std::int64_t cx, std::int64_t cz) {
-        return (std::uint64_t(std::uint32_t(cx)) << 32) | std::uint64_t(std::uint32_t(cz));
+    void init(double spacing, double x0, double z0, double x1, double z1) {
+        cell = std::max(spacing, 1e-9);
+        const double w = std::max(0.0, x1 - x0), h = std::max(0.0, z1 - z0);
+        while ((w / cell + 3.0) * (h / cell + 3.0) > kMaxCells) cell *= 2.0;
+        ox = x0 - cell, oz = z0 - cell;
+        nx = std::int64_t(w / cell) + 3, nz = std::int64_t(h / cell) + 3;
+        head.assign(std::size_t(nx) * std::size_t(nz), -1);
     }
-    void add(double x, double z) {
+    bool inside(std::int64_t i, std::int64_t j) const { return i >= 0 && j >= 0 && i < nx && j < nz; }
+    void add(double x, double z) {  // a point outside the grid cannot block any candidate of the area: not kept
+        const std::int64_t i = std::int64_t(std::floor((x - ox) / cell)), j = std::int64_t(std::floor((z - oz) / cell));
+        if (!inside(i, j)) return;
         pts.emplace_back(x, z);
-        grid[key(std::int64_t(std::floor(x / cell)), std::int64_t(std::floor(z / cell)))].push_back(
-            std::uint32_t(pts.size() - 1));
+        std::int32_t& hd = head[std::size_t(j) * std::size_t(nx) + std::size_t(i)];
+        next.push_back(hd);
+        hd = std::int32_t(pts.size() - 1);
     }
     bool blocked(double x, double z, double dist) const {
-        const std::int64_t cx = std::int64_t(std::floor(x / cell)), cz = std::int64_t(std::floor(z / cell));
-        for (std::int64_t i = cx - 1; i <= cx + 1; ++i)
-            for (std::int64_t j = cz - 1; j <= cz + 1; ++j) {
-                auto it = grid.find(key(i, j));
-                if (it == grid.end()) continue;
-                for (std::uint32_t k : it->second) {
-                    const double dx = pts[k].first - x, dz = pts[k].second - z;
+        const std::int64_t ci = std::int64_t(std::floor((x - ox) / cell)),
+                           cj = std::int64_t(std::floor((z - oz) / cell));
+        for (std::int64_t j = cj - 1; j <= cj + 1; ++j)
+            for (std::int64_t i = ci - 1; i <= ci + 1; ++i) {
+                if (!inside(i, j)) continue;
+                for (std::int32_t k = head[std::size_t(j) * std::size_t(nx) + std::size_t(i)]; k >= 0;
+                     k = next[std::size_t(k)]) {
+                    const double dx = pts[std::size_t(k)].first - x, dz = pts[std::size_t(k)].second - z;
                     if (dx * dx + dz * dz < dist * dist) return true;
                 }
             }
         return false;
     }
 };
+
+// tan(deg)^2 for comparing a slope with the normal's components (no atan2): infinite from 90 degrees up.
+double tan2_of_degrees(double deg) {
+    if (deg >= 90.0) return std::numeric_limits<double>::infinity();
+    if (deg <= 0.0) return 0.0;
+    const double t = std::tan(deg * (kPi / 180.0));
+    return t * t;
+}
 
 // Fills `out` (appending) and `counts`. `existing`: the world (x, z) of instances the new ones keep their spacing from.
 // `already`: how many instances the file holds besides `out` (for the cap).
@@ -234,9 +260,10 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
     Spacing sp;
     const bool useSpacing = g.spacing > 0.0;
     if (useSpacing) {
-        sp.cell = g.spacing;
+        sp.init(g.spacing, g.x0, g.z0, g.x1, g.z1);
         for (const auto& p : existing) sp.add(p.first, p.second);
     }
+    const double minTan2 = tan2_of_degrees(g.slopeMin), maxTan2 = tan2_of_degrees(g.slopeMax);
     const double total = g.cum.empty() ? 0.0 : g.cum.back();
     for (std::int64_t iz = iz0; iz <= iz1; ++iz)
         for (std::int64_t ix = ix0; ix <= ix1; ++ix) {
@@ -251,9 +278,9 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
             }
             ++c.candidates;
             TerrainSample ts;
-            if (!terrain_sample(*g.world, g.terrain, float(wx), float(wz), ts)) {
+            if (!g.ground->sample(float(wx), float(wz), ts)) {
                 TerrainSample ignore;
-                if (terrain_sample(*g.world, g.terrain, float(wx), float(wz), ignore, true))
+                if (g.ground->sample(float(wx), float(wz), ignore, true))
                     ++c.hole;
                 else
                     ++c.outside;
@@ -264,18 +291,21 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
                 ++c.height;
                 continue;
             }
-            const double slope = std::atan2(std::sqrt(double(ts.normal.x) * double(ts.normal.x) +
-                                                      double(ts.normal.z) * double(ts.normal.z)),
-                                            double(ts.normal.y)) *
-                                 (180.0 / kPi);
-            if (slope < g.slopeMin || slope > g.slopeMax) {
+            // The slope against the range as tan^2 on the normal's components: slope < min  <=>  flat^2 < tan2(min) * ny^2.
+            // A normal that points down (a mirrored terrain) is steeper than 90 degrees.
+            const double nx = double(ts.normal.x), ny = double(ts.normal.y), nz = double(ts.normal.z);
+            const double flat2 = nx * nx + nz * nz, ny2 = ny * ny;
+            const bool tooFlat = ny > 0.0 ? flat2 < minTan2 * ny2 : g.slopeMin > 90.0;
+            const bool tooSteep =
+                ny > 0.0 ? flat2 > maxTan2 * ny2 : (ny < 0.0 ? g.slopeMax < 180.0 : g.slopeMax < 90.0);
+            if (tooFlat || tooSteep) {
                 ++c.slope;
                 continue;
             }
             if (g.layerMask != -1) {
                 TerrainLayerWeights lw;
                 bool ok = false;
-                if (terrain_layer_weights(*g.world, g.terrain, float(wx), float(wz), lw)) {
+                if (g.ground->layer_weights(float(wx), float(wz), lw)) {
                     if (lw.count == 0)
                         ok = (g.layerMask & 1) != 0;
                     else
@@ -325,7 +355,7 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
         }
 }
 
-// ------------------------------------------------------------------------------------------------ files and undo
+// ------------------------------------------------------------------------------------------------ files
 
 Json counts_json(const Counts& c) {
     return Json::object({{"candidates", c.candidates},
@@ -365,64 +395,385 @@ std::string default_file(Engine::Impl& I, const std::string& id) {
                        "Set Foliage.instances to a path of your own.");
 }
 
-struct Previous {
-    Json meshes;
-    std::string instances;
-    bool existed = false;
-    std::vector<std::uint8_t> bytes;
+// ------------------------------------------------------------------------------------------------ the undo history
+//
+// Every foliage edit is one step of an in-memory history kept for each Foliage entity (the way TerrainHeights keeps its steps).
+// A step is a diff of the instances file: the records it removed (their index in the file before, and their 26 bytes) and the
+// records it appended; the file after an edit is "the records kept, in order, then the appended ones", so undo drops the appended
+// tail and puts the removed records back at their indices, and redo does the opposite. The records are the file's own bytes, so
+// an undo gives the previous file byte for byte. A step costs what it changed (a paint stamp a few hundred bytes; a scatter over
+// a full file about the size of both files), never the whole file.
+//
+// The history is bounded: kHistorySteps steps and kHistoryBytes bytes (the newest step stays even when it alone is over budget);
+// the oldest steps go first and the result of the command that made them go says how many (`historyDropped`).
+//
+// What survives: the history lives in this process, with the engine. A scene save changes nothing in it (the file and the fields
+// are what they were); a scene reload, an edit of the file or of Foliage.meshes / Foliage.instances by anything but the foliage
+// commands, or a restart makes the state differ from the one the history recorded, and the history of that Foliage is cleared
+// (a stale history is never applied to bytes it was not made for).
+
+constexpr std::size_t kHistorySteps = 64;
+constexpr std::size_t kHistoryBytes = std::size_t(128) << 20;
+
+struct Step {
+    std::string label;       // the command that made it: "foliage.scatter", "foliage.paint" or "foliage.clear"
+    std::string file;        // the instances file the step wrote
+    std::string instBefore;  // Foliage.instances before ("" = none)
+    Json meshesBefore, meshesAfter;
+    bool existedBefore = false;             // the file existed before (undo deletes it otherwise)
+    std::uint32_t beforeCount = 0;          // records of the file before
+    std::vector<std::uint32_t> removed;     // indices into the file before, ascending
+    std::vector<std::uint8_t> removedRecs;  // 26 bytes of each removed record, in the same order
+    std::vector<std::uint8_t> addedRecs;    // the records appended after the kept ones
+    std::size_t bytes() const { return 512 + 4 * removed.size() + removedRecs.size() + addedRecs.size(); }
 };
 
-Json undo_json(const std::string& entityId, const std::string& file, const Previous& p) {
-    Json args =
-        Json::object({{"entity", entityId},
-                      {"file", file},
-                      {"instances", p.instances},
-                      {"meshes", p.meshes},
-                      {"data", p.existed ? Json(base64_encode(p.bytes.data(), p.bytes.size())) : Json(nullptr)}});
-    return Json::object({{"command", "foliage.restore"}, {"args", args}});
-}
-
-Previous capture(const Field& f, const std::string& file) {
-    Previous p;
-    p.meshes = f.foliage->meshes;
-    p.instances = f.foliage->instances;
-    if (fs::exists(file)) {
-        auto b = fs::read_bytes(file);
-        if (!b.ok())
-            throw CommandError("failed", file + ": " + b.error().message,
-                               b.error().hint.empty() ? "Check that the file can be read." : b.error().hint);
-        p.existed = true;
-        p.bytes = std::move(*b);
+struct History {
+    std::vector<Step> undo, redo;  // oldest first
+    std::uint64_t state = 0;       // the hash of the file and fields the newest edit left (see state_hash)
+    std::size_t bytes() const {
+        std::size_t n = 0;
+        for (const Step& s : undo) n += s.bytes();
+        for (const Step& s : redo) n += s.bytes();
+        return n;
     }
-    return p;
+    void clear() {
+        undo.clear();
+        redo.clear();
+    }
+};
+
+struct Histories {
+    std::map<std::string, History> byEntity;  // by entity id
+};
+
+// A hash of the state a history is about: the field Foliage.instances, Foliage.meshes and the bytes of that file (none when it does not
+// exist). Eight bytes at a time through splitmix64: fast on a 50 MB file; it only has to tell "the same" from "changed".
+std::uint64_t state_hash(const std::string& instances, const Json& meshes, bool existed, const std::uint8_t* data,
+                         std::size_t size) {
+    std::uint64_t h = mix64(0x464F4C49ull);
+    auto word = [&](std::uint64_t w) { h = mix64(h ^ w); };
+    for (char ch : instances) word(std::uint8_t(ch));
+    word(0xFF);
+    const std::string m = meshes.dump();
+    for (char ch : m) word(std::uint8_t(ch));
+    word(existed ? 1 : 2);
+    word(size);
+    std::size_t i = 0;
+    for (; i + 8 <= size; i += 8) {
+        std::uint64_t w;
+        std::memcpy(&w, data + i, 8);
+        word(w);
+    }
+    std::uint64_t tail = 0;
+    for (std::size_t k = 0; i + k < size; ++k) tail |= std::uint64_t(data[i + k]) << (8 * k);
+    word(tail);
+    return h;
 }
 
-// Writes `instances` to `file`, sets Foliage.meshes (when `meshes` is not null) and Foliage.instances, and returns the result
-// fields every command shares (file, instances, undo). Nothing changes when the encoding or the write fails.
-Json commit(Field& f, const std::string& file, const std::vector<FoliageInstance>& instances, const Json& meshes) {
+// What the Foliage is now: the field, the meshes, and the bytes of its file.
+struct Snapshot {
+    std::string instances;
+    Json meshes;
+    bool existed = false;
+    std::vector<std::uint8_t> bytes;
+    std::uint64_t hash = 0;
+};
+
+Snapshot take_snapshot(const Field& f) {
+    Snapshot s;
+    s.instances = f.foliage->instances;
+    s.meshes = f.foliage->meshes;
+    if (!s.instances.empty() && fs::exists(s.instances)) {
+        auto b = fs::read_bytes(s.instances);
+        if (!b.ok())
+            throw CommandError("failed", s.instances + ": " + b.error().message,
+                               b.error().hint.empty() ? "Check that the file can be read." : b.error().hint);
+        s.existed = true;
+        s.bytes = std::move(*b);
+    }
+    s.hash = state_hash(s.instances, s.meshes, s.existed, s.bytes.data(), s.bytes.size());
+    return s;
+}
+
+std::uint32_t get32(const std::uint8_t* p) {
+    return std::uint32_t(p[0]) | (std::uint32_t(p[1]) << 8) | (std::uint32_t(p[2]) << 16) | (std::uint32_t(p[3]) << 24);
+}
+void put32(std::uint8_t* p, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) p[i] = std::uint8_t(v >> (8 * i));
+}
+
+// How many records an instances file holds, judged by its header and size only (not the numbers inside); nothing when it is not
+// a file of this engine's format.
+std::optional<std::size_t> record_count(const std::vector<std::uint8_t>& b) {
+    if (b.size() < kFoliageHeaderBytes || std::memcmp(b.data(), "FAFO", 4) != 0) return std::nullopt;
+    if ((b[4] | (b[5] << 8)) != int(kFoliageVersion) || (b[6] | (b[7] << 8)) != 0) return std::nullopt;
+    const std::size_t n = get32(b.data() + 8);
+    if (n > kMaxFoliageInstances || b.size() != foliage_file_bytes(n)) return std::nullopt;
+    return n;
+}
+
+const std::uint8_t* record_at(const std::vector<std::uint8_t>& b, std::size_t i) {
+    return b.data() + kFoliageHeaderBytes + i * kFoliageRecordBytes;
+}
+
+// The header of a file of `count` records written for `meshes` meshes.
+std::vector<std::uint8_t> header_for(std::size_t count, const Json& meshes) {
+    auto h = encode_foliage({}, std::uint32_t(meshes.is_array() ? meshes.size() : 0));
+    if (!h.ok()) throw CommandError("invalid_argument", h.error().message, h.error().hint);
+    put32(h->data() + 8, std::uint32_t(count));
+    return std::move(*h);
+}
+
+// The file after `s` from the file before it (`cur` holds s.beforeCount records, or is empty when there was none).
+std::vector<std::uint8_t> apply_forward(const std::vector<std::uint8_t>& cur, const Step& s) {
+    const std::size_t added = s.addedRecs.size() / kFoliageRecordBytes;
+    const std::size_t kept = s.beforeCount - s.removed.size();
+    std::vector<std::uint8_t> out = header_for(kept + added, s.meshesAfter);
+    out.reserve(foliage_file_bytes(kept + added));
+    std::size_t ri = 0;
+    for (std::size_t o = 0; o < s.beforeCount; ++o) {
+        if (ri < s.removed.size() && s.removed[ri] == o) {
+            ++ri;
+            continue;
+        }
+        const std::uint8_t* r = record_at(cur, o);
+        out.insert(out.end(), r, r + kFoliageRecordBytes);
+    }
+    out.insert(out.end(), s.addedRecs.begin(), s.addedRecs.end());
+    return out;
+}
+
+// The file before `s` from the file after it (`cur` holds the kept records, then the added ones).
+std::vector<std::uint8_t> apply_backward(const std::vector<std::uint8_t>& cur, const Step& s) {
+    const std::size_t kept = s.beforeCount - s.removed.size();
+    std::vector<std::uint8_t> out = header_for(s.beforeCount, s.meshesBefore);
+    out.reserve(foliage_file_bytes(s.beforeCount));
+    std::size_t ri = 0, ki = 0;
+    for (std::size_t o = 0; o < s.beforeCount; ++o) {
+        const std::uint8_t* r;
+        if (ri < s.removed.size() && s.removed[ri] == o)
+            r = s.removedRecs.data() + (ri++) * kFoliageRecordBytes;
+        else
+            r = record_at(cur, ki++);
+        out.insert(out.end(), r, r + kFoliageRecordBytes);
+    }
+    (void)kept;
+    return out;
+}
+
+// Adds `b` (an edit made right after `a`, against the file `a` left) to `a`: one step with a's file before and b's file after.
+void merge_into(Step& a, Step&& b) {
+    const std::size_t K = a.beforeCount - a.removed.size();  // records of a's file that come from the file before it
+    std::vector<std::uint32_t> origIdx;                      // b's removals of those, as indices of the file before a
+    std::vector<std::uint8_t> origRecs;
+    std::vector<std::size_t> addedGone;  // b's removals of records a appended (indices into a.addedRecs)
+    std::size_t rp = 0, o = 0, seen = 0;
+    for (std::size_t i = 0; i < b.removed.size(); ++i) {
+        const std::size_t idx = b.removed[i];
+        const std::uint8_t* rec = b.removedRecs.data() + i * kFoliageRecordBytes;
+        if (idx < K) {
+            for (;;) {  // the idx-th record of the file before a that a did not remove
+                while (rp < a.removed.size() && a.removed[rp] == o) {
+                    ++rp;
+                    ++o;
+                }
+                if (seen == idx) break;
+                ++seen;
+                ++o;
+            }
+            origIdx.push_back(std::uint32_t(o));
+            origRecs.insert(origRecs.end(), rec, rec + kFoliageRecordBytes);
+            ++seen;
+            ++o;
+        } else {
+            addedGone.push_back(idx - K);
+        }
+    }
+    if (!origIdx.empty()) {  // merge the two ascending lists of removed indices
+        std::vector<std::uint32_t> idxs;
+        std::vector<std::uint8_t> recs;
+        std::size_t x = 0, y = 0;
+        while (x < a.removed.size() || y < origIdx.size()) {
+            const bool takeA = y >= origIdx.size() || (x < a.removed.size() && a.removed[x] < origIdx[y]);
+            if (takeA) {
+                idxs.push_back(a.removed[x]);
+                const std::uint8_t* r = a.removedRecs.data() + x * kFoliageRecordBytes;
+                recs.insert(recs.end(), r, r + kFoliageRecordBytes);
+                ++x;
+            } else {
+                idxs.push_back(origIdx[y]);
+                const std::uint8_t* r = origRecs.data() + y * kFoliageRecordBytes;
+                recs.insert(recs.end(), r, r + kFoliageRecordBytes);
+                ++y;
+            }
+        }
+        a.removed = std::move(idxs);
+        a.removedRecs = std::move(recs);
+    }
+    if (!addedGone.empty()) {
+        std::vector<std::uint8_t> kept;
+        std::size_t g = 0;
+        for (std::size_t i = 0; i < a.addedRecs.size() / kFoliageRecordBytes; ++i) {
+            if (g < addedGone.size() && addedGone[g] == i) {
+                ++g;
+                continue;
+            }
+            const std::uint8_t* r = a.addedRecs.data() + i * kFoliageRecordBytes;
+            kept.insert(kept.end(), r, r + kFoliageRecordBytes);
+        }
+        a.addedRecs = std::move(kept);
+    }
+    a.addedRecs.insert(a.addedRecs.end(), b.addedRecs.begin(), b.addedRecs.end());
+    a.meshesAfter = std::move(b.meshesAfter);
+    a.file = std::move(b.file);
+}
+
+// One command's view of its Foliage: what the field and its file hold now, and its history, cleared first when it does not
+// describe that state any more.
+struct Session {
+    History* h = nullptr;
+    Snapshot before;
+    std::string resetNote;  // why the history was cleared ("" = it was not)
+    bool cont = false;      // the call continues the newest step (`continueStroke`)
+};
+
+Session begin_session(Histories& H, const Field& f, const Json& a, const char* label) {
+    Session s;
+    s.before = take_snapshot(f);
+    s.h = &H.byEntity[f.id];
+    if ((!s.h->undo.empty() || !s.h->redo.empty()) && s.h->state != s.before.hash) {
+        s.h->clear();
+        s.resetNote =
+            "Foliage.instances, Foliage.meshes or the instances file changed outside the foliage commands (a scene "
+            "reload, an edit by hand, a restore from version control), so the undo history of '" +
+            f.id + "' was cleared.";
+    }
+    s.cont =
+        label && a.contains("continueStroke") && a["continueStroke"].is_boolean() && a["continueStroke"].get<bool>();
+    if (s.cont) {
+        const char* why = s.h->undo.empty() ? "this Foliage has no edit to continue"
+                          : !s.h->redo.empty()
+                              ? "an edit was undone since, so the newest edit is not the one to continue"
+                          : s.h->undo.back().label != label ? "the newest edit of this Foliage is another command"
+                                                            : nullptr;
+        if (why)
+            bad("/continueStroke",
+                std::string("Cannot continue the stroke: ") + why +
+                    (s.resetNote.empty() ? std::string() : " (" + s.resetNote + ")"),
+                "Send the first piece of a stroke without continueStroke, and the following pieces right after it "
+                "with continueStroke true (no other foliage edit and no foliage.undo in between).");
+    }
+    return s;
+}
+
+Json undo_command(const std::string& id) {
+    return Json::object({{"command", "foliage.undo"}, {"args", Json::object({{"entity", id}})}});
+}
+
+void add_history_fields(Json& res, const History& h) {
+    res["undoDepth"] = h.undo.size();
+    res["redoDepth"] = h.redo.size();
+}
+
+// Writes the file of an edit of `f`: the records of the file before except `removed` (ascending indices; every one when
+// `removeAll`), then `added`; sets Foliage.meshes (when `meshes` is not null) and Foliage.instances, records the step and returns
+// the result fields every editing command shares (file, instances, bytes, undo, undoDepth, redoDepth). Nothing changes when the
+// encoding or the write fails.
+Json commit(Session& ses, Field& f, const std::string& file, std::vector<std::uint32_t> removed, bool removeAll,
+            const std::vector<FoliageInstance>& added, const Json& meshes, const char* label) {
+    const Snapshot& before = ses.before;
     const Json newMeshes = meshes.is_null() ? f.foliage->meshes : meshes;
     const std::uint32_t meshCount = std::uint32_t(newMeshes.is_array() ? newMeshes.size() : 0);
-    auto bytes = encode_foliage(instances, meshCount);
-    if (!bytes.ok()) throw CommandError("invalid_argument", bytes.error().message, bytes.error().hint);
-    Previous prev = capture(f, file);
-    if (auto w = fs::write_bytes(file, bytes->data(), bytes->size()); !w.ok())
+    auto head = encode_foliage(added, meshCount);
+    if (!head.ok()) throw CommandError("invalid_argument", head.error().message, head.error().hint);
+    // The records of the file before. A file this engine cannot read as records (damaged by hand) is replaced whole, with no undo.
+    const std::optional<std::size_t> n0 = before.existed ? record_count(before.bytes) : std::optional<std::size_t>(0);
+    if (removeAll && n0) {
+        removed.resize(*n0);
+        std::iota(removed.begin(), removed.end(), std::uint32_t(0));
+    }
+    const std::size_t kept = n0 ? *n0 - removed.size() : 0;
+    const std::size_t total = kept + added.size();
+    if (total > kMaxFoliageInstances)
+        throw CommandError("too_many_instances",
+                           std::format("The result would hold {} instances, more than the {} one instances file holds.",
+                                       total, kMaxFoliageInstances),
+                           "Lower `density`, or fill the terrain with several Foliage entities.");
+    std::vector<std::uint8_t> out(head->begin(), head->begin() + kFoliageHeaderBytes);
+    out.reserve(foliage_file_bytes(total));
+    put32(out.data() + 8, std::uint32_t(total));
+    if (n0) {
+        std::size_t ri = 0;
+        for (std::size_t o = 0; o < *n0; ++o) {
+            if (ri < removed.size() && removed[ri] == o) {
+                ++ri;
+                continue;
+            }
+            const std::uint8_t* r = record_at(before.bytes, o);
+            out.insert(out.end(), r, r + kFoliageRecordBytes);
+        }
+    }
+    out.insert(out.end(), head->begin() + kFoliageHeaderBytes, head->end());
+    if (auto w = fs::write_bytes(file, out.data(), out.size()); !w.ok())
         throw CommandError("write_failed", file + ": " + w.error().message,
                            w.error().hint.empty()
                                ? "Check that the folder is writable and the file is not open elsewhere."
                                : w.error().hint);
     f.foliage->meshes = newMeshes;
     f.foliage->instances = file;
-    Json out =
-        Json::object({{"entity", f.id}, {"file", file}, {"instances", instances.size()}, {"bytes", bytes->size()}});
-    out["undo"] = undo_json(f.id, file, prev);
-    return out;
+    History& h = *ses.h;
+    Json res = Json::object({{"entity", f.id}, {"file", file}, {"instances", total}, {"bytes", out.size()}});
+    std::size_t dropped = 0;
+    if (n0) {
+        Step st;
+        st.label = label;
+        st.file = file;
+        st.instBefore = before.instances;
+        st.meshesBefore = before.meshes;
+        st.meshesAfter = newMeshes;
+        st.existedBefore = before.existed;
+        st.beforeCount = std::uint32_t(*n0);
+        st.removed = std::move(removed);
+        st.removedRecs.reserve(st.removed.size() * kFoliageRecordBytes);
+        for (std::uint32_t idx : st.removed) {
+            const std::uint8_t* r = record_at(before.bytes, idx);
+            st.removedRecs.insert(st.removedRecs.end(), r, r + kFoliageRecordBytes);
+        }
+        st.addedRecs.assign(head->begin() + kFoliageHeaderBytes, head->end());
+        if (ses.cont && !h.undo.empty()) {
+            merge_into(h.undo.back(), std::move(st));
+            res["continued"] = true;
+        } else {
+            h.redo.clear();
+            h.undo.push_back(std::move(st));
+        }
+        while (!h.undo.empty() && (h.undo.size() > kHistorySteps || (h.bytes() > kHistoryBytes && h.undo.size() > 1))) {
+            h.undo.erase(h.undo.begin());
+            ++dropped;
+        }
+    } else {
+        h.clear();
+        ses.resetNote =
+            "The previous instances file was not a readable instances file, so this edit replaced it and has no undo.";
+    }
+    h.state = state_hash(file, newMeshes, true, out.data(), out.size());
+    if (n0) res["undo"] = undo_command(f.id);
+    add_history_fields(res, h);
+    if (dropped) {
+        res["historyDropped"] = dropped;
+        res["historyNote"] = std::format(
+            "The undo history of '{}' keeps its last {} edits (and {} MB): the {} oldest {} can no longer be undone.",
+            f.id, kHistorySteps, kHistoryBytes >> 20, dropped, dropped == 1 ? "edit" : "edits");
+    }
+    if (!ses.resetNote.empty()) res["historyReset"] = ses.resetNote;
+    return res;
 }
 
-// The instances the file holds now (none when the field is empty or the file is missing).
-std::vector<FoliageInstance> load_instances(const Field& f, std::string& file) {
-    file = f.foliage->instances;
-    if (file.empty() || !fs::exists(file)) return {};
-    auto r = read_foliage(file, f.meshes.size());
+// The instances the file of `snap` holds (none when the field is empty or the file is missing).
+std::vector<FoliageInstance> load_instances(const Field& f, const Snapshot& snap) {
+    if (!snap.existed) return {};
+    auto r = decode_foliage(snap.bytes.data(), snap.bytes.size(), f.meshes.size(), snap.instances);
     if (!r.ok())
         throw CommandError("invalid_argument", r.error().message,
                            (r.error().hint.empty() ? std::string() : r.error().hint + " ") +
@@ -440,13 +791,20 @@ std::vector<std::pair<double, double>> world_xz(const Mat4& toWorld, const std::
     return out;
 }
 
+// The result of a call that changed nothing.
+Json unchanged(const Session& ses, Json res) {
+    add_history_fields(res, *ses.h);
+    if (!ses.resetNote.empty()) res["historyReset"] = ses.resetNote;
+    return res;
+}
+
 // ------------------------------------------------------------------------------------------------ the shared setup
 
 struct Setup {
-    Field field;
     Entity ruleEntity = kNullEntity;
     ScatterRule rule;
     Entity terrain = kNullEntity;
+    std::optional<TerrainSampler> ground;
     Mat4 toWorld, toLocal;
 };
 
@@ -475,10 +833,9 @@ void terrain_footprint(Engine::Impl& I, Entity terrain, Gen& g) {
     g.x0 = mnx, g.x1 = mxx, g.z0 = mnz, g.z1 = mxz;
 }
 
-Gen make_gen(Engine::Impl& I, const Setup& s) {
+Gen make_gen(const Setup& s) {
     Gen g;
-    g.world = &I.world;
-    g.terrain = s.terrain;
+    g.ground = &*s.ground;
     g.density = double(s.rule.density);
     g.spacing = double(s.rule.minSpacing);
     g.slopeMin = double(s.rule.slopeRange.x), g.slopeMax = double(s.rule.slopeRange.y);
@@ -495,25 +852,29 @@ double weight_of(const Json& entry) {
     return entry.contains("weight") && entry["weight"].is_number() ? entry["weight"].get<double>() : 1.0;
 }
 
-Setup open_setup(Engine::Impl& I, const Json& a, bool requireRule, const char* command) {
+// The rule, the terrain and the ground of an edit that places instances. `validateRule`: refuse a rule whose own numbers are not
+// usable (density 0...); a call that gives its own density skips it.
+Setup open_setup(Engine::Impl& I, const Json& a, const Field& field, bool requireRule, bool validateRule,
+                 const char* command) {
     Setup s;
-    s.field = open_field(I, a);
-    s.ruleEntity = find_rule_entity(I, a, s.field, requireRule, command);
+    s.ruleEntity = find_rule_entity(I, a, field, requireRule, command);
     if (s.ruleEntity) {
         s.rule = *I.world.get<ScatterRule>(s.ruleEntity);
-        if (requireRule) check_rule(I, s.ruleEntity, s.rule);
+        if (validateRule) check_rule(I, s.ruleEntity, s.rule);
     }
-    s.terrain = find_terrain(I, s.ruleEntity, s.ruleEntity ? &s.rule : nullptr, s.field);
-    need_ground(I, s.terrain, s.field.id);
-    s.toWorld = I.world.world_matrix(s.field.entity);
+    s.terrain = find_terrain(I, s.ruleEntity, s.ruleEntity ? &s.rule : nullptr, field);
+    need_ground(I, s.terrain, field.id);
+    s.ground.emplace(I.world, s.terrain);
+    s.toWorld = I.world.world_matrix(field.entity);
     s.toLocal = s.toWorld.inverse();
     return s;
 }
 
 // ------------------------------------------------------------------------------------------------ foliage.scatter
 
-Json do_scatter(Engine::Impl& I, const Json& a) {
-    Setup s = open_setup(I, a, true, "foliage.scatter");
+Json do_scatter(Engine::Impl& I, Histories& H, const Json& a) {
+    Field field = open_field(I, a);
+    Setup s = open_setup(I, a, field, true, true, "foliage.scatter");
     const bool dry = a.contains("dryRun") && a["dryRun"].is_boolean() && a["dryRun"].get<bool>();
     if (s.rule.meshes.empty())
         throw CommandError(
@@ -521,7 +882,7 @@ Json do_scatter(Engine::Impl& I, const Json& a) {
             "ScatterRule of '" + I.world.id_of(s.ruleEntity) +
                 "' has no meshes, so there is nothing to place (at /meshes).",
             "Add at least one {\"mesh\": path, \"weight\": 1} to ScatterRule.meshes (scene.set_component).");
-    Gen g = make_gen(I, s);
+    Gen g = make_gen(s);
     Json meshes = Json::array();
     double total = 0.0;
     for (std::size_t i = 0; i < s.rule.meshes.size(); ++i) {
@@ -539,19 +900,20 @@ Json do_scatter(Engine::Impl& I, const Json& a) {
     Json by = Json::array();
     for (std::size_t i = 0; i < perMesh.size(); ++i)
         by.push_back(Json::object({{"mesh", meshes[i]}, {"count", perMesh[i]}}));
-    std::string file = s.field.foliage->instances;
+    std::string file = field.foliage->instances;
     if (file.empty())
-        file = default_file(I, s.field.id);
+        file = default_file(I, field.id);
     else
         file = write_target("Foliage.instances", file);
     Json res;
     if (dry) {
-        res = Json::object({{"entity", s.field.id},
+        res = Json::object({{"entity", field.id},
                             {"file", file},
                             {"instances", out.size()},
                             {"bytes", foliage_file_bytes(out.size())}});
     } else {
-        res = commit(s.field, file, out, meshes);
+        Session ses = begin_session(H, field, a, nullptr);
+        res = commit(ses, field, file, {}, true, out, meshes, "foliage.scatter");
     }
     const Json cj = counts_json(c);
     for (auto it = cj.begin(); it != cj.end(); ++it) res[it.key()] = *it;
@@ -564,26 +926,31 @@ Json do_scatter(Engine::Impl& I, const Json& a) {
 
 // ------------------------------------------------------------------------------------------------ foliage.paint
 
-double need_number(const Json& a, const char* key, const char* what, double lo, double hi) {
-    const std::string p = std::string("/") + key;
-    if (!a.contains(key) || !a[key].is_number())
-        bad(p, std::string("Missing number '") + key + "' (" + what + ")", "Write a plain number such as 5.");
-    const double d = a[key].get<double>();
+// The number `v` (at JSON pointer `pointer`) as a double inside lo .. hi.
+double number_at(const Json& v, const std::string& pointer, const char* what, double lo, double hi) {
+    if (!v.is_number())
+        bad(pointer, std::string("Expected a number (") + what + ")", "Write a plain number such as 5.");
+    const double d = v.get<double>();
     if (!std::isfinite(d) || d < lo || d > hi)
-        bad(p, std::format("{} is outside {} .. {}", d, lo, hi), "Use a value inside that range.");
+        bad(pointer, std::format("{} is outside {} .. {}", d, lo, hi), "Use a value inside that range.");
     return d;
 }
 
-Json do_paint(Engine::Impl& I, const Json& a) {
-    Setup s = open_setup(I, a, false, "foliage.paint");
-    Field& f = s.field;
+double need_number(const Json& a, const char* key, const char* what, double lo, double hi) {
+    if (!a.contains(key))
+        bad(std::string("/") + key, std::string("Missing number '") + key + "' (" + what + ")",
+            "Write a plain number such as 5.");
+    return number_at(a[key], std::string("/") + key, what, lo, hi);
+}
+
+Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
+    Field f = open_field(I, a);
     const std::string mode = a.contains("mode") && a["mode"].is_string() ? a["mode"].get<std::string>() : "add";
     if (mode != "add" && mode != "remove") bad("/mode", "mode is '" + mode + "'", "Use \"add\" or \"remove\".");
-    if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2 || !a["center"][0].is_number() ||
-        !a["center"][1].is_number())
+    if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2)
         bad("/center", "center must be [x, z] in world metres", "Example: [10, 20].");
-    const double cx = need_number(Json::object({{"v", a["center"][0]}}), "v", "center x", -1e7, 1e7);
-    const double cz = need_number(Json::object({{"v", a["center"][1]}}), "v", "center z", -1e7, 1e7);
+    const double cx = number_at(a["center"][0], "/center/0", "center x in metres", -1e7, 1e7);
+    const double cz = number_at(a["center"][1], "/center/1", "center z in metres", -1e7, 1e7);
     const double radius = need_number(a, "radius", "brush radius in metres", 1e-3, 1e5);
     int only = -1;  // the mesh index the brush is limited to
     if (a.contains("mesh")) {
@@ -597,44 +964,44 @@ Json do_paint(Engine::Impl& I, const Json& a) {
                                    did_you_mean(m, f.meshes),
                                "Use one of Foliage.meshes, or run foliage.scatter to set them from the rule.");
     }
-    std::string file;
-    std::vector<FoliageInstance> all = load_instances(f, file);
-    const Mat4 toWorld = s.toWorld;
-    std::vector<FoliageInstance> out = all;
-    Json res;
-    if (mode == "remove") {
-        std::vector<FoliageInstance> kept;
-        kept.reserve(all.size());
-        std::uint64_t removed = 0;
-        for (const FoliageInstance& in : all) {
-            const Vec3 w = toWorld.transform_point(in.position);
+    const bool hasDensity = a.contains("density");
+    const double density = hasDensity ? need_number(a, "density", "instances per square metre", 1e-6, 1e6) : 0.0;
+    std::optional<std::uint64_t> seed;
+    if (a.contains("seed"))
+        seed =
+            std::uint64_t(std::uint32_t(std::int32_t(need_number(a, "seed", "the seed", -2147483648.0, 2147483647.0))));
+    Session ses = begin_session(H, f, a, "foliage.paint");
+    std::vector<FoliageInstance> all = load_instances(f, ses.before);
+    const Mat4 toWorld = I.world.world_matrix(f.entity);
+    if (mode == "remove") {  // removing needs neither a terrain nor a rule
+        std::vector<std::uint32_t> removed;
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            const Vec3 w = toWorld.transform_point(all[i].position);
             const double dx = double(w.x) - cx, dz = double(w.z) - cz;
-            if (dx * dx + dz * dz <= radius * radius && (only < 0 || in.mesh == only))
-                ++removed;
-            else
-                kept.push_back(in);
+            if (dx * dx + dz * dz <= radius * radius && (only < 0 || all[i].mesh == only))
+                removed.push_back(std::uint32_t(i));
         }
-        if (removed == 0 || file.empty()) {
-            return Json::object({{"entity", f.id},
-                                 {"added", 0},
-                                 {"removed", 0},
-                                 {"instances", all.size()},
-                                 {"file", file},
-                                 {"note", "No instance lies inside the brush: nothing changed."}});
-        }
-        res = commit(f, file, kept, Json(nullptr));
+        if (removed.empty())
+            return unchanged(ses, Json::object({{"entity", f.id},
+                                                {"added", 0},
+                                                {"removed", 0},
+                                                {"instances", all.size()},
+                                                {"file", ses.before.instances},
+                                                {"note", "No instance lies inside the brush: nothing changed."}}));
+        const std::size_t n = removed.size();
+        Json res = commit(ses, f, write_target("Foliage.instances", ses.before.instances), std::move(removed), false,
+                          {}, Json(nullptr), "foliage.paint");
         res["added"] = 0;
-        res["removed"] = removed;
+        res["removed"] = n;
         return res;
     }
     // add: the same placement rules as foliage.scatter, with a spacing against the instances already there
-    Gen g = make_gen(I, s);
-    if (a.contains("density")) g.density = need_number(a, "density", "instances per square metre", 1e-6, 1e6);
+    Setup s = open_setup(I, a, f, false, !hasDensity, "foliage.paint");
+    Gen g = make_gen(s);
+    if (hasDensity) g.density = density;
     // A repeated stroke must not stack instances on the same spot: never closer than half the average gap.
     g.spacing = std::max(g.spacing, 0.5 / std::sqrt(g.density));
-    if (a.contains("seed"))
-        g.seed =
-            std::uint64_t(std::uint32_t(std::int32_t(need_number(a, "seed", "the seed", -2147483648.0, 2147483647.0))));
+    if (seed) g.seed = *seed;
     g.seed = mix64(g.seed ^ 0x5041494E54ull);  // a stroke has its own stream, apart from foliage.scatter
     // the mesh weights: the rule's entry of the same mesh, else 1
     double total = 0.0;
@@ -661,18 +1028,19 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     std::vector<FoliageInstance> added;
     Counts c;
     run_generator(g, near, all.size(), added, c);
-    out.insert(out.end(), added.begin(), added.end());
     if (added.empty())
-        return Json::object(
-            {{"entity", f.id},
-             {"added", 0},
-             {"removed", 0},
-             {"instances", all.size()},
-             {"file", file},
-             {"counts", counts_json(c)},
-             {"note", "No instance could be placed in the brush (see counts.rejected): nothing changed."}});
-    if (file.empty()) file = default_file(I, f.id);
-    res = commit(f, file, out, Json(nullptr));
+        return unchanged(
+            ses, Json::object(
+                     {{"entity", f.id},
+                      {"added", 0},
+                      {"removed", 0},
+                      {"instances", all.size()},
+                      {"file", ses.before.instances},
+                      {"counts", counts_json(c)},
+                      {"note", "No instance could be placed in the brush (see counts.rejected): nothing changed."}}));
+    const std::string file =
+        ses.before.instances.empty() ? default_file(I, f.id) : write_target("Foliage.instances", ses.before.instances);
+    Json res = commit(ses, f, file, {}, false, added, Json(nullptr), "foliage.paint");
     res["added"] = added.size();
     res["removed"] = 0;
     res["counts"] = counts_json(c);
@@ -681,7 +1049,7 @@ Json do_paint(Engine::Impl& I, const Json& a) {
 
 // ------------------------------------------------------------------------------------------------ foliage.clear
 
-Json do_clear(Engine::Impl& I, const Json& a) {
+Json do_clear(Engine::Impl& I, Histories& H, const Json& a) {
     Field f = open_field(I, a);
     double r[4] = {0, 0, 0, 0};
     const bool hasRegion = a.contains("region");
@@ -698,75 +1066,102 @@ Json do_clear(Engine::Impl& I, const Json& a) {
         if (r[0] > r[2] || r[1] > r[3])
             bad("/region", "region has min above max", "Write [minX, minZ, maxX, maxZ] with each min below its max.");
     }
-    std::string file;
-    std::vector<FoliageInstance> all = load_instances(f, file);
+    Session ses = begin_session(H, f, a, nullptr);
+    std::vector<FoliageInstance> all = load_instances(f, ses.before);
     const Mat4 toWorld = I.world.world_matrix(f.entity);
-    std::vector<FoliageInstance> kept;
-    std::uint64_t removed = 0;
-    for (const FoliageInstance& in : all) {
+    std::vector<std::uint32_t> removed;
+    for (std::size_t i = 0; i < all.size(); ++i) {
         bool inside = true;
         if (hasRegion) {
-            const Vec3 w = toWorld.transform_point(in.position);
+            const Vec3 w = toWorld.transform_point(all[i].position);
             inside = double(w.x) >= r[0] && double(w.x) <= r[2] && double(w.z) >= r[1] && double(w.z) <= r[3];
         }
-        if (inside)
-            ++removed;
-        else
-            kept.push_back(in);
+        if (inside) removed.push_back(std::uint32_t(i));
     }
-    if (removed == 0)
-        return Json::object({{"entity", f.id},
-                             {"removed", 0},
-                             {"instances", all.size()},
-                             {"file", file},
-                             {"note", "There was nothing to remove: nothing changed."}});
-    Json res = commit(f, file, kept, Json(nullptr));
-    res["removed"] = removed;
+    if (removed.empty())
+        return unchanged(ses, Json::object({{"entity", f.id},
+                                            {"removed", 0},
+                                            {"instances", all.size()},
+                                            {"file", ses.before.instances},
+                                            {"note", "There was nothing to remove: nothing changed."}}));
+    const std::size_t n = removed.size();
+    Json res = commit(ses, f, write_target("Foliage.instances", ses.before.instances), std::move(removed), false, {},
+                      Json(nullptr), "foliage.clear");
+    res["removed"] = n;
     return res;
 }
 
-// ------------------------------------------------------------------------------------------------ foliage.restore
+// ------------------------------------------------------------------------------------------------ foliage.undo, foliage.redo
 
-Json do_restore(Engine::Impl& I, const Json& a) {
-    if (!a.contains("file") || !a["file"].is_string() || a["file"].get<std::string>().empty())
-        bad("/file", "Missing `file`", "Pass the `undo` of a foliage command as it was returned.");
-    const std::string file = write_target("/file", a["file"].get<std::string>());
+[[noreturn]] void stale_history(History& h, const std::string& id) {
+    h.clear();
+    throw CommandError(
+        "stale_history",
+        "The undo history of '" + id +
+            "' does not describe its instances file any more: Foliage.instances, Foliage.meshes or the file "
+            "changed outside the foliage commands (a scene reload, an edit by hand, a restore from version "
+            "control). The history was cleared and nothing changed.",
+        "Run foliage.scatter to write the file again, or restore the file from version control.");
+}
+
+Json do_undo_redo(Engine::Impl& I, Histories& H, const Json& a, bool undo) {
     Field f = open_field(I, a);
-    if (!a.contains("data") || !(a["data"].is_null() || a["data"].is_string()))
-        bad("/data", "`data` must be the base64 of the file, or null to delete it", "Pass the `undo` as returned.");
-    if (!a.contains("meshes") || !a["meshes"].is_array())
-        bad("/meshes", "`meshes` must be an array", "Pass the `undo` as returned.");
-    const std::string instances =
-        a.contains("instances") && a["instances"].is_string() ? a["instances"].get<std::string>() : std::string();
-    std::vector<std::uint8_t> bytes;
-    if (a["data"].is_string()) {
-        const std::vector<unsigned char> raw = base64_decode(a["data"].get<std::string>());
-        bytes.assign(raw.begin(), raw.end());
-        auto check = decode_foliage(bytes.data(), bytes.size(), a["meshes"].size(), file);
-        if (!check.ok()) throw CommandError("invalid_argument", check.error().message, check.error().hint);
+    History& h = H.byEntity[f.id];
+    std::vector<Step>& from = undo ? h.undo : h.redo;
+    if (from.empty())
+        throw CommandError(
+            undo ? "nothing_to_undo" : "nothing_to_redo",
+            std::string("Foliage '") + f.id + "' has no edit to " + (undo ? "undo" : "redo") + ".",
+            undo ? "The history holds the last " + std::to_string(kHistorySteps) +
+                       " foliage edits of this session (foliage.scatter, paint and clear); a scene reload or a restart "
+                       "clears it. foliage.redo brings back an undone one."
+                 : "Redo only follows an undo; a new edit clears the redo list.");
+    const Snapshot cur = take_snapshot(f);
+    if (cur.hash != h.state) stale_history(h, f.id);
+    const Step& step = from.back();
+    const std::size_t addedCount = step.addedRecs.size() / kFoliageRecordBytes;
+    const std::size_t keptCount = step.beforeCount - step.removed.size();
+    const std::optional<std::size_t> have = cur.existed ? record_count(cur.bytes) : std::optional<std::size_t>(0);
+    if (!have || *have != (undo ? keptCount + addedCount : std::size_t(step.beforeCount))) stale_history(h, f.id);
+    const std::string file = write_target("Foliage.instances", step.file);
+    std::vector<std::uint8_t> out;
+    const bool deleteFile = undo && !step.existedBefore;
+    if (!deleteFile) out = undo ? apply_backward(cur.bytes, step) : apply_forward(cur.bytes, step);
+    if (deleteFile) {
+        if (cur.existed) {
+            std::error_code ec;
+            fs::remove_file(fs::resolve(file), ec);
+            if (ec)
+                throw CommandError("write_failed", file + ": " + ec.message(),
+                                   "Check that the file is not open elsewhere. Nothing changed.");
+        }
+    } else if (auto w = fs::write_bytes(file, out.data(), out.size()); !w.ok()) {
+        throw CommandError("write_failed", file + ": " + w.error().message,
+                           "Check that the folder is writable and the file is not open elsewhere. Nothing changed.");
     }
-    Previous prev = capture(f, file);
-    if (a["data"].is_string()) {
-        if (auto w = fs::write_bytes(file, bytes.data(), bytes.size()); !w.ok())
-            throw CommandError("write_failed", file + ": " + w.error().message,
-                               "Check that the file is not open elsewhere.");
-    } else if (prev.existed) {
-        std::error_code ec;
-        fs::remove_file(fs::resolve(file), ec);
-        if (ec)
-            throw CommandError("write_failed", file + ": " + ec.message(),
-                               "Check that the file is not open elsewhere.");
-    }
-    f.foliage->meshes = a["meshes"];
-    f.foliage->instances = instances;
-    Json out = Json::object({{"entity", f.id}, {"file", file}, {"restored", true}, {"deleted", a["data"].is_null()}});
-    out["undo"] = undo_json(f.id, file, prev);
-    return out;
+    const Json meshes = undo ? step.meshesBefore : step.meshesAfter;
+    const std::string field = undo ? step.instBefore : step.file;
+    f.foliage->meshes = meshes;
+    f.foliage->instances = field;
+    const std::string label = step.label;
+    const std::size_t count = deleteFile ? 0 : (out.size() - kFoliageHeaderBytes) / kFoliageRecordBytes;
+    std::vector<Step>& to = undo ? h.redo : h.undo;
+    to.push_back(std::move(from.back()));
+    from.pop_back();
+    h.state = state_hash(field, meshes, !deleteFile, out.data(), out.size());
+    Json res = Json::object({{"entity", f.id},
+                             {undo ? "undone" : "redone", label},
+                             {"file", file},
+                             {"instances", count},
+                             {"deleted", deleteFile}});
+    add_history_fields(res, h);
+    return res;
 }
 
 }  // namespace
 
 void register_foliage_commands(Engine&, Engine::Impl& I) {
+    auto H = std::make_shared<Histories>();  // the undo histories of this engine, by Foliage entity id
     I.commands.add({"foliage.scatter", "Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.",
                     "Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places "
                     "instances on its Terrain "
@@ -780,21 +1175,19 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                     "terrain give the "
                     "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, "
                     "placed, rejected: "
-                    "{outside, hole, height, slope, layer, spacing}, meshes, undo}. Example: foliage.scatter "
-                    "{\"entity\":\"grass\"}",
+                    "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth}. Example: "
+                    "foliage.scatter {\"entity\":\"grass\"}",
                     parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
                "rule":{"type":"string","description":"Entity id with the ScatterRule (default: the Foliage entity)."},
                "dryRun":{"type":"boolean","default":false,"description":"Only count the instances: nothing is written or changed."}},"required":["entity"]})"),
                     false, "world",
                     "More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is "
-                    "refused before "
-                    "anything changes, with the knobs to turn. `undo` is {command: \"foliage.restore\", args} carrying "
-                    "the previous file "
-                    "(base64) and the previous Foliage.meshes and Foliage.instances: calling it puts them back and "
-                    "returns the redo. "
-                    "The editor's brush is a later package (M75 P6c)."},
-                   [&I](const Json& a) { return do_scatter(I, a); });
+                    "refused before anything changes, with the knobs to turn. The edit is one step of the Foliage's "
+                    "undo history (foliage.undo, foliage.redo; in memory, the last 64 steps): `undo` is {command: "
+                    "\"foliage.undo\", args: {entity}}. A scatter over a filled file costs a history step about the "
+                    "size of both files."},
+                   [&I, H](const Json& a) { return do_scatter(I, *H, a); });
     I.commands.add(
         {"foliage.paint", "Add or remove foliage instances by hand in a circle on the ground.",
          "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) with the placement rules of "
@@ -804,7 +1197,10 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "brush "
          "to one of Foliage.meshes, `seed` changes the draw. Mode \"remove\" deletes the instances in the circle (of "
          "`mesh` "
-         "when given). Deterministic. Result: {added, removed, instances, file, undo}. Example: foliage.paint "
+         "when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest "
+         "undo step (a brush that "
+         "stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, "
+         "redoDepth, continued?}. Example: foliage.paint "
          "{\"entity\":\"grass\",\"center\":[10,20],\"radius\":5}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -814,50 +1210,58 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in metres."},
                "density":{"type":"number","exclusiveMinimum":0,"description":"Instances per square metre when adding (default: the rule's density, 0.1 without a rule)."},
                "mesh":{"type":"string","description":"Limit the brush to this mesh of Foliage.meshes."},
-               "seed":{"type":"integer","description":"Seed of the draw (default: the rule's seed). The same arguments always give the same instances."}},"required":["entity","center","radius"]})"),
+               "seed":{"type":"integer","description":"Seed of the draw (default: the rule's seed). The same arguments always give the same instances."},
+               "continueStroke":{"type":"boolean","default":false,"description":"Add this call to the Foliage's newest undo step instead of making a new one: a stroke sent in pieces is still ONE undo step. The newest step must be a foliage.paint and nothing may have been undone since; otherwise an error. The first piece is sent without it."}},"required":["entity","center","radius"]})"),
          false, "world",
          "A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), "
          "so "
          "painting the same spot twice does not stack them. Instances of an added stroke are appended after the "
          "existing "
-         "ones. An empty result changes nothing and says why in `counts.rejected`. The file is created next to the "
-         "scene "
-         "when Foliage.instances is empty. `undo` as foliage.scatter. The editor's brush tool is a later package (M75 "
-         "P6c)."},
-        [&I](const Json& a) { return do_paint(I, a); });
+         "ones. An empty result changes nothing (no undo step) and says why in `counts.rejected`. The file is created "
+         "next to the "
+         "scene when Foliage.instances is empty. One undo step per call (foliage.undo); a continued stroke joins the "
+         "newest step."},
+        [&I, H](const Json& a) { return do_paint(I, *H, a); });
     I.commands.add(
         {"foliage.clear", "Remove every instance of a Foliage, or those in a rectangle.",
          "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances "
          "inside "
          "`region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, "
-         "undo}. "
+         "undo, undoDepth, redoDepth}. "
          "Example: foliage.clear {\"entity\":\"grass\",\"region\":[0,0,50,50]}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
                "region":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[minX, minZ, maxX, maxZ] in world metres; omit for all."}},"required":["entity"]})"),
          false, "world",
-         "A Foliage with no file, or a file with nothing in the region, changes nothing. `undo` as foliage.scatter."},
-        [&I](const Json& a) { return do_clear(I, a); });
-    I.commands.add(
-        {"foliage.restore", "Put a Foliage's instances file back: the undo and redo of the foliage.* edits.",
-         "Every foliage.scatter, foliage.paint and foliage.clear returns `undo` = {command: \"foliage.restore\", "
-         "args}; "
-         "calling it writes the previous file (base64 `data`, or deletes it when null) and sets Foliage.meshes and "
-         "Foliage.instances back. Its own result carries the `undo` that goes forward again (redo). Example: pass the "
-         "`undo` "
-         "of the last edit as it was returned.",
-         parse_schema(R"({"type":"object","properties":{
-               "entity":{"type":"string","description":"Entity id of the Foliage."},
-               "file":{"type":"string","x-fa-path":"write","description":"The instances file that was written."},
-               "instances":{"type":"string","description":"The value of Foliage.instances to set (\"\" = none)."},
-               "meshes":{"type":"array","description":"The value of Foliage.meshes to set."},
-               "data":{"type":["string","null"],"description":"Base64 of the whole file to write, or null to delete it."}},"required":["entity","file","meshes","data"]})"),
-         false, "world"},
-        [&I](const Json& a) { return do_restore(I, a); });
+         "A Foliage with no file, or a file with nothing in the region, changes nothing (no undo step). One undo "
+         "step (foliage.undo)."},
+        [&I, H](const Json& a) { return do_clear(I, *H, a); });
+    for (bool undo : {true, false}) {
+        I.commands.add(
+            {undo ? "foliage.undo" : "foliage.redo",
+             undo ? "Undo the last foliage.scatter, foliage.paint or foliage.clear of a Foliage."
+                  : "Redo the foliage edit the last foliage.undo took back.",
+             std::string(
+                 undo ? "Puts the instances file, Foliage.meshes and Foliage.instances back as they were before "
+                        "the newest edit of this Foliage (one command's worth; a continued paint stroke is one). "
+                      : "Applies the undone edit again. ") +
+                 "The history is in memory (the last 64 edits or 128 MB per Foliage, since the engine started): a "
+                 "scene "
+                 "reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage "
+                 "commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene "
+                 "save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, "
+                 "redoDepth}. Example: " +
+                 std::string(undo ? "foliage.undo" : "foliage.redo") + " {\"entity\":\"grass\"}",
+             parse_schema(R"({"type":"object","properties":{
+               "entity":{"type":"string","description":"Entity id of the Foliage."}},"required":["entity"]})"),
+             false, "world"},
+            [&I, H, undo](const Json& a) { return do_undo_redo(I, *H, a, undo); });
+    }
     declare_command_capabilities(I.commands, {{"foliage.scatter", capability_sets::edits_project()},
                                               {"foliage.paint", capability_sets::edits_project()},
                                               {"foliage.clear", capability_sets::edits_project()},
-                                              {"foliage.restore", capability_sets::edits_project()}});
+                                              {"foliage.undo", capability_sets::edits_project()},
+                                              {"foliage.redo", capability_sets::edits_project()}});
 }
 
 }  // namespace fa
