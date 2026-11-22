@@ -162,11 +162,12 @@ List the cells of the streamed world and which are loaded.
 
 Capabilities: read
 
-Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: {min, max}, state: "unloaded" | "loading" | "loaded" | "unloading", entities, distance}]}, sorted by distance to the nearest StreamingAnchor. `state` filters the list. Read-only. Example: world.cells {"state":"loaded"} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, "Streaming"): {world, dimension, cellSize, total, matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: "unloaded" | "queued" | "loading" | "loaded" | "unloading", entities (under the cell's root, 0 unless loaded), distance (metres on the plane to the nearest enabled StreamingAnchor, null with none), sizeBytes?, failed?}]}, sorted by distance (cells with no distance last, then by [j, i]). `state` keeps one state, `limit` caps the list (default 1000; `total` and `matching` count them all). Reads the index at once when the streamer has not (a StreamedWorld with a wrong index answers `error`). Read-only. Example: world.cells {"state":"loaded"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `state` | string ["unloaded","loading","loaded","unloading"] | no | Only the cells in this state. |
+| `state` | string ["unloaded","queued","loading","loaded","unloading"] | no | Only the cells in this state. |
+| `limit` | integer | no | The most cells to list (default 1000). |
 
 ## `world.merge_cells` (modifies state)
 
@@ -235,5 +236,5 @@ Read what the world streaming is doing: loads in flight, budget, cells loaded.
 
 Capabilities: read
 
-Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, frameBudgetMs, pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player are in. Read-only. Result: the fields above. Example: world.stream_status {} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+Returns {enabled, world, cellsTotal, cellsLoaded, cellsLoading (jobs started and not applied yet), cellsQueued, cellsUnloading, inFlight, waitingToApply (read and parsed, not added to the world yet), anchors (enabled StreamingAnchor entities, and the camera with cameraLoadRadius), loadsStarted, loadsCancelled, cellsApplied, unloadsDone, bytesLoaded, appliedThisFrame, unloadedThisFrame, unitsThisFrame (the BackgroundLoader units of the last frame), maxLoadsInFlight, maxAppliesPerFrame, budget: {mode: "units" (exact, the same on every machine) | "timed", units | ms}, pending: [ids of the cells loading, then the queued ones, in the order they will be applied], lastError}. A game or a test waits until the cells around the player are in (pending empty and cellsUnloading 0). Read-only. Example: world.stream_status {}
 

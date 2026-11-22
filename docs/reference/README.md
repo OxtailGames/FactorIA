@@ -101,6 +101,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 ### [World](components/world.md)
 
+- [StreamedWorld](components/world.md#streamedworld): Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). _Not released yet._
 - [StreamingAnchor](components/world.md#streaminganchor): Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. _Not released yet._
 
 ## Commands
