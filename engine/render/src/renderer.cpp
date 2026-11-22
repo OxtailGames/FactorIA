@@ -378,11 +378,12 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0      ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0  ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0       ? DebugView::Ao
-                       : std::strcmp(dv, "cascades") == 0 ? DebugView::Cascades
-                                                          : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0       ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0   ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0        ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0  ? DebugView::Cascades
+                       : std::strcmp(dv, "occlusion") == 0 ? DebugView::Occlusion
+                                                           : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -1117,6 +1118,10 @@ void Renderer::Impl::render(World& world, float dt) {
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     lastCams = collect_cameras(world);
     refresh_logic_cameras(world);
+    occlusionPrev = std::move(
+        occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
+    occlusionShown = {};
+    occlusion_overlay();
     assets->set_drawing(true);
     set_target_self({});
     collect_targets(

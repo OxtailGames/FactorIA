@@ -47,6 +47,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "occlusion.h"
 #include "render_scene.h"
 #include "renderer_ssao.h"
 #include "font_set.h"
@@ -241,6 +242,29 @@ struct Renderer::Impl {
     bool warnedDirectionalIes = false;  // one warning each for a Light.ies on a directional light,
     bool warnedAreaCookie = false;      // a Light.cookie on an area light
     bool warnedAreaIes = false;         // and a Light.ies on an area light (none of them uses it)
+    // M75.2, occlusion culling on the CPU (renderer_occlusion.cpp): the depth buffer of the last camera job that had occluders (every job
+    // rasterises its own), the caps, and what the report and the debug view show.
+    render::OcclusionBuffer occlusion;
+    render::OcclusionLimits occlusionLimits;  // the defaults; a test lowers them to reach a cap
+    bool warnedOccluderCap = false, warnedOcclusionFrameCap = false;
+    std::set<std::uint64_t>
+        warnedOccluders;  // entities whose Occluder was reported (no mesh, unreadable mesh): once each
+    // Occluder.mesh names that could not be read, with the error: not read from disk again every frame (a name is tried once per run).
+    std::map<std::string, std::string> occluderMeshErrors;
+    struct OcclusionShown {
+        struct Box {
+            std::array<Vec3, 8> corners;  // world space; bit 0 = x, 1 = y, 2 = z of the corner
+            bool culled = false;          // false: an Occluder; true: a mesh the culling left out
+        };
+        bool valid = false;
+        std::string camera;
+        int occluders = 0, tests = 0, occluded = 0, coveredCells = 0, sourceTriangles = 0;
+        std::vector<Box> boxes;  // only while the debug view is on
+    };
+    OcclusionShown occlusionShown;  // this frame (cleared when it begins)
+    OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
+    void occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    void occlusion_overlay();
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;
     // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the

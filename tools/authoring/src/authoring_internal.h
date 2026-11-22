@@ -41,8 +41,8 @@ void register_project_secret_commands(
 
 void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
-// big_world_commands.cpp: world.split_cells, world.merge_cells, model.generate_lods, model.bake_impostor, foliage.* (M75 stubs
-// that fail with not_built until their package lands); it also calls register_terrain3d_commands.
+// big_world_commands.cpp: world.split_cells, world.merge_cells, model.bake_impostor, foliage.* (M75 stubs that fail with
+// not_built until their package lands); it also calls register_terrain3d_commands.
 void register_big_world_commands(Engine& engine, Engine::Impl& impl);
 // terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
 // terrain.undo, terrain.redo.

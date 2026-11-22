@@ -32,7 +32,7 @@ void register_authoring_commands(Engine& engine) {
     register_lightmap_commands(engine,
                                impl);  // lightmap.bake, lightmap.bake_start, lightmap.bake_status, lightmap.bake_cancel
     // big worlds (M75 stubs)
-    register_big_world_commands(engine, impl);  // world.split_cells, model.generate_lods, terrain.*, foliage.*, ...
+    register_big_world_commands(engine, impl);  // world.split_cells, model.bake_impostor, terrain.*, foliage.*, ...
     // levels
     register_ascii_level_commands(engine, impl);
 }

@@ -2,7 +2,7 @@
 
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
 kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (everything but what the renderer keeps,
-package M75.4b); the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
+package M75.4b); the CPU occluders of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
 do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
 commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
 `world.origin`, `world.rebase`, `world.absolute_position` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
@@ -12,14 +12,14 @@ is "off" or "as before".
 | Part | Package | What it adds |
 |---|---|---|
 | [Levels of detail](#levels-of-detail-planned-m751) | M75.1 | screen-size thresholds, dithered cross-fade, impostors, HLOD |
-| [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
+| [Occlusion](#occlusion-m752) | M75.2 | occluders (CPU built; GPU planned), areas and portals (planned) |
 | [Streaming](#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
 | [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it (the blend of the splat layers and the picture of the holes: planned) |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
-`renderer.supports` (the `render.supports` command) already lists a row per renderer feature, all `false` with the status
-"planned (M75)" until its package lands: `lodCrossFade`, `impostors`, `occlusionCpu`, `occlusionGpu`, `foliage` (`terrain` is true on every backend since P5a). Ask
+`renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
+"planned (M75)" until its package lands (`lodCrossFade`, `impostors`, `occlusionGpu`, `foliage`); `occlusionCpu` and `terrain` are `true` on every backend. Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Levels of detail (planned, M75.1)
@@ -42,22 +42,125 @@ it before relying on one, as for every other feature (docs/RENDERING.md).
 - The `LodGroup` component on an entity whose children are the levels (child 0 the most detailed): `mode`, `thresholds` (one
   number per child but the first, at most 8, in the unit of `mode`, ordered), `crossFade`, and an HLOD proxy for a whole cell:
   `hlodProxy` (a mesh path) with `hlodThreshold` (needed when the proxy is set).
-- `model.generate_lods {model, levels, ratios, maxError, apply}` simplifies a model into lower levels (deterministic) and writes
-  them; `model.bake_impostor {model, views, resolution, apply}` bakes the impostor atlas. Both fail with `not_built` today.
+- `model.generate_lods {model, levels, ratios, errors, maxError, screenSizes, ...}` simplifies a model into lower levels
+  (deterministic) and wires them for screen-size LOD: it is real, see "Automatic LOD chain" below.
+  `model.bake_impostor {model, views, resolution, apply}` bakes the impostor atlas and fails with `not_built` today.
 - `renderStats` gets `lodCrossFades` and `impostors` (this frame's counts).
 
-## Occlusion (planned, M75.2)
+### Automatic LOD chain
 
-Meshes hidden behind big solid ones are not drawn.
+A model document's `gameReady` can make the LODs for you. `lodChain` is an alternative to the explicit `lods` list (giving both is an
+error); it is an import setting like the others of `gameReady` (docs/modeling/MODELING_GAME.md):
 
-- `Occluder` on an entity: `shape` (`"box"` or `"mesh"`), `size` and `center` (metres, a box), `mesh` (the mesh to rasterise;
-  empty = the entity's `MeshRenderer.mesh`), `enabled`. A `shape` `"mesh"` with no mesh and no `MeshRenderer` is an error.
+```json
+"gameReady": {"lodChain": {"enabled": true, "levels": 3, "ratios": [0.5, 0.5, 0.5], "screenSizes": [0.5, 0.25, 0.12]}}
+```
+
+| Field | Meaning |
+|---|---|
+| `enabled` | Make the chain (default false). |
+| `levels` | 1 to 7 lower levels besides the full mesh (default 3). |
+| `ratios` | One per level: the share of the triangles of the level above it keeps (default 0.5 each). Level `i` is simplified from the full mesh to the product of the first `i` ratios. |
+| `errors` | One per level: the most the surface may move, metres (0 or left out = no limit). `model.generate_lods` also takes `maxError` for all levels. |
+| `screenSizes` | One per level, falling (each in 0..1): the level is drawn when the model covers less than this. Default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, 0.008. |
+| `minTriangles` | A level that would have fewer triangles than this, and every level after it, is not made, and a note says so (default 32). A model smaller than that gets no LODs. |
+| `lockBorder` | Open edges (the borders of the surface) do not move (default true). The seams between parts are kept either way, so a part never comes apart from its neighbour. |
+| `normalWeight`, `uvWeight` | How much a collapse that bends a normal (default 1) or smears a UV seam (default 0.5) costs, so seams and shading stay where the simplifier can keep them. |
+
+The bake writes `<name>.lod1.glb`... and `<name>.prefab.json` whose `MeshRenderer` has `lodMode: "screenSize"` and
+`lods: [{"mesh": "<name>.lod1.glb", "screenSize": 0.5}, ...]`. A screen size is the one defined above (bounding-sphere diameter
+over the visible height), so a threshold of 0.25 means the model is a quarter of the view tall, whatever the resolution. The
+same input gives the same bytes on every platform (the simplifier is serial and deterministic).
+
+`model.generate_lods {model, levels?, ratios?, errors?, maxError?, screenSizes?, minTriangles?, lockBorder?, normalWeight?,
+uvWeight?, dryRun?, bake?, overwrite?}` turns the chain on for a model document (`model` is the `.model.json` or the `.glb` it baked
+to), writes the settings into it, bakes, and returns `{levels: [{level, file, triangles, vertices, ratio, error, screenSize}],
+fullTriangles, prefab, notes, warnings}`; `dryRun` only reports. `model.import_clean {source, lodChain: true}` makes the chain on
+import. A list of the wrong length, `screenSizes` that do not fall, or a document that already has distance `lods` is an error
+with its JSON pointer, and nothing is written. `model.game_ready {path, lodChain}` changes the chain by hand and `{"lodChain": null}` removes it (the next bake deletes the `.lodN.glb` files and the prefab's `lods`).
+
+Skinned meshes are refused: the simplifier moves and removes vertices and the skin weights would not follow, so `model.generate_lods`
+on the `.glb` of a rig says so and points at the static model (`rig.bake` reads it); a `.glb` that no model document baked is
+refused with `model.import_clean` as the way to make a document of it. Only the screen-size LOD of the renderer (P1a) draws the chain
+by `screenSize`; until then `lodMode: "screenSize"` entries are saved and checked, not yet selected.
+
+## Occlusion (M75.2)
+
+Meshes hidden behind big solid ones are not drawn. **Built: the CPU occluders** (`Occluder`, `renderer.supports` `occlusionCpu`).
+**Planned: `OcclusionArea`, `OcclusionPortal` and the GPU path (`occlusionGpu`)**: the two area components save and load today and do
+nothing.
+
+- `Occluder` on an entity: `shape` (`"box"` or `"mesh"`), `size` and `center` (metres, a box, before the entity's scale), `mesh`
+  (the mesh to rasterise; empty = the entity's `MeshRenderer.mesh`), `enabled`. The box follows the entity's drawn matrix (its
+  `Transform` scale and rotation, and its parents'). A `shape` `"mesh"` with no mesh and no `MeshRenderer`, or whose mesh cannot
+  be read, hides nothing and logs one warning that names the entity.
 - `OcclusionArea` (a room): `size` in metres, `areaId` 1..65535 (0 is "outside every area"). `OcclusionPortal` (a door or window
   between two areas): `size`, `areaA`, `areaB` (the ids on its -Z and +Z side), `open` (a shut door blocks sight). Meshes in an
-  area are drawn only when a chain of open portals leads from the camera's area to it.
-- The CPU path rasterises the occluders at low resolution on the job system (`renderer.supports` `occlusionCpu`); the GPU path
-  tests against a hierarchical depth buffer and needs compute shaders (`occlusionGpu`, not on GLES3 or WebGL2).
-- `renderStats` gets `occluders`, `occlusionTests` and `meshesOccluded`.
+  area are drawn only when a chain of open portals leads from the camera's area to it. **Planned**, see above.
+- `renderStats` has `occluders` (the Occluders rasterised this frame, summed over the cameras), `occlusionTests` (the meshes tested
+  against a depth buffer) and `meshesOccluded` (the ones proved hidden and left out of the main pass). All three are 0 when no
+  enabled Occluder is in the scene.
+
+### How the CPU path works
+
+The renderer does nothing until an enabled `Occluder` exists in the scene (one `world.any<Occluder>()` check per frame); a scene
+without one draws and counts exactly as before. With one, for every main-view camera, after the frustum test:
+
+1. Every enabled Occluder of the camera's scene is rasterised into a small depth buffer, **256 cells across** and `256 / aspect`
+   down (144 for a 16:9 camera, at least 16 and at most 512), plus a guard ring of one cell. A box is its 12 triangles, a mesh its
+   triangles (`MeshRenderer.mesh` or `Occluder.mesh`, the first ones if it has more than the cap below). Only faces that look at
+   the camera are drawn, the triangles are clipped against the near plane, and the work runs as jobs on the job system
+   (`render.occlusion_setup`, `render.occlusion_raster` in the profiler): the buffer is the same bytes with any number of
+   threads.
+2. The world-space bounding box of every mesh the frustum kept (instanced and skinned meshes included: they go through the same
+   gather and use the box the frustum test uses) is projected and compared with the buffer. A mesh whose box is entirely behind
+   occluders is marked not visible and is left out of the main pass (`meshesOccluded`). Meshes without known bounds and the
+   Occluder's own mesh are never tested.
+
+It is **conservative**: when in doubt, the mesh is drawn. A mesh is tested against the cells its box covers and one ring of cells
+around them, the depth stored in a cell is the farthest the occluder can be inside it, and the guard ring keeps a box at the
+screen edge from reading outside the buffer. A box that crosses the near plane, holds the camera or has a corner behind it is
+visible. A camera inside an Occluder gets no occlusion from it (its back faces are not drawn). The occluders themselves are never
+culled by their own depth.
+
+What it does not do:
+
+- **Shadow passes are not culled.** A mesh hidden from the camera still casts its shadow, because a shadow can fall into the picture
+  from an object the camera does not see. Reflection probe, GI and light-probe captures are not culled either.
+- **Sprites, 2D shapes, tilemaps, particles and UI are out of scope**: only 3D meshes are culled.
+- A mesh Occluder with a crack narrower than a cell (about 1/256 of the picture) hides what shows through the crack: use closed,
+  simple meshes, or `"box"` (a few hundred triangles at most, a low-poly proxy of the building).
+- Two neighbouring Occluders with a gap narrower than a cell (about 1/256 of the picture) between them hide what shows through the
+  gap as well: overlap the walls or let them touch.
+- Every cell is tested, not every pixel: an object that peeks out of the silhouette of an occluder by less than a cell or two is
+  drawn anyway (that is the price of never hiding what is visible).
+
+### Caps (counted in triangles, never in time)
+
+| Cap | Value | When it is reached |
+|---|---|---|
+| Triangles of one Occluder | 4096 | only the first 4096 are rasterised (the occluder hides less, never more); one warning names the entities and the cap |
+| Triangles of all the Occluders of one camera | 65536 | the nearest Occluders (distance of their origin, then entity) are kept first; the others are left out or cut; one warning names them |
+
+The caps count source triangles, not the work of the raster: a few huge triangles that fill the view (an occluder right in front of the
+camera) touch every cell, which costs at most the cells of the buffer (about 37 000 for a 16:9 camera) per triangle, and the buffer
+is small on purpose. The same scene gives the same result with any number of job threads (the float rounding of different CPU architectures can differ in
+the last bit, so a box exactly at the edge of an occluder may be judged differently there). Warnings are logged once per run.
+
+### Looking at it
+
+- `render.occlusion {save?}` reports the last frame: the size of the buffer, the Occluders and triangles rasterised, the meshes
+  tested and the ones hidden; with `save` (a `.png` path) it writes the depth buffer as a grey picture (black = no occluder, the
+  nearer an occluder, the brighter). The same is `Renderer::occlusion_report` in C++.
+- `render.debug_view {"view":"occlusion"}` (or `FA_RENDER_DEBUG_VIEW=occlusion`) keeps the game picture and draws the Occluder
+  boxes green and the boxes of the meshes the culling left out red, with a line of counts at the top left. The boxes are drawn
+  from the next frame.
+- `render.supports {"feature":"occlusionCpu"}` is `true` on every backend (the rasterizer runs on the CPU).
+- A scene that wants to know whether the culling is worth it compares `renderStats.meshes`, `drawCalls` and `meshesOccluded` with
+  the Occluders on and off (`Occluder.enabled`).
+
+Tune: put Occluders on the big solid things (walls, buildings, hills as a few boxes), not on small props: a box costs 12
+triangles and a few microseconds, and the more of the picture the occluders cover, the more the culling saves.
 
 ## Streaming (M75.3)
 
