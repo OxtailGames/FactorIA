@@ -487,6 +487,7 @@ void WorldStreamer::release_proxy(std::size_t idx) {
     if (!st.proxyEntity.is_null() && world_.alive(st.proxyEntity)) world_.destroy(st.proxyEntity);
     st.proxyEntity = Entity{};
     st.proxy = Proxy::None;
+    st.proxyWarned = false;
     proxies_.erase(idx);
 }
 
@@ -497,14 +498,19 @@ void WorldStreamer::drop_proxies() {
 
 void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
     const Settings& s = settings_;
-    struct Near {
+    struct Wanted {
         std::size_t idx;
         double distance;
     };
-    std::vector<Near> near;  // the cells with a proxy within reach of an anchor, nearest first, at most kMaxHlodProxies
+    // The order every choice uses: nearest first, the lower cell index on a tie (a total order: the same on every machine).
+    const auto nearer = [](const Wanted& x, const Wanted& y) {
+        return x.distance != y.distance ? x.distance < y.distance : x.idx < y.idx;
+    };
+    std::vector<Wanted>
+        wanted;  // the cells with a proxy within reach of an anchor, nearest first, at most kMaxHlodProxies
     // keepLoaded loads every cell, so no proxy would ever show.
     if (s.enabled && s.hlodDistance > 0.0 && !s.keepLoaded && !anchors.empty()) {
-        std::map<std::size_t, double> best;  // by cell index: the order every tie-break uses
+        std::map<std::size_t, double> best;  // by cell index
         for (const Anchor& an : anchors) {
             for (std::size_t k : candidates(an.a, an.b, s.hlodDistance * kProxyKeepFactor)) {
                 const WorldCell& c = index_.cells[k];
@@ -515,32 +521,42 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
                 if (!fresh) it->second = std::min(it->second, d);
             }
         }
-        for (const auto& [k, d] : best) near.push_back({k, d});
-        std::sort(near.begin(), near.end(), [](const Near& x, const Near& y) {
-            return x.distance != y.distance ? x.distance < y.distance : x.idx < y.idx;
-        });
-        if (near.size() > std::size_t(kMaxHlodProxies)) near.resize(std::size_t(kMaxHlodProxies));
+        wanted.reserve(best.size());
+        for (const auto& [k, d] : best) wanted.push_back({k, d});
+        // A partial selection: the kMaxHlodProxies nearest are found in linear time, and only those are ordered.
+        if (wanted.size() > std::size_t(kMaxHlodProxies)) {
+            std::nth_element(wanted.begin(), wanted.begin() + kMaxHlodProxies, wanted.end(), nearer);
+            wanted.resize(std::size_t(kMaxHlodProxies));
+        }
+        std::sort(wanted.begin(), wanted.end(), nearer);
     }
     std::set<std::size_t> allowed;
-    for (const Near& n : near) allowed.insert(n.idx);
-    for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end()))
-        if (!allowed.count(idx) && cells_[idx].proxy != Proxy::Failed) release_proxy(idx);
+    for (const Wanted& w : wanted) allowed.insert(w.idx);
+    // A proxy that is no longer wanted goes, whatever its state. One that failed goes too once kRetryTicks have passed while it is still
+    // wanted, so the loop below tries it again: a read that failed for a moment does not stick.
+    for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end())) {
+        const CellState& st = cells_[idx];
+        const bool retry = st.proxy == Proxy::Failed && tick_ - st.proxyFailedAtTick >= std::uint64_t(kRetryTicks);
+        if (!allowed.count(idx)) {
+            release_proxy(idx);
+        } else if (retry) {
+            release_proxy(idx);
+            cells_[idx].proxyWarned = true;  // the retry reports nothing if it fails again
+        }
+    }
     int inFlight = 0;
     for (std::size_t idx : proxies_)
         if (cells_[idx].proxy == Proxy::Loading) ++inFlight;
-    for (const Near& n : near) {
+    for (const Wanted& w : wanted) {
         if (inFlight >= kMaxProxyLoadsInFlight) break;
-        CellState& st = cells_[n.idx];
-        const WorldCell& cell = index_.cells[n.idx];
-        if (st.proxy != Proxy::None || n.distance > proxy_range(cell, s.hlodDistance)) continue;
+        CellState& st = cells_[w.idx];
+        const WorldCell& cell = index_.cells[w.idx];
+        if (st.proxy != Proxy::None || w.distance > proxy_range(cell, s.hlodDistance)) continue;
         auto r = loader_.start(BackgroundLoader::Kind::HlodLoad, {cell.hlod}, std::nullopt,
                                BackgroundLoader::Origin::Tool, nullptr);
-        proxies_.insert(n.idx);
+        proxies_.insert(w.idx);
         if (!r) {
-            st.proxy = Proxy::Failed;
-            FA_WARN("stream",
-                    "cell {}: the HLOD proxy '{}' cannot be read: {} {} The cell draws nothing while it is not loaded.",
-                    cell.id(), cell.hlod, r.error().message, r.error().hint);
+            mark_proxy_failed(w.idx, r.error().message, r.error().hint);
             continue;
         }
         st.proxy = Proxy::Loading;
@@ -548,6 +564,19 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
         ++proxyLoadsStarted_;
         ++inFlight;
     }
+}
+
+// A proxy that cannot be read: reported once per stay in range (a retry that fails again is silent), tried again after kRetryTicks.
+void WorldStreamer::mark_proxy_failed(std::size_t idx, const std::string& message, const std::string& hint) {
+    CellState& st = cells_[idx];
+    st.proxy = Proxy::Failed;
+    st.proxyFailedAtTick = tick_;
+    if (st.proxyWarned) return;
+    st.proxyWarned = true;
+    const WorldCell& cell = index_.cells[idx];
+    FA_WARN("stream",
+            "cell {}: the HLOD proxy '{}' cannot be read: {}{} The cell draws nothing while it is not loaded.",
+            cell.id(), cell.hlod, message, hint.empty() ? std::string() : " " + hint);
 }
 
 void WorldStreamer::take_proxy_result(const BackgroundLoader::CellResult& r) {
@@ -562,13 +591,10 @@ void WorldStreamer::take_proxy_result(const BackgroundLoader::CellResult& r) {
     CellState& st = cells_[found];
     st.proxyJob = 0;
     if (!r.error.empty()) {
-        st.proxy = Proxy::Failed;
-        const WorldCell& cell = index_.cells[found];
-        FA_WARN("stream",
-                "cell {}: the HLOD proxy '{}' cannot be read: {}{} The cell draws nothing while it is not loaded.",
-                cell.id(), cell.hlod, r.error, r.hint.empty() ? std::string() : " " + r.hint);
+        mark_proxy_failed(found, r.error, r.hint);
         return;
     }
+    st.proxyWarned = false;  // it read: a later failure is news again
     st.proxy = Proxy::Ready;
 }
 
@@ -592,6 +618,8 @@ void WorldStreamer::sync_proxies() {
             MeshRenderer& mr = world_.add<MeshRenderer>(e);
             mr.mesh = cell.hlod;
             mr.lodCrossFade = 0.0f;
+            mr.castShadows =
+                false;  // far away: a shadow pass over up to kMaxHlodProxies of them costs more than it shows
             mr.lightmapScale = 0.0f;  // no lightmap was baked for it
             st.proxyEntity = e;
         }

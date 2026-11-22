@@ -31,8 +31,9 @@
 //   main thread, nearest cells first, at most kMaxHlodProxies prepared (kMaxProxyLoadsInFlight reading at once). The proxy is SHOWN, as
 //   an entity "hlod <i>,<j>" (EntityInfo::streamedProxy: never saved) at the cell's absolute corner, only while its mesh is ready and the
 //   cell's entities are not in the world: apply() adds and removes it in the same call that adds or removes the cell's root, so a
-//   frame never draws both or (once the proxy is ready) neither. A proxy that cannot be read is reported once and never retried until
-//   the index is read again. Which proxies exist is a function of the anchors at the fixed ticks and of the loader's units: the same
+//   frame never draws both or (once the proxy is ready) neither. A proxy that cannot be read is reported once, tried again after
+//   kRetryTicks fixed ticks while its cell is still in range, and forgotten when the cell leaves the range. A proxy casts no shadow
+//   (MeshRenderer.castShadows false: it stands for what is far away, and a shadow pass over hundreds of them costs more than it shows). Which proxies exist is a function of the anchors at the fixed ticks and of the loader's units: the same
 //   run makes the same ones.
 #pragma once
 
@@ -98,15 +99,17 @@ public:
 
 private:
     // The HLOD proxy of a cell: None (not wanted), Loading (its model is being read), Ready (in the renderer's cache) or Failed (reported;
-    // not tried again until the index is read again).
+    // tried again after kRetryTicks fixed ticks while it is wanted, forgotten once it is not).
     enum class Proxy { None, Loading, Ready, Failed };
     struct CellState {
         State state = State::Unloaded;
         Proxy proxy = Proxy::None;
-        int proxyJob = 0;                 // BackgroundLoader job id while the proxy is Loading
-        Entity proxyEntity;               // the entity that draws the proxy now (null = not shown)
-        int job = 0;                      // BackgroundLoader job id while Loading
-        std::shared_ptr<const Json> doc;  // the parsed scene, once the job finished and before it is applied
+        int proxyJob = 0;                     // BackgroundLoader job id while the proxy is Loading
+        std::uint64_t proxyFailedAtTick = 0;  // tick_ when the proxy failed (Failed: tried again after kRetryTicks)
+        bool proxyWarned = false;             // a failure was reported and the cell has stayed in range since
+        Entity proxyEntity;                   // the entity that draws the proxy now (null = not shown)
+        int job = 0;                          // BackgroundLoader job id while Loading
+        std::shared_ptr<const Json> doc;      // the parsed scene, once the job finished and before it is applied
         // its load failed: tried again after kRetryTicks fixed ticks, or once it has left the wanted set
         bool failed = false;
         std::uint64_t failedAtTick = 0;  // tick_ when it failed
@@ -142,8 +145,9 @@ private:
     std::vector<std::size_t> candidates(double a, double b, double radius) const;
     void update_proxies(const std::vector<Anchor>& anchors);  // fixed tick: which proxies are wanted, start their loads
     void take_proxy_result(const BackgroundLoader::CellResult& r);
+    void mark_proxy_failed(std::size_t idx, const std::string& message, const std::string& hint);
     void sync_proxies();                  // frame: show a proxy where its cell is not loaded, hide it where it is
-    void release_proxy(std::size_t idx);  // cancel its job, destroy its entity, forget it (not Failed)
+    void release_proxy(std::size_t idx);  // cancel its job, destroy its entity, forget it (whatever its state)
     void drop_proxies();                  // release every proxy (an index change, a scene change that keeps the world)
 
     World& world_;
@@ -154,7 +158,8 @@ private:
     std::vector<CellState> cells_;   // parallel to index_.cells
     std::set<std::size_t> tracked_;  // cells that are not Unloaded
     std::set<std::size_t> failed_;   // cells with `failed` set
-    std::set<std::size_t> proxies_;  // cells whose proxy is not None (a Failed one stays until the index is read again)
+    std::set<std::size_t>
+        proxies_;  // cells whose proxy is not None (a Failed one stays until its retry or until the cell is out of range)
     Settings settings_;
     std::int64_t minI_ = 0, maxI_ = -1, minJ_ = 0, maxJ_ = -1;  // the coordinate range of the index
     std::string lastError_;
