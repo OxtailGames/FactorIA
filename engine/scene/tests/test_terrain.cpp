@@ -2,6 +2,7 @@
 // budget rules, sampling on the triangles the surface and the collider share, the dirty-rectangle history and the store.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -273,4 +274,195 @@ TEST_CASE("TerrainHeights: the dirty history tells each reader what changed sinc
     CHECK(r.c1 - r.c0 <= 4);
     // two loads are two objects
     CHECK(TerrainHeights::flat(33)->id != TerrainHeights::flat(33)->id);
+}
+
+namespace {
+TerrainPatch height_patch(const TerrainHeights& h, int x0, int y0, int w, int hh, std::uint16_t value) {
+    TerrainPatch p;
+    p.plane = TerrainPlane::Heights;
+    p.x0 = x0;
+    p.y0 = y0;
+    p.w = w;
+    p.h = hh;
+    for (int r = y0; r < y0 + hh; ++r)
+        for (int c = x0; c < x0 + w; ++c) {
+            const std::uint16_t before = h.at(c, r);
+            p.before.push_back(std::uint8_t(before & 0xff));
+            p.before.push_back(std::uint8_t(before >> 8));
+            p.after.push_back(std::uint8_t(value & 0xff));
+            p.after.push_back(std::uint8_t(value >> 8));
+        }
+    return p;
+}
+}  // namespace
+
+TEST_CASE(
+    "TerrainHeights: a step changes the planes, undo and redo give them back bit for bit, one dirty rectangle each") {
+    auto h = TerrainHeights::flat(33, 1000);
+    const std::vector<std::uint16_t> start = h->data;
+    TerrainStep s1;
+    s1.label = "terrain.sculpt";
+    s1.patches.push_back(height_patch(*h, 4, 6, 5, 3, 4242));
+    TerrainPatch holes;
+    holes.plane = TerrainPlane::Holes;
+    holes.x0 = 2;
+    holes.y0 = 2;
+    holes.w = 3;
+    holes.h = 2;
+    holes.before.assign(6, 0);
+    holes.after.assign(6, 1);
+    s1.patches.push_back(holes);
+    const std::uint64_t v0 = h->version;
+    std::string problem;
+    REQUIRE_MESSAGE(h->apply_step(s1, &problem), problem);
+    CHECK(h->at(4, 6) == 4242);
+    CHECK(h->at(8, 8) == 4242);
+    CHECK(h->at(9, 6) == 1000);
+    CHECK(h->version == v0 + 1);  // one mark_dirty for the plane of the step
+    REQUIRE(h->holes.size() == 32u * 32u);
+    CHECK(h->holes[2 * 32 + 2] == 1);
+    CHECK(h->holes[1 * 32 + 2] == 0);
+    CHECK(h->heightsUnsaved);
+    CHECK(h->holesUnsaved);
+    CHECK(h->holesVersion > 0);
+    TerrainRect r;
+    REQUIRE(h->dirty_since(v0, r));
+    CHECK(r.c0 == 4);
+    CHECK(r.c1 == 8);
+    CHECK(r.r0 == 6);
+    CHECK(r.r1 == 8);
+    const std::vector<std::uint16_t> after = h->data;
+    const std::vector<std::uint8_t> holesAfter = h->holes;
+    std::string label;
+    REQUIRE(h->undo(&label));
+    CHECK(label == "terrain.sculpt");
+    CHECK(h->data == start);
+    CHECK(std::count(h->holes.begin(), h->holes.end(), std::uint8_t(1)) == 0);
+    CHECK(h->undo_depth() == 0);
+    CHECK(h->redo_depth() == 1);
+    CHECK_FALSE(h->undo());
+    REQUIRE(h->redo());
+    CHECK(h->data == after);
+    CHECK(h->holes == holesAfter);
+    CHECK_FALSE(h->redo());
+    // a new step clears the redo list
+    REQUIRE(h->undo());
+    TerrainStep s2;
+    s2.label = "terrain.sculpt";
+    s2.patches.push_back(height_patch(*h, 0, 0, 1, 1, 7));
+    REQUIRE(h->apply_step(s2));
+    CHECK(h->redo_depth() == 0);
+    // a patch that does not fit changes nothing and says which
+    TerrainStep bad;
+    bad.patches.push_back(height_patch(*h, 30, 30, 3, 3, 1));
+    bad.patches[0].x0 = 31;  // 31 + 3 > 33
+    const std::vector<std::uint16_t> keep = h->data;
+    CHECK_FALSE(h->apply_step(bad, &problem));
+    CHECK_FALSE(problem.empty());
+    CHECK(h->data == keep);
+    CHECK(h->undo_depth() == 1);
+}
+
+TEST_CASE("TerrainHeights: the history keeps at most kTerrainHistorySteps steps") {
+    auto h = TerrainHeights::flat(33, 0);
+    for (int i = 0; i < int(kTerrainHistorySteps) + 10; ++i) {
+        TerrainStep s;
+        s.label = "terrain.sculpt";
+        s.patches.push_back(height_patch(*h, i % 30, 0, 1, 1, std::uint16_t(i + 1)));
+        REQUIRE(h->apply_step(s));
+    }
+    CHECK(h->undo_depth() == kTerrainHistorySteps);
+    CHECK(h->history_bytes() > 0);
+    CHECK(h->history_bytes() < std::size_t(1) << 20);
+}
+
+TEST_CASE("encode_terrain_heightmap and save_terrain_files: the files hold the planes and read back the same") {
+    const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_save").value();
+    {
+        World w;
+        ensure_builtin_components();
+        Entity e = w.create("ground");
+        Terrain3D& t = w.add<Terrain3D>(e);
+        t.size = {32.0f, 32.0f};
+        t.heightmap = fs::path_to_utf8(dir / "g.height.png");
+        t.holes = fs::path_to_utf8(dir / "g.holes.png");
+        t.splatMaps = Json::array({fs::path_to_utf8(dir / "g.splat0.png")});
+        auto h = TerrainHeights::flat(33, 30000);
+        w.terrain().adopt(e, t.heightmap, h);
+        h->splat[0].size = 4;  // a splat map must exist before a step can edit it
+        h->splat[0].rgba.assign(4 * 4 * 4, 0);
+        h->splat[0].source = fs::path_to_utf8(dir / "g.splat0.png");
+        // a grid that was never edited writes nothing
+        std::vector<std::string> written;
+        REQUIRE(save_terrain_files(w, e, &written, true).ok());
+        CHECK(written.empty());
+        TerrainStep step;
+        step.label = "terrain.sculpt";
+        step.patches.push_back(height_patch(*h, 3, 3, 4, 4, 55555));
+        TerrainPatch holes;
+        holes.plane = TerrainPlane::Holes;
+        holes.x0 = 10;
+        holes.y0 = 10;
+        holes.w = 2;
+        holes.h = 2;
+        holes.before.assign(4, 0);
+        holes.after.assign(4, 1);
+        step.patches.push_back(holes);
+        TerrainPatch sp;
+        sp.plane = TerrainPlane::Splat0;
+        sp.x0 = 0;
+        sp.y0 = 0;
+        sp.w = 2;
+        sp.h = 1;
+        sp.before.assign(8, 0);
+        sp.after = {0, 0, 0, 0, 10, 20, 30, 0};  // the second texel has alpha 0 and colour: it must survive
+        step.patches.push_back(sp);
+        std::string problem;
+        REQUIRE_MESSAGE(h->apply_step(step, &problem), problem);
+        CHECK(h->any_unsaved());
+        // an absolute path is outside the project rules: refused with the field and the path, nothing written, edits kept
+        auto refused = save_terrain_files(w, e, &written);
+        REQUIRE_FALSE(refused.ok());
+        CHECK(refused.error().message.find("Terrain.heightmap") != std::string::npos);
+        CHECK(refused.error().message.find("g.height.png") != std::string::npos);
+        CHECK_FALSE(refused.error().hint.empty());
+        CHECK(h->any_unsaved());
+        CHECK_FALSE(fs::exists(t.heightmap));
+        REQUIRE(save_terrain_files(w, e, &written, true).ok());
+        CHECK(written.size() == 3);
+        CHECK_FALSE(h->any_unsaved());
+        auto loaded = load_terrain_heightmap(t.heightmap);
+        REQUIRE(loaded.ok());
+        CHECK(loaded.value().heights->data == h->data);
+        // the splat map, even with alpha 0
+        auto bytes = fs::read_bytes(fs::path_to_utf8(dir / "g.splat0.png"));
+        REQUIRE(bytes.ok());
+        auto dec = decode_image(bytes.value().data(), bytes.value().size());
+        REQUIRE(dec.ok());
+        const Image& img = dec.value();
+        CHECK(img.rgba[4] == 10);
+        CHECK(img.rgba[5] == 20);
+        CHECK(img.rgba[6] == 30);
+        CHECK(img.rgba[7] == 0);
+        // a store that loads from the files finds the same planes
+        w.terrain().clear();
+        auto reread = w.terrain().heights(w, e);
+        REQUIRE(reread);
+        CHECK(reread->data == h->data);
+        CHECK(reread->holes[10 * 32 + 10] == 1);
+        CHECK(reread->holes[9 * 32 + 10] == 0);
+        REQUIRE(reread->splat[0].valid());
+        CHECK(reread->splat[0].rgba[6] == 30);
+        CHECK(reread->splat[0].rgba[7] == 0);
+        CHECK_FALSE(reread->any_unsaved());
+        // the raw .r16 form is little endian
+        TerrainHeights tiny = *TerrainHeights::flat(33, 0x1234);
+        const auto raw = encode_terrain_heightmap(tiny, "x.r16");
+        REQUIRE(raw.size() == 33u * 33u * 2u);
+        CHECK(raw[0] == 0x34);
+        CHECK(raw[1] == 0x12);
+        CHECK(encode_terrain_heightmap(tiny, "x.png").size() > 8);
+    }
+    std::error_code ec;
+    fs::remove_tree(dir, ec);
 }
