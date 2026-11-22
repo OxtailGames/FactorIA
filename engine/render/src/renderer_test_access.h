@@ -58,6 +58,9 @@ struct RendererTestAccess {
     static std::uint64_t origin_shifts(Renderer& r);
     static bool origin_watched(Renderer& r, const World* world);
     static std::uint64_t gi2d_shifts(Renderer& r);
+    // M75.2b: the depth reduce passes run so far, and the cameras that keep a depth pyramid.
+    static int hiz_reduces(Renderer& r);
+    static int hiz_cameras(Renderer& r);
     // The view-projection the renderer keeps of `camera`'s last frame (what motion blur reprojects from); false when it keeps none.
     static bool prev_view_proj(Renderer& r, Entity camera, Mat4& out);
     static int ldr_cut_format(Renderer& r);

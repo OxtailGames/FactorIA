@@ -218,6 +218,18 @@ void build_3d_occluded(World& w) {
     }
 }
 
+// The same walls with no Occluder and SceneSettings.occlusionMode "gpu" (M75.2b): the depth pyramid of the frame before hides what is behind
+// them. Where the backend has no compute shaders it falls back to the CPU Occluders, of which this scene has none: the frame draws everything.
+void build_3d_hiz(World& w) {
+    build_3d(w);
+    for (int i = 0; i < 3; ++i) {
+        Entity wall = make(w, {-25.0f + float(i) * 25.0f, 4, 0});
+        w.get<Transform>(wall)->scale = {24, 8, 1};
+        w.add<MeshRenderer>(wall).mesh = "cube";
+    }
+    w.settings().occlusionMode = OcclusionMode::Gpu;
+}
+
 // A terrain of 513 x 513 hilly samples over 1024 m with 4 layers of 64 x 64 textures, a splat map and a holes mask, under a sun with
 // shadows (M75.5: the CDLOD tiles, the layer blend of shaders/terrain.glsl, the split patch of the holes). The GPU's own work is what
 // this row moves with: fewer fetches a pixel (the normals took 16 height fetches, now 12) show here on a GPU, not on a CPU.
@@ -335,6 +347,13 @@ void add_render_benches(std::vector<Bench>& out) {
                                "behind the walls hidden (the cost of the "
                                "rasterizer and of 1600 tests, less the draws it saves)",
                                build_3d_occluded, 8 * 1600, "meshes"));
+    out.push_back(render_bench(
+        "render.hiz3d",
+        "render.occlusion3d with the walls as plain meshes and SceneSettings.occlusionMode \"gpu\": 8 frames "
+        "of 1600 meshes culled by the depth pyramid of the frame before (the depth prepass, the reduce "
+        "pass, the read-back and 1600 tests, less the draws it saves; the plain frame where there are no "
+        "compute shaders)",
+        build_3d_hiz, 8 * 1600, "meshes"));
     out.push_back(
         render_bench("render.terrain3d",
                      "8 frames of a 513 x 513 Terrain over 1024 m with 4 splat-blended layers, a holes mask and a "

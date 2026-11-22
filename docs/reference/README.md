@@ -448,7 +448,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Since 0.33.0._
 - [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Since 0.33.0._
-- [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and hidden; optionally the depth buffer as a PNG. _Not released yet._
+- [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG. _Not released yet._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Since 0.33.0._
