@@ -994,14 +994,16 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         if (lodFollow) {
             LodPick p;
             p.level = target;
-            if (const LodPick* m = lodFades.main_pick(bits, kind)) p.level = m->level;  // settled: a capture never fades
+            if (const LodPick* m = lodFades.main_pick(bits, kind))
+                p.level = m->level;  // settled: a capture never fades
             return p;
         }
         const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt);
         if (lodMainJob && !lodFades.main_set()) lodFades.remember(bits, kind, p);
         return p;
     };
-    std::vector<LodPick> groupPick;  // per LodGroup of the scene: the child this camera shows (level -1 = a group that draws nothing)
+    std::vector<LodPick>
+        groupPick;  // per LodGroup of the scene: the child this camera shows (level -1 = a group that draws nothing)
     if (lodsOn) {
         const auto& groups = renderScene.lod_groups();
         groupPick.resize(groups.size());
@@ -1017,7 +1019,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         }
     }
     std::vector<char> lodDropped;  // an item whose LodGroup child is not shown
-    std::vector<std::pair<MeshItem, char>> lodOutgoing;  // the level fading out of an entity in a cross-fade, and whether it is blended
+    std::vector<std::pair<MeshItem, char>>
+        lodOutgoing;  // the level fading out of an entity in a cross-fade, and whether it is blended
     std::vector<const SceneMesh*> lodOutgoingMesh;
     for (const auto& [i, sm] : special) {
         MeshItem& mi = meshes[i];
@@ -1054,7 +1057,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         }
         if (!sm->hasLods) continue;
         float screen = 0.0f;
-        if (mr.lodMode == LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
+        if (mr.lodMode ==
+            LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
             const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
                                           length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
                                           length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});

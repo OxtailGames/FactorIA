@@ -179,9 +179,9 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
                     const SceneMesh& sm = meshes_[it->second];
                     links.emplace_back(it->second, (std::uint32_t(gi) << 4) | child);
                     for (int c = 0; c < 8; ++c) {
-                        const Vec3 p = sm.model.transform_point(
-                            {(c & 1) ? sm.bmax.x : sm.bmin.x, (c & 2) ? sm.bmax.y : sm.bmin.y,
-                             (c & 4) ? sm.bmax.z : sm.bmin.z});
+                        const Vec3 p =
+                            sm.model.transform_point({(c & 1) ? sm.bmax.x : sm.bmin.x, (c & 2) ? sm.bmax.y : sm.bmin.y,
+                                                      (c & 4) ? sm.bmax.z : sm.bmin.z});
                         lo = min(lo, p);
                         hi = max(hi, p);
                     }

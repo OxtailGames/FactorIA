@@ -5017,8 +5017,8 @@
     // Water2D, DistortionZone2D and fa_scene_color() sprite materials made (at most 8 per camera, summed over the cameras). terrainTiles and
     // terrainTriangles count the Terrain tiles drawn in the main pass and their triangles (also in triangles; not in meshes).
     // lodCrossFades counts the meshes drawn as one level of a dithered LOD cross-fade, over every camera (an entity fading
-    // from one level to another counts two). The other big-world counters (M75, 0 until their package draws): impostors, occluders,
-    // occlusionTests, meshesOccluded, foliageInstances, foliageInstancesCulled. Throws
+    // from one level to another counts two). occluders, occlusionTests and meshesOccluded count the CPU occlusion culling. The other
+    // big-world counters (M75, 0 until their package draws): impostors, foliageInstances, foliageInstancesCulled. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.
     renderStats() {
       const s = N.renderStatsNow();

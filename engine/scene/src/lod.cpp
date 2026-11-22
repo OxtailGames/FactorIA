@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include "fa/core/det_math.h"
+
 namespace fa {
 
 namespace {
@@ -40,7 +42,8 @@ const std::string& lod_mesh(const MeshRenderer& mr, float distance) {
 
 float lod_view_height(const LodView& view, float distance) {
     if (!view.perspective) return 2.0f * view.halfHeight;
-    return 2.0f * std::max(distance, 0.0001f) * std::tan(view.fovY * 0.5f * 3.14159265358979f / 180.0f);
+    return 2.0f * std::max(distance, 0.0001f) *
+           float(det::tan(double(view.fovY) * 0.5 * 3.14159265358979323846 / 180.0));
 }
 
 float lod_screen_size(float diameter, float distance, const LodView& view) {

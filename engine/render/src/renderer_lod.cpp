@@ -31,7 +31,8 @@ void LodFades::end_frame() {
     }
 }
 
-LodPick LodFades::step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade, float dt) {
+LodPick LodFades::step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade,
+                       float dt) {
     auto [it, fresh] = slots_.try_emplace(slot_key(camera, entity, kind));
     Slot& slot = it->second;
     if (fresh) slot.s = LodFadeState{target, -1, 1.0f};
