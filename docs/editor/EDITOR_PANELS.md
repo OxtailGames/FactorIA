@@ -327,7 +327,8 @@ those commands, so a script or the AI can do the same.
   when it lets go of its oldest step, the editor takes that step out of the oldest terrain entries of the undo list (an entry
   that also holds other edits keeps them) and a toast says how many. A `terrain.undo` run by hand (Console, MCP) takes the
   terrain's own newest step without touching the undo list, so Ctrl+Z and the terrain can disagree afterwards: use one or the
-  other. The editor counts the steps the terrain let go, not the entries of its list, so such a call never makes it drop a step
+  other. Every terrain undo of the list carries the number of its step (the steps the terrain let go, plus its depth), so the editor drops
+  exactly the steps the terrain let go: neither a call by hand, nor the list trimming its own oldest entries, makes it drop a step
   that still works. Undo of the first holes or paint
   stroke also takes the `Terrain.holes` or `Terrain.splatMaps` path it set back (a file already written stays on disk, unused). Esc gives
   back the unsaved state the stroke found. A click that misses the terrain keeps it selected and the tool on.

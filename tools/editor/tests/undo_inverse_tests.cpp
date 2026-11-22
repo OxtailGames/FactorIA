@@ -810,43 +810,97 @@ TEST_CASE("undo inverse: terrain.sculpt, paint and holes are one terrain.redo / 
     CHECK_FALSE(plan_undo(s.world(), "terrain.sculpt", Json::parse(R"({"entity":"nobody"})")).has_value());
 }
 
-TEST_CASE("undo inverse: the terrain steps its history let go leave the oldest entries, nothing else does") {
-    auto terrain_entry = [](const char* id) {
-        const Json args = Json::object({{"entity", id}});
-        return UndoEntry::command({{"terrain.redo", args, ""}}, {{"terrain.undo", args, ""}});
-    };
+namespace {
+UndoEntry numbered_terrain_entry(const char* id, std::uint64_t step) {
+    const Json args = Json::object({{"entity", id}});
+    UndoCommand fwd{"terrain.redo", args, ""};
+    UndoCommand back{"terrain.undo", args, ""};
+    fwd.step = back.step = step;
+    return UndoEntry::command({fwd}, {back});
+}
+}  // namespace
+
+TEST_CASE("undo inverse: the terrain steps its history let go leave the entries that name them, nothing else does") {
     UndoStack st;
-    st.push_back(terrain_entry("g"));
+    st.push_back(numbered_terrain_entry("g", 1));
     st.push_back(UndoEntry::command({{"scene.destroy", Json::object({{"id", "x"}}), ""}}, {}));
-    st.push_back(terrain_entry("other"));
-    st.push_back(terrain_entry("g"));
-    st.push_back(terrain_entry("g"));
+    st.push_back(numbered_terrain_entry("other", 2));
+    st.push_back(numbered_terrain_entry("g", 2));
+    st.push_back(numbered_terrain_entry("g", 3));
     CHECK(terrain_undo_count(st[0], "g") == 1);
     CHECK(terrain_undo_count(st[1], "g") == 0);
     CHECK(terrain_undo_count(st[2], "g") == 0);
     CHECK(drop_terrain_steps(st, "g", 0).steps == 0);  // the history let go of nothing
     CHECK(st.size() == 5);
-    // The count is what the terrain let go, not the number of entries: entries beyond the history (an orphan left by a
-    // terrain.undo run by hand) are never mistaken for lost steps.
-    const TerrainDrop one = drop_terrain_steps(st, "g", 1);
+    const TerrainDrop one = drop_terrain_steps(st, "g", 1);  // step 1 is gone
     CHECK(one.steps == 1);
     CHECK(one.entries == 1);
     REQUIRE(st.size() == 4);
     CHECK(st[0].forward[0].cmd == "scene.destroy");
-    CHECK(terrain_undo_count(st[1], "other") == 1);
+    CHECK(terrain_undo_count(st[1], "other") == 1);  // another terrain's step 2 stays
     CHECK(terrain_undo_count(st[2], "g") == 1);
-    const TerrainDrop two = drop_terrain_steps(st, "g", 5);  // more than the list holds: all of the terrain's, no more
-    CHECK(two.steps == 2);
+    CHECK(drop_terrain_steps(st, "g", 1).steps == 0);  // asked again: nothing more
+    const TerrainDrop all = drop_terrain_steps(st, "g", 5);
+    CHECK(all.steps == 2);
     CHECK(st.size() == 2);
+}
+
+TEST_CASE("undo inverse: a list that trimmed its own oldest entries and a terrain that lost a step drop nothing that "
+          "works") {
+    // The list trims at its own cap, so the entry numbered 16 sits at position 0. Judged by position, it would have gone
+    // with the first step the terrain lets go; judged by its number it stays, the terrain still holds step 16.
+    UndoStack st(5, size_t(1) << 20);
+    for (std::uint64_t k = 1; k <= 20; ++k) st.push_back(numbered_terrain_entry("g", k));
+    REQUIRE(st.size() == 5);  // the list holds the steps 16..20
+    CHECK(st[0].inverse[0].step == 16);
+    const TerrainDrop d = drop_terrain_steps(st, "g", 1);  // the terrain let go of step 1: no entry names it any more
+    CHECK(d.steps == 0);
+    CHECK(st.size() == 5);
+    CHECK(st[0].inverse[0].step == 16);
+    // a step the list still names does go when the terrain lets it go
+    CHECK(drop_terrain_steps(st, "g", 17).steps == 2);
+    CHECK(st.size() == 3);
+}
+
+TEST_CASE("undo inverse: an entry with several steps of one terrain loses only the ones the terrain let go") {
+    const Json g = Json::object({{"entity", "g"}});
+    std::vector<UndoCommand> fwd{{"terrain.redo", g, ""}, {"terrain.redo", g, ""}};
+    std::vector<UndoCommand> inv{{"terrain.undo", g, ""}, {"terrain.undo", g, ""}};
+    number_terrain_steps(fwd, inv, "g", 5);  // the entry holds the steps 4 and 5
+    CHECK(inv[0].step == 5);                 // undo runs the newest first
+    CHECK(inv[1].step == 4);
+    CHECK(fwd[0].step == 4);  // redo runs the oldest first
+    CHECK(fwd[1].step == 5);
+    number_terrain_steps(fwd, inv, "g", 9);  // numbered commands keep their number
+    CHECK(inv[0].step == 5);
+    UndoStack st;
+    st.push_back(UndoEntry::command(fwd, inv));
+    const std::size_t before = st.bytes();
+    const TerrainDrop d = drop_terrain_steps(st, "g", 4);  // step 4 is gone, 5 is not
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].step == 5);
+    REQUIRE(st[0].forward.size() == 1);
+    CHECK(st[0].forward[0].step == 5);
+    CHECK(st.bytes() < before);  // the entry's size was estimated again
+    CHECK(drop_terrain_steps(st, "g", 5).entries == 1);
+    CHECK(st.empty());
+    // nothing is numbered below 1
+    std::vector<UndoCommand> f2{{"terrain.redo", g, ""}}, i2{{"terrain.undo", g, ""}};
+    number_terrain_steps(f2, i2, "g", 0);
+    CHECK(i2[0].step == 0);
 }
 
 TEST_CASE("undo inverse: a Chain entry that lost its terrain step keeps its other inverses") {
     const Json g = Json::object({{"entity", "g"}});
+    UndoCommand tfwd{"terrain.redo", g, ""}, tinv{"terrain.undo", g, ""};
+    tfwd.step = tinv.step = 1;
     UndoStack st;
-    st.push_back(
-        UndoEntry::command({{"terrain.redo", g, ""}, {"scene.set", Json::object({{"id", "x"}}), ""}},
-                           {{"scene.set", Json::object({{"id", "x"}, {"old", 1}}), ""}, {"terrain.undo", g, ""}}));
-    st.push_back(UndoEntry::command({{"terrain.redo", g, ""}}, {{"terrain.undo", g, ""}}));
+    st.push_back(UndoEntry::command({tfwd, {"scene.set", Json::object({{"id", "x"}}), ""}},
+                                    {{"scene.set", Json::object({{"id", "x"}, {"old", 1}}), ""}, tinv}));
+    st.push_back(numbered_terrain_entry("g", 2));
     const TerrainDrop d = drop_terrain_steps(st, "g", 1);
     CHECK(d.steps == 1);
     CHECK(d.entries == 0);  // the chain stays: it still undoes the other edit

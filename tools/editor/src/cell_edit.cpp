@@ -182,6 +182,7 @@ bool CellEdit::load(World& world, std::int32_t i, std::int32_t j, std::string* e
     std::string err;
     if (!place(world, k, slot, entities, &err)) return fail(err);
     slot.baseline = slot.current = fingerprint(world, slot.root);
+    slot.unchecked = false;
     slots_[k] = std::move(slot);
     return true;
 }
@@ -266,6 +267,11 @@ void CellEdit::note_edit(const World& world, Entity e) {
     std::int32_t i = 0, j = 0;
     if (cell_of_entity(world, e, i, j)) touched_.insert({i, j});
     sweepLeft_ = slots_.size();  // an entity outside every cell can still have been moved into one
+    // The edit may have changed any cell (a reparent), and the sweep reaches them one per update: until a cell's turn comes its
+    // `current` is not to be trusted if its root vanishes. A cell root being edited itself (a delete of the root) changes no entity
+    // under it, so that cell stays as checked as it was.
+    for (auto& [k, s] : slots_)
+        if (!s.root.is_null() && s.root != e && world.alive(s.root)) s.unchecked = true;
 }
 
 void CellEdit::update(World& world, bool busy) {
@@ -287,15 +293,15 @@ void CellEdit::update(World& world, bool busy) {
             gone.push_back(k);
             continue;
         }
-        if (all) s.current = fingerprint(world, s.root);
+        if (all) {
+            s.current = fingerprint(world, s.root);
+            s.unchecked = false;
+        }
     }
-    // Without a full check (`all`) a cell's `current` may be older than the edit that deleted its root: it cannot say the cell was
-    // clean, so the cell counts as having unsaved changes (it can be closed later, when Undo and Save agree with its file).
-    const bool stale = !all;
     for (const Key& k : gone) {
         Slot& s = slots_[k];
         const bool emptyFile = !s.isNew && s.baseline == emptyHash;  // its file already holds no entity
-        if (s.isNew || (!emptyFile && (stale || s.current != s.baseline))) {
+        if (s.isNew || (!emptyFile && (s.unchecked || s.current != s.baseline))) {
             // Unsaved changes of a cell whose root was deleted: keep the cell, empty, as unsaved. Save writes it empty, Undo
             // brings the entities back; nothing is dropped silently.
             s.root = Entity{};
@@ -318,16 +324,20 @@ void CellEdit::update(World& world, bool busy) {
     }
     for (const Key& k : touched_) {
         auto it = slots_.find(k);
-        if (it != slots_.end() && !it->second.rootGone && !it->second.root.is_null())
+        if (it != slots_.end() && !it->second.rootGone && !it->second.root.is_null() && world.alive(it->second.root)) {
             it->second.current = fingerprint(world, it->second.root);
+            it->second.unchecked = false;
+        }
     }
     touched_.clear();
     if (sweepLeft_ > 0 && !slots_.empty()) {  // one more cell of the lap
         auto it = slots_.upper_bound(sweepAfter_);
         if (it == slots_.end()) it = slots_.begin();
         sweepAfter_ = it->first;
-        if (!it->second.rootGone && !it->second.root.is_null())
+        if (!it->second.rootGone && !it->second.root.is_null() && world.alive(it->second.root)) {
             it->second.current = fingerprint(world, it->second.root);
+            it->second.unchecked = false;
+        }
         --sweepLeft_;
     } else {
         sweepLeft_ = 0;
@@ -506,6 +516,7 @@ void CellEdit::reload(World& world) {
     restore(world, Json(), Json());
     for (auto& [k, s] : slots_) {
         s.baseline = s.current = s.root.is_null() ? 0 : fingerprint(world, s.root);
+        s.unchecked = false;
         if (const WorldCell* c = find_cell(k)) s.scene = c->scene;
     }
     pending_ = false;
