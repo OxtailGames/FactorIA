@@ -162,9 +162,11 @@ struct RenderStats {
     // something (game.render_stats, perf.measure and the budgets of perf.check read them).
     int occluders =
         0;  // M75.2: Occluder entities rasterised into the occlusion depth buffer (0 with no enabled Occluder)
-    int occlusionTests = 0;  // M75.2: meshes tested against that buffer (the OcclusionArea portals are planned)
+    int occlusionTests = 0;  // M75.2: meshes tested against that buffer 
     int meshesOccluded =
         0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders (still drawn into shadow maps)
+    int portalsVisited = 0;       // M75.2: distinct open OcclusionPortals the camera's walk went through (0 with no enabled OcclusionArea)
+    int meshesCulledByArea = 0;   // M75.2: meshes left out of the main pass because no chain of open portals leads to their area
     int lodCrossFades =
         0;  // M75.1: meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras (a fading
             // entity counts 2; probe and GI captures do not count)
