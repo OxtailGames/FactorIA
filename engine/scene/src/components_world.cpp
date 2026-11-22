@@ -496,7 +496,7 @@ void register_world_components(TypeRegistry& r) {
         .field("hlodThreshold", &LodGroup::hlodThreshold,
                "Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen "
                "fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole "
-               "bounds like thresholds. Beyond the last threshold. Needs hlodProxy; 0 (default) with a proxy is an "
+               "bounds like thresholds. It should be beyond the last thresholds entry (the farthest child level), so the proxy replaces the last level and not a nearer one. Needs hlodProxy; 0 (default) with a proxy is an "
                "error.")
         .range(0, 100000);
 

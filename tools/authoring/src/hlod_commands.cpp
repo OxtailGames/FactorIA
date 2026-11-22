@@ -6,8 +6,11 @@
 // Deterministic: the entities are visited in hierarchy order, every step is serial float arithmetic and the .glb writer is deterministic,
 // so the same scene and arguments give the same bytes.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
+#include <utility>
+#include <vector>
 
 #include "authoring_internal.h"
 #include "fa/core/capability.h"
@@ -300,7 +303,27 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         ++skippedCount;
         if (skipped.size() < kMaxSkippedListed) skipped.push_back(Json::object({{"entity", id}, {"reason", why}}));
     };
-    std::vector<Entity> stack{root};
+    // What is merged: the subtrees of the root's children (the children ARE the levels of a LodGroup, so under one only child 0, the
+    // full-detail level, is merged). The root's own MeshRenderer is not: a LodGroup does not hide it, so it would stay drawn next to
+    // the proxy, and the proxy is meant to stand for what is under the root.
+    const std::vector<Entity>& rootKids = std::as_const(*world).children(root);
+    const LodGroup* rootGroup = std::as_const(*world).get<LodGroup>(root);
+    // Refused before any mesh is read: LodGroup.hlodProxy on an entity that is not a group yet would make its children LOD levels.
+    if (apply && !rootGroup && rootKids.size() > 1)
+        fail("`apply` (/apply): '" + world->id_of(root) + "' has " + std::to_string(rootKids.size()) +
+                 " children and no LodGroup, and a LodGroup turns its children into LOD levels (child 0 is drawn up close, "
+                 "the others only past thresholds): applying would hide all but the first child.",
+             "Wrap the children in ONE child entity (it becomes LOD 0 of the group) and bake the entity again, or bake "
+             "without `apply` and set LodGroup.hlodProxy yourself on an entity whose children are the levels.");
+    if (std::as_const(*world).get<MeshRenderer>(root)) skip(world->id_of(root), "the entity's own MeshRenderer is not merged");
+    std::size_t levelsIgnored = 0;
+    std::vector<Entity> stack;
+    if (rootGroup && !rootKids.empty()) {
+        stack.push_back(rootKids[0]);
+        levelsIgnored = rootKids.size() - 1;
+    } else {
+        for (auto it = rootKids.rbegin(); it != rootKids.rend(); ++it) stack.push_back(*it);
+    }
     while (!stack.empty()) {
         const Entity e = stack.back();
         stack.pop_back();
@@ -368,9 +391,9 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     }
 
     // The default threshold: the proxy takes over at 8 times the group's size (Distance) or below 3% of the screen (ScreenSize).
+    const float dx = proxy.bmax.x - proxy.bmin.x, dy = proxy.bmax.y - proxy.bmin.y, dz = proxy.bmax.z - proxy.bmin.z;
     const float diameter =
-        std::sqrt(std::pow(proxy.bmax.x - proxy.bmin.x, 2.0f) + std::pow(proxy.bmax.y - proxy.bmin.y, 2.0f) +
-                  std::pow(proxy.bmax.z - proxy.bmin.z, 2.0f));
+        std::sqrt(dx * dx + dy * dy + dz * dz);
     Json result = Json::object({{"saved", *saved},
                                 {"entity", rootId},
                                 {"meshes", merged.meshes},
@@ -381,6 +404,7 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
                                 {"error", round4(info.error)},
                                 {"diameter", round4(diameter)},
                                 {"skipped", skippedCount},
+                                {"levelsIgnored", levelsIgnored},
                                 {"applied", false}});
     if (skippedCount > 0) result["skippedList"] = skipped;
     if (apply) {
@@ -404,7 +428,8 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"world.bake_hlod",
          "Bake the HLOD proxy of an entity: one simplified mesh that stands for everything under it.",
-         "Merges every active MeshRenderer under the entity (itself included) into ONE mesh in the entity's local "
+         "Merges every active MeshRenderer under the entity's children (under a LodGroup: child 0 only; not the "
+         "entity's own) into ONE mesh in the entity's local "
          "space, "
          "keeping the materials as submeshes, simplifies it with the simplifier of model.generate_lods (`ratio` keeps "
          "that "
@@ -412,13 +437,14 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
          "as a "
          ".glb at `out`. With `apply` it also sets LodGroup.hlodProxy (adding the LodGroup) and a default "
          "hlodThreshold "
-         "on the entity, one undo step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity "
+         "on the entity (refused when it has several children and no LodGroup: they would become LOD levels), one undo step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity "
          "of "
          "a scene file; no `apply`). Deterministic: the same scene and arguments write the same bytes. Result: {saved, "
          "entity, meshes, trianglesBefore, triangles, vertices, submeshes, error, diameter, skipped, applied, "
          "hlodThreshold?}. Example: world.bake_hlod {\"entity\":\"town_block\",\"out\":\"assets/hlod/town_block.glb\","
          "\"apply\":true}. Details: docs.read BIG_WORLDS_LOD, \"Levels of detail\", the HLOD proxy." FA_COMMAND_DETAILS
-         "The default hlodThreshold, when none is set: 8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
+         "A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) before `apply`; "
+         "`levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: 8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
          "mode; "
          "an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed "
          "in "
