@@ -1,0 +1,23 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "tile_2_1",
+      "components": {
+        "Transform": {
+          "position": [
+            250,
+            150,
+            0
+          ]
+        },
+        "Shape2D": {
+          "size": [
+            40,
+            40
+          ]
+        }
+      }
+    }
+  ]
+}

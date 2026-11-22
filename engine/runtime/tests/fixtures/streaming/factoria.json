@@ -1,0 +1,10 @@
+{
+  "format": "factoria.project/1",
+  "name": "Streaming Fixture",
+  "id": "com.example.streamingfixture",
+  "mainScene": "scenes/main.scene.json",
+  "display": {
+    "width": 320,
+    "height": 180
+  }
+}

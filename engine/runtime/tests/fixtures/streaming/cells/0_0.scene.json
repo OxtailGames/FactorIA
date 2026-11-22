@@ -1,0 +1,39 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "floor_0_0",
+      "components": {
+        "Transform": {
+          "position": [
+            50,
+            -0.5,
+            50
+          ]
+        },
+        "RigidBody3D": {
+          "type": "Static"
+        },
+        "Collider3D": {
+          "size": [
+            90,
+            1,
+            90
+          ]
+        }
+      }
+    },
+    {
+      "id": "marker_0_0",
+      "components": {
+        "Transform": {
+          "position": [
+            50,
+            1,
+            50
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -596,7 +596,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -12124,7 +12124,50 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS.md, "Streaming").
+   * 
+   * Category: World
+   * @since unreleased
+   */
+  export interface StreamedWorldComponent {
+    /**
+     * Project-relative path of the world index, a *.world.json file. Read once when the scene starts (or when this field changes). "" (default) = nothing is streamed. (asset path: any)
+     * @since unreleased
+     */
+    world: string;
+    /**
+     * true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.
+     * @since unreleased
+     */
+    maxLoadsInFlight: number;
+    /**
+     * 1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the frame's load budget limits the reading, not this. Default 1.
+     * @since unreleased
+     */
+    maxAppliesPerFrame: number;
+    /**
+     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. Default false.
+     * @since unreleased
+     */
+    keepLoaded: boolean;
+    /**
+     * Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor.
+     * @since unreleased
+     */
+    cameraLoadRadius: number;
+    /**
+     * Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius.
+     * @since unreleased
+     */
+    cameraUnloadRadius: number;
+  }
+  /**
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
@@ -12152,32 +12195,32 @@ declare module "factoria" {
      */
     heightOffset: number;
     /**
-     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Not drawn yet (planned): only layer 0 is. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     splatMaps: any;
     /**
-     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the plain terrain. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     layers: any;
     /**
-     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. Not cut yet (planned): the terrain is drawn and collides without holes. (asset path: texture)
+     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. (asset path: texture)
      * @since unreleased
      */
     holes: string;
     /**
-     * Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; below 1 the finest level is not drawn at 0.5, the two finest at 0.25 (a coarser terrain at any distance). 0.1..4. Default 1.
+     * Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and coarsening twice as far, 0.5 = half. 0.1..4. Default 1.
      * @since unreleased
      */
     lodQuality: number;
     /**
-     * Cast shadows from shadow-casting lights. Tiles outside the camera still cast: the cascades see the whole terrain, at the levels of detail the camera chose. Default true.
+     * Cast shadows from shadow-casting lights. Default true.
      * @since unreleased
      */
     castShadows: boolean;
     /**
-     * true (default) = the terrain is a static physics body made from the heights it draws (a ray and a falling body meet the same surface, triangle for triangle), and a sculpt moves it. It needs no Collider3D; an entity that has its own Collider3D keeps that one. A RigidBody3D that is not static on the entity is refused. false = visual only. The collider copies the heights as 32-bit floats: 67 MB at 4097 x 4097 samples.
+     * true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false = visual only.
      * @since unreleased
      */
     collision: boolean;
@@ -12588,6 +12631,7 @@ declare module "factoria" {
     OcclusionArea: OcclusionAreaComponent;
     OcclusionPortal: OcclusionPortalComponent;
     StreamingAnchor: StreamingAnchorComponent;
+    StreamedWorld: StreamedWorldComponent;
     Terrain: TerrainComponent;
     Foliage: FoliageComponent;
     ScatterRule: ScatterRuleComponent;
@@ -12658,6 +12702,7 @@ declare module "factoria" {
     OcclusionArea: { size?: Vec3Like; areaId?: number };
     OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
     StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
+    StreamedWorld: { world?: string; enabled?: boolean; maxLoadsInFlight?: number; maxAppliesPerFrame?: number; keepLoaded?: boolean; cameraLoadRadius?: number; cameraUnloadRadius?: number };
     Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
     Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
     ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
@@ -13260,7 +13305,7 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; terrainTiles the Terrain tiles drawn in the main pass and terrainTriangles their triangles, also counted in triangles but not in meshes; occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, foliageInstances and foliageInstancesCulled are the other big-world counters of M75 and stay 0 until M75.1-M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances and foliageInstancesCulled are the big-world counters of M75 and stay 0 until M75.1-M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
     renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; occluders: number; occlusionTests: number; meshesOccluded: number; lodCrossFades: number; impostors: number; terrainTiles: number; terrainTriangles: number; foliageInstances: number; foliageInstancesCulled: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
