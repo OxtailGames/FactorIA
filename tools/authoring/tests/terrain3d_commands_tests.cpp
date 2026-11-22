@@ -30,7 +30,8 @@ struct Project {
         std::ofstream(dir / "factoria.json", std::ios::binary)
             << R"({"format":"factoria.project/1","name":"Terrain","id":"com.example.terrain","mainScene":"scenes/main.scene.json",
                    "display":{"width":320,"height":180}})";
-        std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << R"({"format": "factoria.scene/1", "entities": []})";
+        std::ofstream(dir / "scenes/main.scene.json", std::ios::binary)
+            << R"({"format": "factoria.scene/1", "entities": []})";
         EngineConfig c;
         c.projectDir = dir.generic_string();
         c.headless = true;
@@ -74,9 +75,8 @@ struct Project {
     }
     // Does a ray straight down at (x, z) meet something, and where.
     bool ray(double x, double z, double* y = nullptr) {
-        auto r = call("physics.raycast",
-                      "{\"dimension\":\"3d\",\"origin\":[" + std::to_string(x) + ",300," + std::to_string(z) +
-                          "],\"direction\":[0,-1,0],\"maxDistance\":600}");
+        auto r = call("physics.raycast", "{\"dimension\":\"3d\",\"origin\":[" + std::to_string(x) + ",300," +
+                                             std::to_string(z) + "],\"direction\":[0,-1,0],\"maxDistance\":600}");
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         if (r.result["hit"] != true) return false;
         if (y) *y = r.result["point"][1].get<double>();
@@ -90,7 +90,8 @@ bool contains(const std::string& s, const char* part) { return s.find(part) != s
 
 TEST_CASE("terrain.create: writes a flat 16-bit heightmap and an entity that uses it") {
     Project p;
-    Json r = p.ok("terrain.create", R"({"name":"ground","size":[64,64],"resolution":65,"heightScale":50,"baseHeight":2})");
+    Json r =
+        p.ok("terrain.create", R"({"name":"ground","size":[64,64],"resolution":65,"heightScale":50,"baseHeight":2})");
     CHECK(r["entity"] == "ground");
     CHECK(r["heightmap"] == "assets/terrain/ground.height.png");
     CHECK(r["samples"] == 65);
@@ -109,7 +110,8 @@ TEST_CASE("terrain.create: writes a flat 16-bit heightmap and an entity that use
     CHECK(p.height("ground", 3.0, -4.0) == doctest::Approx(2.0).epsilon(1e-4).scale(1.0));
     // a second terrain of the same name or file is refused, nothing is overwritten
     CHECK(contains(p.refused("terrain.create", R"({"name":"ground"})"), "already exists"));
-    CHECK(contains(p.refused("terrain.create", R"({"name":"other","path":"assets/terrain/ground.height.png"})"), "/path"));
+    CHECK(contains(p.refused("terrain.create", R"({"name":"other","path":"assets/terrain/ground.height.png"})"),
+                   "/path"));
     // resolutions that are not 2^k + 1 say which ones work
     const std::string e1 = p.refused("terrain.create", R"({"name":"x","resolution":100})");
     CHECK(contains(e1, "/resolution"));
@@ -117,10 +119,12 @@ TEST_CASE("terrain.create: writes a flat 16-bit heightmap and an entity that use
     // an unknown argument gets a did you mean
     CHECK(contains(p.refused("terrain.create", R"({"name":"y","sizes":[1,1]})"), "size"));
     // importing the file just written
-    Json imp = p.ok("terrain.create", R"({"name":"copy","heightmap":"assets/terrain/ground.height.png","size":[10,10]})");
+    Json imp =
+        p.ok("terrain.create", R"({"name":"copy","heightmap":"assets/terrain/ground.height.png","size":[10,10]})");
     CHECK(imp["imported"] == true);
     CHECK(imp["samples"] == 65);
-    CHECK(contains(p.refused("terrain.create", R"({"name":"bad","heightmap":"assets/terrain/missing.png"})"), "/heightmap"));
+    CHECK(contains(p.refused("terrain.create", R"({"name":"bad","heightmap":"assets/terrain/missing.png"})"),
+                   "/heightmap"));
 }
 
 TEST_CASE("terrain.sculpt: brushes change the surface inside the circle only, deterministically") {
@@ -128,7 +132,8 @@ TEST_CASE("terrain.sculpt: brushes change the surface inside the circle only, de
     p.make("a");
     p.make("b");
     const double base = p.height("a", 0, 0);
-    Json r = p.ok("terrain.sculpt", R"({"entity":"a","tool":"raise","center":[0,0],"radius":10,"amount":5,"strength":1})");
+    Json r =
+        p.ok("terrain.sculpt", R"({"entity":"a","tool":"raise","center":[0,0],"radius":10,"amount":5,"strength":1})");
     CHECK(r["changedSamples"].get<int>() > 100);
     CHECK(r["undoDepth"] == 1);
     CHECK(r["unsaved"] == true);
@@ -151,7 +156,8 @@ TEST_CASE("terrain.sculpt: brushes change the surface inside the circle only, de
     CHECK(p.height("a", 0, 0) < spike - 1.0);
     // a stroke of points is one undo step
     const std::size_t depth = p.heights("a")->undo_depth();
-    Json s = p.ok("terrain.sculpt", R"({"entity":"a","points":[[-20,-20],[-18,-20],[-16,-20],[-14,-20]],"radius":3,"amount":2})");
+    Json s = p.ok("terrain.sculpt",
+                  R"({"entity":"a","points":[[-20,-20],[-18,-20],[-16,-20],[-14,-20]],"radius":3,"amount":2})");
     CHECK(s["stamps"] == 4);
     CHECK(p.heights("a")->undo_depth() == depth + 1);
     // outside the terrain: nothing changes, no step
@@ -163,8 +169,9 @@ TEST_CASE("terrain.sculpt: brushes change the surface inside the circle only, de
 TEST_CASE("terrain.sculpt: honours the entity's transform") {
     Project p;
     p.make("t");
-    p.ok("scene.set_component",
-         R"({"id":"t","component":"Transform","fields":{"position":[100,10,-50],"rotation":[0,90,0],"scale":[2,3,2]}})");
+    p.ok(
+        "scene.set_component",
+        R"({"id":"t","component":"Transform","fields":{"position":[100,10,-50],"rotation":[0,90,0],"scale":[2,3,2]}})");
     const double base = p.height("t", 100, -50);
     CHECK(base == doctest::Approx(10.0).epsilon(1e-3).scale(1.0));
     Json r = p.ok("terrain.sculpt", R"({"entity":"t","center":[110,-50],"radius":8,"amount":2,"strength":1})");
@@ -304,7 +311,8 @@ TEST_CASE("terrain.paint: weights stay normalised across the two splat maps") {
     p.ok("terrain.undo", R"({"entity":"g"})");
     CHECK(h->splat[0].rgba == before);
     // layers that are declared bound the layer index
-    p.ok("scene.set_component", R"({"id":"g","component":"Terrain","fields":{"layers":[{"albedo":"a.png"},{"albedo":"b.png"}]}})");
+    p.ok("scene.set_component",
+         R"({"id":"g","component":"Terrain","fields":{"layers":[{"albedo":"a.png"},{"albedo":"b.png"}]}})");
     const std::string e = p.refused("terrain.paint", R"({"entity":"g","layer":3,"center":[0,0],"radius":3})");
     CHECK(contains(e, "/layer"));
     CHECK(contains(e, "2 layer"));
@@ -368,7 +376,8 @@ TEST_CASE("terrain.generate: seeded noise and erosion are deterministic, one und
     p.make("a");
     p.make("b");
     p.make("c");
-    Json ra = p.ok("terrain.generate", R"({"entity":"a","seed":7,"octaves":4,"frequency":0.03,"erosion":3000,"thermal":4})");
+    Json ra =
+        p.ok("terrain.generate", R"({"entity":"a","seed":7,"octaves":4,"frequency":0.03,"erosion":3000,"thermal":4})");
     p.ok("terrain.generate", R"({"entity":"b","seed":7,"octaves":4,"frequency":0.03,"erosion":3000,"thermal":4})");
     p.ok("terrain.generate", R"({"entity":"c","seed":8,"octaves":4,"frequency":0.03,"erosion":3000,"thermal":4})");
     CHECK(p.heights("a")->data == p.heights("b")->data);
@@ -408,13 +417,15 @@ TEST_CASE("terrain commands: errors name the argument, the cause and the fix") {
     CHECK(contains(noEntity, "not_found"));
     CHECK(contains(noEntity, "g"));
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"rock","center":[0,0],"radius":3})"), "no Terrain"));
-    const std::string both = p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"points":[[1,1]],"radius":3})");
+    const std::string both =
+        p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"points":[[1,1]],"radius":3})");
     CHECK(contains(both, "/points"));
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","radius":3})"), "/center"));
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0],"radius":3})"), "center"));
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":0})"), "radius"));
     CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","tool":"raze","center":[0,0],"radius":3})"), "raise"));
-    CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":3,"strenght":1})"), "strength"));
+    CHECK(
+        contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":3,"strenght":1})"), "strength"));
     CHECK(contains(p.refused("terrain.paint", R"({"entity":"g","layer":9,"center":[0,0],"radius":3})"), "layer"));
     CHECK(contains(p.refused("terrain.holes", R"({"entity":"g","mode":"dig","center":[0,0],"radius":3})"), "cut"));
     // an entity without a heightmap cannot be sculpted, and the error says how to get one

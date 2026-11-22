@@ -389,6 +389,9 @@ TEST_CASE("encode_terrain_heightmap and save_terrain_files: the files hold the p
         t.splatMaps = Json::array({fs::path_to_utf8(dir / "g.splat0.png")});
         auto h = TerrainHeights::flat(33, 30000);
         w.terrain().adopt(e, t.heightmap, h);
+        h->splat[0].size = 4;  // a splat map must exist before a step can edit it
+        h->splat[0].rgba.assign(4 * 4 * 4, 0);
+        h->splat[0].source = fs::path_to_utf8(dir / "g.splat0.png");
         // a grid that was never edited writes nothing
         std::vector<std::string> written;
         REQUIRE(save_terrain_files(w, e, &written).ok());
