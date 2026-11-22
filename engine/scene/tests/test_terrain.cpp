@@ -184,6 +184,26 @@ TEST_CASE("terrain_local_sample: the triangles of the collider (diagonal from (r
     CHECK(terrain_local_sample(h, t, -16.0f, -16.0f, y, dx, dz));
 }
 
+TEST_CASE(
+    "terrain_local_sample: ignoreHoles reads the surface of a cut cell (the editor's brush aims there to fill it)") {
+    TerrainHeights h;
+    h.samples = 33;
+    h.data.assign(33 * 33, 0);
+    h.holes.assign(32 * 32, 0);
+    h.holes[5 * 32 + 5] = 1;  // the cell at column 5, row 5 is cut
+    Terrain3D t;
+    t.size = {32.0f, 32.0f};
+    t.heightScale = 10.0f;
+    t.heightOffset = 2.0f;
+    float y = 0.0f, dx = 0.0f, dz = 0.0f;
+    const float x = -16.0f + 5.5f, z = -16.0f + 5.5f;
+    CHECK_FALSE(terrain_local_sample(h, t, x, z, y, dx, dz));
+    REQUIRE(terrain_local_sample(h, t, x, z, y, dx, dz, true));
+    CHECK(y == doctest::Approx(2.0f));
+    // outside the grid there is no surface either way
+    CHECK_FALSE(terrain_local_sample(h, t, 16.5f, 0.0f, y, dx, dz, true));
+}
+
 TEST_CASE("terrain_sample: through the transform of the entity, with the normal of the surface") {
     const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_scene").value();
     GrayImage16 g;
@@ -361,6 +381,56 @@ TEST_CASE(
     CHECK_FALSE(problem.empty());
     CHECK(h->data == keep);
     CHECK(h->undo_depth() == 1);
+}
+
+TEST_CASE("TerrainHeights: extend_step joins the newest step, undo and redo cover every piece") {
+    auto h = TerrainHeights::flat(33, 1000);
+    const std::vector<std::uint16_t> start = h->data;
+    TerrainStep a;
+    a.label = "terrain.sculpt";
+    a.patches.push_back(height_patch(*h, 2, 2, 4, 4, 2000));
+    std::string problem;
+    CHECK_FALSE(h->extend_step(a, &problem));  // nothing to continue yet
+    CHECK_FALSE(problem.empty());
+    REQUIRE(h->apply_step(a));
+    TerrainStep b;
+    b.label = "terrain.sculpt";
+    b.patches.push_back(height_patch(*h, 4, 4, 6, 6, 3000));  // overlaps the first piece and grows the rectangle
+    TerrainPatch holes;
+    holes.plane = TerrainPlane::Holes;
+    holes.x0 = 1;
+    holes.y0 = 1;
+    holes.w = 2;
+    holes.h = 2;
+    holes.before.assign(4, 0);
+    holes.after.assign(4, 1);
+    b.patches.push_back(holes);  // a plane the first piece did not touch
+    const std::uint64_t v = h->version;
+    REQUIRE_MESSAGE(h->extend_step(b, &problem), problem);
+    CHECK(h->undo_depth() == 1);
+    CHECK(h->at(2, 2) == 2000);
+    CHECK(h->at(5, 5) == 3000);  // the second piece wins where they overlap
+    CHECK(h->at(9, 9) == 3000);
+    TerrainRect r;
+    REQUIRE(h->dirty_since(v, r));
+    CHECK(r.c0 == 4);  // the dirty rectangle is the new piece's own
+    CHECK(r.c1 == 9);
+    const std::vector<std::uint16_t> end = h->data;
+    const std::vector<std::uint8_t> holesEnd = h->holes;
+    REQUIRE(h->undo());
+    CHECK(h->data == start);
+    CHECK(std::count(h->holes.begin(), h->holes.end(), std::uint8_t(1)) == 0);
+    REQUIRE(h->redo());
+    CHECK(h->data == end);
+    CHECK(h->holes == holesEnd);
+    // another label, or an undone step, is not continued
+    TerrainStep other;
+    other.label = "terrain.holes";
+    other.patches.push_back(holes);
+    CHECK_FALSE(h->extend_step(other, &problem));
+    REQUIRE(h->undo());
+    CHECK_FALSE(h->extend_step(b, &problem));
+    CHECK(h->data == start);
 }
 
 TEST_CASE("TerrainHeights: the history keeps at most kTerrainHistorySteps steps") {

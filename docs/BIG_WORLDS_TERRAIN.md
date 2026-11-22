@@ -8,7 +8,7 @@ The `Terrain` component draws a heightmap with a GPU level of detail and gives i
 called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What it does:** the heightmap is drawn as tiles that coarsen with distance, painted with up to 8 material layers blended by the
 splat maps (P5d), with the holes cut out of the surface, its shadow and its collider, lit and shadowed like a mesh; `collision`;
 the counters; and the commands that create, sculpt, paint, cut holes in and generate a terrain, with undo (below). The brushes in
-the editor are P5c.
+the editor are P5c: View > Terrain tool ("Editing in the editor", below).
 
 | Field | Meaning |
 |---|---|
@@ -86,9 +86,9 @@ The declarations are in `engine/scene/include/fa/scene/terrain.h`.
 | Command | What it does |
 |---|---|
 | `terrain.create {name, size, resolution, heightScale, baseHeight, position, path}` | writes a flat 16-bit PNG heightmap (`resolution` 33 ... 4097, 2^k + 1, default 513; an existing file is never overwritten) and creates the entity with a `Terrain` that uses it. The flat surface sits at `baseHeight`, half way up the `heightScale` range, so it can be sculpted down as well as up. `heightmap` uses an existing file instead and writes nothing. It adds no `layers` (each needs an albedo texture: `scene.set_component`) |
-| `terrain.sculpt {entity, tool, center or points, radius, amount, strength, height, save}` | `tool` is `raise`, `lower` (`amount` metres at the middle of the brush when `strength` is 1), `smooth` or `flatten` (toward `height`, world y, default the surface under the first stamp). The brush fades smoothly to 0 at its edge |
-| `terrain.paint {entity, layer, center or points, radius, strength, splatResolution, save}` | raises the weight of `layer` (0 ... 7) and lowers the other 7 in proportion; every texel's 8 weights add up to 255 |
-| `terrain.holes {entity, mode, center or points, radius, save}` | `mode` `cut` (default) or `fill` the cells whose centre is in the circle |
+| `terrain.sculpt {entity, tool, center or points, radius, amount, strength, falloff, height, continueStroke, save}` | `tool` is `raise`, `lower` (`amount` metres at the middle of the brush when `strength` is 1), `smooth` or `flatten` (toward `height`, world y, default the surface under the first stamp). `falloff` 0 ... 1 (default 1) is the share of the radius the effect fades over: 1 fades from the middle to the edge, 0 is a hard edge. The brush fades smoothly to 0 at its edge |
+| `terrain.paint {entity, layer, center or points, radius, strength, falloff, splatResolution, continueStroke, save}` | raises the weight of `layer` (0 ... 7) and lowers the other 7 in proportion; every texel's 8 weights add up to 255 |
+| `terrain.holes {entity, mode, center or points, radius, continueStroke, save}` | `mode` `cut` (default) or `fill` the cells whose centre is in the circle |
 | `terrain.generate {entity, seed, frequency, octaves, fractal, amplitude, erosion, thermal, resolution, save}` | replaces the heights by seeded fractal noise (`fbm`, `ridged` or `billow`) and then `erosion` droplets of hydraulic erosion and `thermal` passes of thermal erosion. Without a heightmap, `resolution` makes a new grid and its file |
 | `terrain.save {entity}` | writes the edited files (every terrain when `entity` is left out) |
 | `terrain.undo {entity, save}`, `terrain.redo {entity, save}` | take back or re-apply the newest edit of that terrain |
@@ -117,9 +117,24 @@ saved with the scene, and is cleared when the scene loads. What a command change
 goes back. A command that fails changes nothing and adds no step. The result of an edit has `undoDepth`, `unsaved` (files with
 edits not written yet) and `undo` (the command that takes it back).
 
+**A stroke in pieces: `continueStroke`.** A command that edits (sculpt, paint, holes) takes `continueStroke: true` to add its changes
+to the newest undo step instead of making one: a tool that applies a stroke live, a few stamps per frame, makes the first call without it
+and the others with it, and the whole stroke is ONE step of `terrain.undo`. It is refused (with the pointer `/continueStroke`) when the
+terrain has no step to continue, when an edit was undone since, and when the newest step was made by another command. A piece that
+changes nothing adds nothing (and the stroke's first piece must have changed something for the next ones to continue it). Cut into pieces, a stroke gives the same ground as one call up to the rounding of
+the stamps' blending (at most two raw 16-bit units of a sample, about 0.003 m at a height scale of 100).
+
 **Errors teach.** Each error names the JSON pointer of the argument (`/radius`, `/points`, `/layer`, `/resolution`), what is wrong and
 the fix: a `resolution` that is not 2^k + 1 lists the ones that work, an unknown argument gets "did you mean", an entity without a
 `Terrain` or without a heightmap names the command that makes one, and a `layer` beyond `Terrain.layers` says how many there are.
+
+### Editing in the editor
+
+View > Terrain tool ([docs/editor/EDITOR_PANELS.md](editor/EDITOR_PANELS.md#terrain-tool)) is a brush on the selected `Terrain`: sculpt
+(raise, lower, smooth, flatten), paint a layer, cut or fill holes, with radius, strength and falloff, a cursor ring on the ground under the
+mouse and `[` `]` for the radius. It sends the commands above (`terrain.sculpt`, `terrain.paint`, `terrain.holes`) a few stamps at a time
+while the mouse moves, with `continueStroke`, and records ONE editor undo entry at the release (`terrain.undo` / `terrain.redo`), so
+Ctrl+Z takes a whole stroke back. A scene save writes the terrain files; a write error names the file and keeps every edit in memory.
 
 ### Terrain data formats
 

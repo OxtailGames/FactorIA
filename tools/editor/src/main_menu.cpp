@@ -53,7 +53,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     file.push_back(menu::action(
         "Reload Scene",
         [this] {
-            if (dirty_)
+            if (has_unsaved_work())
                 showReloadConfirm_ = true;
             else
                 reload_scene_from_disk();
@@ -67,7 +67,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
             for (const auto& f : fs::list("", true))
                 if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.') {
                     Item i = menu::action(f, [this, f] {
-                        if (dirty_)
+                        if (has_unsaved_work())
                             pendingScene_ = f;
                         else
                             open_scene(f);
@@ -207,6 +207,12 @@ menu::MainMenu Editor::build_main_menu(bool native) {
         with(toggle("Lightmap", showLightmap_), "menu:lightmap",
              "Bake the scene's baked lights, its sky and its static meshes into lightmaps (lightmap.bake_start): "
              "a progress bar with the phase, Cancel, and a summary of the pages; the scene then uses them"));
+    view.push_back(with(toggle("Cells", showCells_), "menu:cells",
+                        "Edit a streamed world (a scene with a StreamedWorld): load the cells around the camera or the "
+                        "ones you pick as "
+                        "editable entities, see which cells have unsaved changes, and save each one to its own file; "
+                        "the viewport draws the "
+                        "cell grid. Edit mode only: Play streams by distance"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
                         "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers "
                         "and a mixer, played by the player a game's entity.music uses (an intensity slider fades the "
@@ -218,6 +224,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(with(
         toggle("Bone tools", showBoneTools_), "menu:bonetools",
         "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
+    view.push_back(
+        with(toggle("Terrain tool", showTerrainTool_), "menu:terraintool",
+             "Sculpt, paint and cut holes in the selected Terrain with a brush in the viewport; one stroke is one "
+             "undo step and Save writes the terrain files"));
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
     view.push_back(

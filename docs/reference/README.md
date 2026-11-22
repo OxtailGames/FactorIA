@@ -682,9 +682,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`tilemap.split_cells`](commands/world.md#tilemapsplit_cells-modifies-state): Cut the Tilemap of a scene into a streamed 2D world: one chunk scene per cell and an index. _Not released yet._
 - [`world.absolute_position`](commands/world.md#worldabsolute_position): Read an entity's position in double precision: the floating origin plus its local position. _Not released yet._
 - [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
-- [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
+- [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a streamed world back into one scene file. _Not released yet._
 - [`world.origin`](commands/world.md#worldorigin): Read the floating origin: where the world's origin is, in double precision. _Not released yet._
 - [`world.rebase`](commands/world.md#worldrebase-modifies-state): Move the floating origin now, shifting every entity so the camera is near (0, 0, 0) again. _Not released yet._
-- [`world.split_cells`](commands/world.md#worldsplit_cells-modifies-state): Split a scene into streamable cells on a grid, with a manifest. _Not released yet._
+- [`world.split_cells`](commands/world.md#worldsplit_cells-modifies-state): Cut a scene into a streamed world: an index, one scene per cell and a persistent scene. _Not released yet._
 - [`world.stream_status`](commands/world.md#worldstream_status): Read what the world streaming is doing: loads in flight, budget, cells loaded. _Not released yet._
 
