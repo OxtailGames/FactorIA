@@ -244,7 +244,8 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
 // The HLOD proxies (M75 P1d): for each active LodGroup with an hlodProxy and an hlodThreshold, one more mesh of the scene, drawn with the group's
 // matrix like any MeshRenderer (so its box, material, lightmap-less lighting, probes and sort key come from the one gather). Whether a camera
 // draws it is decided per frame from the group's pick (hlod_proxy_shown). A proxy that cannot be read is not added, so the group draws its
-// children as before, and says so once. Costs one check per LodGroup without a proxy.
+// children as before, and says so once. Costs a set lookup per LodGroup with a proxy; the file is looked for on disk (a stat) once per path
+// until an asset reloads, never once per frame.
 void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot) {
     world.each<LodGroup>([&](Entity e, LodGroup& g) {
         if (g.hlodProxy.empty() || !(g.hlodThreshold > 0.0f)) return;
@@ -253,7 +254,16 @@ void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoo
         // Assets::mesh then stays quiet about it. Any other failure (a file that does not parse, a path that is not a model) is the one
         // error Assets::mesh logs, with its cause.
         const std::string ext = fs::extension(g.hlodProxy);
-        if ((ext == ".glb" || ext == ".gltf") && !fs::exists(fs::normalize(g.hlodProxy)))
+        if (hlodCheckedGen_ != assets.reload_generation()) {
+            hlodChecked_.clear();
+            hlodCheckedGen_ = assets.reload_generation();
+        }
+        bool missing = false;
+        if ((ext == ".glb" || ext == ".gltf") && hlodChecked_.insert(g.hlodProxy).second) {
+            ++hlodChecks_;
+            missing = !fs::exists(fs::normalize(g.hlodProxy));
+        }
+        if (missing)
             assets.note_failure(
                 "mesh", g.hlodProxy,
                 std::format("LodGroup.hlodProxy '{}' of entity '{}' (and of every other group that names it): the file "

@@ -1,5 +1,7 @@
 #include "renderer_lod.h"
 
+#include <algorithm>
+
 namespace fa::render {
 
 namespace {
