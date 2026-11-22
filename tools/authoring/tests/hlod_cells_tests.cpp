@@ -154,6 +154,8 @@ TEST_CASE("world.bake_cell_hlods: bakes one proxy per cell in the cell's corner 
     CHECK(index.value().find(1, 0)->sizeBytes == 321);
     CHECK(index.value().find(0, 1)->hlod.empty());
     CHECK(r["indexWritten"] == "worlds/town.world.json");
+    CHECK(r["note"].get<std::string>().find("scene.load") !=
+          std::string::npos);  // a running game reads the index again on reload
 }
 
 TEST_CASE("world.bake_cell_hlods: the same arguments write the same bytes, and a second run changes nothing") {
@@ -223,6 +225,12 @@ TEST_CASE("world.bake_cell_hlods: a refused call names its JSON pointer and writ
     t = error_text(e, world_arg(Json::object({{"maxDistance", -5}})));
     CHECK(t.find("/maxDistance") != std::string::npos);
     t = error_text(e, world_arg(Json::object({{"outDir", "../outside"}})));
+    CHECK(t.find("/outDir") != std::string::npos);
+    t = error_text(e, world_arg(Json::object({{"outDir", (p.dir / "elsewhere").generic_string()}})));
+    CHECK(t.find("/outDir") != std::string::npos);
+    CHECK(t.find("project-relative") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.dir / "elsewhere"));
+    t = error_text(e, world_arg(Json::object({{"outDir", "C:/hlod"}})));
     CHECK(t.find("/outDir") != std::string::npos);
     t = error_text(e, world_arg(Json::object({{"outdir", "x"}})));
     CHECK(t.find("/outdir") != std::string::npos);

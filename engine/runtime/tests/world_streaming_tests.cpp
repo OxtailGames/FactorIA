@@ -22,6 +22,7 @@
 #include "fa/core/json.h"
 #include "fa/physics/physics.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/internal/world_streamer.h"
 #include "fa/scene/components.h"
 #include "fa/scene/components_world.h"
 #include "fa/scene/serialize.h"
@@ -676,7 +677,8 @@ TEST_CASE(
         CHECK_FALSE(e.world().info(proxy).streamedCell);
         REQUIRE(e.world().get<MeshRenderer>(proxy) != nullptr);
         CHECK(e.world().get<MeshRenderer>(proxy)->mesh == "hlod/1_1.glb");
-        const DVec3 corner = e.world().absolute_position(proxy);  // the mesh is in the space of the cell's corner
+        CHECK_FALSE(e.world().get<MeshRenderer>(proxy)->castShadows);  // far away: no shadow pass over the proxies
+        const DVec3 corner = e.world().absolute_position(proxy);       // the mesh is in the space of the cell's corner
         CHECK(corner.x == doctest::Approx(100.0));
         CHECK(corner.y == doctest::Approx(0.0));
         CHECK(corner.z == doctest::Approx(100.0));
@@ -785,6 +787,49 @@ TEST_CASE("streaming hlod: a proxy that cannot be read is reported once and the 
     move(e, "anchor", 250, 0, 50);
     settle(e);
     CHECK(alive_id(e, "floor_2_0"));
+    e.shutdown();
+}
+
+TEST_CASE(
+    "streaming hlod: a failed proxy is tried again after kRetryTicks and forgotten when its cell is out of range") {
+    StreamProject p;
+    add_proxies(p, 0.0, "2,0");
+    ProxyLog log;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    streamed(e).hlodDistance = 250.0f;
+    wait_shown(e, 5);
+    CHECK(call(e, "world.stream_status")["hlodProxiesFailed"].get<int>() == 1);
+    // The file appears (a transient failure is over): the proxy shows after at most kRetryTicks more ticks, with no second report.
+    p.write("hlod/2_0.glb", "glTF placeholder hlod/2_0.glb");
+    wait_shown(e, 6);
+    CHECK(alive_id(e, "hlod_2_0"));
+    CHECK(call(e, "world.stream_status")["hlodProxiesFailed"].get<int>() == 0);
+    int reports = 0;  // the index's own warning about the missing file is not a read failure
+    for (const std::string& line : log.get())
+        if (line.find("cannot be read") != std::string::npos) ++reports;
+    CHECK(reports == 1);
+    // A proxy that keeps failing is reported once however many retries pass, and the cell is forgotten when it leaves the range.
+    std::filesystem::remove(p.dir / "hlod/1_2.glb");
+    streamed(e).hlodDistance = 0.0f;
+    e.step(5);
+    CHECK(call(e, "world.stream_status")["hlodProxiesShown"].get<int>() == 0);
+    streamed(e).hlodDistance = 250.0f;
+    wait_shown(e, 5);  // [1,2] cannot be read now
+    for (int f = 0; f < 3 * WorldStreamer::kRetryTicks; ++f) e.step(1);
+    Json s = call(e, "world.stream_status");
+    CHECK(s["hlodProxiesFailed"].get<int>() == 1);
+    int mentions = 0;
+    for (const std::string& line : log.get())
+        if (line.find("cell 1,2") != std::string::npos) ++mentions;
+    CHECK(mentions == 1);
+    streamed(e).hlodDistance = 0.0f;  // out of range: the failed entry is released, not kept
+    e.step(5);
+    s = call(e, "world.stream_status");
+    CHECK(s["hlodProxiesFailed"].get<int>() == 0);
+    for (const Json& c : call(e, "world.cells")["cells"])
+        if (c["id"] == "1,2") CHECK(c["proxy"] == "none");
     e.shutdown();
 }
 
