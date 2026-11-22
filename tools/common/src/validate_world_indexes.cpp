@@ -151,10 +151,12 @@ void check_tilemap_chunks(const std::string& rel, const WorldIndex& index, std::
             }
             // Does it stay inside its cell?
             Tilemap tm;
-            if (flatten_tilemap_rows(f).empty() && f.contains("tiles")) {
-                tm.width = f.value("width", 0);
-                tm.height = f.value("height", 0);
-                set_tilemap_tiles(tm, f["tiles"]);
+            Json flat = f;  // flatten_tilemap_rows edits its argument; only this check needs a copy
+            if (flatten_tilemap_rows(flat).empty() && flat.contains("tiles") &&
+                flat.value("width", Json()).is_number_integer() && flat.value("height", Json()).is_number_integer()) {
+                tm.width = flat["width"].get<int>();
+                tm.height = flat["height"].get<int>();
+                set_tilemap_tiles(tm, flat["tiles"]);
             }
             const TilemapSize size = tilemap_size(tm);
             const double eps = 1e-3 * std::max(tw, th);

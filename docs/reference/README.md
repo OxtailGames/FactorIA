@@ -679,6 +679,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`terrain.save`](commands/world.md#terrainsave-modifies-state): Write the edited files of one Terrain, or of every Terrain, to the project. _Not released yet._
 - [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step). _Not released yet._
 - [`terrain.undo`](commands/world.md#terrainundo-modifies-state): Undo the last terrain edit of a Terrain (one command's worth of heights, holes and splat maps). _Not released yet._
+- [`tilemap.split_cells`](commands/world.md#tilemapsplit_cells-modifies-state): Cut the Tilemap of a scene into a streamed 2D world: one chunk scene per cell and an index. _Not released yet._
 - [`world.absolute_position`](commands/world.md#worldabsolute_position): Read an entity's position in double precision: the floating origin plus its local position. _Not released yet._
 - [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
 - [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
