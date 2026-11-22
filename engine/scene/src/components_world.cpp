@@ -558,7 +558,7 @@ void register_world_components(TypeRegistry& r) {
          "instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer "
          "with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain "
          "grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not "
-         "drawn yet (planned, docs/BIG_WORLDS.md, \"Terrain\").",
+         "drawn yet (planned in M75.5, docs/BIG_WORLDS.md, \"Terrain\").",
          "3D")
         .asset_field("heightmap", &Terrain3D::heightmap, "any",
                      "Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the "
