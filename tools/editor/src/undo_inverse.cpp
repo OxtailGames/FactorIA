@@ -585,19 +585,28 @@ std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entity
     return n;
 }
 
-std::size_t drop_terrain_entries_beyond(UndoStack& stack, const std::string& entityId, std::size_t historyDepth) {
-    std::size_t total = 0;
-    for (const UndoEntry& e : stack) total += terrain_undo_count(e, entityId);
-    if (total <= historyDepth) return 0;
-    std::size_t dropped = 0;
-    stack.erase_if([&](const UndoEntry& e) {  // oldest first: those are the steps the terrain's history let go
+namespace {
+bool names_terrain(const UndoCommand& c, const char* cmd, const std::string& entityId) {
+    return c.cmd == cmd && c.args.is_object() && c.args.contains("entity") && c.args["entity"].is_string() &&
+           c.args["entity"].get<std::string>() == entityId;
+}
+}  // namespace
+
+TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::size_t steps) {
+    TerrainDrop out;
+    if (steps == 0) return out;
+    stack.erase_if([&](UndoEntry& e) {  // oldest first: those are the steps the terrain's history let go
+        if (out.steps >= steps) return false;
         const std::size_t n = terrain_undo_count(e, entityId);
-        if (total <= historyDepth || n == 0) return false;
-        total -= n;
-        ++dropped;
+        if (n == 0) return false;
+        std::erase_if(e.inverse, [&](const UndoCommand& c) { return names_terrain(c, "terrain.undo", entityId); });
+        std::erase_if(e.forward, [&](const UndoCommand& c) { return names_terrain(c, "terrain.redo", entityId); });
+        out.steps += n;
+        if (!e.inverse.empty()) return false;  // something else in the entry can still be undone: it stays
+        ++out.entries;
         return true;
     });
-    return dropped;
+    return out;
 }
 
 }  // namespace fa::editor
