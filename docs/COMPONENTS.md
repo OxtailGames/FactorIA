@@ -11196,16 +11196,19 @@ Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS_STREA
 
 Not released yet (on main after 0.34.0).
 
-Merge the cells of a split scene back into one scene file.
+Merge the cells of a streamed world back into one scene file.
 
 Capabilities: read, state, writeProject
 
-Will read a manifest written by world.split_cells and write the entities of every cell back into one scene file (the inverse of the split, so a level can be edited as one file). `dryRun` only reports. Result: {scene, entities}. Example: world.merge_cells {"manifest":"scenes/main.world.json"} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+The inverse of world.split_cells: reads the index `world`, its persistent scene and every cell scene, and writes all their entities into the one scene `out`, with the persistent scene's `settings`: the persistent scene's entities first, then each cell's in index order (by j, then i), each entity with its children, ids and components exactly as in its file. So split then merge gives the same entities (the order of the roots follows the cells). Details: docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world".
+
+Two files with the same entity id are an error (nothing is written). The world's files are never changed and `out` may not be one of them; an existing `out` is replaced only with `overwrite`; `dryRun` reports without writing. Result: {scene, world, cells, persistent, entities, persistentEntities, filesRead, written, notes}. Example: world.merge_cells {"world":"worlds/town.world.json","out":"scenes/town_merged.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `manifest` | string | yes | The manifest file written by world.split_cells. |
-| `output` | string | no | The scene file to write (default: the scene the manifest was made from). |
+| `world` | string | yes | The index file (project-relative *.world.json). |
+| `out` | string | yes | The scene file to write (project-relative *.scene.json). |
+| `overwrite` | boolean | no | Replace `out` when it exists. Default false. |
 | `dryRun` | boolean | no | Only report what would be written. Default false. |
 
 ### `world.origin`
@@ -11238,17 +11241,21 @@ Moves the origin to `origin` (double metres, world space: the NEW origin, not a 
 
 Not released yet (on main after 0.34.0).
 
-Split a scene into streamable cells on a grid, with a manifest.
+Cut a scene into a streamed world: an index, one scene per cell and a persistent scene.
 
 Capabilities: read, state, writeProject
 
-Will cut the scene's entities into a grid of cells `cellSize` metres wide on X and Z, write one scene file per cell and the index `<name>.world.json` (the manifest: cell size, each cell's bounds and file, the entities that stay always loaded), and report what it wrote. `dryRun` only reports. Writes next to the scene unless `output` names a folder. Result: {cells, files, alwaysLoaded}. Example: world.split_cells {"scene":"scenes/world.scene.json","cellSize":128} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+Reads a scene file and writes `<out>` (a world index, default: the scene's name with .world.json), one scene per non-empty cell in `<out without .world.json>_cells/<i>_<j>.scene.json`, and the persistent scene `<out without .world.json>_persistent.scene.json` (named in the index's `persistent` key). A ROOT entity goes whole, with all its children, to the cell its world position is in: cell [i, j] is floor((x - origin) / cellSize) on the plane (XZ for "3d", XY for "2d"), cell borders belong to the higher cell, the index origin is [0, 0]. Details: docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world".
+
+GLOBAL entities stay in the persistent scene instead, together with the scene's `settings`: a root entity whose subtree has a Camera, an AudioListener, a MusicPlayer, a StreamedWorld, a StreamingAnchor, any user-interface component or a directional Light, that has no Transform, or whose tags include "global". The cells' bounds are the cell rectangle on the plane and the lowest and highest position of its entities in height (3d). The entities are written exactly as the source scene has them (same ids, components and children, in the source order), so world.merge_cells gives them back. A scene with a floating `origin` is refused (rebase it first). A string in an entity's components that is the id of an entity in another cell is reported in `warnings`: such a reference is empty while the other cell is not loaded. The output is deterministic (the same scene and cellSize give the same bytes). The source scene is never changed; existing files are only replaced with `overwrite`; `dryRun` reports without writing. Result: {world, persistent, cells, entities, globalEntities, globalList, files, written, cellList, warnings, notes}. Example: world.split_cells {"scene":"scenes/town.scene.json","cellSize":128,"out":"worlds/town.world.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `scene` | string | yes | The scene file to split (project-relative path). |
-| `cellSize` | number | no | Width of a cell in metres, on X and Z. Default 128. |
-| `output` | string | no | Folder for the cell files (default: next to the scene). |
+| `scene` | string | yes | The scene file to split (project-relative *.scene.json). |
+| `cellSize` | number | yes | Width of a cell in metres, on the plane of the world. |
+| `out` | string | no | The index file to write, ending in .world.json (default: next to the scene, named after it). |
+| `dimension` | string ["3d","2d"] | no | 3d: the cells are on the XZ plane; 2d: on the XY plane. Default "3d". |
+| `overwrite` | boolean | no | Replace files of an earlier split. Without it an existing file is an error and nothing is written. Default false. |
 | `dryRun` | boolean | no | Only report what would be written. Default false. |
 
 ### `world.stream_status`
