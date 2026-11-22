@@ -134,6 +134,8 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
+    HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
@@ -1148,7 +1150,28 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     // are not culled (they show the scene from a point the Occluders were not placed for).
     // Areas and portals (M75.2) come first (a mesh in a room the portals do not show needs no depth test); the same single branch.
     if (!fr.noProbes && !fr.giCapture && world.any<OcclusionArea>()) portal_cull_meshes(world, fr, meshes);
-    if (!fr.noProbes && !fr.giCapture && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
+    // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
+    const bool cullable = !fr.noProbes && !fr.giCapture;
+    if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))
+        ctx.hiz = hiz_cull(world, fr, meshes);
+    const bool occluded = cullable && !ctx.hiz && world.any<Occluder>() && occlude_meshes(world, fr, z01, meshes);
+    // The Foliage instances (renderer_foliage.h): after the culling, because the foliage culls its own chunks (with the buffer the
+    // Occluders just filled) and its items are made visible or not by it.
+    if (world.any<Foliage>() || foliage.size() != 0) {
+        FoliageRenderer::View fv;
+        fv.world = &world;
+        fv.scopeRoot = fr.scopeRoot;
+        if (masked) fv.drawn = [&](Entity e) { return fr.mask.draws(world, e); };
+        fv.assets = assets.get();
+        fv.viewProj = fr.cam.viewProj;
+        fv.z01 = z01;
+        fv.camera = fr.cam.position;
+        fv.time = fr.time;
+        fv.serial = frameSerial;
+        fv.occlusion = occluded ? &occlusion : nullptr;
+        const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
+        stats.foliageInstancesCulled += fc.culled;
+    }
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
@@ -1686,7 +1709,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                        });
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
-            if (mi.visible && mi.lodFade != 0.0f && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
+            if (mi.visible && mi.lodFade != 0.0f && !mi.foliage && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
             if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }
@@ -2960,7 +2983,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals ||
           (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
         return false;
     bool anyMesh = false;
@@ -3833,6 +3856,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                     stats.terrainTiles += int(batch.mainCount);
                     stats.terrainTriangles += kTerrainTrianglesPerNode * int(batch.mainCount);
                     ++stats.meshBatches;
+                } else if (mi.foliage) {  // its instances are not meshes of the scene
+                    stats.foliageInstances += int(batch.mainCount);
+                    ++stats.meshBatches;
                 } else if (anyDrawn || !mbu.active) {
                     stats.meshes += int(batch.mainCount);
                     ++stats.meshBatches;
@@ -4107,6 +4133,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // The depth pyramid of the camera (renderer_hiz.cpp): a compute pass reduces the image to a small grid the CPU reads back a frame later.
+        if (ctx.hiz) {
+            HizCamera* hc = ctx.hiz;
+            add(
+                "hiz-reduce", {prepassRes}, {},
+                [this, &ctx, hc, prepassRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(prepassRes));
+                    if (t) hiz_reduce_pass(*hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                },
+                true);
+        }
         // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
         // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
         if (plan.gi) {

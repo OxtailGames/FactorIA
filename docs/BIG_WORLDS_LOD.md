@@ -111,9 +111,9 @@ by `screenSize`; until then `lodMode: "screenSize"` entries are saved and checke
 
 ## Occlusion (M75.2)
 
-Meshes hidden behind big solid ones are not drawn. **Built: the CPU occluders** (`Occluder`, `renderer.supports` `occlusionCpu`).
-**Built: areas and portals** (`OcclusionArea`, `OcclusionPortal`, `renderer.supports` `occlusionPortals`). **Planned: the GPU path
-(`occlusionGpu`)**.
+Meshes hidden behind big solid ones are not drawn. **Built: the CPU occluders** (`Occluder`, `renderer.supports` `occlusionCpu`),
+**areas and portals** (`OcclusionArea`, `OcclusionPortal`, `renderer.supports` `occlusionPortals`) and **the GPU path, a depth
+pyramid of the camera's own picture** (`SceneSettings.occlusionMode`, `renderer.supports` `occlusionGpu`; "The GPU path" below).
 
 - `Occluder` on an entity: `shape` (`"box"` or `"mesh"`), `size` and `center` (metres, a box, before the entity's scale), `mesh`
   (the mesh to rasterise; empty = the entity's `MeshRenderer.mesh`), `enabled`. The box follows the entity's drawn matrix (its
@@ -165,9 +165,9 @@ What it does not do:
 ### Areas and portals
 
 An `OcclusionArea` is the oriented box of its entity: `size` before `Transform.scale`, placed by the entity's drawn matrix (its scale,
-rotation and parents; a floating-origin shift needs nothing). A `OcclusionPortal` is a box the same way. Nothing happens until the scene
+rotation and parents; a floating-origin shift needs nothing). An `OcclusionPortal` is a box the same way. Nothing happens until the scene
 has one enabled (active) OcclusionArea (one `world.any<OcclusionArea>()` check per frame); a scene without one draws and counts exactly
-as before. With one, for every main-view camera, after the frustum test and before the Occluder test:
+as before. With one, for every main-view camera, after the frustum test and before the Occluder test (or the depth pyramid of the GPU path: areas and portals work with `occlusionMode` `cpu` and `gpu`):
 
 1. **Membership.** A mesh belongs to every area whose box holds the centre of its world bounds; a mesh in no area belongs to area 0
    ("outside"). Meshes with no known bounds are not tested. Two boxes with the same `areaId` are one area (a room of several boxes).
@@ -207,11 +207,61 @@ camera) touch every cell, which costs at most the cells of the buffer (about 37 
 is small on purpose. The same scene gives the same result with any number of job threads (the float rounding of different CPU architectures can differ in
 the last bit, so a box exactly at the edge of an occluder may be judged differently there). Warnings are logged once per run.
 
+### The GPU path (a depth pyramid of the camera's picture)
+
+`SceneSettings.occlusionMode` picks the culling of a scene: `"cpu"` (the default: the Occluders above, nothing else), `"gpu"` or
+`"auto"`. The two paths never run on the same camera. A scene with `"cpu"` and no Occluder costs nothing, as before; the GPU path
+is off until a scene asks for it and, while it is off, draws, counts and allocates exactly as before.
+
+With `"gpu"` the Occluders are not used: any opaque mesh hides what is behind it, with nothing to author.
+`"auto"` uses the GPU path on a backend that supports it (`renderer.supports {"feature":"occlusionGpu"}`) and keeps the CPU
+Occluders on one that does not. `"gpu"` on a backend that does not support it (or whose driver refuses the reduce program) logs one
+warning and the CPU Occluders cull instead, as with `"auto"`, which says nothing. How it works, for every perspective main-view
+camera:
+
+1. The camera draws its depth and normal prepass every frame (the same one SSAO uses; it adds its draw calls, so `drawCalls` is
+   not comparable between the modes). A compute pass (`hiz.glsl`, the graph pass `hiz-reduce`) reduces it to the same **256 x
+   (256 / aspect) cells** as the CPU buffer, each holding the nearest and the farthest view depth of its pixels; a cell where
+   some pixel shows no mesh counts as empty and can hide nothing.
+2. The cells are read back **without waiting**: a ring of 4 staging buffers (Metal blit, `glCopyBufferSubData` plus a fence,
+   a D3D11 staging buffer plus an event query), so the answer is the picture of the frame before. The CPU builds the mip chain
+   from it.
+3. Every mesh the frustum kept is tested with its box against that pyramid, in the camera of the frame the pyramid was made in
+   (`engine/render/src/hiz.h` has the maths): a box whose nearest corner is farther than the farthest depth of the cells it covers
+   is left out of the main pass and counted in `meshesOccluded`. The test allows for the camera's move since then: the footprint
+   grows by the parallax the move can cause (at most 12 cells) and the box must clear the occluder by the distance moved.
+
+It is conservative like the CPU path, with the costs of one frame of latency:
+
+- **A thing that moved or was destroyed since the picture shows up one or two frames late**: a door that opens, a wall that falls,
+  an occluder that leaves the view. The mesh it hid is drawn from the next frame on; it never stays wrong for longer.
+- **A cut draws everything for a frame**: a different field of view or aspect (a zoom, a window resize), a camera that moved
+  more than 12 cells of parallax allow (a teleport, a very fast move, a box close to the camera), a box that crosses the old
+  picture's border or the old near plane, and the first frames after a scene loads or a camera appears (until a pyramid
+  arrives). A pyramid older than 8 frames is dropped (the camera was not drawn, or the GPU did not answer).
+- Up to 8 cameras per frame keep a pyramid, in the order their jobs are declared; the others are not culled by it.
+- **Not culled**: shadow passes (a hidden mesh still casts its shadow), orthographic cameras (they keep the CPU Occluders),
+  a camera view's picture (unless it has its own post-processing), reflection probe, GI and light-probe captures, and sprites, 2D, particles
+  and UI as for the CPU path. `showTags` and `hideTags` are applied before the test, and a LOD or HLOD pick is made first, so the
+  box tested is the one of the level drawn. The floating origin rebases the pyramid's poses with the world.
+
+Which backends: `occlusionGpu` is `true` where the GPU has compute shaders and the backend can read a buffer back without waiting:
+D3D11, Metal and OpenGL 4.3. GLES3, WebGL2 and OpenGL on macOS (4.1) answer `false` and, with `"auto"`, keep the CPU path. The
+shader is compiled only for the backends that run it, so the web player and the Android players are no bigger.
+
+Looking at it: `render.occlusion` has a `gpu` object (`mode`, `supported` and `why` when not, `active`, `limits`, and for the
+camera it reports: the pyramid's `width`, `height`, `levels`, `coveredCells`, `ageFrames`, the `tests` and `hidden` counts,
+`testResults` by cause and `drewEverythingBecause` when a cut made it draw everything), and `level` (0 = the 256-cell base) picks
+the pyramid level `save` writes as the grey picture. `render.debug_view {"view":"occlusion"}` draws the boxes the pyramid culled
+red and, at the top left, a coarse level of the pyramid in greys. The bench `render.hiz3d` (`factoria bench`,
+docs/performance/PERFORMANCE_BENCH.md) is `render.occlusion3d` with the three walls as plain meshes and the mode `"gpu"`: 1600
+meshes behind them, culled by the pyramid (the plain frame where the backend has no compute shaders).
+
 ### Looking at it
 
-- `render.occlusion {save?}` reports the last frame: the size of the buffer, the Occluders and triangles rasterised, the meshes
-  tested and the ones hidden; with `save` (a `.png` path) it writes the depth buffer as a grey picture (black = no occluder, the
-  nearer an occluder, the brighter). The same is `Renderer::occlusion_report` in C++.
+- `render.occlusion {save?, level?}` reports the last frame: the size of the buffer, the Occluders and triangles rasterised, the meshes
+  tested and the ones hidden (and the `gpu` object above); with `save` (a `.png` path) it writes the depth buffer as a grey picture (black = no occluder, the
+  nearer an occluder, the brighter; with the GPU path, the pyramid level `level`). The same is `Renderer::occlusion_report` in C++.
 - `render.debug_view {"view":"occlusion"}` (or `FA_RENDER_DEBUG_VIEW=occlusion`) keeps the game picture and draws the Occluder
   boxes green and the boxes of the meshes the culling left out red, with a line of counts at the top left. The boxes are drawn
   from the next frame.
