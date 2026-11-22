@@ -705,14 +705,14 @@ void register_world_components(TypeRegistry& r) {
          "instance picks one by index): use several entities for kinds that need different settings (wind, fade). The "
          "renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the "
          "format, the "
-         "culling and the limits: docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"); `foliage.paint`, `foliage.scatter` and "
-         "`foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).",
+         "culling and the limits: docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"). `foliage.restore` puts a previous file back "
+         "(the undo of the three).",
          "3D")
         .field("meshes", &Foliage::meshes,
                "Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): "
                "[\"assets/models/grass.glb\", \"assets/models/flower.glb\"]. The instances file stores, for every "
                "instance, the index of its mesh in this array, so reordering the array changes which mesh each "
-               "instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes "
+               "instance shows; an index past the end makes the file invalid. `foliage.scatter` writes "
                "all "
                "the meshes of its rule here. Default [\"cube\"].")
         .asset_field(
@@ -756,7 +756,7 @@ void register_world_components(TypeRegistry& r) {
          "The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by "
          "`terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The "
          "result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. "
-         "The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it "
+         "The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules "
          "(docs/BIG_WORLDS_TERRAIN.md, "
          "\"Foliage\").",
          "3D")
