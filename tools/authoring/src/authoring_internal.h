@@ -42,10 +42,10 @@ void register_project_secret_commands(
 void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
 // big_world_commands.cpp: world.split_cells, world.merge_cells, model.generate_lods, model.bake_impostor, foliage.* (M75 stubs
-// that fail with not_built until their package lands); it also calls register_terrain_commands.
+// that fail with not_built until their package lands); it also calls register_terrain3d_commands.
 void register_big_world_commands(Engine& engine, Engine::Impl& impl);
-// terrain_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
+// terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
 // terrain.undo, terrain.redo.
-void register_terrain_commands(Engine& engine, Engine::Impl& impl);
+void register_terrain3d_commands(Engine& engine, Engine::Impl& impl);
 
 }  // namespace fa

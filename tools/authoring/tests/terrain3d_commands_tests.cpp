@@ -1,5 +1,5 @@
 // M75-P5b: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save, terrain.undo and
-// terrain.redo (tools/authoring/src/terrain_commands.cpp): live edits of the shared heights, one undo step per command, the
+// terrain.redo (tools/authoring/src/terrain3d_commands.cpp): live edits of the shared heights, one undo step per command, the
 // physics collider that follows, the files written on save, and the errors that teach.
 #include <doctest.h>
 

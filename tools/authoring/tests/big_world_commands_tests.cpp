@@ -1,4 +1,4 @@
-// M75-P0: the authoring commands of the big worlds (not the terrain ones: terrain_commands_tests.cpp) exist, are documented and classified, and fail with `not_built` (changing nothing)
+// M75-P0: the authoring commands of the big worlds (not the terrain ones: terrain3d_commands_tests.cpp) exist, are documented and classified, and fail with `not_built` (changing nothing)
 // until their package lands (docs/BIG_WORLDS.md).
 #include <doctest.h>
 

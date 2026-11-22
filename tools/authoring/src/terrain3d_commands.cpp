@@ -949,7 +949,7 @@ const char* kBrushProps =
 
 }  // namespace
 
-void register_terrain_commands(Engine& engine, Engine::Impl& I) {
+void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
     const std::string entityProp = R"("entity":{"type":"string","description":"Entity id of the Terrain."})";
     const std::string brush = std::string(kBrushProps);

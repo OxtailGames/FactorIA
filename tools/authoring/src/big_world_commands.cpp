@@ -1,5 +1,5 @@
 // The commands of the big worlds of M75 that write project files (docs/BIG_WORLDS.md): world.split_cells, world.merge_cells,
-// model.generate_lods, model.bake_impostor and foliage.* (terrain.* is terrain_commands.cpp). M75-P0 registers them so the names, arguments and docs are
+// model.generate_lods, model.bake_impostor and foliage.* (terrain.* is terrain3d_commands.cpp). M75-P0 registers them so the names, arguments and docs are
 // fixed before the packages that build them: each one fails with `not_built` and names the package that fills it in, and changes
 // nothing. The later packages replace the handler and keep the name, the schema and the description (they may only add to them).
 #include "authoring_internal.h"
@@ -35,7 +35,7 @@ void add_stub(Engine::Impl& I, const char* name, const char* summary, const std:
 }  // namespace
 
 void register_big_world_commands(Engine& engine, Engine::Impl& I) {
-    register_terrain_commands(engine, I);
+    register_terrain3d_commands(engine, I);
     // world streaming
     add_stub(I, "world.split_cells", "Split a scene into streamable cells on a grid, with a manifest.",
              "Will cut the scene's entities into a grid of cells `cellSize` metres wide on X and Z, write one scene "
