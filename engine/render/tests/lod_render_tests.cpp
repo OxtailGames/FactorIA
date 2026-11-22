@@ -56,7 +56,8 @@ Coverage coverage(const Image& img, const Image& empty) {
     for (int y = 0; y < img.height; ++y)
         for (int x = 0; x < img.width; ++x) {
             const Color p = img.pixel(x, y), bg = empty.pixel(x, y);
-            if (std::fabs(p.r - bg.r) < 0.02f && std::fabs(p.g - bg.g) < 0.02f && std::fabs(p.b - bg.b) < 0.02f) continue;
+            if (std::fabs(p.r - bg.r) < 0.02f && std::fabs(p.g - bg.g) < 0.02f && std::fabs(p.b - bg.b) < 0.02f)
+                continue;
             ++c.solid;
             if (p.r > p.g + 0.3f && p.r > p.b + 0.3f) ++c.red;
             if (p.g > p.r + 0.3f && p.g > p.b + 0.3f) ++c.green;
@@ -85,7 +86,8 @@ TEST_CASE("lod render: a MeshRenderer draws the level its distance picks") {
     g.renderer.clear_asset_cache();
 }
 
-TEST_CASE("lod render: lodMode screenSize picks by the size on the screen, so a bigger object keeps its detail further away") {
+TEST_CASE("lod render: lodMode screenSize picks by the size on the screen, so a bigger object keeps its detail further "
+          "away") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const int cube = triangles_of("cube"), sphere = triangles_of("sphere");
@@ -169,7 +171,8 @@ TEST_CASE("lod render: a cross-fade draws both levels for crossFade seconds, the
 TEST_CASE("lod render: going back during a fade does not restart it, and a hard switch (crossFade 0) never fades") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    triangles_of("cube");  // both levels are loaded before the test starts: a level still loading is not drawn, so it cannot fade
+    triangles_of(
+        "cube");  // both levels are loaded before the test starts: a level still loading is not drawn, so it cannot fade
     triangles_of("sphere");
     World w;
     add_camera(w, {0, 0, 10});
@@ -218,7 +221,7 @@ TEST_CASE("lod render: the two levels of a cross-fade cover every pixel once (th
     // Where the group is 36 m away the green cube takes over (a smaller picture: compare the fade with the same place).
     w.get<Transform>(group)->position = {0, 0, -26};
     Coverage fade;
-    g.render(w, dt);  // t = 0.25
+    g.render(w, dt);                     // t = 0.25
     const Image half = g.render(w, dt);  // t = 0.5
     CHECK(g.renderer.stats().lodCrossFades == 2);
     fade = coverage(half, empty);
@@ -330,7 +333,8 @@ TEST_CASE("lod fades: a new entity starts settled, a change fades per camera, an
     CHECK(p.amount == doctest::Approx(0.25f));
     const render::LodPick other = f.step(2, 7, render::LodKind::Mesh, 1, 1.0f, 0.25f);  // another camera: its own state
     CHECK_FALSE(other.fading());
-    const render::LodPick group = f.step(1, 7, render::LodKind::Group, 3, 1.0f, 0.25f);  // another kind of the same entity
+    const render::LodPick group =
+        f.step(1, 7, render::LodKind::Group, 3, 1.0f, 0.25f);  // another kind of the same entity
     CHECK_FALSE(group.fading());
     CHECK(f.size() == 3);
     f.end_frame();

@@ -459,7 +459,8 @@ void register_world_components(TypeRegistry& r) {
          "its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy "
          "set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a "
          "cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every "
-         "threshold are set by `mode`. Drawn by the 3D renderer (docs/BIG_WORLDS.md, \"Levels of detail\").",
+         "threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS.md, \"Levels of "
+         "detail\").",
          "3D")
         .enum_field(
             "mode", &LodGroup::mode, {"distance", "screenSize"},
@@ -475,11 +476,12 @@ void register_world_components(TypeRegistry& r) {
                "0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the "
                "last children unused. [] (default) = the first child is always drawn.")
         .range(0, 100000)
-        .field("crossFade", &LodGroup::crossFade,
-               "Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are "
-               "drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh "
-               "with a full-shader material switches at once. 0 (default) = a hard switch. 0..5. See "
-               "MeshRenderer.lodCrossFade.")
+        .field(
+            "crossFade", &LodGroup::crossFade,
+            "Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are "
+            "drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh "
+            "with a full-shader material switches at once. 0 (default) = a hard switch. 0..5. See "
+            "MeshRenderer.lodCrossFade.")
         .range(0, 5)
         .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",
                      "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "

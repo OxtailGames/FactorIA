@@ -133,7 +133,8 @@ struct SceneMesh {
 struct SceneLodGroup {
     Entity entity;
     const LodGroup* group = nullptr;
-    Vec3 origin{0, 0, 0};  // the group entity's position: the distance of a group is measured to it, as of a MeshRenderer
+    Vec3 origin{0, 0,
+                0};  // the group entity's position: the distance of a group is measured to it, as of a MeshRenderer
     float radius = 0.0f;  // of the sphere around the boxes of every mesh of the subtree; 0 = the subtree draws no mesh
     int children = 0;
 };

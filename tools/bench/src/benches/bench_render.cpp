@@ -216,10 +216,10 @@ void add_render_benches(std::vector<Bench>& out) {
     out.push_back(render_bench(
         "render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
         build_3d, 8 * 1600, "meshes"));
-    out.push_back(render_bench(
-        "render.lod3d",
-        "render.frame3d with two lower levels on every mesh and 40 LodGroups of three meshes: the cost of picking the levels",
-        build_lod3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.lod3d",
+                               "render.frame3d with two lower levels on every mesh and 40 LodGroups of three meshes: "
+                               "the cost of picking the levels",
+                               build_lod3d, 8 * 1600, "meshes"));
     out.push_back(render_bench("render.occlusion3d",
                                "render.frame3d with three wall Occluders: 8 frames of 1600 meshes, most of those "
                                "behind the walls hidden (the cost of the "

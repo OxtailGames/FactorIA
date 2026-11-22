@@ -17,7 +17,8 @@ MeshRenderer by_size() {
     MeshRenderer mr;
     mr.mesh = "tree.glb";
     mr.lodMode = LodMode::ScreenSize;
-    mr.lods = J(R"([{"mesh":"tree.lod1.glb","screenSize":0.5},{"mesh":"tree.lod2.glb","screenSize":0.2},{"mesh":"tree.lod3.glb","screenSize":0.05}])");
+    mr.lods = J(
+        R"([{"mesh":"tree.lod1.glb","screenSize":0.5},{"mesh":"tree.lod2.glb","screenSize":0.2},{"mesh":"tree.lod3.glb","screenSize":0.05}])");
     return mr;
 }
 }  // namespace
@@ -62,7 +63,8 @@ TEST_CASE("lod: lodMode chooses the metric, and an entry without the field of th
     CHECK(lod_level_of(mr, 1000.0f, 0.3f) == 1);  // screen size mode: the distance is not read
     mr.lodMode = LodMode::Distance;
     CHECK(lod_level_of(mr, 1000.0f, 0.3f) == 0);  // the entries have no `distance`
-    mr.lods = J(R"([{"mesh":"a.glb","distance":10,"screenSize":0.4},{"mesh":"b.glb","distance":30},{"screenSize":0.1},7])");
+    mr.lods =
+        J(R"([{"mesh":"a.glb","distance":10,"screenSize":0.4},{"mesh":"b.glb","distance":30},{"screenSize":0.1},7])");
     CHECK(lod_level_of(mr, 15.0f, 0.0f) == 1);
     CHECK(lod_level_of(mr, 40.0f, 0.0f) == 2);
     mr.lodMode = LodMode::ScreenSize;
@@ -75,7 +77,8 @@ TEST_CASE("lod: lodMode chooses the metric, and an entry without the field of th
 TEST_CASE("lod: distance mode picks the same mesh as lod_mesh, whatever the levels' order") {
     MeshRenderer mr;
     mr.mesh = "m0";
-    mr.lods = J(R"([{"mesh":"m30","distance":30},{"mesh":"m10","distance":10},{"mesh":"mx","distance":"far"},{"mesh":"m20","distance":20}])");
+    mr.lods = J(
+        R"([{"mesh":"m30","distance":30},{"mesh":"m10","distance":10},{"mesh":"mx","distance":"far"},{"mesh":"m20","distance":20}])");
     for (float d : {0.0f, 9.99f, 10.0f, 19.9f, 20.0f, 29.9f, 30.0f, 31.0f, 1e9f})
         CHECK(lod_level_mesh(mr, lod_level_by_distance(mr, d)) == lod_mesh(mr, d));
 }
@@ -137,7 +140,8 @@ TEST_CASE("lod: no cross-fade time is a hard switch, and a bad dt or time never 
         CHECK_FALSE(s.fading());
     }
     LodFadeState s;
-    lod_fade_step(s, 1, 0.5f, std::numeric_limits<float>::quiet_NaN());  // a NaN dt counts as 0: the fade waits at its start
+    lod_fade_step(s, 1, 0.5f,
+                  std::numeric_limits<float>::quiet_NaN());  // a NaN dt counts as 0: the fade waits at its start
     CHECK(s.fading());
     CHECK(s.t == 0.0f);
     CHECK(lod_fade_amount(s) == doctest::Approx(1.0f / 256.0f));  // never fully empty

@@ -50,9 +50,9 @@ int lod_group_level(const LodGroup& g, int childCount, float value);
 
 // A cross-fade between two levels, advanced one frame at a time (render-only state: never saved, never part of the simulation).
 struct LodFadeState {
-    int level = 0;       // the level drawn (fading in, or settled)
-    int from = -1;       // the level fading out; -1 = no fade
-    float t = 1.0f;      // 0..1: how far the fade is (1 = done)
+    int level = 0;   // the level drawn (fading in, or settled)
+    int from = -1;   // the level fading out; -1 = no fade
+    float t = 1.0f;  // 0..1: how far the fade is (1 = done)
     bool fading() const { return from >= 0 && t < 1.0f; }
 };
 // One frame of the fade: `target` is the level the metric picks now, `crossFade` the seconds a switch takes (<= 0 or NaN: a hard

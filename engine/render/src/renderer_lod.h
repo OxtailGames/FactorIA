@@ -2,6 +2,7 @@
 // saved and never read by a script or the simulation; a fade advances once per frame by the renderer's frame delta.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 
