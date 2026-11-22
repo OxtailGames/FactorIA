@@ -315,6 +315,9 @@ void Editor::at_build_tools_script() {
             lightmap_cancel();
             lightmap_ = LightmapUi{};  // section L4: the Lightmap panel and its job are not carried over
             showLightmap_ = false;
+            cells_.reset();  // section W2: the Cells panel and its loaded cells are not carried over
+            cellsUi_ = CellsUi{};
+            showCells_ = false;
             reset_auto_play_state();  // section S3: the Play sessions window, its list and a run still going are not carried over
             reset_review_state();  // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
             showPostFx_ =
@@ -466,6 +469,8 @@ void Editor::at_build_tools_script() {
     at_section_Q3(at);
     section("L4");
     at_section_L4(at);
+    section("W2");
+    at_section_W2(at);
     section("O3");
     at_section_O3(at);
     section("E4");

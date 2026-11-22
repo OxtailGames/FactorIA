@@ -70,7 +70,7 @@ if(FA_BUILD_TESTS)
             set(editor_autotest_entries
                 "1:I,J,Q,R,U,X,Z,M3,P3,X2,L4"
                 "2:S,A,G,G2,H,L,V,B2,C2,E2,G3,Q3"
-                "3:B,C,D,M,M4,O,P,W,E3,S2,R4"
+                "3:B,C,D,M,M4,O,P,W,E3,S2,R4,W2"
                 "4:T,A2,A3,E,F,K,M5,N,Y,H2,K2,E4,P4"
                 "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3,T2,S3")
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
