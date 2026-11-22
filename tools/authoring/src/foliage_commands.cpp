@@ -25,7 +25,8 @@ namespace fa {
 
 namespace {
 
-constexpr std::uint64_t kMaxCandidates = std::uint64_t(1) << 24;  // grid cells one command visits (8 x the instance cap)
+constexpr std::uint64_t kMaxCandidates = std::uint64_t(1)
+                                         << 24;  // grid cells one command visits (8 x the instance cap)
 constexpr double kPi = 3.14159265358979323846;
 
 Json parse_schema(const char* text) {
@@ -121,7 +122,8 @@ Entity find_rule_entity(Engine::Impl& I, const Json& a, const Field& f, bool req
     if (I.world.get<ScatterRule>(e)) return e;
     if (!required) return kNullEntity;
     throw CommandError(
-        "invalid_argument", std::string(command) + ": entity '" + f.id + "' has no ScatterRule component, and no `rule` was given.",
+        "invalid_argument",
+        std::string(command) + ": entity '" + f.id + "' has no ScatterRule component, and no `rule` was given.",
         "Add the component to the Foliage entity: scene.set_component {\"id\":\"" + f.id +
             "\",\"component\":\"ScatterRule\",\"value\":{\"meshes\":[{\"mesh\":\"assets/models/pine.glb\","
             "\"weight\":1}],\"density\":0.2}}, or pass `rule` (the id of an entity that has one).");
@@ -131,12 +133,14 @@ void check_rule(Engine::Impl& I, Entity re, const ScatterRule& r) {
     for (const WorldProblem& p : scatter_rule_problems(r))
         if (p.error)
             throw CommandError("invalid_argument",
-                               "ScatterRule of '" + I.world.id_of(re) + "' (at " + p.pointer + "): " + p.message, p.hint);
+                               "ScatterRule of '" + I.world.id_of(re) + "' (at " + p.pointer + "): " + p.message,
+                               p.hint);
     if (!(r.density > 0.0f) || !std::isfinite(r.density))
         bad("/density", "ScatterRule.density is " + std::to_string(r.density) + ", but it must be above 0",
             "Write instances per square metre, for example 0.2.");
     if (!(r.minSpacing >= 0.0f) || !std::isfinite(r.minSpacing))
-        bad("/minSpacing", "ScatterRule.minSpacing must be 0 or more", "Write metres, for example 1.5 (0 = no spacing).");
+        bad("/minSpacing", "ScatterRule.minSpacing must be 0 or more",
+            "Write metres, for example 1.5 (0 = no spacing).");
 }
 
 Entity find_terrain(Engine::Impl& I, Entity ruleEntity, const ScatterRule* r, const Field& f) {
@@ -155,11 +159,12 @@ Entity find_terrain(Engine::Impl& I, Entity ruleEntity, const ScatterRule* r, co
         Entity p = I.world.parent(e);
         if (p && I.world.get<Terrain3D>(p)) return p;
     }
-    throw CommandError("invalid_argument",
-                       "No Terrain to place instances on for '" + f.id +
-                           "': ScatterRule.terrain is empty and neither the entity nor its parent has a Terrain.",
-                       "Set ScatterRule.terrain to the Terrain entity (scene.set_component), or make the Foliage a child "
-                       "of the terrain. Make a terrain with terrain.create.");
+    throw CommandError(
+        "invalid_argument",
+        "No Terrain to place instances on for '" + f.id +
+            "': ScatterRule.terrain is empty and neither the entity nor its parent has a Terrain.",
+        "Set ScatterRule.terrain to the Terrain entity (scene.set_component), or make the Foliage a child "
+        "of the terrain. Make a terrain with terrain.create.");
 }
 
 // ------------------------------------------------------------------------------------------------ the generator
@@ -175,11 +180,11 @@ struct Gen {
     double slopeMin = 0, slopeMax = 90, heightMin = -1e9, heightMax = 1e9, scaleMin = 1, scaleMax = 1, align = 0;
     std::int32_t layerMask = -1;
     std::uint64_t seed = 1;
-    std::vector<double> cum;                 // cumulative weight of each slot
-    std::vector<std::uint16_t> slotMesh;     // slot -> index into Foliage.meshes
-    Mat4 toLocal;                            // world -> the Foliage entity's local space
-    double x0 = 0, z0 = 0, x1 = 0, z1 = 0;   // the world rectangle to fill
-    bool circle = false;                     // only inside (cx, cz, r)
+    std::vector<double> cum;                // cumulative weight of each slot
+    std::vector<std::uint16_t> slotMesh;    // slot -> index into Foliage.meshes
+    Mat4 toLocal;                           // world -> the Foliage entity's local space
+    double x0 = 0, z0 = 0, x1 = 0, z1 = 0;  // the world rectangle to fill
+    bool circle = false;                    // only inside (cx, cz, r)
     double cx = 0, cz = 0, r = 0;
 };
 
@@ -259,10 +264,10 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
                 ++c.height;
                 continue;
             }
-            const double slope =
-                std::atan2(std::sqrt(double(ts.normal.x) * double(ts.normal.x) + double(ts.normal.z) * double(ts.normal.z)),
-                           double(ts.normal.y)) *
-                (180.0 / kPi);
+            const double slope = std::atan2(std::sqrt(double(ts.normal.x) * double(ts.normal.x) +
+                                                      double(ts.normal.z) * double(ts.normal.z)),
+                                            double(ts.normal.y)) *
+                                 (180.0 / kPi);
             if (slope < g.slopeMin || slope > g.slopeMax) {
                 ++c.slope;
                 continue;
@@ -291,8 +296,10 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
                     "too_many_instances",
                     std::format("The result would hold more than {} instances, the most one instances file holds.",
                                 kMaxFoliageInstances),
-                    "Lower `density`, raise `minSpacing`, narrow the rule (slopeRange, heightRange, layerMask), or fill "
-                    "the terrain with several Foliage entities (each one has its own file and culls and fades on its own).");
+                    "Lower `density`, raise `minSpacing`, narrow the rule (slopeRange, heightRange, layerMask), or "
+                    "fill "
+                    "the terrain with several Foliage entities (each one has its own file and culls and fades on its "
+                    "own).");
             if (useSpacing) sp.add(wx, wz);
             // the mesh, scale and yaw come from the same hash
             const double pick = unit(mix64(h + 3)) * total;
@@ -308,7 +315,8 @@ void run_generator(const Gen& g, const std::vector<std::pair<double, double>>& e
             in.up = Vec3{0, 1, 0};
             if (g.align > 0.0) {
                 const Vec3 n = g.toLocal.transform_dir(ts.normal);
-                double ux = g.align * double(n.x), uy = (1.0 - g.align) + g.align * double(n.y), uz = g.align * double(n.z);
+                double ux = g.align * double(n.x), uy = (1.0 - g.align) + g.align * double(n.y),
+                       uz = g.align * double(n.z);
                 const double len = std::sqrt(ux * ux + uy * uy + uz * uz);
                 if (len > 1e-9) in.up = Vec3{float(ux / len), float(uy / len), float(uz / len)};
             }
@@ -365,11 +373,12 @@ struct Previous {
 };
 
 Json undo_json(const std::string& entityId, const std::string& file, const Previous& p) {
-    Json args = Json::object({{"entity", entityId},
-                              {"file", file},
-                              {"instances", p.instances},
-                              {"meshes", p.meshes},
-                              {"data", p.existed ? Json(base64_encode(p.bytes.data(), p.bytes.size())) : Json(nullptr)}});
+    Json args =
+        Json::object({{"entity", entityId},
+                      {"file", file},
+                      {"instances", p.instances},
+                      {"meshes", p.meshes},
+                      {"data", p.existed ? Json(base64_encode(p.bytes.data(), p.bytes.size())) : Json(nullptr)}});
     return Json::object({{"command", "foliage.restore"}, {"args", args}});
 }
 
@@ -398,11 +407,13 @@ Json commit(Field& f, const std::string& file, const std::vector<FoliageInstance
     Previous prev = capture(f, file);
     if (auto w = fs::write_bytes(file, bytes->data(), bytes->size()); !w.ok())
         throw CommandError("write_failed", file + ": " + w.error().message,
-                           w.error().hint.empty() ? "Check that the folder is writable and the file is not open elsewhere."
-                                                  : w.error().hint);
+                           w.error().hint.empty()
+                               ? "Check that the folder is writable and the file is not open elsewhere."
+                               : w.error().hint);
     f.foliage->meshes = newMeshes;
     f.foliage->instances = file;
-    Json out = Json::object({{"entity", f.id}, {"file", file}, {"instances", instances.size()}, {"bytes", bytes->size()}});
+    Json out =
+        Json::object({{"entity", f.id}, {"file", file}, {"instances", instances.size()}, {"bytes", bytes->size()}});
     out["undo"] = undo_json(f.id, file, prev);
     return out;
 }
@@ -454,7 +465,8 @@ void terrain_footprint(Engine::Impl& I, Entity terrain, Gen& g) {
     const Mat4 m = I.world.world_matrix(terrain);
     double mnx = 1e300, mnz = 1e300, mxx = -1e300, mxz = -1e300;
     for (int i = 0; i < 4; ++i) {
-        const Vec3 p = m.transform_point(Vec3{(i & 1 ? 0.5f : -0.5f) * t->size.x, 0.0f, (i & 2 ? 0.5f : -0.5f) * t->size.y});
+        const Vec3 p =
+            m.transform_point(Vec3{(i & 1 ? 0.5f : -0.5f) * t->size.x, 0.0f, (i & 2 ? 0.5f : -0.5f) * t->size.y});
         mnx = std::min(mnx, double(p.x));
         mxx = std::max(mxx, double(p.x));
         mnz = std::min(mnz, double(p.z));
@@ -504,9 +516,11 @@ Json do_scatter(Engine::Impl& I, const Json& a) {
     Setup s = open_setup(I, a, true, "foliage.scatter");
     const bool dry = a.contains("dryRun") && a["dryRun"].is_boolean() && a["dryRun"].get<bool>();
     if (s.rule.meshes.empty())
-        throw CommandError("invalid_argument",
-                           "ScatterRule of '" + I.world.id_of(s.ruleEntity) + "' has no meshes, so there is nothing to place (at /meshes).",
-                           "Add at least one {\"mesh\": path, \"weight\": 1} to ScatterRule.meshes (scene.set_component).");
+        throw CommandError(
+            "invalid_argument",
+            "ScatterRule of '" + I.world.id_of(s.ruleEntity) +
+                "' has no meshes, so there is nothing to place (at /meshes).",
+            "Add at least one {\"mesh\": path, \"weight\": 1} to ScatterRule.meshes (scene.set_component).");
     Gen g = make_gen(I, s);
     Json meshes = Json::array();
     double total = 0.0;
@@ -532,7 +546,10 @@ Json do_scatter(Engine::Impl& I, const Json& a) {
         file = write_target("Foliage.instances", file);
     Json res;
     if (dry) {
-        res = Json::object({{"entity", s.field.id}, {"file", file}, {"instances", out.size()}, {"bytes", foliage_file_bytes(out.size())}});
+        res = Json::object({{"entity", s.field.id},
+                            {"file", file},
+                            {"instances", out.size()},
+                            {"bytes", foliage_file_bytes(out.size())}});
     } else {
         res = commit(s.field, file, out, meshes);
     }
@@ -561,8 +578,7 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     Setup s = open_setup(I, a, false, "foliage.paint");
     Field& f = s.field;
     const std::string mode = a.contains("mode") && a["mode"].is_string() ? a["mode"].get<std::string>() : "add";
-    if (mode != "add" && mode != "remove")
-        bad("/mode", "mode is '" + mode + "'", "Use \"add\" or \"remove\".");
+    if (mode != "add" && mode != "remove") bad("/mode", "mode is '" + mode + "'", "Use \"add\" or \"remove\".");
     if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2 || !a["center"][0].is_number() ||
         !a["center"][1].is_number())
         bad("/center", "center must be [x, z] in world metres", "Example: [10, 20].");
@@ -599,8 +615,12 @@ Json do_paint(Engine::Impl& I, const Json& a) {
                 kept.push_back(in);
         }
         if (removed == 0 || file.empty()) {
-            return Json::object({{"entity", f.id}, {"added", 0}, {"removed", 0}, {"instances", all.size()},
-                                 {"file", file}, {"note", "No instance lies inside the brush: nothing changed."}});
+            return Json::object({{"entity", f.id},
+                                 {"added", 0},
+                                 {"removed", 0},
+                                 {"instances", all.size()},
+                                 {"file", file},
+                                 {"note", "No instance lies inside the brush: nothing changed."}});
         }
         res = commit(f, file, kept, Json(nullptr));
         res["added"] = 0;
@@ -612,7 +632,9 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     if (a.contains("density")) g.density = need_number(a, "density", "instances per square metre", 1e-6, 1e6);
     // A repeated stroke must not stack instances on the same spot: never closer than half the average gap.
     g.spacing = std::max(g.spacing, 0.5 / std::sqrt(g.density));
-    if (a.contains("seed")) g.seed = std::uint64_t(std::uint32_t(std::int32_t(need_number(a, "seed", "the seed", -2147483648.0, 2147483647.0))));
+    if (a.contains("seed"))
+        g.seed =
+            std::uint64_t(std::uint32_t(std::int32_t(need_number(a, "seed", "the seed", -2147483648.0, 2147483647.0))));
     g.seed = mix64(g.seed ^ 0x5041494E54ull);  // a stroke has its own stream, apart from foliage.scatter
     // the mesh weights: the rule's entry of the same mesh, else 1
     double total = 0.0;
@@ -641,9 +663,14 @@ Json do_paint(Engine::Impl& I, const Json& a) {
     run_generator(g, near, all.size(), added, c);
     out.insert(out.end(), added.begin(), added.end());
     if (added.empty())
-        return Json::object({{"entity", f.id}, {"added", 0}, {"removed", 0}, {"instances", all.size()}, {"file", file},
-                             {"counts", counts_json(c)},
-                             {"note", "No instance could be placed in the brush (see counts.rejected): nothing changed."}});
+        return Json::object(
+            {{"entity", f.id},
+             {"added", 0},
+             {"removed", 0},
+             {"instances", all.size()},
+             {"file", file},
+             {"counts", counts_json(c)},
+             {"note", "No instance could be placed in the brush (see counts.rejected): nothing changed."}});
     if (file.empty()) file = default_file(I, f.id);
     res = commit(f, file, out, Json(nullptr));
     res["added"] = added.size();
@@ -665,7 +692,8 @@ Json do_clear(Engine::Impl& I, const Json& a) {
             const std::string p = "/region/" + std::to_string(i);
             if (!a["region"][std::size_t(i)].is_number()) bad(p, "Expected a number", "Write metres, such as 12.5.");
             r[i] = a["region"][std::size_t(i)].get<double>();
-            if (!std::isfinite(r[i]) || std::abs(r[i]) > 1e9) bad(p, "The number is not a usable coordinate", "Use metres below 1e9.");
+            if (!std::isfinite(r[i]) || std::abs(r[i]) > 1e9)
+                bad(p, "The number is not a usable coordinate", "Use metres below 1e9.");
         }
         if (r[0] > r[2] || r[1] > r[3])
             bad("/region", "region has min above max", "Write [minX, minZ, maxX, maxZ] with each min below its max.");
@@ -687,7 +715,10 @@ Json do_clear(Engine::Impl& I, const Json& a) {
             kept.push_back(in);
     }
     if (removed == 0)
-        return Json::object({{"entity", f.id}, {"removed", 0}, {"instances", all.size()}, {"file", file},
+        return Json::object({{"entity", f.id},
+                             {"removed", 0},
+                             {"instances", all.size()},
+                             {"file", file},
                              {"note", "There was nothing to remove: nothing changed."}});
     Json res = commit(f, file, kept, Json(nullptr));
     res["removed"] = removed;
@@ -705,7 +736,8 @@ Json do_restore(Engine::Impl& I, const Json& a) {
         bad("/data", "`data` must be the base64 of the file, or null to delete it", "Pass the `undo` as returned.");
     if (!a.contains("meshes") || !a["meshes"].is_array())
         bad("/meshes", "`meshes` must be an array", "Pass the `undo` as returned.");
-    const std::string instances = a.contains("instances") && a["instances"].is_string() ? a["instances"].get<std::string>() : std::string();
+    const std::string instances =
+        a.contains("instances") && a["instances"].is_string() ? a["instances"].get<std::string>() : std::string();
     std::vector<std::uint8_t> bytes;
     if (a["data"].is_string()) {
         const std::vector<unsigned char> raw = base64_decode(a["data"].get<std::string>());
@@ -716,11 +748,14 @@ Json do_restore(Engine::Impl& I, const Json& a) {
     Previous prev = capture(f, file);
     if (a["data"].is_string()) {
         if (auto w = fs::write_bytes(file, bytes.data(), bytes.size()); !w.ok())
-            throw CommandError("write_failed", file + ": " + w.error().message, "Check that the file is not open elsewhere.");
+            throw CommandError("write_failed", file + ": " + w.error().message,
+                               "Check that the file is not open elsewhere.");
     } else if (prev.existed) {
         std::error_code ec;
         fs::remove_file(fs::resolve(file), ec);
-        if (ec) throw CommandError("write_failed", file + ": " + ec.message(), "Check that the file is not open elsewhere.");
+        if (ec)
+            throw CommandError("write_failed", file + ": " + ec.message(),
+                               "Check that the file is not open elsewhere.");
     }
     f.foliage->meshes = a["meshes"];
     f.foliage->instances = instances;
@@ -732,31 +767,43 @@ Json do_restore(Engine::Impl& I, const Json& a) {
 }  // namespace
 
 void register_foliage_commands(Engine&, Engine::Impl& I) {
-    I.commands.add(
-        {"foliage.scatter", "Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.",
-         "Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places instances on its Terrain "
-         "(one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass slopeRange, "
-         "heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by weight, scale in "
-         "scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next to the scene when "
-         "Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and terrain give the "
-         "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, placed, rejected: "
-         "{outside, hole, height, slope, layer, spacing}, meshes, undo}. Example: foliage.scatter {\"entity\":\"grass\"}",
-         parse_schema(R"({"type":"object","properties":{
+    I.commands.add({"foliage.scatter", "Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.",
+                    "Reads the ScatterRule of `rule` (an entity id; default: the Foliage entity itself), places "
+                    "instances on its Terrain "
+                    "(one jittered candidate per 1/sqrt(density) m cell, hashed from `seed`) and keeps those that pass "
+                    "slopeRange, "
+                    "heightRange, layerMask (a layer counts at weight >= 0.5), holes and minSpacing. Picks mesh by "
+                    "weight, scale in "
+                    "scaleRange, yaw at random, lean by alignToNormal, then writes the instances file (a new one next "
+                    "to the scene when "
+                    "Foliage.instances is empty) and sets Foliage.meshes to the rule's meshes. The same rule, seed and "
+                    "terrain give the "
+                    "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, "
+                    "placed, rejected: "
+                    "{outside, hole, height, slope, layer, spacing}, meshes, undo}. Example: foliage.scatter "
+                    "{\"entity\":\"grass\"}",
+                    parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
                "rule":{"type":"string","description":"Entity id with the ScatterRule (default: the Foliage entity)."},
                "dryRun":{"type":"boolean","default":false,"description":"Only count the instances: nothing is written or changed."}},"required":["entity"]})"),
-         false, "world",
-         "More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is refused before "
-         "anything changes, with the knobs to turn. `undo` is {command: \"foliage.restore\", args} carrying the previous file "
-         "(base64) and the previous Foliage.meshes and Foliage.instances: calling it puts them back and returns the redo. "
-         "The editor's brush is a later package (M75 P6c)."},
-        [&I](const Json& a) { return do_scatter(I, a); });
+                    false, "world",
+                    "More than 2,000,000 instances (the most one file holds) or more than 16.7 million grid cells is "
+                    "refused before "
+                    "anything changes, with the knobs to turn. `undo` is {command: \"foliage.restore\", args} carrying "
+                    "the previous file "
+                    "(base64) and the previous Foliage.meshes and Foliage.instances: calling it puts them back and "
+                    "returns the redo. "
+                    "The editor's brush is a later package (M75 P6c)."},
+                   [&I](const Json& a) { return do_scatter(I, a); });
     I.commands.add(
         {"foliage.paint", "Add or remove foliage instances by hand in a circle on the ground.",
-         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) with the placement rules of the "
+         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) with the placement rules of "
+         "the "
          "ScatterRule (`rule` or the Foliage entity's own; without one: the ScatterRule defaults, equal mesh weights) "
-         "and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the brush "
-         "to one of Foliage.meshes, `seed` changes the draw. Mode \"remove\" deletes the instances in the circle (of `mesh` "
+         "and a spacing against the instances already there; `density` per m2 (default: the rule's), `mesh` limits the "
+         "brush "
+         "to one of Foliage.meshes, `seed` changes the draw. Mode \"remove\" deletes the instances in the circle (of "
+         "`mesh` "
          "when given). Deterministic. Result: {added, removed, instances, file, undo}. Example: foliage.paint "
          "{\"entity\":\"grass\",\"center\":[10,20],\"radius\":5}",
          parse_schema(R"({"type":"object","properties":{
@@ -769,15 +816,21 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                "mesh":{"type":"string","description":"Limit the brush to this mesh of Foliage.meshes."},
                "seed":{"type":"integer","description":"Seed of the draw (default: the rule's seed). The same arguments always give the same instances."}},"required":["entity","center","radius"]})"),
          false, "world",
-         "A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), so "
-         "painting the same spot twice does not stack them. Instances of an added stroke are appended after the existing "
-         "ones. An empty result changes nothing and says why in `counts.rejected`. The file is created next to the scene "
-         "when Foliage.instances is empty. `undo` as foliage.scatter. The editor's brush tool is a later package (M75 P6c)."},
+         "A stroke never puts two instances closer than half the average gap of `density` (or minSpacing when larger), "
+         "so "
+         "painting the same spot twice does not stack them. Instances of an added stroke are appended after the "
+         "existing "
+         "ones. An empty result changes nothing and says why in `counts.rejected`. The file is created next to the "
+         "scene "
+         "when Foliage.instances is empty. `undo` as foliage.scatter. The editor's brush tool is a later package (M75 "
+         "P6c)."},
         [&I](const Json& a) { return do_paint(I, a); });
     I.commands.add(
         {"foliage.clear", "Remove every instance of a Foliage, or those in a rectangle.",
-         "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances inside "
-         "`region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, undo}. "
+         "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances "
+         "inside "
+         "`region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, "
+         "undo}. "
          "Example: foliage.clear {\"entity\":\"grass\",\"region\":[0,0,50,50]}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -787,9 +840,11 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
         [&I](const Json& a) { return do_clear(I, a); });
     I.commands.add(
         {"foliage.restore", "Put a Foliage's instances file back: the undo and redo of the foliage.* edits.",
-         "Every foliage.scatter, foliage.paint and foliage.clear returns `undo` = {command: \"foliage.restore\", args}; "
+         "Every foliage.scatter, foliage.paint and foliage.clear returns `undo` = {command: \"foliage.restore\", "
+         "args}; "
          "calling it writes the previous file (base64 `data`, or deletes it when null) and sets Foliage.meshes and "
-         "Foliage.instances back. Its own result carries the `undo` that goes forward again (redo). Example: pass the `undo` "
+         "Foliage.instances back. Its own result carries the `undo` that goes forward again (redo). Example: pass the "
+         "`undo` "
          "of the last edit as it was returned.",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
