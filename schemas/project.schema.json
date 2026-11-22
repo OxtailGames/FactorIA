@@ -329,11 +329,10 @@
               "description": "Metres between the anchor and the origin beyond which the origin moves. Default 2048."
             },
             "step": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 10000000,
+              "type": "integer",
+              "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576],
               "default": 256,
-              "description": "Metres: the origin only moves in multiples of this, so a move is exact in float. At most `threshold`. Default 256."
+              "description": "Metres: the origin only moves in multiples of this. An integer power of two (1, 2, 4 ... 1048576), so a move is exact in a float at any distance, and at most `threshold`. Default 256, or the largest power of two at most `threshold` when `threshold` is below 256."
             },
             "anchor": {
               "type": "string",
