@@ -57,7 +57,8 @@ std::size_t weighted(const TerrainHeights& h, int channel) {
 }
 
 std::size_t holes_cut(const TerrainHeights& h) {
-    return std::size_t(std::count_if(h.holes.begin(), h.holes.end(), [](std::uint8_t v) { return v != 0; }));  // 1 = a hole
+    return std::size_t(
+        std::count_if(h.holes.begin(), h.holes.end(), [](std::uint8_t v) { return v != 0; }));  // 1 = a hole
 }
 
 struct T3State {
@@ -82,7 +83,7 @@ void Editor::at_section_T3(AtScript& at) {
     auto panel_at = [this](float x, float z) {
         Renderer* r = engine_->renderer();
         float y = 0;
-        (void)terrain_height_at(world(), world().find_by_id("t3_ground"), x, z, y);
+        (void)terrain_height_at(world(), world().find_by_id("t3_ground"), x, z, y, true);
         const Vec2 d = r->world_to_screen(Vec3{x, y, z});
         return Vec2{vpImageMin_.x + d.x / float(r->target_width()) * vpImageSize_.x,
                     vpImageMin_.y + d.y / float(r->target_height()) * vpImageSize_.y};
@@ -92,7 +93,8 @@ void Editor::at_section_T3(AtScript& at) {
         step(2, [this, panel_at, ax, az] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, panel_at(ax, az)); });
         step(3, [this] {
             at_check(vpHovered_, "the mouse is over the viewport (no panel covers it)");
-            at_check(terrain_.hasHit, "the brush finds the ground under the mouse");
+            at_check(terrain_.hasHit, std::string("the brush finds the ground under the mouse (tool ") +
+                                          (terrain_tool_active() ? "on" : "off") + ")");
             at_check(terrain_.ringSegments > 0, "the cursor ring is drawn on the terrain");
         });
         step(2, [this, panel_at, ax, az] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, panel_at(ax, az)); });
@@ -128,7 +130,8 @@ void Editor::at_section_T3(AtScript& at) {
         at_check(c.ok, "terrain.create makes the terrain of the section: " + c.error.dump());
         const CommandResult l = engine_->commands().call(
             "scene.set_component",
-            Json::parse(R"({"id":"t3_ground","component":"Terrain","fields":{"layers":[{"albedo":"assets/terrain/t3_a.png"},{"albedo":"assets/terrain/t3_b.png"}]}})"));
+            Json::parse(
+                R"({"id":"t3_ground","component":"Terrain","fields":{"layers":[{"albedo":"assets/terrain/t3_a.png"},{"albedo":"assets/terrain/t3_b.png"}]}})"));
         at_check(l.ok, "two layers are set: " + l.error.dump());
         select_id("t3_ground");
         terrain_ = TerrainUi{};
@@ -142,7 +145,8 @@ void Editor::at_section_T3(AtScript& at) {
     step(4, [this] { pendingFocus_ = "Terrain tool"; });
     step(2, [this, heights] {
         at_check(heights() != nullptr, "the terrain's heights are loaded");
-        at_check(at_visible("terrain:mode:sculpt") && at_visible("terrain:mode:paint") && at_visible("terrain:mode:holes"),
+        at_check(at_visible("terrain:mode:sculpt") && at_visible("terrain:mode:paint") &&
+                     at_visible("terrain:mode:holes"),
                  "the panel lists the Sculpt, Paint and Holes modes");
         at_check(!terrain_tool_active(), "no mode is on yet: the viewport tool is off and the gizmo keeps the clicks");
     });
@@ -170,9 +174,11 @@ void Editor::at_section_T3(AtScript& at) {
         m->after = checksum(*h);
         at_check(terrain_.strokes == m->strokes0 + 1, "the stroke ended");
         at_check(m->after != m->before, "the sculpt stroke changed the heights");
-        at_check(terrain_.pieces >= 2, "...sent as several commands while the mouse moved (" + std::to_string(terrain_.pieces) + ")");
+        at_check(terrain_.pieces >= 2,
+                 "...sent as several commands while the mouse moved (" + std::to_string(terrain_.pieces) + ")");
         at_check(undo_depth() == m->undo0 + 1, "...and is ONE undo step of the editor (depth " +
-                                                   std::to_string(undo_depth()) + " from " + std::to_string(m->undo0) + ")");
+                                                   std::to_string(undo_depth()) + " from " + std::to_string(m->undo0) +
+                                                   ")");
         at_check(h->undo_depth() == m->history0 + 1, "...and ONE step of the terrain's own history");
         at_check(dirty() && has_unsaved_work(), "...and the scene is dirty");
         float y = 0;
@@ -186,7 +192,8 @@ void Editor::at_section_T3(AtScript& at) {
     step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_Z); });
     hold_ctrl(false);
     step(3, [this, heights, m] {
-        at_check(checksum(*heights()) == m->before, "Ctrl+Z gives back the exact heights of before the stroke (one press)");
+        at_check(checksum(*heights()) == m->before,
+                 "Ctrl+Z gives back the exact heights of before the stroke (one press)");
         at_check(undo_depth() == m->undo0 && redo_depth() == 1, "...and the redo stack holds the stroke");
     });
     step(2, [this] { redo(); });
@@ -227,8 +234,8 @@ void Editor::at_section_T3(AtScript& at) {
     step(3, [this, heights, m] {
         const std::shared_ptr<TerrainHeights> h = heights();
         m->after = checksum(*h);
-        at_check(weighted(*h, 1) > m->paintedBefore, "the paint stroke put weight on layer 1 (" +
-                                                          std::to_string(weighted(*h, 1)) + " texels)");
+        at_check(weighted(*h, 1) > m->paintedBefore,
+                 "the paint stroke put weight on layer 1 (" + std::to_string(weighted(*h, 1)) + " texels)");
         at_check(undo_depth() == m->undo0 + 1 && h->undo_depth() == m->history0 + 1,
                  "...as one undo step of the editor and one of the terrain");
         undo();
@@ -238,12 +245,15 @@ void Editor::at_section_T3(AtScript& at) {
         at_check(weighted(*h, 1) == m->paintedBefore, "Undo takes the paint back");
         redo();
     });
-    step(3, [this, heights, m] { at_check(checksum(*heights()) == m->after, "Redo gives the painted splat map back exactly"); });
+    step(3, [this, heights, m] {
+        at_check(checksum(*heights()) == m->after, "Redo gives the painted splat map back exactly");
+    });
 
     // ---- Holes: a cut
     click("terrain:mode:holes");
     step(4, [this, heights, m] {
-        at_check(terrain_.mode == TerrainMode::Holes && at_visible("terrain:holes:cut"), "the Holes mode shows Cut and Fill");
+        at_check(terrain_.mode == TerrainMode::Holes && at_visible("terrain:holes:cut"),
+                 "the Holes mode shows Cut and Fill");
         const std::shared_ptr<TerrainHeights> h = heights();
         m->before = checksum(*h);
         m->undo0 = undo_depth();
@@ -269,7 +279,8 @@ void Editor::at_section_T3(AtScript& at) {
     step(2, [this, heights, m] {
         const Entity e = world().find_by_id("t3_ground");
         const Terrain3D* t = world().get<Terrain3D>(e);
-        at_check(t && !t->holes.empty() && !t->splatMaps.empty(), "the first holes and paint strokes set Terrain.holes and Terrain.splatMaps");
+        at_check(t && !t->holes.empty() && !t->splatMaps.empty(),
+                 "the first holes and paint strokes set Terrain.holes and Terrain.splatMaps");
         if (!t) return;
         m->holesPath = t->holes;
         at_check(!fs::exists(m->holesPath), "nothing was written before the save");
@@ -290,7 +301,8 @@ void Editor::at_section_T3(AtScript& at) {
         at_check(save_scene_now(), "Save writes the scene and the terrain files");
         const std::shared_ptr<TerrainHeights> h = heights();
         at_check(!h->any_unsaved() && !dirty() && !has_unsaved_work(), "...and nothing is unsaved afterwards");
-        at_check(fs::exists("assets/terrain/t3_ground.height.png") && fs::exists(m->holesPath), "...the heights and the holes image exist");
+        at_check(fs::exists("assets/terrain/t3_ground.height.png") && fs::exists(m->holesPath),
+                 "...the heights and the holes image exist");
         const Terrain3D* t = world().get<Terrain3D>(world().find_by_id("t3_ground"));
         at_check(t && t->splatMaps.is_array() && !t->splatMaps.empty() && t->splatMaps[0].is_string() &&
                      fs::exists(t->splatMaps[0].get<std::string>()),
@@ -302,7 +314,8 @@ void Editor::at_section_T3(AtScript& at) {
     stroke(-6, -2, 6, -2);
     step(3, [this, heights] {
         dirty_ = false;  // as if only the terrain differed from disk
-        at_check(heights()->any_unsaved() && has_unsaved_work(), "an unsaved terrain edit counts as unsaved work on its own");
+        at_check(heights()->any_unsaved() && has_unsaved_work(),
+                 "an unsaved terrain edit counts as unsaved work on its own");
         forget_unsaved_terrain();
         at_check(!has_unsaved_work(), "Discard marks the terrains as written");
     });

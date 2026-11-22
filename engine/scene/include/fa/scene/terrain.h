@@ -229,17 +229,21 @@ struct TerrainSample {
 };
 
 // Height in the terrain's local metres (before Transform) at local (x, z), and the slope of the triangle there in metres per
-// metre: false when the point is outside the grid or in a hole (TerrainHeights::hole: no ground there).
+// metre: false when the point is outside the grid or in a hole (TerrainHeights::hole: no ground there). `ignoreHoles` reads the surface as
+// if no cell were cut (what the editor's brush aims at: a hole can be filled again, so its ground must still be found).
 bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float localX, float localZ, float& height,
-                          float& dhdx, float& dhdz);
+                          float& dhdx, float& dhdz, bool ignoreHoles = false);
 
 // The surface of the Terrain on `terrain` at world (x, z), through the entity's transform (a terrain that is turned about Y and
 // scaled is handled; one tilted about X or Z is sampled as if upright). False when the entity has no Terrain, its heightmap does
 // not load, the point is outside it or in a hole (no ground there, so a ray, a foliage scatter and a script see through it; before holes
 // existed this was true everywhere inside the grid). Exactly the height of the drawn surface at its finest level of detail and of the collider.
-bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out);
+// `ignoreHoles`: the surface even where a cell is cut (see terrain_local_sample).
+bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out,
+                    bool ignoreHoles = false);
 // The height only (world y); false as terrain_sample.
-bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height);
+bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height,
+                       bool ignoreHoles = false);
 
 // ---- the store ----
 

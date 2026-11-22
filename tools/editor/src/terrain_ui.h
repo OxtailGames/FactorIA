@@ -20,31 +20,31 @@ struct TerrainUi {
     TerrainMode mode = TerrainMode::Off;
     SculptTool sculpt = SculptTool::Raise;
     BrushSettings brush;
-    float amount = 0.25f;           // raise / lower: metres a stamp changes the middle of the brush (terrain.sculpt `amount`)
-    bool flattenAuto = true;        // flatten to the ground under the first click of the stroke
-    float flattenHeight = 0.0f;     // ... or to this world y
-    bool pickingHeight = false;     // the next click in the viewport picks flattenHeight from the ground
-    int layer = 0;                  // paint: an index into Terrain.layers
-    bool cut = true;                // holes: cut (true) or fill
+    float amount = 0.25f;     // raise / lower: metres a stamp changes the middle of the brush (terrain.sculpt `amount`)
+    bool flattenAuto = true;  // flatten to the ground under the first click of the stroke
+    float flattenHeight = 0.0f;  // ... or to this world y
+    bool pickingHeight = false;  // the next click in the viewport picks flattenHeight from the ground
+    int layer = 0;               // paint: an index into Terrain.layers
+    bool cut = true;             // holes: cut (true) or fill
     // ---- the ground under the mouse this frame
     bool hasHit = false;
     Vec3 hit{};
-    int ringSegments = 0;           // points of the ring drawn in the last frame (the autotest reads it)
+    int ringSegments = 0;  // points of the ring drawn in the last frame (the autotest reads it)
     // ---- the stroke being drawn
     BrushStroke stroke;
-    std::string strokeEntity;       // id of the Terrain the stroke edits
-    BrushSettings strokeBrush;      // the settings at the press: a change of the panel mid-stroke does not change it
+    std::string strokeEntity;   // id of the Terrain the stroke edits
+    BrushSettings strokeBrush;  // the settings at the press: a change of the panel mid-stroke does not change it
     SculptTool strokeSculpt = SculptTool::Raise;
     TerrainMode strokeMode = TerrainMode::Off;
-    bool strokeInvert = false;      // Ctrl held at the press: lower instead of raise, fill instead of cut
+    bool strokeInvert = false;  // Ctrl held at the press: lower instead of raise, fill instead of cut
     bool strokeCut = true;
     int strokeLayer = 0;
     float strokeAmount = 0.25f;
-    float strokeHeight = 0.0f;      // flatten: the world y the whole stroke flattens to
-    bool started = false;           // a piece changed the terrain: the next ones continue its undo step
-    int pieces = 0;                 // commands sent by the stroke so far
-    int strokes = 0;                // strokes finished (the autotest reads it)
-    std::string error;              // the last problem, shown in the panel
+    float strokeHeight = 0.0f;  // flatten: the world y the whole stroke flattens to
+    bool started = false;       // a piece changed the terrain: the next ones continue its undo step
+    int pieces = 0;             // commands sent by the stroke so far
+    int strokes = 0;            // strokes finished (the autotest reads it)
+    std::string error;          // the last problem, shown in the panel
 };
 
 // One command call that applies some stamps of a stroke: `continueStroke` is set from the second piece of a stroke on. Pure.

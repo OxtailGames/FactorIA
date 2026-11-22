@@ -21,7 +21,8 @@ namespace fa::editor {
 struct BrushSettings {
     float radius = 8.0f;    // world metres
     float strength = 0.5f;  // 0..1: how much of the effect one stamp applies
-    float falloff = 1.0f;   // 0..1: the share of the radius the effect fades over (1 = from the middle to the edge, 0 = hard edge)
+    float falloff =
+        1.0f;  // 0..1: the share of the radius the effect fades over (1 = from the middle to the edge, 0 = hard edge)
 };
 
 inline constexpr float kBrushMinRadius = 0.05f;
