@@ -494,14 +494,20 @@ in vec4 fa_vertex_color;
 // The dithered cross-fade between two levels of detail (MeshRenderer.lodCrossFade, LodGroup.crossFade): the renderer draws both levels
 // for a few frames, the one fading in with fa_gi.w = +a and the one fading out with -a (0 < a < 1). A screen-space pattern (interleaved
 // gradient noise, no texture) picks the pixels: the level fading in keeps those where it is below a, the other those where it is not, so
-// the two levels cover every pixel exactly once. A draw with fa_gi.w = 0 (every draw of a scene without a fade) returns at once.
+// the two levels cover every pixel exactly once. A draw with fa_gi.w = 0 returns at once.
+// Only the programs that already may discard have it: a program with FA_LOD_DITHER (the engine's own mesh and prepass programs a
+// fading draw uses: mesh_lod, mesh_skin_lod, prepass_lod, prepass_skin_lod) and a material with alphaMode "clip" (FA_ALPHA_CLIP). The
+// others (every draw that does not fade) have no discard at all, so a tile-based GPU keeps its early depth test and hidden surface
+// removal for them.
+#if defined(FA_LOD_DITHER) || defined(FA_ALPHA_CLIP)
 void fa_lod_dither() {
     float a = fa_gi.w;
     if (a != 0.0) {
-        float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        highp float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
         if (a > 0.0 ? n >= a : n < -a) { discard; }
     }
 }
+#endif
 @end
 
 @block fa_fs_rest
@@ -1021,7 +1027,9 @@ void main() {
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif
+#if defined(FA_LOD_DITHER) || defined(FA_ALPHA_CLIP)
     fa_lod_dither();
+#endif
 
     vec3 result;
     float fa_tr_blend = 0.0;  // fallback draw of a transmissive surface (no atlas): how much of the picture behind the plain blend lets through
@@ -1150,6 +1158,13 @@ void main() {
 // The subsurface variant of `fs` (only the engine's own mesh program has it: mesh.glsl, programs mesh_sss and mesh_skin_sss).
 @fs fs_sss
 #define FA_SSS
+@include_block fa_fs_main
+@end
+
+// The variant of `fs` a draw that cross-fades between two levels of detail uses (programs mesh_lod and mesh_skin_lod): the only one
+// with the dither's discard (fa_lod_dither), so the programs of every other draw keep their early depth test.
+@fs fs_lod
+#define FA_LOD_DITHER
 @include_block fa_fs_main
 @end
 
@@ -1369,7 +1384,7 @@ void main() {
 //      nothing was drawn
 //   a  1 where an opaque mesh was drawn, 0 where not: the truth about coverage (a drawn surface at 60000 or more has r = 60000 too)
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
-@fs prepass_fs
+@block fa_prepass_fs_main
 @include_block fa_fs_surface
 in float fa_pre_depth;
 in vec3 fa_pre_r0;
@@ -1392,7 +1407,9 @@ void main() {
 #ifdef FA_ALPHA_CLIP
     if (s.alpha < alphaCutoff) { discard; }
 #endif
+#if defined(FA_LOD_DITHER) || defined(FA_ALPHA_CLIP)
     fa_lod_dither();
+#endif
     vec3 n = normalize(s.normal);
     vec3 nv = normalize(vec3(dot(fa_pre_r0, n), dot(fa_pre_r1, n), dot(fa_pre_r2, n)));
     // Octahedral encoding: the sphere folded onto the square -1..1 (decode: n = (e.x, e.y, 1 - |e.x| - |e.y|); where n.z < 0,
@@ -1401,4 +1418,14 @@ void main() {
     if (nv.z < 0.0) { e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); }
     fa_frag_color = vec4(min(fa_pre_depth, 60000.0), e, 1.0);
 }
+@end
+
+@fs prepass_fs
+@include_block fa_prepass_fs_main
+@end
+
+// The prepass of a draw that cross-fades between two levels of detail (prepass_lod, prepass_skin_lod): `prepass_fs` with the dither.
+@fs prepass_fs_lod
+#define FA_LOD_DITHER
+@include_block fa_prepass_fs_main
 @end

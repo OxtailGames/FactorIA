@@ -323,7 +323,8 @@ void Gpu::shutdown() {
     pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
     for (sg_shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_, &blit_shader_,
-                         &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_}) {
+                         &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_, &meshLodShader_, &meshSkinLodShader_,
+                         &prepassLodShader_, &prepassSkinLodShader_}) {
         sg_destroy_shader(*s);
         *s = {};
     }
@@ -560,13 +561,20 @@ sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool 
 }
 
 sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                               sg_shader shader, MeshExtras extras, bool glass) {
-    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u),
+                               sg_shader shader, MeshExtras extras, bool glass, bool lod) {
+    lod = lod && !shader.id;  // a custom material has no variant: its alphaMode "clip" program dithers
+    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u) |
+                        (lod ? 0x10u : 0u),
                     shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader
-                         : (skinned ? builtin_shader(meshSkinShader_, mesh_mesh_skin_shader_desc, "mesh_mesh_skin")
-                                    : builtin_shader(mesh_shader_, mesh_mesh_shader_desc, "mesh_mesh"));
+    if (shader.id)
+        d.shader = shader;
+    else if (lod)
+        d.shader = skinned ? builtin_shader(meshSkinLodShader_, mesh_mesh_skin_lod_shader_desc, "mesh_mesh_skin_lod")
+                           : builtin_shader(meshLodShader_, mesh_mesh_lod_shader_desc, "mesh_mesh_lod");
+    else
+        d.shader = skinned ? builtin_shader(meshSkinShader_, mesh_mesh_skin_shader_desc, "mesh_mesh_skin")
+                           : builtin_shader(mesh_shader_, mesh_mesh_shader_desc, "mesh_mesh");
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
@@ -881,11 +889,20 @@ bool Gpu::prepass_ready() {
 }
 
 sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, sg_shader shader,
-                                  MeshExtras extras, bool cullFront) {
+                                  MeshExtras extras, bool cullFront, bool lod) {
     if (!shader.id && !prepass_ready()) return {};
-    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u), shader.id};
+    lod = lod && !shader.id;  // a custom material has no variant: its alphaMode "clip" program dithers
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u) | (lod ? 0x10u : 0u),
+                    shader.id};
     sg_pipeline_desc d{};
-    d.shader = shader.id ? shader : (skinned ? prepassSkinShader_ : prepassShader_);
+    if (shader.id)
+        d.shader = shader;
+    else if (lod)
+        d.shader = skinned ? builtin_shader(prepassSkinLodShader_, mesh_prepass_skin_lod_shader_desc,
+                                            "mesh_prepass_skin_lod")
+                           : builtin_shader(prepassLodShader_, mesh_prepass_lod_shader_desc, "mesh_prepass_lod");
+    else
+        d.shader = skinned ? prepassSkinShader_ : prepassShader_;
     d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_prepass_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_prepass_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;

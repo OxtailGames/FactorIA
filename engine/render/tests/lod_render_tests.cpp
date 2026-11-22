@@ -4,6 +4,7 @@
 #include "test_util.h"
 
 #include <cmath>
+#include <cstdlib>
 
 #include "renderer_lod.h"
 
@@ -117,11 +118,11 @@ TEST_CASE("lod render: a LodGroup draws the child its subtree's sphere picks and
     Entity group = make(w, "group", {0, 0, 0});
     auto& lg = w.add<LodGroup>(group);
     lg.thresholds.push_back(30.0f);
-    Entity near = make(w, "near", {0, 0, 0});
-    Entity far = make(w, "far", {0, 0, 0});
-    for (Entity e : {near, far}) {
+    Entity closeKid = make(w, "close", {0, 0, 0});  // not `near` and `far`: windows.h defines both as empty macros
+    Entity distantKid = make(w, "distant", {0, 0, 0});
+    for (Entity e : {closeKid, distantKid}) {
         w.set_parent(e, group);
-        w.add<MeshRenderer>(e).mesh = e == near ? "cube" : "sphere";
+        w.add<MeshRenderer>(e).mesh = e == closeKid ? "cube" : "sphere";
     }
     g.render(w);
     CHECK(g.renderer.stats().meshes == 1);
@@ -227,7 +228,9 @@ TEST_CASE("lod render: the two levels of a cross-fade cover every pixel once (th
     fade = coverage(half, empty);
     CHECK(fade.red > 0);
     CHECK(fade.green > 0);
-    CHECK(fade.red + fade.green == fade.solid);  // no pixel is drawn twice or left empty
+    // No pixel is drawn twice or left empty: every pixel of the picture is one cube's colour. With MSAA the pixels on the silhouette
+    // mix a colour with the background or the other cube, so a tenth of them may be neither (without MSAA none is).
+    CHECK((fade.solid - fade.red - fade.green) * 10 <= fade.solid);
     const float share = float(fade.green) / float(fade.solid);
     CHECK(share > 0.35f);
     CHECK(share < 0.65f);
@@ -235,7 +238,8 @@ TEST_CASE("lod render: the two levels of a cross-fade cover every pixel once (th
     g.render(w, dt);  // done
     const Coverage after = coverage(g.render(w, dt), empty);
     CHECK(after.red == 0);
-    CHECK(after.green == fade.solid);  // the silhouette is the one the fade covered
+    CHECK(std::abs(after.solid - fade.solid) * 10 <= fade.solid);  // the silhouette is the one the fade covered
+    CHECK((after.solid - after.green) * 10 <= after.solid);
     g.renderer.clear_asset_cache();
 }
 

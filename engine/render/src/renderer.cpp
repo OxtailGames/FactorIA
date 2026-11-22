@@ -1111,7 +1111,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
-    lodFades.begin_frame();
+    lodFades.begin_frame(&world, world.scene_generation());
     materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool

@@ -989,6 +989,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool lodFollow = fr.lodFollowMain;
     const bool lodMainJob = !lodFollow && ctx.plan.name.compare(0, 7, "camera:") == 0;
     const std::uint64_t lodCam = std::hash<std::string>{}(ctx.plan.name);
+    // The main camera's picks are kept for the captures only where a capture will ask: a world with a ReflectionProbe or a RealtimeGI.
+    const bool lodRemember = lodMainJob && lodsOn && (world.any<ReflectionProbe>() || world.any<RealtimeGI>());
     const LodView lodView{fr.cam.perspective, fr.cam.fov, fr.cam.halfH};
     const auto lod_pick = [&](LodKind kind, std::uint64_t bits, int target, float crossFade) {
         if (lodFollow) {
@@ -999,7 +1001,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             return p;
         }
         const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt);
-        if (lodMainJob && !lodFades.main_set()) lodFades.remember(bits, kind, p);
+        if (lodRemember && !lodFades.main_set()) lodFades.remember(bits, kind, p);
         return p;
     };
     std::vector<LodPick>
@@ -1029,8 +1031,12 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
             mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         }
-        // A full-shader material has no dither: its levels switch at once.
-        const bool canFade = !(mi.material && mi.material->full);
+        // The levels switch at once (no dither) where the draw has no program with it: a full-shader material, a custom material
+        // that is not alphaMode "clip" (its programs have no discard) and a mesh with subsurface scattering (its extra pass).
+        // The engine's own program fades through its mesh_lod variant, a clip material through the discard it has.
+        const bool customMat = mi.material && mi.material->ok;
+        const bool canFade =
+            customMat ? !mi.material->full && mi.material->alphaMode == "clip" : !(subsurface_of(mr)[0] > 0.0f);
         float groupFade = 0.0f;
         if (sm->chainCount != 0 && lodsOn) {
             const std::vector<std::uint32_t>& chains = renderScene.lod_chains();
@@ -3091,7 +3097,8 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
                                                    skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}, backFaces));
+                                                   custom ? mat->extras() : MeshExtras{}, backFaces,
+                                                   mi.lodFade != 0.0f));  // the engine's program of a fading draw: with the dither
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
@@ -3770,7 +3777,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             sg_apply_pipeline(gpu.mesh_pipeline(
                                 isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
                                 prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
-                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material)));
+                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material),
+                                mi.lodFade != 0.0f));  // the engine's program of a fading draw: the one with the dither
                         sg_bindings b{};
                         b.vertex_buffers[0] = part.vb;
                         b.vertex_buffers[1] = mainInst;

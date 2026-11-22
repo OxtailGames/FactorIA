@@ -418,15 +418,26 @@ The user page is docs/BIG_WORLDS.md, "Levels of detail". The selection is pure a
 - *Drawing.* A fading entity makes two `MeshItem`s: the level fading in has `lodFade = +a`, the one fading out `-a`
   (`a = t` clamped to [1/256, 255/256], so the sign survives and the dither never degenerates). `fill_fs` writes it into `fa_mesh_fs_params.fa_gi.w`
   and `fa_lod_dither()` of `mesh_common.glsl` (interleaved gradient noise on `gl_FragCoord`, `discard` below / above `a`) is called at the
-  end of the main and depth-prepass fragment code (after the alpha clip): no new variant, no sampler. The two draws are complementary, and
-  the prepass dithers the same way, so what it writes is what the main pass shows. `lodFade` is part of `material_key` (main pass) and `order_key`, so a
-  fading item leaves its instanced batch; `same_shadow_material` ignores it. The shadow shader never dithers: the item fading out (`lodFade < 0`) is
-  skipped in the shadow cull and the one fading in casts solid.
-- *Full-shader materials* (`material->full`, `mesh_full_common.glsl`) do not call the dither: a fading entity with one switches at once (the
-  outgoing level is dropped). A mesh under a fading `LodGroup` also switches its own `lods` at once.
+  end of the main and depth-prepass fragment code (after the alpha clip), no sampler. The function and its calls exist only under
+  `FA_LOD_DITHER` or `FA_ALPHA_CLIP`: the engine's own programs get four variants for it, `mesh_lod`, `mesh_skin_lod` (`fs_lod`) and
+  `prepass_lod`, `prepass_skin_lod` (`prepass_fs_lod`), which `Gpu::mesh_pipeline` / `prepass_pipeline` pick with their `lod` argument for an
+  item with `lodFade != 0` and no material (made on first use, `Gpu::builtin_shader`). A custom material only dithers when it is
+  `alphaMode "clip"` (`FA_ALPHA_CLIP` is defined for its programs and the dither goes after the clip's own `discard`). The programs of every
+  other draw have no `discard`, because a fragment shader with one (even behind a uniform branch) loses the early depth test and hidden
+  surface removal of a tile-based GPU. The two draws are complementary, and the prepass dithers the same way, so what it writes is what the
+  main pass shows. `lodFade` is part of `material_key` (main pass) and `order_key`, and breaks the tie of the keyed draw sort, so a fading
+  item leaves its instanced batch; `same_shadow_material` ignores it. The shadow shader never dithers: the item fading out (`lodFade < 0`)
+  is skipped in the shadow cull and the one fading in casts solid.
+- *What does not fade* (`canFade` in `gather_meshes`): a full-shader material (`material->full`, `mesh_full_common.glsl`), a custom material
+  that is not `alphaMode "clip"`, and a mesh with subsurface scattering (`subsurface_of(mr)[0] > 0`, whose extra pass has no variant) switch
+  at once (the outgoing level is dropped). A mesh under a fading `LodGroup` also switches its own `lods` at once.
 - *Stats.* `RenderStats::lodCrossFades` counts the visible items with `lodFade != 0` of every main-view job; a capture does not count.
-- *Cost.* The dither is one branch on a uniform: a draw that does not fade reads `fa_gi.w == 0` and skips it. The mesh template changed
-  (its hash), so the twin fixtures of the renderer's tests were regenerated (`FA_UPDATE_FIXTURES=1`).
+- *Cost.* A scene without `lods` and `LodGroup` draws with the same programs as before (no `discard` in them) and one flag check per gather.
+  With `crossFade` 0 `LodFades::step` keeps no slot; the main camera's picks are kept for the captures (`remember`) only where the world has a
+  `ReflectionProbe` or a `RealtimeGI`; `RenderScene::build_lod_groups` finds the meshes of a group through a flat table indexed by entity.
+  The four variants add about 120 KB of GLSL ES and 155 KB of WGSL (source embedded) to the player. The mesh template changed (its hash), so
+  the twin fixtures of the renderer's tests were regenerated (`FA_UPDATE_FIXTURES=1`). `LodFades` drops every slot when the world or its
+  scene generation changes (entity ids repeat from one scene to the next).
 
 ## PostProcess (M71)
 

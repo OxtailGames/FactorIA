@@ -115,15 +115,18 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
     if (sortByMaterial) {
         const bool allKeyed = std::all_of(items.begin(), items.end(), [](const MeshItem& m) { return m.keyed; });
         if (allKeyed) {
-            // A stable sort of (key, index) pairs: equal keys are equal items, so this is the order the comparator gives.
+            // A stable sort of (key, lod fade, index): equal keys are equal items except for a LOD cross-fade, which the key does not
+            // hold, so the fade breaks the tie (items fading by the same amount stay together and share a batch).
             struct Entry {
                 std::uint64_t key;
+                float fade;
                 std::uint32_t index;
             };
             std::vector<Entry> order(items.size());
-            for (std::size_t i = 0; i < items.size(); ++i) order[i] = {items[i].sortKey, std::uint32_t(i)};
+            for (std::size_t i = 0; i < items.size(); ++i) order[i] = {items[i].sortKey, items[i].lodFade, std::uint32_t(i)};
             rjobs::stable_sort(
-                "render.sort_meshes", order, [](const Entry& a, const Entry& b) { return a.key < b.key; },
+                "render.sort_meshes", order,
+                [](const Entry& a, const Entry& b) { return a.key != b.key ? a.key < b.key : a.fade < b.fade; },
                 kParallelSortItems, kSortGrain);
             std::vector<MeshItem> sorted;
             sorted.reserve(items.size());
