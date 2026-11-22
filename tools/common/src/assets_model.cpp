@@ -1390,7 +1390,8 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                             {"model.edit", writes_project()},
                                             {"model.game_ready", writes_project()},
                                             {"model.generate_lods", writes_project()},
-                                            {"model.bake_impostor", writes_project()}});
+                                            // `apply` also changes the open scene (state), so it is not a files-only writer
+                                            {"model.bake_impostor", edits_project()}});
 }
 
 }  // namespace fa::assets_detail

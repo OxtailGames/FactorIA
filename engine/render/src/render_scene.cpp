@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <unordered_map>
 #include <utility>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "render_jobs.h"
 
@@ -247,16 +249,20 @@ void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoo
     world.each<LodGroup>([&](Entity e, LodGroup& g) {
         if (g.hlodProxy.empty() || !(g.hlodThreshold > 0.0f)) return;
         if (!entity_active_in_scope(world, scopeRoot, e)) return;
+        // A proxy file that does not exist is reported once per path by the one message below (it names the first group and what to do), and
+        // Assets::mesh then stays quiet about it. Any other failure (a file that does not parse, a path that is not a model) is the one
+        // error Assets::mesh logs, with its cause.
+        const std::string ext = fs::extension(g.hlodProxy);
+        if ((ext == ".glb" || ext == ".gltf") && !fs::exists(fs::normalize(g.hlodProxy)))
+            assets.note_failure(
+                "mesh", g.hlodProxy,
+                std::format("LodGroup.hlodProxy '{}' of entity '{}' (and of every other group that names it): the file "
+                            "does not exist, so the groups draw their children as before.",
+                            g.hlodProxy, world.id_of(e)),
+                "bake the proxy again with world.bake_hlod (its apply argument sets LodGroup.hlodProxy) or fix the "
+                "path; a model is a project-relative .glb.");
         const MeshAsset* mesh = assets.mesh(g.hlodProxy);
-        if (!mesh || mesh->placeholder) {
-            if (hlodWarned_.insert(std::to_string(e.bits()) + "|" + g.hlodProxy).second)
-                FA_WARN(
-                    "render",
-                    "LodGroup.hlodProxy '{}' of entity '{}' cannot be read, so the group draws its children as before. "
-                    "Hint: bake the proxy again (world.bake_hlod) or fix the path; a model is a project-relative .glb.",
-                    g.hlodProxy, world.id_of(e));
-            return;
-        }
+        if (!mesh || mesh->placeholder) return;
         MeshRenderer& r = hlodRenderers_.emplace_back();
         r.mesh = g.hlodProxy;
         r.lodCrossFade = 0.0f;

@@ -209,7 +209,6 @@ private:
         proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
     std::deque<MeshRenderer>
         hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
-    std::unordered_set<std::string> hlodWarned_;  // "<entity bits>|<path>" of a proxy already reported as unreadable
     bool anyLods_ = false;
     void add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot);
     void build_lod_groups(World& world, Entity scopeRoot);

@@ -36,18 +36,15 @@ void LodFades::end_frame() {
     }
 }
 
-LodPick LodFades::step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade,
-                       float dt) {
-    if (!(crossFade > 0.0f)) {  // no fade: the level switches at once and nothing is kept for the entity
-        LodPick p;
-        p.level = target;
-        return p;
-    }
+LodPick LodFades::step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade, float dt,
+                       int farTarget) {
     auto [it, fresh] = slots_.try_emplace(slot_key(camera, entity, kind));
     Slot& slot = it->second;
     if (fresh) slot.s = LodFadeState{target, -1, 1.0f};
     slot.seen = frame_;
-    lod_fade_step(slot.s, target, crossFade, dt);
+    // The hysteresis: a farther level that is held stays until the metric pushed farther picks a nearer one too.
+    if (farTarget >= 0 && !fresh) target = std::max(target, std::min(slot.s.level, farTarget));
+    lod_fade_step(slot.s, target, crossFade, dt);  // a crossFade of 0 or less switches at once
     LodPick p;
     p.level = slot.s.level;
     p.from = slot.s.fading() ? slot.s.from : -1;
