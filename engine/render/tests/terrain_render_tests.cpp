@@ -79,6 +79,13 @@ TEST_CASE("terrain: the drawn silhouette follows the CPU heights, and the stats 
     Gfx& g = gfx();
     REQUIRE(g.ok);
     REQUIRE(g.renderer.supports("terrain"));
+    {
+        // The limits the terrain's layers, splat maps and holes need are in the report: 8 layers and 3 control slices of 4096 pixels.
+        const Json limits = g.renderer.supports_report()["limits"];
+        CHECK(limits["maxTextureSize"].get<int>() >= 2048);
+        CHECK(limits["maxArrayLayers"].get<int>() >= 8);
+        CHECK(limits["maxArrayTextureSize"].get<int>() >= 2048);
+    }
     const std::string file = write_ridge("terrain_ridge.png", false);
     World w;
     const float pitch = -30.0f;
@@ -169,6 +176,21 @@ TEST_CASE("terrain: a sculpt (mark_dirty) shows in the next frame, and a coarser
         for (int x = 0; x < before.width; ++x)
             if (diff_from(before.pixel(x, y), after.pixel(x, y)) > 0.03f) ++changed;
     CHECK(changed > 500);
+    // The first sculpt made the texture one that takes copies; the next one sends only its rectangle (not the 33 KB of the whole texture).
+    const auto upBefore = g.renderer.terrain_uploads();
+    TerrainRect small{60, 100, 70, 110};
+    for (int r = small.r0; r <= small.r1; ++r)
+        for (int c = small.c0; c <= small.c1; ++c) heights->set(c, r, 20000);
+    heights->mark_dirty(small);
+    const Image carved = g.render(w);
+    const auto upAfter = g.renderer.terrain_uploads();
+    CHECK(upAfter.rects == upBefore.rects + 1);
+    CHECK(upAfter.whole == upBefore.whole);
+    int carvedPixels = 0;
+    for (int y = 0; y < after.height; ++y)
+        for (int x = 0; x < after.width; ++x)
+            if (diff_from(after.pixel(x, y), carved.pixel(x, y)) > 0.03f) ++carvedPixels;
+    CHECK(carvedPixels > 20);
     w.get<Terrain3D>(ground)->lodQuality = 0.25f;
     g.render(w);
     CHECK(g.renderer.stats().terrainTiles <= tiles);
@@ -190,5 +212,173 @@ TEST_CASE("terrain: golden from a low and a high camera, shadows on") {
         const Image img = g.render(w);
         CHECK(g.renderer.stats().terrainTiles > 0);
         expect_golden(img, high ? "3d_terrain_high" : "3d_terrain_low", 0.006);
+    }
+}
+
+// ---- M75-P5d: layers blended by splat maps, and holes ----
+
+namespace {
+
+// A flat terrain file (every sample at 0.1 of the scale: 4 m) and a solid RGBA picture, both written into the test project.
+std::string write_flat(const char* name) {
+    GrayImage16 g;
+    g.width = g.height = kSamples;
+    g.sixteenBit = true;
+    g.samples.assign(std::size_t(kSamples) * kSamples, std::uint16_t(0.1 * 65535.0));
+    const auto png = encode_png_gray16(g);
+    const std::string file = fs::path_to_utf8(gfx().projectDir / name);
+    REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+    return file;
+}
+
+std::string write_solid(const char* name, int size, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    Image img;
+    img.width = img.height = size;
+    img.rgba.resize(std::size_t(size) * std::size_t(size) * 4);
+    for (std::size_t i = 0; i < img.rgba.size(); i += 4) {
+        img.rgba[i] = r;
+        img.rgba[i + 1] = g;
+        img.rgba[i + 2] = b;
+        img.rgba[i + 3] = 255;
+    }
+    const auto png = encode_png(img);
+    const std::string file = fs::path_to_utf8(gfx().projectDir / name);
+    REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+    return file;
+}
+
+// A camera straight above the middle of the terrain, orthographic: one pixel is 0.667 m, the picture is 213 x 120 m.
+void add_top_camera(World& w) { add_camera(w, {0, 100, 0}, -90.0f, true); }
+
+// The pixel of the world position (x, z) seen by add_top_camera (the terrain's -Z edge is the top of the picture).
+Color top_pixel(const Image& img, float x, float z) {
+    const int px = int(std::floor(160.0f + x * 1.5f));
+    const int py = int(std::floor(90.0f + z * 1.5f));
+    return img.pixel(px, py);
+}
+
+}  // namespace
+
+TEST_CASE("terrain: two layers blended by a splat map, normalised, and layer 0 alone without a map") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_layers.png");
+    World w;
+    add_top_camera(w);
+    Entity sun = add_sun(w, false);
+    w.get<Transform>(sun)->rotation = {-90, 0, 0};
+    w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
+    Entity ground = add_terrain(w, flat);
+    {
+        auto& t = *w.get<Terrain3D>(ground);
+        t.layers = Json::array();
+        t.layers.push_back(Json{{"albedo", write_solid("terrain_red.png", 8, 230, 20, 20)}, {"tileSize", 8.0}});
+        t.layers.push_back(Json{{"albedo", write_solid("terrain_blue.png", 8, 20, 20, 230)}, {"tileSize", 8.0}});
+    }
+    // No splat map: layer 0 (red) everywhere.
+    Image img = g.render(w);
+    const Color a = top_pixel(img, -40.0f, 20.0f), b = top_pixel(img, 40.0f, -20.0f);
+    CHECK(a.r > a.b + 0.1f);
+    CHECK(b.r > b.b + 0.1f);
+    CHECK(diff_from(a, b) < 0.03f);
+    const std::uint64_t builtBefore = g.renderer.terrain_uploads().arrays;
+    // A 4 x 4 splat map: the two left columns paint layer 0 (channel R), the two right ones layer 1 (channel G).
+    std::string problem;
+    auto heights = w.terrain().heights(w, ground, &problem);
+    REQUIRE(heights);
+    TerrainSplat& map = heights->splat[0];
+    map.size = 4;
+    map.rgba.assign(4 * 4 * 4, 0);
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x) map.rgba[std::size_t(y * 4 + x) * 4 + (x < 2 ? 0u : 1u)] = 255;
+    ++map.version;
+    img = g.render(w);
+    const Color left = top_pixel(img, -40.0f, 10.0f), right = top_pixel(img, 40.0f, 10.0f),
+                mid = top_pixel(img, 0.0f, 10.0f);
+    CHECK(left.r > left.b + 0.1f);
+    CHECK(right.b > right.r + 0.1f);
+    // Halfway between the two texels' centres the weights are half and half: both colours show.
+    CHECK(mid.r > 0.05f);
+    CHECK(mid.b > 0.05f);
+    CHECK(std::fabs(mid.r - mid.b) < 0.5f * std::fabs(left.r - left.b));
+    CHECK(g.renderer.terrain_uploads().arrays > builtBefore);
+    // The weights are normalised: 100 + 100 (of 255 each) is half and half, not two dim layers.
+    for (int i = 0; i < 16; ++i) {
+        map.rgba[std::size_t(i) * 4] = 100;
+        map.rgba[std::size_t(i) * 4 + 1] = 100;
+    }
+    ++map.version;
+    img = g.render(w);
+    const Color halves = top_pixel(img, 0.0f, 10.0f), far = top_pixel(img, 50.0f, -30.0f);
+    CHECK(diff_from(halves, far) < 0.03f);
+    CHECK(std::fabs(halves.r - halves.b) < 0.05f);
+    CHECK(halves.r > 0.1f);
+    // Nothing changed: no array is made again.
+    const std::uint64_t built = g.renderer.terrain_uploads().arrays;
+    g.render(w);
+    CHECK(g.renderer.terrain_uploads().arrays == built);
+}
+
+TEST_CASE("terrain: a hole shows what is behind it, and the shadow has the hole too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_holes.png");
+    // The cells 48..79 on both axes are the hole: x and z from -16 to 16 m.
+    auto cut = [&](World& w, Entity ground) {
+        std::string problem;
+        auto heights = w.terrain().heights(w, ground, &problem);
+        REQUIRE(heights);
+        heights->holes.assign(std::size_t(128) * 128, 0);
+        for (int r = 48; r < 80; ++r)
+            for (int c = 48; c < 80; ++c) heights->holes[std::size_t(r) * 128 + std::size_t(c)] = 1;
+        ++heights->holesVersion;
+    };
+    {
+        World w;
+        add_top_camera(w);
+        Entity sun = add_sun(w, false);
+        w.get<Transform>(sun)->rotation = {-90, 0, 0};
+        Entity ground = add_terrain(w, flat);
+        const Image whole = g.render(w);
+        const Color terrainColor = top_pixel(whole, 0.0f, 0.0f);
+        const Color sky = whole.pixel(1, 1);
+        CHECK(diff_from(terrainColor, sky) > 0.05f);
+        cut(w, ground);
+        const Image holed = g.render(w);
+        CHECK(diff_from(top_pixel(holed, 0.0f, 0.0f), sky) < 0.02f);
+        CHECK(diff_from(top_pixel(holed, -10.0f, 12.0f), sky) < 0.02f);
+        CHECK(diff_from(top_pixel(holed, 12.0f, -10.0f), sky) < 0.02f);
+        // Outside the hole, to its very edge, the ground is still there.
+        CHECK(diff_from(top_pixel(holed, 20.0f, 0.0f), terrainColor) < 0.03f);
+        CHECK(diff_from(top_pixel(holed, 0.0f, -20.0f), terrainColor) < 0.03f);
+        CHECK(diff_from(top_pixel(holed, -50.0f, 50.0f), terrainColor) < 0.03f);
+        // Closing the hole again.
+        auto heights = w.terrain().heights(w, ground, nullptr);
+        std::fill(heights->holes.begin(), heights->holes.end(), std::uint8_t(0));
+        ++heights->holesVersion;
+        CHECK(diff_from(top_pixel(g.render(w), 0.0f, 0.0f), terrainColor) < 0.02f);
+    }
+    {
+        // A floor under the terrain: seen through the hole it is as bright with the terrain's shadow as without it (the shadow map has the
+        // hole too).
+        World w;
+        add_top_camera(w);
+        Entity sun = add_sun(w, true);
+        w.get<Transform>(sun)->rotation = {-90, 0, 0};
+        Entity floorE = make(w, "floor", {0, -5, 0});
+        auto& m = w.add<MeshRenderer>(floorE);
+        m.mesh = "cube";
+        m.color = Color{0.05f, 0.4f, 0.1f, 1.0f};
+        w.get<Transform>(floorE)->scale = {400, 1, 400};
+        Entity ground = add_terrain(w, flat);
+        cut(w, ground);
+        const Image img = g.render(w);
+        // The same picture with a terrain that casts no shadow: what the floor looks like where nothing shades it.
+        w.get<Terrain3D>(ground)->castShadows = false;
+        const Image unshaded = g.render(w);
+        for (const Vec2 at : {Vec2{0.0f, 0.0f}, Vec2{-8.0f, 8.0f}, Vec2{9.0f, -9.0f}})
+            CHECK(diff_from(top_pixel(img, at.x, at.y), top_pixel(unshaded, at.x, at.y)) < 0.02f);
+        CHECK(diff_from(top_pixel(img, 40.0f, 0.0f), top_pixel(img, 0.0f, 0.0f)) >
+              0.1f);  // the terrain itself, not the floor
     }
 }

@@ -922,7 +922,14 @@ TEST_CASE("features: the headless backend has no GPU and says no to everything")
 }
 
 TEST_CASE("features: the report lists every feature with a status and the backends it can run on") {
-    const Json r = feature_report(gpu(FeatureBackend::Metal, true, true, true, true), "metal");
+    FeatureEnv env = gpu(FeatureBackend::Metal, true, true, true, true);
+    env.maxTextureSize = 16384;
+    env.maxArrayLayers = 2048;
+    env.maxArrayTextureSize = 8192;
+    const Json r = feature_report(env, "metal");
+    CHECK(r["limits"]["maxTextureSize"] == 16384);
+    CHECK(r["limits"]["maxArrayLayers"] == 2048);
+    CHECK(r["limits"]["maxArrayTextureSize"] == 8192);
     CHECK(r["backend"] == "metal");
     CHECK(r["backendLabel"] == "Metal");
     REQUIRE(r["features"].size() == feature_names().size());

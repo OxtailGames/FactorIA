@@ -492,7 +492,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
         } else {
             TerrainSample smp;
             if (!terrain_sample(I.world, tg.entity, s.stamps[0].x, s.stamps[0].z, smp))
-                bad("/height", "The first stamp is outside the terrain, so there is no surface to flatten to",
+                bad("/height",
+                    "The first stamp is outside the terrain or in a hole, so there is no surface to flatten to",
                     "Pass 'height' (world metres) or start the stroke on the terrain.");
             worldY = smp.height;
         }
