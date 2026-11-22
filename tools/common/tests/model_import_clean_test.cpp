@@ -283,3 +283,33 @@ TEST_CASE("model `mesh` operation: checked like any node, reads a project glb, t
                                 {"nodes", Json::array({{{"op", "mesh"}, {"source", "assets/models/none.glb"}}})}});
     CHECK(missing.result.dump().find("none.glb") != std::string::npos);
 }
+
+TEST_CASE("model.import_clean: lodChain true or an object writes gameReady.lodChain; a bad value is refused with its "
+          "pointer") {
+    AssetsProject p;
+    write_dirty_gltf(p, "assets/models/dirty.gltf", true);
+    const Json on =
+        p.ok("model.import_clean", {{"source", "assets/models/dirty.gltf"}, {"scale", 0.01}, {"lodChain", true}});
+    const Json doc = parse_json(read_all(p.file("assets/models/dirty_clean.model.json")), "d").value();
+    CHECK(doc["gameReady"]["lodChain"]["enabled"] == true);
+    CHECK(on["bake"]["state"] == "baked");  // 12 triangles: under minTriangles, so no levels and no files
+    CHECK_FALSE(p.exists("assets/models/dirty_clean.lod1.glb"));
+
+    p.ok("model.import_clean", {{"source", "assets/models/dirty.gltf"},
+                                {"scale", 0.01},
+                                {"overwrite", true},
+                                {"lodChain", {{"levels", 2}, {"screenSizes", {0.4, 0.1}}}}});
+    const Json doc2 = parse_json(read_all(p.file("assets/models/dirty_clean.model.json")), "d").value();
+    CHECK(doc2["gameReady"]["lodChain"]["levels"] == 2);
+    CHECK(doc2["gameReady"]["lodChain"]["screenSizes"].size() == 2);
+
+    CommandResult bad =
+        p.call("model.import_clean", {{"source", "assets/models/dirty.gltf"}, {"lodChain", 5}, {"overwrite", true}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("/lodChain") != std::string::npos);
+    bad = p.call("model.import_clean", {{"source", "assets/models/dirty.gltf"},
+                                        {"overwrite", true},
+                                        {"lodChain", {{"levels", 2}, {"screenSizes", {0.1, 0.4}}}}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("/gameReady/lodChain/screenSizes/1") != std::string::npos);
+}

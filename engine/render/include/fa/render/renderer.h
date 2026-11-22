@@ -54,7 +54,9 @@ struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades };
+// Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
+// the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`).
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -156,12 +158,13 @@ struct RenderStats {
     // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
     // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
     int sceneCopies = 0;
-    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. All zero until the package named on each draws
-    // something: P0 only reserves the counters (game.render_stats, perf.measure and the budgets of perf.check read them).
-    int occluders = 0;       // M75.2: Occluder entities rasterised into the occlusion depth buffer
-    int occlusionTests = 0;  // M75.2: objects tested against that buffer and the OcclusionArea portals
+    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. Each is zero until the package named on it draws
+    // something (game.render_stats, perf.measure and the budgets of perf.check read them).
+    int occluders =
+        0;  // M75.2: Occluder entities rasterised into the occlusion depth buffer (0 with no enabled Occluder)
+    int occlusionTests = 0;  // M75.2: meshes tested against that buffer (the OcclusionArea portals are planned)
     int meshesOccluded =
-        0;  // M75.2: of meshesCulled, the MeshRenderer entities hidden behind occluders or closed portals
+        0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders (still drawn into shadow maps)
     int lodCrossFades =
         0;  // M75.1: meshes drawn as one level of a dithered LOD cross-fade (an entity fading between two levels counts 2)
     int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
@@ -586,6 +589,12 @@ public:
     // as <prefix>-emission.png, <prefix>-occluders.png and <prefix>-distance.png and the report lists them in "files"; a failure is in "error".
     // Reads the GPU back (a command, never the frame). Empty object before init().
     Json gi2d_field(std::string_view savePrefix = {}, std::string_view job = {});
+    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS.md, "Occlusion"): the report of the `render.occlusion` command
+    // {supported, debugView, active, limits, camera, width, height, occluders, triangles, coveredCells, tests, hidden}. `active` is false
+    // (and the rest left out) when no camera of the last frame had an enabled Occluder. With `savePath` (a UTF-8 path of a .png) the
+    // depth buffer of the last camera that had occluders is written as a grey picture (black = no occluder; the nearer, the brighter) and
+    // listed in "file"; a failure is in "error". A CPU read: no GPU involved. Empty object before init().
+    Json occlusion_report(std::string_view savePath = {});
     // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
     // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
     // below `captured` have a picture (exact unless a capture failed and is being retried).

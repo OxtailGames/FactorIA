@@ -1665,7 +1665,7 @@ Turns this scene into a streamed world: `world` names an index file (<name>.worl
 
 Not released yet (on main after 0.34.0).
 
-A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
+A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1673,12 +1673,12 @@ A large landscape: a heightmap drawn as a mesh that coarsens with distance, pain
 | `size` | vec2 | `[512.0,512.0]` | [x, z] metres the heightmap covers, centred on the entity, before Transform.scale; each above 0 and at most 100000. Default [512, 512]. Range 0.0..100000.0. |
 | `heightScale` | float | `100.0` | Metres of height of a white heightmap sample, 0..100000. Default 100. Range 0.0..100000.0. |
 | `heightOffset` | float | `0.0` | Metres added to every height after the scale (the height of a black sample), -100000..100000. Default 0. Range -100000.0..100000.0. |
-| `splatMaps` | json | `[]` | Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. |
-| `layers` | json | `[]` | Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain. |
-| `holes` | asset (texture) | `""` | Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. |
-| `lodQuality` | float | `1.0` | Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and coarsening twice as far, 0.5 = half. 0.1..4. Default 1. Range 0.1..4.0. |
-| `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. Default true. |
-| `collision` | bool | `true` | true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false = visual only. |
+| `splatMaps` | json | `[]` | Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Not drawn yet (planned): only layer 0 is. |
+| `layers` | json | `[]` | Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the plain terrain. [] (default) = a plain grey terrain. |
+| `holes` | asset (texture) | `""` | Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. Not cut yet (planned): the terrain is drawn and collides without holes. |
+| `lodQuality` | float | `1.0` | Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; below 1 the finest level is not drawn at 0.5, the two finest at 0.25 (a coarser terrain at any distance). 0.1..4. Default 1. Range 0.1..4.0. |
+| `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. Tiles outside the camera still cast: the cascades see the whole terrain, at the levels of detail the camera chose. Default true. |
+| `collision` | bool | `true` | true (default) = the terrain is a static physics body made from the heights it draws (a ray and a falling body meet the same surface, triangle for triangle), and a sculpt moves it. It needs no Collider3D; an entity that has its own Collider3D keeps that one. A RigidBody3D that is not static on the entity is refused. false = visual only. The collider copies the heights as 32-bit floats: 67 MB at 4097 x 4097 samples. |
 
 ### Foliage
 
@@ -4823,7 +4823,7 @@ Capabilities: read
 
 Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, sceneCopies, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
 
-lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 256); sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). Nine more are 0 until M75.1-M75.6 draw them (big worlds: occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled; docs/BIG_WORLDS.md). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 256); sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). terrainTiles counts the Terrain tiles drawn in the main pass (after the level of detail and the culling) and terrainTriangles their triangles (also in triangles; tiles are not counted in meshes). occluders (the Occluders rasterised), occlusionTests (the meshes tested against them) and meshesOccluded (the ones hidden behind them and left out of the main pass, also in meshesCulled) count the CPU occlusion culling of docs/BIG_WORLDS.md: 0 when no enabled Occluder is in the scene. Four more are 0 until M75.1 and M75.6 draw them (big worlds: lodCrossFades, impostors, foliageInstances, foliageInstancesCulled; docs/BIG_WORLDS.md). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -6607,14 +6607,15 @@ Capabilities: read, writeProject
 
 Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
 
-`collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
+`lodChain`: an automatic chain by screen size instead of `lods` (not both; null removes it): {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight} (docs/BIG_WORLDS.md, "Automatic LOD chain"). `collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
 | `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
-| `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
+| `lods` | any | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
+| `lodChain` | any | no | An automatic LOD chain drawn by screen size instead of `lods` (not both): {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight}; replaces the setting, null removes it (model.generate_lods sets it with defaults). |
 | `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution, part, radius, height}. |
 | `platforms` | array | no | Budgets to check: desktop, mobile, web. |
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
@@ -6625,19 +6626,27 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 
 Not released yet (on main after 0.34.0).
 
-Generate simplified LOD meshes of a model and write them to the project.
+Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.
 
-Capabilities: read, state, writeProject
+Capabilities: read, writeProject
 
-Will simplify a model's meshes to `levels` lower levels of detail (each keeps `ratios[i]` of the triangles of the level above, within `maxError` metres of the original), write each as a mesh file and fill the MeshRenderer.lods of every entity that uses the model when `apply` is true. Result: {levels: [{file, triangles, error}]}. Example: model.generate_lods {"model":"models/rock.glb","levels":3} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS.md, "Automatic LOD chain"): `levels` (1..7) simplified copies of the mesh, deterministic (meshoptimizer), each keeping `ratios[i]` of the triangles of the level above (default 0.5) within `errors[i]` metres (`maxError` for all), drawn when the model covers less than `screenSizes[i]` of the view (default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, 0.008). Writes the settings into the document, then bakes <name>.lodN.glb and <name>.prefab.json whose MeshRenderer has lodMode screenSize and {mesh, screenSize} entries. Levels that would have fewer than `minTriangles` triangles are skipped with a note. `model` is the .model.json or the .glb it baked to; skinned meshes (a rig's .glb) are refused. Seams between parts are always kept; `lockBorder` also locks open edges; `normalWeight` and `uvWeight` make a collapse that smears normals or UVs cost more. `dryRun` only reports. Result: {levels: [{level, file, triangles, error, screenSize}], notes}. Example: model.generate_lods {"model":"assets/models/rock.model.json","levels":3}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `model` | string | yes | The model or mesh file to simplify (project-relative path). |
+| `model` | string | yes | The model document (.model.json) or the .glb it baked to, project-relative. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `levels` | integer | no | How many lower levels to make. Default 3. |
-| `ratios` | array | no | Share of triangles each level keeps of the one above (default 0.5 each). |
-| `maxError` | number | no | Largest distance in metres a vertex may move (default: none). |
-| `apply` | boolean | no | Also fill MeshRenderer.lods of the entities that use the model. Default false. |
+| `ratios` | array | no | Per level, the share of the level above's triangles it keeps (default 0.5 each). |
+| `errors` | array | no | Per level, the most the surface may move in metres (0 = no limit). |
+| `maxError` | number | no | The same limit for every level, metres. Exclusive with errors. |
+| `screenSizes` | array | no | Per level, falling: the screen size below which the level is drawn. |
+| `minTriangles` | integer | no | A level with fewer triangles, and the ones after it, is not made. Default 32. |
+| `lockBorder` | boolean | no | Open edges (borders of the surface) do not move; the seams between parts are kept either way. Default true. |
+| `normalWeight` | number | no | How much bending a normal costs a collapse. Default 1.0. |
+| `uvWeight` | number | no | How much smearing a UV seam costs a collapse. Default 0.5. |
+| `dryRun` | boolean | no | Only report what would be made; write nothing. Default false. |
+| `bake` | boolean | no | Bake the .glb, the LOD files and the prefab after writing the settings. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
 ### `model.import_clean` (modifies state)
 
@@ -6671,6 +6680,7 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 | `remeshVoxel` | number | no | Remesh: the cell size in metres instead of remeshCells (0 = use remeshCells). Default 0.0. |
 | `unwrap` | string ["auto","always","never"] | no | Unwrap with xatlas into the document's uv section: auto (when the mesh has no uvs or was remeshed), always or never. Default "auto". |
 | `texelsPerUnit` | number | no | Texels per metre of the unwrap (default the project's style guide, else 128). |
+| `lodChain` | any | no | true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS.md, "Automatic LOD chain"). Skinned meshes are not read, so the chain is of the static mesh. |
 | `bake` | boolean | no | Bake the document to its .glb. Default true. |
 
 ### `model.info`
@@ -8159,17 +8169,17 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 Since 0.31.0.
 
-Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on.
+Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on.
 
 Capabilities: read, state
 
 A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past the last or with no shadow); `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
 
-The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao or cascades (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+`occlusion` keeps the game picture and draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS.md, "Occlusion"; render.occlusion saves its depth buffer). The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao, cascades or occlusion (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `view` | string ["none","depth","normals","ao","cascades"] | no | none (the game picture), depth, normals, ao (the ambient occlusion) or cascades (the meshes tinted by the cascade of the sun's shadow they fall in). Omitted: report the current view. |
+| `view` | string ["none","depth","normals","ao","cascades","occlusion"] | no | none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in) or occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red). Omitted: report the current view. |
 
 ### `render.frame_graph`
 
@@ -8267,6 +8277,22 @@ Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` whe
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The id of an entity with a MeshRenderer. |
+
+### `render.occlusion` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and hidden; optionally the depth buffer as a PNG.
+
+Capabilities: read, state
+
+Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that had an enabled Occluder (docs/BIG_WORLDS.md, "Occlusion"): the size of its depth buffer, the Occluders and triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view {"view":"occlusion"} draws the boxes over the game picture. Errors: `unavailable` without graphics; `invalid_argument` for a `save` that is not a string or does not end in .png. Example: render.occlusion {"save": ".factoria/tmp/occlusion.png"}
+
+Result: {supported, debugView, active, limits: {width, trianglesPerOccluder, trianglesPerCamera}, camera, width, height, occluders, triangles, coveredCells, tests, hidden, file?, error?}. `active` is false when no camera of the last frame had an enabled Occluder (then only `message` and `limits` follow). `width` x `height` is the buffer without its one-cell guard ring (256 across; 256 / aspect down). `save` needs the writeProject capability.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `save` | string | no | A .png path (inside the project; absolute paths need writeAnywhere) for the depth buffer as a grey picture. Omitted: nothing is written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 
 ### `render.output`
 
@@ -23316,7 +23342,7 @@ declare module "factoria" {
     cameraUnloadRadius: number;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
    * 
    * Category: 3D
    * @since unreleased
@@ -23344,32 +23370,32 @@ declare module "factoria" {
      */
     heightOffset: number;
     /**
-     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Not drawn yet (planned): only layer 0 is. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     splatMaps: any;
     /**
-     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the plain terrain. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     layers: any;
     /**
-     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. (asset path: texture)
+     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. Not cut yet (planned): the terrain is drawn and collides without holes. (asset path: texture)
      * @since unreleased
      */
     holes: string;
     /**
-     * Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and coarsening twice as far, 0.5 = half. 0.1..4. Default 1.
+     * Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; below 1 the finest level is not drawn at 0.5, the two finest at 0.25 (a coarser terrain at any distance). 0.1..4. Default 1.
      * @since unreleased
      */
     lodQuality: number;
     /**
-     * Cast shadows from shadow-casting lights. Default true.
+     * Cast shadows from shadow-casting lights. Tiles outside the camera still cast: the cascades see the whole terrain, at the levels of detail the camera chose. Default true.
      * @since unreleased
      */
     castShadows: boolean;
     /**
-     * true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false = visual only.
+     * true (default) = the terrain is a static physics body made from the heights it draws (a ray and a falling body meet the same surface, triangle for triangle), and a sculpt moves it. It needs no Collider3D; an entity that has its own Collider3D keeps that one. A RigidBody3D that is not static on the entity is refused. false = visual only. The collider copies the heights as 32-bit floats: 67 MB at 4097 x 4097 samples.
      * @since unreleased
      */
     collision: boolean;
@@ -24454,7 +24480,7 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances and foliageInstancesCulled are the big-world counters of M75 and stay 0 until M75.1-M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; terrainTiles the Terrain tiles drawn in the main pass and terrainTriangles their triangles, also counted in triangles but not in meshes; occluders, occlusionTests and meshesOccluded count the CPU occlusion culling of M75.2 (the Occluders rasterised, the meshes tested, the ones hidden; 0 with no enabled Occluder); lodCrossFades, impostors, foliageInstances and foliageInstancesCulled are the other big-world counters of M75 and stay 0 until M75.1 and M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
     renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; occluders: number; occlusionTests: number; meshesOccluded: number; lodCrossFades: number; impostors: number; terrainTiles: number; terrainTriangles: number; foliageInstances: number; foliageInstancesCulled: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
