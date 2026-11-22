@@ -41,7 +41,7 @@ void register_project_secret_commands(
 
 void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
-// big_world_commands.cpp: world.split_cells, world.merge_cells, model.generate_lods, model.bake_impostor, terrain.*, foliage.* (M75
+// big_world_commands.cpp: world.split_cells, world.merge_cells, model.bake_impostor, terrain.*, foliage.* (M75
 // stubs that fail with not_built until their package lands).
 void register_big_world_commands(Engine& engine, Engine::Impl& impl);
 

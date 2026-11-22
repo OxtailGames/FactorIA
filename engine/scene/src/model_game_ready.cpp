@@ -276,7 +276,7 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
         if (g.lodChain.enabled && !g.lods.empty())
             r.err(at + "/lodChain", "lodChain.enabled and lods are both given: they are two ways to make the same LODs",
                   "Keep lods (explicit levels drawn by distance) or lodChain (an automatic chain drawn by screen "
-                  "size), not both.");
+                  "size), not both: model.game_ready {\"lodChain\": null} or {\"lods\": null} removes one.");
         if (auto it = json.find("collider"); it != json.end()) {
             const std::string cat = at + "/collider";
             if (!it->is_object())
@@ -425,12 +425,10 @@ Json lod_chain_schema() {
                {"minTriangles",
                 num("integer", 1, 1000000,
                     "A level with fewer triangles than this, and the ones after it, are not made. Default 32.")},
-               {"lockBorder",
-                Json::object(
-                    {{"type", "boolean"},
-                     {"default", true},
-                     {"description",
-                      "Open edges and borders between parts do not move (so parts and UV islands stay apart)."}})},
+               {"lockBorder", Json::object({{"type", "boolean"},
+                                            {"default", true},
+                                            {"description", "Open edges (borders of the surface) do not move. The "
+                                                            "seams between parts are kept either way."}})},
                {"normalWeight", num("number", 0, 100, "How much bending a normal costs a collapse. Default 1.")},
                {"uvWeight", num("number", 0, 100, "How much smearing a UV seam costs a collapse. Default 0.5.")}})}});
 }

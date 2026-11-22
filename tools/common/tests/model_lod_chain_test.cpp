@@ -85,7 +85,7 @@ TEST_CASE("model.generate_lods: a tiny mesh skips the levels under minTriangles 
     // minTriangles 2 lets the cube lose triangles
     const Json r2 =
         p.ok("model.generate_lods", {{"model", "assets/models/cube.model.json"}, {"minTriangles", 2}, {"levels", 1}});
-    CHECK(r2["levels"].size() <= 1);
+    CHECK(r2["levels"].size() == 1);
 }
 
 TEST_CASE("model.generate_lods: errors name the JSON pointer and the fix") {
@@ -159,4 +159,36 @@ TEST_CASE("gameReady.lodChain: parse, defaults round trip, conflicts and unknown
     auto typo = parse_game_ready(Json::parse(R"({"lodChain": {"enabled": true, "minTriangle": 3}})"), "/gameReady");
     REQUIRE_FALSE(typo.ok());
     CHECK(typo.error().hint.find("minTriangles") != std::string::npos);
+}
+
+TEST_CASE("model.game_ready: lodChain null removes the chain and its files; chain and lods switch") {
+    AssetsProject p;
+    write_all(p.file("assets/models/ball.model.json"), kBall);
+    p.ok("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"levels", 2}});
+    CHECK(p.exists("assets/models/ball.lod2.glb"));
+    // the chain and lods are exclusive; the error names the way out
+    CommandResult both = p.call("model.game_ready",
+                                {{"path", "assets/models/ball.model.json"}, {"lods", Json::array({{{"ratio", 0.5}}})}});
+    REQUIRE_FALSE(both.ok);
+    CHECK(both.error.dump().find("\"lodChain\": null") != std::string::npos);
+    // switch to distance LODs in one call
+    p.ok("model.game_ready",
+         {{"path", "assets/models/ball.model.json"}, {"lodChain", nullptr}, {"lods", Json::array({{{"ratio", 0.5}}})}});
+    CHECK_FALSE(p.exists("assets/models/ball.lod2.glb"));
+    Json prefab = parse_json(read_all(p.file("assets/models/ball.prefab.json")), "prefab").value();
+    CHECK(prefab["entity"]["components"]["MeshRenderer"]["lods"][0].contains("distance"));
+    CHECK_FALSE(prefab["entity"]["components"]["MeshRenderer"].contains("lodMode"));
+    // and back to a chain, then remove it
+    p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"},
+                              {"lods", nullptr},
+                              {"lodChain", {{"enabled", true}, {"levels", 1}}}});
+    CHECK(p.exists("assets/models/ball.lod1.glb"));
+    p.ok("model.game_ready", {{"path", "assets/models/ball.model.json"}, {"lodChain", nullptr}});
+    CHECK_FALSE(p.exists("assets/models/ball.lod1.glb"));
+    CHECK_FALSE(p.exists("assets/models/ball.prefab.json"));
+    const Json doc = parse_json(read_all(p.file("assets/models/ball.model.json")), "doc").value();
+    CHECK_FALSE(doc.contains("gameReady"));
+    // bake:false says the files are bake's
+    const Json nb = p.ok("model.generate_lods", {{"model", "assets/models/ball.model.json"}, {"bake", false}});
+    CHECK(nb["nextSteps"][0].get<std::string>().find("model.bake") != std::string::npos);
 }
