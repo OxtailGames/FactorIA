@@ -32,6 +32,7 @@
 #include "light_clusters.h"
 #include "renderer_env.h"
 #include "renderer_lod.h"
+#include "renderer_foliage.h"
 #include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
@@ -97,6 +98,7 @@ struct Renderer::Impl {
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
     TerrainRenderer terrains;  // the Terrain components' height textures, patch and program (renderer_terrain.h)
+    FoliageRenderer foliage;   // the Foliage components: instances file, chunks and items (renderer_foliage.h)
     GradientRamps ramps;       // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;    // Renderer::set_text_scale
     float uiScale = 1.0f;      // Renderer::set_ui_scale
@@ -278,7 +280,8 @@ struct Renderer::Impl {
     };
     OcclusionShown occlusionShown;  // this frame (cleared when it begins)
     OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
-    void occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    // True when it rasterised an occlusion buffer for this camera (`occlusion` holds it), false when nothing was tested.
+    bool occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
     void occlusion_overlay();
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;

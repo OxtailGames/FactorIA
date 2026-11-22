@@ -536,6 +536,11 @@ public:
         std::uint64_t whole = 0, rects = 0, arrays = 0;
     };
     TerrainUploads terrain_uploads() const;
+    // The Foliage instances files (M75.6): they are read off the main thread, and a frame draws what is ready. A test or a capture that needs
+    // them in the picture waits here, then renders once more (that frame adopts them).
+    bool foliage_loading() const;
+    void wait_foliage_loaded();
+    std::uint64_t foliage_loads() const;  // files read since the renderer was made
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
     // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a

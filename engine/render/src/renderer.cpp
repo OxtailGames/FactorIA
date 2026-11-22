@@ -452,6 +452,7 @@ void Renderer::shutdown() {
         im.sssFx.release();
         im.ramps.destroy();
         im.terrains.destroy();
+        im.foliage.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
@@ -581,9 +582,15 @@ Renderer::TerrainUploads Renderer::terrain_uploads() const {
     return out;
 }
 
+bool Renderer::foliage_loading() const { return impl_ && impl_->foliage.loading(); }
+void Renderer::wait_foliage_loaded() {
+    if (impl_) impl_->foliage.wait_loaded();
+}
+std::uint64_t Renderer::foliage_loads() const { return impl_ ? impl_->foliage.loads() : 0; }
+
 std::uint64_t Renderer::texture_bytes() const {
     return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() +
-                                        impl_->decalAtlas.bytes
+                                        impl_->foliage.bytes() + impl_->decalAtlas.bytes
                                   : 0;
 }
 
