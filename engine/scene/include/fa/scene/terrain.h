@@ -98,6 +98,26 @@ struct TerrainSplat {
     std::uint64_t version = 0;       // grows with every edit
     bool unsaved = false;            // edited since it was loaded or written
     bool valid() const { return size > 0 && rgba.size() == std::size_t(size) * std::size_t(size) * 4; }
+
+    // Which part of the map an edit changed, so the renderer sends only that rectangle to the GPU (as TerrainHeights::mark_dirty).
+    // `serial` is different for every TerrainSplat made (`s = TerrainSplat{}` makes a new map: a reader that saw another serial
+    // takes the whole map). A change that does not go through mark_dirty (code that sets `size` and `rgba` and bumps `version`
+    // itself) is a version with no rectangle: dirty_since() answers false for any reader that has not seen it yet.
+    std::uint64_t serial = next_serial();
+    // Bumps `version` and remembers the texels of `rect` (inclusive, clamped to the map; an empty one still bumps the version).
+    void mark_dirty(TerrainRect rect);
+    // The rectangle written since `sinceVersion`: false when it is not known (history too short, or an edit with no rectangle in
+    // between: the reader must take the whole map); true with `out` empty when nothing changed.
+    bool dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const;
+    static std::uint64_t next_serial();
+
+private:
+    struct Edit {
+        std::uint64_t version = 0;
+        TerrainRect rect;
+    };
+    std::vector<Edit> edits_;       // the last 64 rectangles, oldest first
+    std::uint64_t oldestKept_ = 0;  // the version before the oldest rectangle kept
 };
 
 // The samples of one terrain.
@@ -283,6 +303,12 @@ public:
     std::shared_ptr<TerrainHeights> heights(const World& world, Entity e, std::string* problem = nullptr) const;
     // The heights of `e` if they are loaded, without loading anything.
     std::shared_ptr<TerrainHeights> find(Entity e) const;
+    // Reads Terrain.heightmap of `e` again (the file changed on disk: the renderer calls it when the asset reload log names the
+    // file). The file is read with no lock held. The loaded heights are replaced (a new TerrainHeights with a new `id`, so the
+    // renderer and the collider rebuild) only when the samples differ from the ones in memory and the terrain has no unsaved edit
+    // (an edit in memory wins over the file; saving it writes the file, which then equals the memory). The replaced heights lose
+    // their undo history. False when nothing was replaced (no heights loaded, no file, unreadable file: the old heights stay).
+    bool reload(const World& world, Entity e) const;
     // Forgets the entries of entities that are gone or no longer have a Terrain.
     void prune(const World& world);
     void clear();

@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/core/jobs.h"
 #include "fa/scene/terrain.h"
 #include "mesh_batch.h"
 #include "render_internal.h"
@@ -29,9 +30,21 @@ namespace fa::render {
 struct TerrainDraw {
     MeshRenderer mr;
     float params[16][4]{};
-    TextureAsset*
-        textures[4]{};     // the heights, the albedo array, the normal array, the control array (splat maps and holes)
+    TextureAsset* textures[4]{};  // the heights, the albedo array, the normal array, the control array (the splat maps)
+    TextureAsset* holes =
+        nullptr;  // the R8 holes texture (a 1 x 1 one when there are none): the VERTEX stage's copy of the control slot
     std::size_t hash = 0;  // of everything above: items of two draws never share a batch
+};
+
+// What the job that decodes the pictures of one kind of layer texture (albedo or normal) leaves for the render thread: the mip chain of
+// the whole array, packed, so the thread that owns the GPU only makes the image (renderer_terrain.cpp, update_layers).
+struct TerrainLayerBuild {
+    bool ran = false;                   // the job ran to its end (false: it was skipped, e.g. at shutdown)
+    std::string error, hint;            // load_terrain_layer_images refused: no array is made
+    std::vector<std::string> problems;  // files that could not be read (those layers stay neutral)
+    int present = 0, width = 0, height = 0, slices = 0;
+    unsigned mask = 0;                              // the layers that have a picture
+    std::vector<std::vector<std::uint8_t>> levels;  // per mip level, every slice one after the other
 };
 
 // The values of one entry of `Terrain.layers` the renderer reads (defaults where a key is missing or not a number; clamped).
@@ -70,6 +83,15 @@ public:
 
     // Frees every GPU resource (the context is going away or the world was replaced).
     void destroy();
+    // A layer texture file is being read, decoded or packed off the render thread (a terrain draws its layers neutral, or with the
+    // pictures it had, until the next gather after it finishes adopts them). A test or a capture that needs the pictures waits, then
+    // renders once more.
+    bool loading() const;
+    void wait_loaded();
+    // Layer decoding jobs started since the renderer was made (a test looks at it: an unchanged terrain starts none).
+    std::uint64_t layer_loads() const { return layerLoads_; }
+    // The sub-rectangles of the splat maps the GPU took as copies (a repaint sends only what it painted).
+    std::uint64_t splat_rect_uploads() const { return splatRects_; }
     // GPU memory of the height textures, the layer arrays and the control arrays.
     std::size_t bytes() const;
     std::size_t size() const { return entries_.size(); }
@@ -95,15 +117,40 @@ private:
         std::uint64_t seen = 0;
         // The layers (shaders/terrain.glsl): the arrays are made here from the files, never from Assets textures (a cached pointer to
         // one would dangle when Assets::clear() or a reload replaced it); what each was made from tells when to make it again.
-        TextureAsset albedoArr, normalArr, controlArr;  // empty = the renderer's one-pixel arrays are bound instead
-        std::uint64_t albedoKey = 0, normalKey = 0, controlKey = 0;
-        std::uint64_t reloadSeen = 0;             // Assets::reload_generation() the arrays were checked against
-        unsigned albedoMask = 0, normalMask = 0;  // the layers that have a picture in the arrays
+        // The albedo and normal arrays are decoded by a job (a LayerJob each) and adopted here when it is done; the old array stays bound
+        // meanwhile when the same layers were reloaded, and the neutral one when they changed.
+        TextureAsset albedoArr, normalArr;           // empty = the renderer's one-pixel arrays are bound instead
+        std::uint64_t albedoKey = 0, normalKey = 0;  // what the arrays were made from (0 = nothing yet)
+        std::uint64_t reloadSeen = 0;                // Assets::reload_generation() the arrays were checked against
+        std::uint64_t heightsReloadSeen = 0;         // the same, for the heightmap file
+        unsigned albedoMask = 0, normalMask = 0;     // the layers that have a picture in the arrays
+        struct LayerJob {
+            std::shared_ptr<TerrainLayerBuild> build;
+            jobs::Handle handle;
+            std::uint64_t key = 0;  // the key the job decodes for
+            bool stale = false;     // a file was reloaded while it ran: its result is dropped and another job starts
+        };
+        LayerJob layerJob[2];                   // albedo, normal
+        bool layerPending[2] = {false, false};  // a reload was seen: decode again even if the key is the same
+        // The control array: the splat maps only, one slice each (RGBA8, `controlSide` pixels a side). The first repaint makes it one that
+        // takes copies; the later ones send only the rectangle that changed.
+        TextureAsset controlArr;
+        std::uint64_t controlKey =
+            0;  // what its shape was made from: the maps, their sizes and serials, the heights object
+        std::uint64_t splatSeen[kTerrainSplatMaps] = {0, 0};  // the version of each splat map the array holds
+        bool controlCopyable = false;
+        sg_buffer controlStage{};
+        std::size_t controlStageCap = 0;
+        std::uint64_t controlStagedFrame = 0;
         int splatMaps = 0, controlSide = 1;
+        // The holes: an R8 texture of one pixel per cell (255 = hole), read by the vertex stage only.
+        TextureAsset holesTex;
+        std::uint64_t holesKey = ~std::uint64_t(0);
         bool holesOn = false;
         sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;
-        std::string note;     // the last problem said about the layers (said once)
-        bool failed = false;  // the texture could not be made: said once, nothing is drawn
+        std::string layerNote[2], controlNote, holesNote;  // the last problem of each part (said once, with the others)
+        std::string note;                                  // the last problem said about the layers (said once)
+        bool failed = false;                               // the texture could not be made: said once, nothing is drawn
         ~Entry();
     };
     Entry* prepare(const View& view, Entity e);
@@ -111,7 +158,12 @@ private:
     bool copy_rect(Entry& en, const View& view, const TerrainRect& rect);
     void update_layers(Entry& en, const View& view, Entity e, const Terrain3D& t,
                        const std::vector<TerrainLayerInfo>& layers);
+    void update_pictures(Entry& en, const View& view, const Terrain3D& t, const std::vector<TerrainLayerInfo>& layers,
+                         bool reloaded, Entity e);
+    void update_control(Entry& en, const View& view, const std::vector<TerrainLayerInfo>& layers, Entity e);
+    bool copy_splat(Entry& en, const View& view, int maps, int side);
     TextureAsset* dummy_array();
+    TextureAsset* dummy_holes();
     MeshAsset* patch(bool split);
     MaterialAsset* material();
 
@@ -119,10 +171,11 @@ private:
     std::unique_ptr<MeshAsset> patch_, splitPatch_;  // the shared patch and the split one (terrains with holes)
     std::unique_ptr<MaterialAsset> material_;
     TextureAsset dummy_;  // a 1 x 1 one-slice array of white: bound where a terrain has no layer pictures or no control
-    sg_shader shaders_[3]{};  // terrain, shadow, prepass
-    int matState_ = 0;        // 0 = not tried, 1 = built, -1 = failed (said once)
+    TextureAsset dummyHoles_;  // a 1 x 1 R8 texture of 0: the holes texture of a terrain without holes
+    sg_shader shaders_[3]{};   // terrain, shadow, prepass
+    int matState_ = 0;         // 0 = not tried, 1 = built, -1 = failed (said once)
     std::uint64_t pruned_ = ~std::uint64_t(0);
-    std::uint64_t uploads_ = 0, rectUploads_ = 0, layerBuilds_ = 0;
+    std::uint64_t uploads_ = 0, rectUploads_ = 0, layerBuilds_ = 0, layerLoads_ = 0, splatRects_ = 0;
 };
 
 }  // namespace fa::render
