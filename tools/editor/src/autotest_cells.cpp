@@ -101,19 +101,19 @@ void Editor::at_section_W2(AtScript& at) {
         w->cj = std::int32_t(std::floor(cy / kCell));
         w->x0 = double(w->ci) * kCell;
         w->y0 = double(w->cj) * kCell;
-        const std::int32_t far = w->ci + 6;
+        const std::int32_t farCell = w->ci + 6;
         write_cell(
             w->ci, w->cj,
             Json::array({entity_json("w2_a1", w->x0 + 10, w->y0 + 10), entity_json("w2_a2", w->x0 + 20, w->y0 + 10)}));
         write_cell(w->ci + 1, w->cj, Json::array({entity_json("w2_b1", w->x0 + 150, w->y0 + 20)}));
-        write_cell(far, w->cj, Json::array({entity_json("w2_f1", w->x0 + 650, w->y0 + 20)}));
-        const Json index = Json::object(
-            {{"format", "factoria.world/1"},
-             {"version", 1},
-             {"dimension", "2d"},
-             {"cellSize", kCell},
-             {"origin", Json::array({0.0, 0.0})},
-             {"cells", Json::array({index_cell(w->ci, w->cj), index_cell(w->ci + 1, w->cj), index_cell(far, w->cj)})}});
+        write_cell(farCell, w->cj, Json::array({entity_json("w2_f1", w->x0 + 650, w->y0 + 20)}));
+        const Json index = Json::object({{"format", "factoria.world/1"},
+                                         {"version", 1},
+                                         {"dimension", "2d"},
+                                         {"cellSize", kCell},
+                                         {"origin", Json::array({0.0, 0.0})},
+                                         {"cells", Json::array({index_cell(w->ci, w->cj), index_cell(w->ci + 1, w->cj),
+                                                                index_cell(farCell, w->cj)})}});
         (void)fs::write_text("worlds/w2.world.json", index.dump(2));
         const Json streamer = Json::object(
             {{"id", "w2_streamer"},
