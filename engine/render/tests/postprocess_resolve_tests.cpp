@@ -680,7 +680,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 TEST_CASE(
     "features: the big-world rows of M75 are false and say planned (M75) until the package that draws them lands") {
     const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
-    for (const char* name : {"lodCrossFade", "impostors", "occlusionCpu", "occlusionGpu", "terrain", "foliage"}) {
+    for (const char* name : {"lodCrossFade", "impostors", "occlusionGpu", "terrain", "foliage"}) {
         CAPTURE(name);
         REQUIRE(find_feature(name) >= 0);
         CHECK(feature_table()[std::size_t(find_feature(name))].kind == FeatureKind::Engine);
@@ -690,6 +690,16 @@ TEST_CASE(
         CHECK(why.find("planned (M75)") != std::string::npos);
         CHECK_FALSE(
             supported(gpu(FeatureBackend::Gles3, false, false, false), name, &why));  // false whatever the reason
+    }
+}
+
+TEST_CASE("features: occlusionCpu is drawn on every backend (it is CPU work: no GPU feature is needed)") {
+    REQUIRE(find_feature("occlusionCpu") >= 0);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK(supported(gpu(b, false, false, false), "occlusionCpu", &why));
+        CHECK(why.find("planned") == std::string::npos);
     }
 }
 
