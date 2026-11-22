@@ -303,6 +303,8 @@ void Editor::at_build_tools_script() {
                 anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
+            terrain_ = TerrainUi{};  // section T3: the terrain tool is not carried over
+            showTerrainTool_ = false;
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
             particle_close_document();  // section P3: the Particles panel, its effect and its preview are not carried over
             particle_ = ParticleUi{};
@@ -466,6 +468,8 @@ void Editor::at_build_tools_script() {
     at_section_Q3(at);
     section("L4");
     at_section_L4(at);
+    section("T3");
+    at_section_T3(at);
     section("O3");
     at_section_O3(at);
     section("E4");
