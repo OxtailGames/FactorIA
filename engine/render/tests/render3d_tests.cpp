@@ -838,6 +838,54 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     CHECK_FALSE(bad.error().hint.empty());
 }
 
+TEST_CASE(
+    "materials: a sprite program at 16 image-sampler pairs per stage is accepted, one at 17 says who takes how many") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto twin = load_json_file("materials/sprite_pool.material.json." + g.renderer.shader_dialect() + ".shader");
+    REQUIRE(twin.ok());
+    Json program = (*twin)["programs"]
+                          ["quad"];  // the engine's 8 bindings: tex, normal, GI, light, shadow, cookie, emissive, scene
+    Json& pairs = program["reflection"]["texture_sampler_pairs"];
+    REQUIRE(pairs.size() == 8);
+    auto add = [&](const std::string& name, const char* stage, int viewSlot) {
+        pairs.push_back({{"slot", int(pairs.size())},
+                         {"stage", stage},
+                         {"name", name + "_smp"},
+                         {"view_name", name},
+                         {"sampler_name", "smp"},
+                         {"view_slot", viewSlot},
+                         {"sampler_slot", 0}});
+    };
+    // A full sprite material: the material's four textures read by the fragment stage and the vertex copies of them, 16 pairs in all.
+    for (int i = 0; i < 4; ++i) add("mask" + std::to_string(i), "fragment", 4 + i);
+    for (int i = 0; i < 4; ++i) add("fa_vs_mask" + std::to_string(i), "vertex", 8 + i);
+    REQUIRE(pairs.size() == 16);
+    render::MaterialProgram full;
+    CHECK(render::material_shader_desc("full sprite", program, full).ok());
+
+    // The fragment stage alone at exactly 16 (8 more of the material's own) is accepted, a 17th is not.
+    for (int i = 4; i < 8; ++i) add("mask" + std::to_string(i), "fragment", 4 + i);
+    REQUIRE(pairs.size() == 20);
+    render::MaterialProgram atLimit;
+    CHECK(render::material_shader_desc("sixteen", program, atLimit).ok());  // fragment 8 + 4 + 4 = 16, vertex 4
+
+    add("one_more", "fragment", 20);
+    render::MaterialProgram over;
+    auto bad = render::material_shader_desc("seventeen", program, over);
+    REQUIRE_FALSE(bad.ok());
+    const std::string& m = bad.error().message;
+    CHECK(m.find("reads 17 image-sampler pairs in its fragment stage") != std::string::npos);
+    CHECK(m.find("at most 16 can be bound per stage") != std::string::npos);
+    CHECK(m.find("engine's own bindings take 8 (tex, normal_tex, fx_gi_tex, light_tex, shadow_tex, fx_cookie_tex, "
+                 "fx_emissive_tex, fa_scene_tex)") != std::string::npos);
+    CHECK(m.find("material's own textures 9 (mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7, one_more)") !=
+          std::string::npos);
+    CHECK(bad.error().hint.find("Drop 1 or more") != std::string::npos);
+    CHECK(bad.error().hint.find("fa_scene_color()") != std::string::npos);
+}
+
 TEST_CASE("materials: a material with an empty surface() renders pixel-identical to the same mesh without a material, "
           "shadows on") {
     Gfx& g = gfx();
