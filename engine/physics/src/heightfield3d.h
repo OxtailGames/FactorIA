@@ -22,6 +22,7 @@
 
 #include "fa/core/math.h"
 #include "fa/scene/components.h"
+#include "fa/scene/terrain.h"
 
 namespace fa::detail {
 
@@ -149,6 +150,11 @@ struct HeightfieldShape {
 // (the message names the entity `who`, the field and the fix); the same message is returned again, without scanning the
 // arrays, until the component changes. On an error `f` keeps its last good contents but is not valid.
 std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heightfield3D& c, HeightfieldEdit& edit);
+// The same for a Terrain3D: the grid is the terrain's own heights (so the collider is the surface that is drawn, triangle for
+// triangle), taken in again through the rectangle each mark_dirty() named since the last call. No side limit but the terrain's own
+// (4097); no holes yet (P5d).
+std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t, const TerrainHeights& heights,
+                               HeightfieldEdit& edit);
 
 // First hit of the ray origin + d * t, 0 <= t <= maxT, with the triangles (both sides), in model space. `d` need not be unit:
 // t is in its units. The normal is the triangle's, facing the ray origin. The grid is walked cell by cell along the ray
