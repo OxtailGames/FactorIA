@@ -432,13 +432,21 @@ by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
 - *Layers (P5d).* `albedo` and `normal` are `SG_IMAGETYPE_ARRAY` textures (`make_array_image`, one slice per layer, a mip chain made on the
   CPU) built by `update_layers` from `load_terrain_layer_images` (fa_scene: the size checks and the teaching errors) and OWNED by the
   `Entry`, never cached `TextureAsset*` from `Assets` (a clear or reload would leave them dangling; the entry follows
-  `Assets::reload_generation()` and each file's version through a key). `control` is one RGBA8 array of 2 or 3 slices (splat map 0, splat
-  map 1 when there is one, then the holes: R = 255 in a hole) made from the planes of `TerrainHeights` when `holesVersion` or a
-  `splat[m].version` moved; it takes ONE sampler because the terrain's fragment program already reads 15 of the 16 units. Where there
+  `Assets::reload_generation()` and each file's version through a key). The pictures are decoded and their mip chains packed by a job
+  (`LayerJob`, `jobs::submit`, like the foliage files; `update_pictures` adopts the result with one image creation, keeps the old array
+  while the same layers reload, and a newer layer set drops a finished job's result), so a terrain draws neutral layers until the frame
+  after the job; `Renderer::wait_terrain_loaded()` is for tests and captures. `control` is one RGBA8 array of 1 or 2 slices (splat map 0,
+  splat map 1 when there is one; the holes are NOT in it) made from the planes of `TerrainHeights`: the first repaint converts it into a
+  `copy_dst` array (staging buffer, whole), later ones copy only the rectangle each `TerrainSplat::mark_dirty` named
+  (`TerrainSplat::dirty_since`, `Renderer::terrain_uploads().splatRects`), and anything unknown (a version bump with no rectangle, a
+  resampled map, a second write in the frame, a backend that cannot copy) rebuilds the array whole; it takes ONE sampler because the
+  terrain's fragment program reads all 16 of the 16 units (the test "terrain: the fragment stage reads exactly the 16 texture units..."
+  pins the count: a new texture replaces one, or moves to the vertex stage as the holes did). Where there
   is no array a 1 x 1 dummy array is bound (a stage must have every texture it declares). The per-layer values are in the 8 `fa_t_layer`
   vec4 of the block, `fa_t_tex` has the counts and the colour-space fix of the albedo (`albedoFix`, applied after the fetch: 0 as sampled, 1 the shader decodes
   sRGB to linear (a linear scene whose GPU gave no sRGB texture format), 2 it encodes linear back to sRGB (a gamma scene, an sRGB format)).
-- *Holes (P5d).* Cut in the vertex stage, in all three programs: `vertex()` fetches the holes slice at the middle cell of the quad of the
+- *Holes (P5d).* Cut in the vertex stage, in all three programs: `vertex()` fetches the holes texture (R8, one byte a cell, `fa_vs_holes`, bound to the VERTEX stage only through
+  `MaterialInputs::vsTextures`, 255 = hole; a terrain with no mask binds a 1 x 1 dummy) at the middle cell of the quad of the
   vertex and, in a hole, moves all four vertices of the quad to one (degenerate triangles). A `discard` in the terrain's fragment program
   does not compile on Metal (its fragment program is at the compiler's size limit: with a `discard` AND dynamic shading writes the GPU
   compiler of macOS fails with `METAL_CREATE_RPS_FAILED`), and this way the shadow and prepass need no copy of it. At a coarse level the

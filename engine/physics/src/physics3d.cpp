@@ -12,6 +12,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <unordered_set>
 
 #include "fa/core/jobs.h"
@@ -710,17 +711,21 @@ void Physics3D::sync(World& world) {
     for (Entity e : ents) {
         RigidBody3D* rb = world.get<RigidBody3D>(e);
         Collider3D* col = world.get<Collider3D>(e);
+        const bool ownCollider = col != nullptr;  // enabled or not
         if (col && !col->enabled)
             col = nullptr;  // a disabled collider is as good as absent: no queries, contacts or bake
         // A Terrain with `collision` on is its own heightfield collider (static, from the same heights it draws): no Collider3D or
-        // Heightfield3D needed. An entity with a Collider3D of its own keeps that one.
-        Collider3D terrainCollider;
+        // Heightfield3D needed. An entity with a Collider3D of its own keeps that one, and when that one is disabled the entity
+        // has no collider at all (disabling a collider must never switch another one on). The stand-in is only built for a
+        // terrain, not for every entity of the sync.
+        std::optional<Collider3D> terrainCollider;
         const Terrain3D* terrain = nullptr;
-        if (!col)
+        if (!ownCollider)
             if (const Terrain3D* t = std::as_const(world).get<Terrain3D>(e); t && t->collision) {
                 terrain = t;
-                terrainCollider.shape = ColliderShape3D::Heightfield;
-                col = &terrainCollider;
+                terrainCollider.emplace();
+                terrainCollider->shape = ColliderShape3D::Heightfield;
+                col = &*terrainCollider;
             }
         CharacterController3D* cc = world.get<CharacterController3D>(e);
         Joint3D* jt = world.get<Joint3D>(e);

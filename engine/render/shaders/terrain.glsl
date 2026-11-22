@@ -14,16 +14,17 @@
 //   fa_t_grid    x, y = the metres of one cell along x and z, z = metres per raw height step (heightScale / 65535), w = heightOffset
 //   fa_t_tex     x = the splat maps (0..2), y = 1 when there are holes (the patch is then the split one: see vertex()), z = 0 without albedo textures, else 1 + their fix (fa_tex_fix of
 //                mesh_common.glsl: 0 as sampled, 1 sRGB to linear, 2 linear to sRGB), w the same for the normal textures
-//   fa_t_nrm     x = bit mask of the layers that have an albedo texture, y the same for the normal textures, z = the side of the control
-//                array in pixels, w = the number of layers (0 = none: the shading values of the MeshRenderer)
+//   fa_t_nrm     x = bit mask of the layers that have an albedo texture, y the same for the normal textures, z = the side of the holes
+//                texture in pixels (one pixel per cell), w = the number of layers (0 = none: the shading values of the MeshRenderer)
 //   fa_t_layer   (fragment stage only) per layer: x = 1 / tileSize, y = roughness, z = metallic, w = normalScale
 // The heights are in an RG8 texture (r = high byte, g = low byte), read with texelFetch: views 6 (fragment) and 10 (vertex), through a nearest sampler (samplers 2 and 6).
 // The layers: view 7 is the albedo array and view 8 the normal array (one slice per layer, with mips, sampler 3 and 4), view 9 the CONTROL array
-// (sampler 5, linear, clamped): slice 0 and 1 are the RGBA splat maps (channel c of map m weights layer 4m + c), the slice after them (when fa_t_tex.y)
-// holds the holes in its red channel (255 = hole): the VERTEX stage reads it (view 13, sampler 9) and collapses the quads of the hole cells, so the
-// hole is in the geometry and the main, shadow and prepass programs need no discard (the Metal GPU compiler cannot build this fragment shader with
-// one). All of it fits the 16 texture units of the fragment stage that WebGL2 and
-// GLES3 guarantee; a terrain with no layers binds one-pixel arrays.
+// (sampler 5, linear, clamped): slice 0 and 1 are the RGBA splat maps (channel c of map m weights layer 4m + c). The holes are NOT in it: they are
+// an R8 texture of one pixel per cell (255 = hole) that only the VERTEX stage reads (view 13, sampler 9: the renderer binds it in the vertex copy of
+// the control slot, Renderer::Impl::bind_textures), and vertex() collapses the quads of the hole cells, so the hole is in the geometry and the
+// main, shadow and prepass programs need no discard (the Metal GPU compiler cannot build this fragment shader with one). The fragment stage
+// reads 16 image-sampler pairs, all the 16 texture units that WebGL2 and GLES3 guarantee (pinned by the test "terrain: the fragment stage
+// reads exactly the 16 texture units..."): a new texture for the fragment stage has to replace one. A terrain with no layers binds one-pixel arrays.
 @module terrain
 
 @block fa_user
@@ -34,8 +35,8 @@ layout(binding=4) uniform fa_material_vs {
 };
 layout(binding=10) uniform texture2D fa_vs_height;
 layout(binding=6) uniform sampler fa_vs_height_smp;
-layout(binding=13) uniform texture2DArray fa_vs_control;
-layout(binding=9) uniform sampler fa_vs_control_smp;
+layout(binding=13) uniform texture2D fa_vs_holes;
+layout(binding=9) uniform sampler fa_vs_holes_smp;
 #else
 layout(binding=5) uniform fa_material {
     vec4 fa_t_m0; vec4 fa_t_m1; vec4 fa_t_m2; vec4 fa_t_m3;
@@ -77,9 +78,9 @@ void vertex(inout VertexData v) {
         // corner 0..31). A quad whose middle cell is a hole collapses to a point: its four vertices all take the corner's place.
         ivec2 q = ivec2(floor(v.uv + 0.5));
         ivec2 cell = clamp(first + q * st + ivec2(st / 2), ivec2(0), ivec2(int(fa_t_cam.w + 0.5) - 1));
-        float side = fa_t_nrm.z;
+        float side = fa_t_nrm.z;  // the holes texture is one pixel per cell, so tp is the cell itself (the formula also holds for a coarser one)
         ivec2 tp = ivec2(min(vec2(side - 1.0), floor((vec2(cell) + 0.5) * (side / fa_t_cam.w))));
-        if (texelFetch(sampler2DArray(fa_vs_control, fa_vs_control_smp), ivec3(tp, int(fa_t_tex.x + 0.5)), 0).r > 0.5) g = q;
+        if (texelFetch(sampler2D(fa_vs_holes, fa_vs_holes_smp), tp, 0).r > 0.5) g = q;
     }
     ivec2 cr = first + g * st;
     float h = fa_t_raw(cr);

@@ -213,3 +213,39 @@ TEST_CASE("terrain collider: the holes mask of the shared heights is honoured, c
     std::error_code ec;
     fs::remove_tree(dir, ec);
 }
+
+TEST_CASE(
+    "terrain collider: a Collider3D of the terrain's own entity decides, enabled or not (a disabled one disables it)") {
+    const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_collider_own").value();
+    {
+        Sim s;
+        const std::string file = write_hills(dir);
+        Entity ground = add_terrain(s.world, file, {0, 0, 0}, {1, 1, 1});
+        const Vec3 origin{1.0f, 200.0f, 1.0f};
+        s.physics.sync(s.world);
+        const auto auto_hit = s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f);
+        REQUIRE(auto_hit.has_value());
+        // a disabled Collider3D on the entity: no collider at all, not the terrain's own standing in
+        Collider3D& own = s.world.add<Collider3D>(ground);
+        own.shape = ColliderShape3D::Box;
+        own.enabled = false;
+        s.physics.sync(s.world);
+        CHECK_FALSE(s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f).has_value());
+        // enabled again: it is that collider (a box here), not the heightfield
+        s.world.get<Collider3D>(ground)->enabled = true;
+        s.physics.sync(s.world);
+        CHECK_FALSE(
+            s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f).has_value());  // the box is small, 1 m away
+        const auto box_hit = s.physics.raycast3d(s.world, {0.0f, 200.0f, 0.0f}, {0, -1, 0}, 400.0f);
+        REQUIRE(box_hit.has_value());
+        CHECK(box_hit->point.y < 2.0f);  // the unit box at the origin, not the hills (4 m and more up at the origin)
+        // removed: the terrain collides by itself again
+        s.world.remove<Collider3D>(ground);
+        s.physics.sync(s.world);
+        const auto back = s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f);
+        REQUIRE(back.has_value());
+        CHECK(back->point.y == doctest::Approx(auto_hit->point.y).epsilon(1e-4));
+    }
+    std::error_code ec;
+    fs::remove_tree(dir, ec);
+}
