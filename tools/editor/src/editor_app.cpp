@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <set>
 #include <thread>
 #include <filesystem>
 #include <format>
@@ -1513,7 +1514,8 @@ void Editor::note_cells_edit(const std::string& extraId) {
     if (!engine_ || cells_.loaded_count() == 0) return;
     constexpr std::size_t kMaxNamed = 64;  // a bigger selection: check every cell instead
     const std::vector<std::string>& ids = selection_peek().ids();
-    bool named = false;
+    bool named = false,
+         unknown = false;  // unknown: an id that no longer names a live entity (deleted by the AI, the Console, MCP)
     if (ids.size() <= kMaxNamed) {
         for (const std::string& id : ids) {
             const Entity e = world().find_by_id(id);
@@ -1526,10 +1528,13 @@ void Editor::note_cells_edit(const std::string& extraId) {
             if (!e.is_null() && world().alive(e)) {
                 cells_.note_edit(world(), e);
                 named = true;
+            } else {
+                unknown =
+                    true;  // which cell it was in is not known: check every cell, as CellEdit::note_edit does for a dead entity
             }
         }
     }
-    if (!named) cells_.note_edit();
+    if (!named || unknown) cells_.note_edit();
 }
 
 bool Editor::begin_edit(const std::string& key) {
@@ -1557,31 +1562,29 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
     lastEditKind_ = UndoEntry::Kind::Command;
     dirty_ = true;
     note_cells_edit();
-    std::string terrainId;  // a terrain edit: its history may have let go of the steps of the oldest entries
+    std::set<std::string> terrainIds;  // a terrain edit: its history may have let go of the steps of the oldest entries
     for (const UndoCommand& c : inverse)
         if (c.cmd == "terrain.undo" && c.args.is_object() && c.args.contains("entity") && c.args["entity"].is_string())
-            terrainId = c.args["entity"].get<std::string>();
+            terrainIds.insert(c.args["entity"].get<std::string>());
+    for (const std::string& id : terrainIds) {  // the steps are numbered now, right after the terrain made them
+        const Entity te = world().find_by_id(id);
+        const std::shared_ptr<TerrainHeights> h = te.is_null() ? nullptr : world().terrain().find(te);
+        if (h) number_terrain_steps(forward, inverse, id, std::uint64_t(h->history_lost()) + h->undo_depth());
+    }
     if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
-    if (!terrainId.empty()) drop_terrain_entries_past_history(terrainId);
+    for (const std::string& id : terrainIds) drop_terrain_entries_past_history(id);
     return true;
 }
 
-// The terrain keeps its last kTerrainHistorySteps edits (and a byte budget). The steps it let go since this was last asked (its
-// history_lost() counter) are taken out of the oldest entries of the undo list, where they could only answer "nothing to undo" in
-// front of older entries that still work, with a toast. The list is never measured against the terrain's current depth: a
-// terrain.undo run by hand (Console, MCP) leaves an entry of the list whose step is gone, and counting that one would drop a step
-// that still works.
+// The terrain keeps its last kTerrainHistorySteps edits (and a byte budget). The calls of the undo list that name a step it let go
+// (their number, UndoCommand::step, is at most its history_lost() counter) are taken out, where they could only answer "nothing to
+// undo" in front of older entries that still work, with a toast. A step is judged by its number alone: not by how many entries the
+// list holds (it trims its own, and a terrain.undo run by hand leaves an entry whose step is gone) and not by the terrain's depth.
 void Editor::drop_terrain_entries_past_history(const std::string& id) {
     const Entity e = world().find_by_id(id);
     const std::shared_ptr<TerrainHeights> h = e.is_null() ? nullptr : world().terrain().find(e);
-    if (!h) return;
-    std::size_t& seen = terrainLostSeen_[id];
-    const std::size_t lost = h->history_lost();
-    if (lost < seen) seen = lost;  // another terrain object took the id (a scene load, Stop): its counter starts again
-    const std::size_t newlyLost = lost - seen;
-    seen = lost;
-    if (newlyLost == 0) return;
-    const TerrainDrop dropped = drop_terrain_steps(undo_, id, newlyLost);
+    if (!h || h->history_lost() == 0) return;
+    const TerrainDrop dropped = drop_terrain_steps(undo_, id, h->history_lost());
     if (dropped.steps > 0)
         notify(std::format(
                    "The terrain keeps its last {} steps / {} MB of edits: {} older terrain edit{} can no longer be "

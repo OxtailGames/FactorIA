@@ -412,6 +412,58 @@ TEST_CASE(
     CHECK(cells.warnings().find("1,0") != std::string::npos);
 }
 
+TEST_CASE("cells: a clean, checked cell whose root is deleted closes without touching its file, whatever is selected") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    REQUIRE_FALSE(cells.any_dirty());
+    const std::string file = p.read("worlds/w_cells/1_0.scene.json");
+    // The AI, the Console or MCP deletes the root while an entity of the other cell is selected: the editor names the live
+    // selection and, for the id that is gone, asks for a check of every cell (Editor::note_cells_edit).
+    p.world().destroy(cells.root_of(1, 0));
+    p.world().flush();
+    cells.note_edit(p.world(), p.world().find_by_id("a"));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK(cells.is_loaded(0, 0));
+    CHECK_FALSE(cells.any_dirty());
+    const CellSaveReport rep = cells.save(p.world());
+    CHECK(rep.ok);
+    CHECK(rep.written.empty());
+    CHECK(p.read("worlds/w_cells/1_0.scene.json") == file);
+}
+
+TEST_CASE("cells: deleting a clean cell's root through the Hierarchy closes it, an unchecked edit in a deleted cell "
+          "does not") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    // the Hierarchy names the root while it is alive, then deletes it before the next check
+    cells.note_edit(p.world(), cells.root_of(1, 0));
+    p.world().destroy(cells.root_of(1, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK_FALSE(cells.any_dirty());
+    // an edit in a cell that no check has seen, then its root deleted: that one is an unsaved change
+    p.move("a", 15, 1, 10);
+    cells.note_edit(p.world(), p.world().find_by_id("a"));
+    p.world().destroy(cells.root_of(0, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_loaded(0, 0));
+    CHECK(cells.is_dirty(0, 0));
+}
+
 TEST_CASE("cells: a cell whose file is empty is closed when its root is deleted, never kept as an unsaved empty slot") {
     CellProject p;
     p.write("worlds/w_cells/1_0.scene.json", R"({"format":"factoria.scene/1","entities":[]})");
