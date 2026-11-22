@@ -5,6 +5,8 @@
 #include <cstring>
 #include <format>
 #include <set>
+#include <utility>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
