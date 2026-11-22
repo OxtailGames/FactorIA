@@ -2286,13 +2286,14 @@ void register_builtin_components(TypeRegistry& r) {
         .asset_field("impostor", &MeshRenderer::impostor, "any",
                      "Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes "
                      "next to its atlas): a ring of pictures of the model that a camera-facing quad shows from "
-                     "impostorDistance on, for trees and other things that are far away. \"\" (default) = none. No "
-                     "effect yet: a later M75 package draws it; `model.bake_impostor` is not built yet either.")
+                     "impostorDistance on, for trees and other things that are far away. \"\" (default) = none. A "
+                     "missing or invalid file warns once and the last LOD keeps drawing. See docs/BIG_WORLDS_LOD.md, "
+                     "\"Impostors\".")
         .field("impostorDistance", &MeshRenderer::impostorDistance,
                "Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a "
                "screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). "
                "0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` "
-               "warns. 0..100000. No effect yet: a later M75 package draws it.")
+               "warns. 0..100000. The switch cross-fades with the last LOD over lodCrossFade seconds.")
         .range(0, 100000);
 
     r.add<Light>("Light",
