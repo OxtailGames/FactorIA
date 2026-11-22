@@ -444,3 +444,38 @@ TEST_CASE("cover_image: the middle part with the target's aspect ratio is cut ou
     CHECK(cover_image(wide, 0, 4).empty());
     CHECK(cover_image(Image{}, 4, 4).empty());
 }
+
+TEST_CASE("decode_gray16: a 16-bit greyscale PNG keeps every bit; an 8-bit one is widened and says so") {
+    GrayImage16 g;
+    g.width = 3;
+    g.height = 2;
+    g.samples = {0, 1, 256, 40000, 65534, 65535};
+    const auto png = encode_png_gray16(g);
+    REQUIRE(png.size() > 33);
+    CHECK(png[24] == 16);  // bit depth
+    CHECK(png[25] == 0);   // greyscale
+    auto back = decode_gray16(png.data(), png.size());
+    REQUIRE(back.ok());
+    CHECK(back->sixteenBit);
+    CHECK(back->width == 3);
+    CHECK(back->height == 2);
+    CHECK(back->samples == g.samples);
+
+    // An 8-bit PNG (the RGBA encoder writes colour): the luminance, widened v -> v * 257, sixteenBit false.
+    const auto rgba = encode_png(solid(2, 2, 100, 100, 100, 255));
+    auto eight = decode_gray16(rgba.data(), rgba.size());
+    REQUIRE(eight.ok());
+    CHECK_FALSE(eight->sixteenBit);
+    CHECK(eight->samples[0] == 100 * 257);
+
+    CHECK(encode_png_gray16(GrayImage16{}).empty());
+}
+
+TEST_CASE("decode_gray16: empty, damaged and over-limit files are errors that say so") {
+    CHECK_FALSE(decode_gray16(nullptr, 0).ok());
+    const std::uint8_t junk[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    auto bad = decode_gray16(junk, sizeof(junk));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("Cannot decode image") == 0);
+    CHECK_FALSE(bad.error().hint.empty());
+}

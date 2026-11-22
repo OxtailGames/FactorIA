@@ -1189,9 +1189,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "first), lights2dShadowed those with a shadow (castShadows, at most 256); "
          "sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that "
          "call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). "
-         "Nine more are 0 until M75.1-M75.6 draw them (big worlds: occluders, occlusionTests, meshesOccluded, "
-         "lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled; "
-         "docs/BIG_WORLDS.md). "
+         "terrainTiles counts the Terrain tiles drawn in the main pass (after the level of detail and the culling) and "
+         "terrainTriangles their triangles (also in triangles; tiles are not counted in meshes). Seven more are 0 "
+         "until M75.1-M75.6 draw them (big worlds: occluders, occlusionTests, meshesOccluded, lodCrossFades, "
+         "impostors, foliageInstances, foliageInstancesCulled; docs/BIG_WORLDS.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
          "window.renderScale). Same as game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",

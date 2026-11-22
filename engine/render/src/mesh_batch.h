@@ -16,6 +16,8 @@
 
 namespace fa::render {
 
+struct TerrainDraw;
+
 // One MeshRenderer entity, gathered for this frame.
 struct MeshItem {
     MeshAsset* mesh = nullptr;
@@ -49,6 +51,10 @@ struct MeshItem {
     std::uint64_t probeKey = 0;  // also folds in `refl`: items that reflect other probes never share a draw either
     // The reflection probes the item reflects (M73-P3c, probe_select.h): up to two, with their shares of the light; none = the sky.
     ProbePick refl;
+    // A node of a Terrain (renderer_terrain.h): the draw it belongs to (its material block and textures) and the eight floats of
+    // instance data the terrain program reads (first column, first row, step, level, morph start and end).
+    const TerrainDraw* terrain = nullptr;
+    std::array<float, 8> terrainNode{};
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
