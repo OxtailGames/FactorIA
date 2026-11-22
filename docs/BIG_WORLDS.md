@@ -15,10 +15,10 @@ is "off" or "as before".
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
 | [Terrain](BIG_WORLDS_TERRAIN.md#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
-| [Foliage](BIG_WORLDS_TERRAIN.md#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
+| [Foliage](BIG_WORLDS_TERRAIN.md#foliage) | M75.6 | instanced vegetation and rocks: drawn from an instances file with chunk culling, fade, LOD, wind and thinning; the scatter and paint commands are planned |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
-"planned (M75)" until its package lands (`impostors`, `occlusionGpu`, `foliage`); `occlusionCpu` and `terrain` are `true` on every backend. Ask
+"planned (M75)" until its package lands (`impostors`, `occlusionGpu`); `occlusionCpu`, `terrain` and `foliage` are `true` on every backend. Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Pages

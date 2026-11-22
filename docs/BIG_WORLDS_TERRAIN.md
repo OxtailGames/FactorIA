@@ -140,18 +140,76 @@ with `rgba` and `version`, `any_unsaved()`, `undo_depth()`); follow `holesVersio
 `holesVersion` and the heights follow `dirty_since`. `save_terrain_files(world, entity)` and `save_all_terrain_files(world)` write the edited
 planes (each path goes through `fs::resolve_for_write`: inside the project unless the caller passes `writeAnywhere`); `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
 
-## Foliage (planned, M75.6)
+## Foliage
 
-`Foliage` draws many copies of a few meshes read from a data file, as GPU instances in chunks that are culled and faded by
-distance, with wind. Its fields: `meshes` (an array of 1 to 16 primitive names or asset paths; the instances file stores a mesh
-index into it for every instance, and its binary format is defined by the foliage package, M75.6 P6a), `instances` (the data file
-that `foliage.paint` and `foliage.scatter` write; empty = none), `density` (0..1, the share drawn), `windStrength` (metres) and `windFrequency` (swings per
-second), `lodDistance`, `fadeStart` and `fadeEnd` (metres; `fadeEnd` above `fadeStart`) and `castShadows`.
+`Foliage` draws many copies of a few meshes (grass, flowers, rocks) read from a data file. It works on every backend, with no compute
+shader (`renderer.supports` `foliage` is `true`). Its fields: `meshes` (an array of 1 to 16 primitive names or asset paths; every
+instance stores the index of its mesh in this array), `instances` (the data file; empty = none), `density` (0..1, the share
+drawn), `windStrength` (metres) and `windFrequency` (swings per second), `lodDistance`, `fadeStart` and `fadeEnd` (metres;
+`fadeEnd` above `fadeStart`) and `castShadows`. The Foliage entity's own transform moves and rotates all the instances (their
+positions are local to it); the floating origin works, as for any entity.
+
+### The instances file
+
+Little endian, versioned; `fa/scene/foliage.h` reads and writes it (`read_foliage`, `write_foliage`, `encode_foliage`,
+`decode_foliage`), so a tool or a script of the engine never needs to know the layout:
+
+| Bytes | Meaning |
+|---|---|
+| 0..3 | the magic `FAFO` |
+| 4..5 | version, `u16` (1) |
+| 6..7 | flags, `u16` (0; a bit this version does not know is refused) |
+| 8..11 | instance count, `u32` (at most 2000000) |
+| 12..15 | mesh count, `u32` (how many meshes the writer's `Foliage.meshes` had; every mesh index is below it) |
+| 16.. | one 26-byte record per instance |
+
+A record is `x, y, z, yaw, scale` as `f32` (metres in the local space of the Foliage entity; yaw in radians about the instance's own up
+axis; scale uniform), the mesh index as `u16`, the up axis `nx, ny, nz` as three `i8` in 1/127 units (a lean towards the ground's
+normal; `0,0,0` = upright) and one reserved byte (0). A file that is
+too short, has the wrong size for its count, a NaN or infinity, a scale of 0 or less, or a mesh index past `Foliage.meshes` is
+invalid (so is a version, flags or magic this engine does not know): the message names the file, the byte and what to change ("foliage file 'x' at byte 40: ...").
+
+### Loading
+
+The renderer reads and chunks the file on a worker thread: a big file never stalls a frame, the instances appear when the job ends
+(a frame or two later for a small file, more for 2 million instances; `renderStats` `foliageInstances` is 0 until then) and a screenshot
+or capture taken before that does not contain them. The file is checked on disk every 30 frames (its modified time and size):
+saving it again, from `write_foliage` or a tool, shows the new instances without a restart, and changing `meshes` or `instances` reloads too.
+A missing or invalid file draws nothing and is warned about once (again only when its text changes); the file is not read again until it
+changes.
+
+### Drawing
+
+The instances are grouped in chunks of 32 m with a bounding box. A frame draws, nearest chunk first:
+
+- a chunk whose box is farther than `fadeEnd` is skipped; one outside the view frustum is skipped (the box is widened by the mesh
+  radius and the wind sway), and so is one hidden by the CPU occlusion buffer when an occluder is present (`occlusionCpu`,
+  docs/BIG_WORLDS_LOD.md). With `castShadows`, a chunk up to 24 m outside the view still goes into the shadow passes, as a shadow only.
+- between `fadeStart` and `fadeEnd` an instance fades out with a dithered fade in 8 steps (the dither of the LOD cross-fade, so no
+  alpha blending and no sorting; the fade is not counted in `renderStats.lodCrossFades`).
+- beyond `lodDistance` an instance uses the next LOD of its mesh: for `assets/models/grass.glb`, the file `assets/models/grass.lod1.glb`
+  (the name the model LOD chain bake gives its first level); when that file does not exist the mesh stays. There is no cross-fade between
+  the two (the switch is one hard step). Instances of the same mesh and LOD are drawn as one instanced draw, like any other meshes.
+- `density` keeps the instances whose fixed pseudo-random rank (from the instance index) is below it: the same instances stay when you
+  raise or lower it, so nothing flickers.
+- `windStrength` shears the instance sideways in proportion to its height: the base is fixed, the top moves by up to `windStrength`
+  metres, with a phase that depends on the instance position, at `windFrequency` swings per second of the world time (so it pauses with the game and a
+  replay sways the same). It is done on the CPU when the instance is handed to the draw, so it
+  costs time per visible instance: it is meant for the near instances, and the fade removes the far ones.
+- `castShadows` puts the instances (with the wind and the fade) in the shadow maps; false (default) leaves them out.
+
+At most 262144 instances, over every Foliage entity together, are handed to the draw in a frame per camera (a camera with shadow passes
+counts its own). Whole chunks are taken, nearest first, and the rest counts as culled, with one warning in the log: lower `fadeEnd` or `density`, or split the
+field into several entities with a shorter reach. Costs: an empty scene or one with no `Foliage` pays nothing; with a field of 100000
+instances in view, the cost is the CPU time of one draw item per visible instance plus the instanced draws.
+
+`renderStats` has `foliageInstances` (instances drawn in the main view this frame) and `foliageInstancesCulled` (the ones the
+frame skipped: chunk culling, beyond `fadeEnd`, the per-instance frustum test and the shadow-only ones). Foliage instances are not
+added to `renderStats.meshes`; each (mesh, LOD) batch is one entry of `meshBatches`.
 
 `ScatterRule` holds the recipe `foliage.scatter` fills the file from: `meshes` (up to 16 of `{mesh, weight}`), `density` (per square
 metre), `minSpacing`, `slopeRange` (degrees), `heightRange` and `scaleRange`, `alignToNormal` (0..1), `layerMask` (bit mask of the
 terrain layers it grows on, -1 = any), `seed` (the same rule and seed give the same instances) and `terrain` (the entity with the
 `Terrain`; empty = this entity or its parent). `foliage.scatter` writes into ONE `Foliage` entity: it sets its `meshes` to all the
 meshes of the rule and fills the instances file with their indices. `foliage.paint`, `foliage.scatter` and `foliage.clear` fail with
-`not_built` today.
-`renderStats` gets `foliageInstances` and `foliageInstancesCulled`.
+`not_built` today (M75 P6b): the file is written with `write_foliage` until then.
