@@ -170,8 +170,8 @@ any size costs what the part around the player costs. The reading and parsing of
 creation of its entities is on the main thread, within a budget per frame. Nothing here changes a game without a
 `StreamedWorld` component.
 
-Parts that are not built yet: `world.split_cells` and `world.merge_cells` (they fail with `not_built`), the tilemap chunks of
-streamed 2D worlds (planned, M75.3b) and the debug view of the cells (planned, M75.3c).
+Parts that are not built yet: `world.split_cells` and `world.merge_cells` (they fail with `not_built`; for a tilemap use
+`tilemap.split_cells`, below) and the debug view of the cells (planned, M75.3c).
 
 ### The world index
 
@@ -294,6 +294,40 @@ queued when the cell is applied or unloaded and delivered with the other game ev
 
 Both are read-only. A script that waits for them checks that its scene is still the current one first. Tests count units of work,
 not milliseconds, so a result does not depend on the speed of the machine.
+
+### Tilemap chunks (2D worlds)
+
+A big 2D level is one `Tilemap` that is too large to keep loaded. `tilemap.split_cells {scene, tilemap?, cellSize?, out?,
+overwrite?, dryRun?}` cuts it into a `"dimension": "2d"` world index plus one chunk scene per cell, and the streaming above does
+the rest.
+
+- `cellSize` is the side of a cell in TILES (1 to 4096, default 32), so a cell is `cellSize * tileSize` units wide and every cell
+  edge falls on a tile edge. `tilemap` names the entity when the scene has more than one Tilemap. The index goes to `out`
+  (default: the scene's name with `.world.json`) and the chunks to `<index name>_cells/<i>_<j>.scene.json`; `dryRun` lists them
+  without writing; a second run over files that exist is refused unless `overwrite` is true. The result lists the files, the
+  cell grid, `emptyCellsSkipped` and `notes`.
+- Cell `[i, j]` covers `origin + (i, j) * cellSize` on x and y; the map's top-left corner is on a cell corner (the index `origin`
+  is rounded to it). A cell with no tile at all is not written. Each chunk holds one Tilemap entity (the same name, tileset,
+  tile size, `solidTiles`, `terrains`, layers and other fields as the source) at the cell's top-left corner, with the tiles of
+  its square only (flip and rotation flags kept). Chunks of the last row and column are cut short, not padded.
+- The command is deterministic: the same scene and arguments give the same bytes. It never changes the source scene. Chunk files
+  of an earlier split with more cells are not deleted: remove them by hand.
+- Rendering: chunks are separate Tilemap entities at exact multiples of the tile size, so tiles line up with no seam or gap.
+  Physics: each Tilemap is one static body, so a body that slides across a chunk border would catch on the hidden edge between
+  two neighbouring boxes (Box2D has no ghost-edge handling for polygons). The 2D physics therefore drops the contact of a
+  tile side that is shared with a solid tile of the neighbouring chunk, so tile collision across chunks is the same as in the
+  unsplit map. This applies to orthogonal tilemaps; isometric and hexagonal projections and tiles that are not square are
+  not given this treatment.
+- Autotile: terrain rules are baked into the `tiles` when you paint, not evaluated at load, so the split map has exactly the
+  tiles the unsplit one had, including the ones across a border. What does not carry over is painting with `tilemap.paint` into a
+  chunk that is not loaded: the neighbour is not there to update. Paint into the source scene and split again, or load the
+  neighbouring cells first.
+- `project.validate` compares the chunks of every 2D index: another tileset, tile size, columns, margin, spacing or projection
+  than the first chunk is an error with the file and the JSON pointer of the cell, a chunk that is off the tile grid is an
+  error, and a chunk outside its cell is a warning (it reads at most 4096 cells).
+- Floating origin: chunks load at their absolute position (the file's position minus the world origin), so a rebase between two
+  loads leaves the tiles and the collision where they were; far from zero, keep the floating origin on, because a float32
+  position loses its precision beyond about 8000 units (a tile of 16 units is still exact at 100000).
 
 ### The anchors
 
@@ -495,6 +529,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 |---|---|---|
 | `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 (built) | no |
 | `world.cells`, `world.stream_status` | M75.3 | no |
+| `tilemap.split_cells` | M75.3b | yes |
 | `world.split_cells`, `world.merge_cells` | M75.3 (planned) | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate` | M75.5 | yes |

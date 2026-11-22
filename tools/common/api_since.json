@@ -1652,6 +1652,7 @@
     "terrain.sculpt": "unreleased",
     "tilemap.cell_at": "0.3.0",
     "tilemap.cell_to_world": "0.3.0",
+    "tilemap.split_cells": "unreleased",
     "tilemap.generate": "0.17.0",
     "tilemap.paint_terrain": "0.16.0",
     "tilemap.retile": "0.16.0",
