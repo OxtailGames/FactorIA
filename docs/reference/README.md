@@ -676,6 +676,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain in a circle. _Not released yet._
 - [`terrain.paint`](commands/world.md#terrainpaint-modifies-state): Paint a material layer of a Terrain in a circle. _Not released yet._
 - [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heightmap of a Terrain in a circle. _Not released yet._
+- [`tilemap.split_cells`](commands/world.md#tilemapsplit_cells-modifies-state): Cut the Tilemap of a scene into a streamed 2D world: one chunk scene per cell and an index. _Not released yet._
 - [`world.absolute_position`](commands/world.md#worldabsolute_position): Read an entity's position in double precision: the floating origin plus its local position. _Not released yet._
 - [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
 - [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
