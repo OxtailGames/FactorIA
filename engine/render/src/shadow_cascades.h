@@ -100,7 +100,11 @@ struct CascadeFit {
 // shadow of a still object is the same texels whatever the camera does between those steps: no shimmer. `casterMin` is the smallest
 // distance along `lightDir` of any shadow caster of the scene (the near plane goes back to it so a caster outside the sphere that
 // still shades it is drawn); `tile` is the map's texels per side. Needs radius > 0 and tile >= 4.
-CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float casterMin, bool zeroToOne);
+// `origin` (M75.4b, World::origin(): metres of the floating origin, (0, 0, 0) without one): the texel grid is fixed in ABSOLUTE
+// space (the snap is done on origin + centre, in double), so a rebase, which moves every local position and the origin by the same
+// multiple of the step, leaves each shadow on the texels it was on: no shimmer on the frame of a shift.
+CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float casterMin, bool zeroToOne,
+                       const DVec3& origin = {});
 
 // The matrix that takes a world position to (u, v, depth) in the atlas texture: u and v in 0..1 over the whole atlas of
 // `atlasW` x `atlasH` texels, depth 0..1 over the cascade's depth range, whatever the backend. `isGl`: the texture's v runs bottom up
@@ -129,6 +133,7 @@ struct CascadePlan {
 // a cascade that blends into the next. Everything that sets a cascade's size (the range, the splits, the radius) is the same for every
 // orientation of the camera at one position; only the position of a cascade follows the camera.
 CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMax, Vec3 lightDir, float shadowDistance,
-                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne);
+                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne,
+                          const DVec3& origin = {});
 
 }  // namespace fa::render
