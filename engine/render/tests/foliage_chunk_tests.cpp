@@ -31,7 +31,8 @@ std::vector<FoliageInstance> grid(int nx, int nz, float step, float x0 = 0.0f, f
 }  // namespace
 
 TEST_CASE("foliage chunks: every instance is in one chunk, the boxes hold their positions, the order is the cells'") {
-    const auto in = grid(40, 40, 3.0f, -60.0f, -60.0f);  // 117 m square: 4 x 4 chunks of 32 m (cells -2..1 on each axis)
+    const auto in =
+        grid(40, 40, 3.0f, -60.0f, -60.0f);  // 117 m square: 4 x 4 chunks of 32 m (cells -2..1 on each axis)
     const FoliageChunks c = build_foliage_chunks(in);
     REQUIRE(c.items.size() == in.size());
     std::size_t total = 0;
@@ -51,7 +52,8 @@ TEST_CASE("foliage chunks: every instance is in one chunk, the boxes hold their 
             CHECK(p.position.z >= ch.lo.z);
             CHECK(p.position.z <= ch.hi.z);
             maxScale = std::max(maxScale, p.scale);
-            cells.insert({int(std::floor(p.position.x / kFoliageChunkSize)), int(std::floor(p.position.z / kFoliageChunkSize))});
+            cells.insert(
+                {int(std::floor(p.position.x / kFoliageChunkSize)), int(std::floor(p.position.z / kFoliageChunkSize))});
         }
         CHECK(ch.maxScale == maxScale);
         CHECK(cells.size() == 1);  // one cell of the ground plane per chunk
