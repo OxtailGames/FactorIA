@@ -1,4 +1,4 @@
-// M75-P0: the authoring commands of the big worlds exist, are documented and classified, and fail with `not_built` (changing nothing)
+// M75-P0: the authoring commands of the big worlds (not the terrain ones: terrain_commands_tests.cpp) exist, are documented and classified, and fail with `not_built` (changing nothing)
 // until their package lands (docs/BIG_WORLDS.md).
 #include <doctest.h>
 
@@ -42,11 +42,6 @@ TEST_CASE("big world commands: registered with their category, schema and packag
         {"world.merge_cells", "M75.3", "world", R"({"manifest":"scenes/main.world.json"})"},
         {"model.generate_lods", "M75.1", "assets", R"({"model":"models/rock.glb"})"},
         {"model.bake_impostor", "M75.1", "assets", R"({"model":"models/tree.glb"})"},
-        {"terrain.create", "M75.5", "world", "{}"},
-        {"terrain.sculpt", "M75.5", "world", R"({"entity":"ground","center":[0,0],"radius":5})"},
-        {"terrain.paint", "M75.5", "world", R"({"entity":"ground","layer":1,"center":[0,0],"radius":5})"},
-        {"terrain.holes", "M75.5", "world", R"({"entity":"ground","center":[0,0],"radius":5})"},
-        {"terrain.generate", "M75.5", "world", R"({"entity":"ground"})"},
         {"foliage.scatter", "M75.6", "world", R"({"entity":"grass"})"},
         {"foliage.paint", "M75.6", "world", R"({"entity":"grass","center":[0,0],"radius":5})"},
         {"foliage.clear", "M75.6", "world", R"({"entity":"grass"})"},

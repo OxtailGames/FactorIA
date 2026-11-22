@@ -15,6 +15,7 @@
 //     here is the height both of them have.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -36,12 +37,46 @@ inline constexpr int kTerrainMaxSamples =
     4097;                                     // 16.8 million samples: 33.6 MB of heights on the CPU, 33.6 MB on the GPU
 inline constexpr int kTerrainTileCells = 32;  // cells along one side of a drawn tile (one shared 33 x 33 grid patch)
 inline constexpr float kTerrainRawMax = 65535.0f;  // a white sample
+inline constexpr int kTerrainSplatMaps = 2;        // RGBA splat maps of a terrain: 4 layers each, 8 layers in all
+inline constexpr int kTerrainMaxSplatSide = 4096;  // texels per side of a splat map (64 MB of RGBA8 each)
+inline constexpr int kTerrainHoleThreshold = 128;  // a holes-image pixel of 128 (of 255) or more is a hole
+// The undo history of one terrain keeps at most this many steps and this many bytes of before/after samples (the oldest go first;
+// the newest step is always kept).
+inline constexpr std::size_t kTerrainHistorySteps = 64;
+inline constexpr std::size_t kTerrainHistoryBytes = std::size_t(256) << 20;
 
 // A rectangle of samples (inclusive). c = column (x), r = row (z).
 struct TerrainRect {
     int c0 = 0, r0 = 0, c1 = -1, r1 = -1;
     bool empty() const { return c1 < c0 || r1 < r0; }
     void join(const TerrainRect& o);
+};
+
+// The grids a terrain edit can change: the heights (samples x samples, 2 bytes: the raw 16-bit value), the holes mask (cells x cells,
+// 1 byte: 0 or 1) and the two splat maps (their own size x size, 4 bytes: RGBA8, channel c of map m weights layer 4 * m + c).
+enum class TerrainPlane : std::uint8_t { Heights, Holes, Splat0, Splat1 };
+
+// One rectangle of one plane before and after an edit (`before` and `after` hold w x h elements, row by row, as the plane stores
+// them). A TerrainStep is one undo step: the patches of one command.
+struct TerrainPatch {
+    TerrainPlane plane = TerrainPlane::Heights;
+    int x0 = 0, y0 = 0, w = 0, h = 0;
+    std::vector<std::uint8_t> before, after;
+};
+struct TerrainStep {
+    std::string label;  // the command that made it ("terrain.sculpt")
+    std::vector<TerrainPatch> patches;
+    std::size_t bytes() const;
+};
+
+// One RGBA8 splat map (weights, linear: NOT sRGB), see docs/BIG_WORLDS.md "Terrain data formats".
+struct TerrainSplat {
+    int size = 0;                    // texels per side (0 = no such map)
+    std::vector<std::uint8_t> rgba;  // size * size * 4, row 0 = the -Z edge
+    std::string source;              // the project path it was loaded from or written to
+    std::uint64_t version = 0;       // grows with every edit
+    bool unsaved = false;            // edited since it was loaded or written
+    bool valid() const { return size > 0 && rgba.size() == std::size_t(size) * std::size_t(size) * 4; }
 };
 
 // The samples of one terrain.
@@ -67,6 +102,31 @@ struct TerrainHeights {
     // The whole grid of `n` x `n` samples, all set to `raw` (a flat terrain).
     static std::shared_ptr<TerrainHeights> flat(int n, std::uint16_t raw = 0);
 
+    // ---- the other planes (M75.5 P5b): the holes mask and the splat maps, edited live like the heights ----
+    // Holes: cells x cells bytes, row by row (row 0 = the -Z edge), 1 = the cell between samples (c, r) and (c + 1, r + 1) is a hole
+    // (neither drawn nor collided). Empty = no holes. The collider follows `holesVersion`.
+    std::vector<std::uint8_t> holes;
+    std::string holesSource;         // the Terrain.holes path loaded from or written to ("" = none)
+    std::uint64_t holesVersion = 0;  // grows with every holes edit
+    std::array<TerrainSplat, kTerrainSplatMaps> splat;
+    bool heightsUnsaved = false;  // edited since loaded or written (the files are written by save_terrain_files)
+    bool holesUnsaved = false;
+    std::string planesProblem;  // why the holes or the splat maps could not be loaded ("" = fine)
+
+    bool any_unsaved() const { return heightsUnsaved || holesUnsaved || splat[0].unsaved || splat[1].unsaved; }
+    // Applies the patches of `step` (their `after` data) and keeps the step for undo, clearing the redo list. False, changing
+    // nothing, when a patch does not fit its plane (`problem` says which).
+    bool apply_step(TerrainStep step, std::string* problem = nullptr);
+    // Puts the `before` data of the newest step back (and keeps it for redo) / applies the newest undone step again. False when
+    // there is none; `label` gets the step's label.
+    bool undo(std::string* label = nullptr);
+    bool redo(std::string* label = nullptr);
+    std::size_t undo_depth() const { return undo_.size(); }
+    std::size_t redo_depth() const { return redo_.size(); }
+    std::size_t history_bytes() const { return historyBytes_; }
+    // Writes one patch (its `after` or its `before` data) and marks the plane dirty. False when it does not fit.
+    bool write_patch(const TerrainPatch& patch, bool useAfter);
+
 private:
     struct Edit {
         std::uint64_t version = 0;
@@ -75,6 +135,9 @@ private:
     std::vector<Edit> edits_;       // the last kEditHistory edits, oldest first
     std::uint64_t oldestKept_ = 0;  // the version before the oldest edit kept: readers at or after it can be answered
     static constexpr std::size_t kEditHistory = 64;
+    std::vector<TerrainStep> undo_, redo_;  // oldest first
+    std::size_t historyBytes_ = 0;
+    void trim_history();
 };
 
 // ---- loading the heightmap file (the file layer of fa::fs: project paths and packs) ----
@@ -94,6 +157,19 @@ Result<int> terrain_grid_samples(int width, int height, std::string_view what);
 Result<TerrainLoad> load_terrain_heightmap(std::string_view path);
 // The same from bytes already in memory (`name` is the path the errors name; ".r16" in it selects the raw format).
 Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size_t size, std::string_view name);
+
+// ---- writing the files back ----
+
+// The bytes of the heightmap file of `h` for `path`: a raw little-endian `.r16` when it ends in that, else a 16-bit greyscale PNG.
+// Empty when the grid is empty.
+std::vector<std::uint8_t> encode_terrain_heightmap(const TerrainHeights& h, std::string_view path);
+// Writes the files of the planes of `terrain` that were edited since they were loaded or written: the heightmap (a 16-bit
+// greyscale PNG, or a raw `.r16` when Terrain.heightmap ends in it), the holes mask (an 8-bit greyscale PNG, 255 = hole, at the
+// terrain's cells x cells), and each splat map (an RGBA8 PNG). Each file is replaced atomically (fs::write_bytes). `written` gets
+// the project paths. An error names the file and the fix, and the planes it did not reach stay unsaved. Nothing to write is ok.
+Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written = nullptr);
+// The same for every Terrain of the world that has edits (what save_scene_file does after it writes the scene).
+Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written = nullptr);
 
 // ---- sampling ----
 
@@ -136,6 +212,11 @@ public:
     void prune(const World& world);
     void clear();
     std::size_t size() const;
+    // The entities that have an entry (loaded or not), sorted by entity.
+    std::vector<Entity> entities() const;
+    // Makes `heights` the heights of `e` for Terrain.heightmap == `key`, so setting that field does not load the file (a
+    // command that fills a terrain that had no heightmap and has not written the file yet).
+    void adopt(Entity e, const std::string& key, std::shared_ptr<TerrainHeights> heights);
 
 private:
     mutable std::mutex mutex_;
