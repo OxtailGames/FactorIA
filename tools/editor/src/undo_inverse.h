@@ -46,10 +46,23 @@ bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& pla
 
 // How many terrain.undo calls of `entityId` the inverse list of `entry` holds (0 for any entry that is not a Command one).
 std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entityId);
-// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): an entry of the undo list whose step it let go could only
-// answer "nothing to undo", and would stand in front of older entries that still work. Removes, oldest first, the entries of
-// `entityId` until the stack holds no more terrain.undo calls for it than `historyDepth` (the terrain's undo_depth()). Returns how
-// many entries it removed.
-std::size_t drop_terrain_entries_beyond(UndoStack& stack, const std::string& entityId, std::size_t historyDepth);
+// What drop_terrain_steps removed.
+struct TerrainDrop {
+    std::size_t steps = 0;    // terrain.undo calls of the entity taken out of the list
+    std::size_t entries = 0;  // entries that held nothing else to undo and left the list
+};
+// Numbers the terrain calls of `entityId` that have no number yet (UndoCommand::step) in a plan about to be pushed, right after the
+// terrain made its steps: `newest` is the absolute number of the terrain's newest step (history_lost() + undo_depth()). The k unnumbered
+// terrain.undo calls of the inverse list get newest, newest-1, ... (the first one undoes the newest step) and the terrain.redo calls
+// of the forward list the same numbers, oldest first. Nothing is numbered below 1.
+void number_terrain_steps(std::vector<UndoCommand>& forward, std::vector<UndoCommand>& inverse,
+                          const std::string& entityId, std::uint64_t newest);
+// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): a step it let go can only answer "nothing to undo", and
+// its entry would stand in front of older entries that still work. `lost` is the terrain's history_lost(): every terrain.undo of
+// `entityId` numbered `lost` or less, and the terrain.redo of the same numbers, is taken out of the list (a step is judged by its own
+// number, never by the position of its entry: the list trims entries on its own, and an edit that joined a snapshot step made none).
+// An entry that holds anything else to undo (a Chain of several edits, the steps of the terrain that are still held) stays with that,
+// and one left with no inverse at all leaves the list.
+TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::uint64_t lost);
 
 }  // namespace fa::editor

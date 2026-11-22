@@ -559,6 +559,10 @@ stdfs::path extended_path(const stdfs::path& abs) {
 }  // namespace
 #endif
 
+// Windows: the \\?\ prefix turns off the path parsing of the Win32 API (MAX_PATH, "/", "." and ".."): the text is used as written, so
+// the path is made absolute and lexically normal BEFORE the prefix is added, and a path that already has it is returned as it is
+// (adding it twice breaks the path). Under kLimit characters nothing changes, so short paths keep the plain spelling that
+// users, error messages and plain_path() expect. Other systems have no such limit: the path comes back as given.
 stdfs::path os_path(const stdfs::path& p) {
 #ifdef _WIN32
     // CreateDirectoryW refuses 248 characters or more and the other calls MAX_PATH (260) unless long paths are enabled

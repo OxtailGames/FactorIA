@@ -308,6 +308,9 @@ void Editor::terrain_stroke_cancel() {
         h->splat[0].unsaved = t.unsavedBefore[2];
         h->splat[1].unsaved = t.unsavedBefore[3];
     }
+    // The stroke told the cells panel its cell may be unsaved (mark_dirty): the data is back, so the cell is checked again against its
+    // baseline and shows clean when nothing else changed it.
+    note_cells_edit();
 }
 
 // ---------------------------------------------------------------------------------------------------------------- viewport --
@@ -465,6 +468,9 @@ void Editor::draw_terrain_tool_panel() {
         ImGui::SetItemTooltip("%s", tip);
     };
     ImGui::Text("Terrain: %s", w.info(e).name.c_str());
+    ImGui::SetItemTooltip("A click in the viewport that misses the terrain (sky, another object) does nothing: the "
+                          "terrain stays selected and the "
+                          "tool stays on.");
     mode_button(" Sculpt ", TerrainMode::Sculpt, "terrain:mode:sculpt",
                 "Raise, lower, smooth or flatten the heights with the brush");
     mode_button(" Paint ", TerrainMode::Paint, "terrain:mode:paint",

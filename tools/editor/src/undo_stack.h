@@ -26,6 +26,10 @@ struct UndoCommand {
     // What this call sets, for CoalesceMode::Merge: a later call with the same non-empty target replaces this one. Empty =
     // never merged by target.
     std::string target;
+    // terrain.undo / terrain.redo only: the absolute number of the terrain's undo step this call undoes or redoes (the terrain's
+    // history_lost() plus its undo_depth() when the step was made), 0 = not numbered. The editor's list and the terrain's history
+    // trim on their own: the number says which entries name a step the terrain let go (undo_inverse.h, drop_terrain_steps).
+    std::uint64_t step = 0;
 };
 
 struct UndoEntry {
@@ -43,6 +47,8 @@ struct UndoEntry {
     static UndoEntry snapshot(Json scene);
     static UndoEntry special(Json obj);
     static UndoEntry command(std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse);
+    // Estimates `bytes` again after the command lists changed (a Command entry that lost some of its commands).
+    void refresh_bytes();
 
     // The scene or the special object (null for a Command entry): lets `for (const Json& e : stack)` loops that look for
     // their `$key` keep working.
