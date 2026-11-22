@@ -226,5 +226,36 @@ added to `renderStats.meshes`; each (mesh, LOD) batch is one entry of `meshBatch
 metre), `minSpacing`, `slopeRange` (degrees), `heightRange` and `scaleRange`, `alignToNormal` (0..1), `layerMask` (bit mask of the
 terrain layers it grows on, -1 = any), `seed` (the same rule and seed give the same instances) and `terrain` (the entity with the
 `Terrain`; empty = this entity or its parent). `foliage.scatter` writes into ONE `Foliage` entity: it sets its `meshes` to all the
-meshes of the rule and fills the instances file with their indices. `foliage.paint`, `foliage.scatter` and `foliage.clear` fail with
-`not_built` today (M75 P6b): the file is written with `write_foliage` until then.
+meshes of the rule and fills the instances file with their indices. ### Foliage commands
+
+They live in `fa_authoring` (the editor, the CLI and MCP have them; a shipped game does not) and write the instances file with
+`write_foliage`, so the renderer reloads it by itself. The editor's brush tool that calls `foliage.paint` is a later package (M75 P6c);
+until then the commands are the way to fill a field.
+
+- `foliage.scatter {entity, rule?, dryRun?}` fills the Foliage `entity` from the `ScatterRule` of `rule` (default: the same entity),
+  on the Terrain of `ScatterRule.terrain` (empty = the rule entity or its parent). The candidates are the points of a jittered grid:
+  one per cell of `1 / sqrt(density)` metres, the grid anchored at the world origin and visited row by row, each point drawn from an
+  integer hash (splitmix64) of `seed` and its cell. A candidate is rejected, in this order, when it is outside the terrain
+  (`outside`) or in a hole (`hole`), its height is outside `heightRange` (`height`), its slope in degrees is outside `slopeRange`
+  (`slope`), none of the layers of `layerMask` has a splat weight of 0.5 or more there (`layer`; -1 = any, no layers = layer 0), or
+  another instance is closer than `minSpacing` (`spacing`). The mesh is chosen by weight, the scale from `scaleRange`, the yaw
+  from the hash and the lean is `alignToNormal` of the way from straight up to the ground's normal. Positions are rounded to 1/4096
+  m (heights to 1/1024) before they are stored, so the file is the same byte for byte on every platform and on every run. The
+  command sets `Foliage.meshes` to the meshes of the rule and `Foliage.instances` to the file: `<scene folder>/<scene
+  name>.<entity id>.foliage` when it was empty (never an existing file: `_2`, `_3`...). `dryRun` only counts and changes nothing.
+  Result: `{file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes: [{mesh,
+  count}], rule, terrain, undo}`. It is refused, before anything is written, with `too_many_instances` when the result would hold
+  more than 2,000,000 instances and with `too_many_candidates` when the area holds more than 16.7 million grid cells.
+- `foliage.paint {entity, center, radius, mode?, density?, mesh?, seed?, rule?}` adds (`mode` `add`, the default) instances inside
+  the circle of `radius` metres around `center` (world `[x, z]`) with the same placement rules as the scatter (the ScatterRule of
+  `rule` or of the entity itself; without one, the ScatterRule defaults and equal mesh weights) and the same hash grid, so the same
+  arguments always add the same instances. `density` is per square metre (default the rule's), `mesh` limits the brush to one of
+  `Foliage.meshes` (a wrong name is refused with the list), `seed` changes the draw. An added instance keeps at least
+  `max(minSpacing, 0.5 / sqrt(density))` metres from every instance already in the file, so stroking the same place twice does not
+  stack them. `mode` `remove` deletes the instances inside the circle (only those of `mesh` when given). Result: `{added, removed,
+  instances, file, counts, undo}`; a stroke that changes nothing says why and writes nothing.
+- `foliage.clear {entity, region?}` removes every instance (the file stays, empty), or only those inside `region` (`[minX, minZ,
+  maxX, maxZ]` world metres, edges included). Result: `{removed, instances, file, undo}`.
+- Undo: every one of the three returns `undo`, a `foliage.restore` call that carries the previous file (base64; null when there was
+  none), `Foliage.meshes` and `Foliage.instances`. Calling it puts them back, deletes a file the command created and returns
+  its own `undo`, which is the redo. The payload is the size of the previous file (up to 52 MB for 2 million instances).
