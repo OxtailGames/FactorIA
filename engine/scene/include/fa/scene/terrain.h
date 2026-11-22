@@ -179,6 +179,9 @@ struct TerrainHeights {
     std::size_t undo_depth() const { return undo_.size(); }
     std::size_t redo_depth() const { return redo_.size(); }
     std::size_t history_bytes() const { return historyBytes_; }
+    // How many undo steps the caps (kTerrainHistorySteps, kTerrainHistoryBytes) ever pushed off the oldest end of the history. Only
+    // grows: a caller that keeps a list of its own entries for the steps (the editor's undo list) compares it with the value it saw.
+    std::size_t history_lost() const { return historyLost_; }
     // Writes one patch (its `after` or its `before` data) and marks the plane dirty. False when it does not fit.
     bool write_patch(const TerrainPatch& patch, bool useAfter);
 
@@ -192,6 +195,7 @@ private:
     static constexpr std::size_t kEditHistory = 64;
     std::vector<TerrainStep> undo_, redo_;  // oldest first
     std::size_t historyBytes_ = 0;
+    std::size_t historyLost_ = 0;
     void trim_history();
 };
 

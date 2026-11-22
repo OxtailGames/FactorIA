@@ -1318,6 +1318,12 @@ bool Editor::save_scene_now() {
         notify("Stop the game before saving (play-mode changes are temporary).", 1);
         return false;
     }
+    // An edit the editor could not attribute (or one whose check still waits) has not reached the dirty marks yet: look at every loaded
+    // cell now, so the choices below see what the save will find (as play() does).
+    if (cells_.loaded_count() > 0) {
+        cells_.note_edit();
+        cells_.update(world(), false);
+    }
     std::vector<PrefabExpanded> expanded;
     // The scene's own file is written only when the scene itself changed: a session that edited one cell writes that cell's file
     // (and the index when its bounds changed) and leaves the rest of the project's files alone.
@@ -1560,18 +1566,28 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
     return true;
 }
 
-// The terrain keeps its last kTerrainHistorySteps edits (and a byte budget). The oldest entries of the undo list that name a step it
-// let go are removed (they could only answer "nothing to undo", in front of older entries that still work), with a toast.
+// The terrain keeps its last kTerrainHistorySteps edits (and a byte budget). The steps it let go since this was last asked (its
+// history_lost() counter) are taken out of the oldest entries of the undo list, where they could only answer "nothing to undo" in
+// front of older entries that still work, with a toast. The list is never measured against the terrain's current depth: a
+// terrain.undo run by hand (Console, MCP) leaves an entry of the list whose step is gone, and counting that one would drop a step
+// that still works.
 void Editor::drop_terrain_entries_past_history(const std::string& id) {
     const Entity e = world().find_by_id(id);
     const std::shared_ptr<TerrainHeights> h = e.is_null() ? nullptr : world().terrain().find(e);
     if (!h) return;
-    const std::size_t dropped = drop_terrain_entries_beyond(undo_, id, h->undo_depth());
-    if (dropped > 0)
+    std::size_t& seen = terrainLostSeen_[id];
+    const std::size_t lost = h->history_lost();
+    if (lost < seen) seen = lost;  // another terrain object took the id (a scene load, Stop): its counter starts again
+    const std::size_t newlyLost = lost - seen;
+    seen = lost;
+    if (newlyLost == 0) return;
+    const TerrainDrop dropped = drop_terrain_steps(undo_, id, newlyLost);
+    if (dropped.steps > 0)
         notify(std::format(
-                   "The terrain keeps its last {} edits: {} older terrain edit{} can no longer be undone and {} left "
-                   "the undo list.",
-                   kTerrainHistorySteps, dropped, dropped == 1 ? "" : "s", dropped == 1 ? "was" : "were"),
+                   "The terrain keeps its last {} steps / {} MB of edits: {} older terrain edit{} can no longer be "
+                   "undone and {} taken out of the undo list.",
+                   kTerrainHistorySteps, kTerrainHistoryBytes >> 20, dropped.steps, dropped.steps == 1 ? "" : "s",
+                   dropped.steps == 1 ? "was" : "were"),
                1);
 }
 

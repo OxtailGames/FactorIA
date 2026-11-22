@@ -459,6 +459,7 @@ TEST_CASE("TerrainHeights: the history keeps at most kTerrainHistorySteps steps"
         REQUIRE(h->apply_step(s));
     }
     CHECK(h->undo_depth() == kTerrainHistorySteps);
+    CHECK(h->history_lost() == 10);  // the steps the cap pushed off
     CHECK(h->history_bytes() > 0);
     CHECK(h->history_bytes() < std::size_t(1) << 20);
 }

@@ -286,14 +286,25 @@ void Editor::draw_cells_panel() {
                 at_track(cell_widget("unload", r));
                 tip("Remove this cell's entities from the scene. A cell with unsaved changes asks first.");
                 ImGui::SameLine();
+                ImGui::BeginDisabled(r.rootGone);  // its root entity no longer exists: there is nothing to select
                 if (ImGui::SmallButton("Select")) {
                     select_id("cell_" + std::to_string(r.i) + "_" + std::to_string(r.j));
                     cellsUi_.focusI = r.i;
                     cellsUi_.focusJ = r.j;
                     cellsUi_.hasFocus = true;
                 }
-                at_track(cell_widget("select", r));
-                tip("Select this cell's root entity: the Hierarchy and the Inspector show it, and the grid marks it.");
+                ImGui::EndDisabled();
+                at_track(cell_widget("select", r), !r.rootGone);
+                if (r.rootGone) {
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip(
+                            "%s",
+                            "The root entity of this cell was deleted, so there is nothing to select. Undo brings "
+                            "it back; Save writes the cell empty.");
+                } else {
+                    tip("Select this cell's root entity: the Hierarchy and the Inspector show it, and the grid marks "
+                        "it.");
+                }
             }
             ImGui::PopID();
             ImGui::PopID();

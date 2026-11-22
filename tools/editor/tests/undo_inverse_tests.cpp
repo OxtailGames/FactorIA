@@ -810,7 +810,7 @@ TEST_CASE("undo inverse: terrain.sculpt, paint and holes are one terrain.redo / 
     CHECK_FALSE(plan_undo(s.world(), "terrain.sculpt", Json::parse(R"({"entity":"nobody"})")).has_value());
 }
 
-TEST_CASE("undo inverse: the oldest terrain entries go when the terrain's history lets go of their steps") {
+TEST_CASE("undo inverse: the terrain steps its history let go leave the oldest entries, nothing else does") {
     auto terrain_entry = [](const char* id) {
         const Json args = Json::object({{"entity", id}});
         return UndoEntry::command({{"terrain.redo", args, ""}}, {{"terrain.undo", args, ""}});
@@ -824,13 +824,19 @@ TEST_CASE("undo inverse: the oldest terrain entries go when the terrain's histor
     CHECK(terrain_undo_count(st[0], "g") == 1);
     CHECK(terrain_undo_count(st[1], "g") == 0);
     CHECK(terrain_undo_count(st[2], "g") == 0);
-    CHECK(drop_terrain_entries_beyond(st, "g", 3) == 0);  // the history still holds all three
+    CHECK(drop_terrain_steps(st, "g", 0).steps == 0);  // the history let go of nothing
     CHECK(st.size() == 5);
-    CHECK(drop_terrain_entries_beyond(st, "g", 2) == 1);  // the oldest of the three goes, nothing else does
+    // The count is what the terrain let go, not the number of entries: entries beyond the history (an orphan left by a
+    // terrain.undo run by hand) are never mistaken for lost steps.
+    const TerrainDrop one = drop_terrain_steps(st, "g", 1);
+    CHECK(one.steps == 1);
+    CHECK(one.entries == 1);
     REQUIRE(st.size() == 4);
     CHECK(st[0].forward[0].cmd == "scene.destroy");
     CHECK(terrain_undo_count(st[1], "other") == 1);
-    CHECK(drop_terrain_entries_beyond(st, "g", 0) == 2);
+    CHECK(terrain_undo_count(st[2], "g") == 1);
+    const TerrainDrop two = drop_terrain_steps(st, "g", 5);  // more than the list holds: all of the terrain's, no more
+    CHECK(two.steps == 2);
     CHECK(st.size() == 2);
 }
 
@@ -886,4 +892,23 @@ TEST_CASE(
     // an entity with no Foliage has no plan
     CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"nobody"})")).has_value());
     CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"g"})")).has_value());
+}
+
+TEST_CASE("undo inverse: a Chain entry that lost its terrain step keeps its other inverses") {
+    const Json g = Json::object({{"entity", "g"}});
+    UndoStack st;
+    st.push_back(
+        UndoEntry::command({{"terrain.redo", g, ""}, {"scene.set", Json::object({{"id", "x"}}), ""}},
+                           {{"scene.set", Json::object({{"id", "x"}, {"old", 1}}), ""}, {"terrain.undo", g, ""}}));
+    st.push_back(UndoEntry::command({{"terrain.redo", g, ""}}, {{"terrain.undo", g, ""}}));
+    const TerrainDrop d = drop_terrain_steps(st, "g", 1);
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);  // the chain stays: it still undoes the other edit
+    REQUIRE(st.size() == 2);
+    CHECK(terrain_undo_count(st[0], "g") == 0);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].cmd == "scene.set");
+    REQUIRE(st[0].forward.size() == 1);
+    CHECK(st[0].forward[0].cmd == "scene.set");  // its terrain.redo went with the step
+    CHECK(terrain_undo_count(st[1], "g") == 1);  // the newer terrain step is untouched
 }
