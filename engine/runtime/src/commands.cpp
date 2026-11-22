@@ -1198,8 +1198,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "occluders (the Occluders rasterised), occlusionTests (the meshes tested against them) and meshesOccluded "
          "(the ones hidden behind them and left out of the main pass, also in meshesCulled) count the CPU occlusion "
          "culling of docs/BIG_WORLDS_LOD.md: 0 when no enabled Occluder is in the scene. "
-         "Three more are 0 until M75.6 draws them (big worlds: impostors, foliageInstances, "
-         "foliageInstancesCulled; docs/BIG_WORLDS.md). "
+         "impostors counts the cards (MeshRenderer.impostor beyond impostorDistance, docs/BIG_WORLDS_LOD.md) drawn in "
+         "the main pass, "
+         "0 when none is. Two more are 0 until M75.6 draws them (big worlds: foliageInstances, foliageInstancesCulled; "
+         "docs/BIG_WORLDS.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
          "window.renderScale). Same as game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",

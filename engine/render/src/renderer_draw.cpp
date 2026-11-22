@@ -97,6 +97,7 @@ struct Renderer::Impl::DrawContext {
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
+    ImpostorDraws impostorDraws;           // gather_meshes: what the MeshItems of the impostor cards point at
     std::deque<TerrainDraw> terrainDraws;  // gather_meshes: what the MeshItems of the terrains' nodes point at
     std::vector<LightData> lights;
     // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
@@ -1075,8 +1076,19 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
                                           length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
             screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
         }
-        const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), lod_level_of(mr, mi.dist, screen),
-                                      canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f);
+        // The impostor (M75-P1c) is one more level, past the last one: the sentinel level of LodFades, so its cross-fade with the last level is the
+        // ordinary one. An atlas that cannot be used (a warning was given) leaves the last level drawn.
+        const bool hasImpostor = !mr.impostor.empty() && mr.impostorDistance > 0.0f;
+        const int lastLevel = hasImpostor ? lod_level_of(mr, 3.0e38f, 0.0f) : 0;
+        ImpostorUse impostorUse;
+        bool impostorReady = false;
+        int target = lod_level_of(mr, mi.dist, screen);
+        if (hasImpostor && impostor_active(mr, mi.dist, screen)) {
+            impostorReady = impostors.resolve(*assets, frameSerial, mr, mi.entity, impostorUse);
+            target = impostorReady ? kImpostorLevel : lastLevel;
+        }
+        const LodPick pick =
+            lod_pick(LodKind::Mesh, mi.entity.bits(), target, canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f);
         // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
         const auto set_level = [&](MeshItem& item, int level) {
             const std::string& name = lod_level_mesh(mr, level);
@@ -1086,16 +1098,31 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mesh_cull_bounds(*item.mesh, world.get<Animator>(item.entity), item.bmin, item.bmax, item.anim);
             return true;
         };
+        // Puts the level `level` (or the impostor's card, kImpostorLevel) into `item` and says whether the result is blended.
+        const ImpostorCamera impostorCam{fr.cam.position, fr.cam.right, fr.cam.up, fr.linear};
+        const auto place = [&](MeshItem& item, int level, char& isBlended) {
+            if (level == kImpostorLevel) {
+                if (!impostorReady)
+                    impostorReady = impostors.resolve(*assets, frameSerial, mr, item.entity, impostorUse);
+                if (impostorReady) {
+                    impostors.make_item(item, ctx.impostorDraws, impostorUse, impostorCam);
+                    isBlended = 0;  // a card is alpha-cut, never blended
+                    return;
+                }
+                level = lastLevel;
+            }
+            if (set_level(item, level)) isBlended = mesh_is_blended(mr, *item.mesh, item.material) ? 1 : 0;
+        };
         if (pick.fading()) {
             MeshItem out = mi;
             char outBlended = sm->blended ? 1 : 0;
-            if (set_level(out, pick.from)) outBlended = mesh_is_blended(mr, *out.mesh, out.material) ? 1 : 0;
             out.lodFade = -pick.amount;
             mi.lodFade = pick.amount;
+            place(out, pick.from, outBlended);
             lodOutgoing.emplace_back(std::move(out), outBlended);
             lodOutgoingMesh.push_back(sm);
         }
-        if (set_level(mi, pick.level)) meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+        place(mi, pick.level, meshBlended[i]);
     }
     if (lodMainJob && lodsOn) lodFades.set_main();
     for (std::size_t k = 0; k < lodOutgoing.size(); ++k) {  // after the loop: it holds references into `meshes`
@@ -1105,6 +1132,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     }
     for (const auto& entry : special) {  // what the camera changed is ranked again; a value the table lacks: comparator
         MeshItem& mi = meshes[entry.first];
+        if (mi.impostor) continue;  // a card keeps its own key (kImpostorSortKey)
         mi.keyed = mi.keyed && renderScene.sort_table().key_of(fields_of(mi), mi.sortKey);
     }
     if (!lodDropped.empty()) {  // the children of a LodGroup this camera does not show
@@ -2601,6 +2629,12 @@ MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
 }
 
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
+    if (mi.impostor) {  // a card of an impostor: the draw's block and its two atlases (renderer_impostor.h)
+        std::memset(in.params, 0, sizeof(in.params));
+        std::memcpy(in.params, mi.impostor->params, std::min(sizeof(in.params), sizeof(mi.impostor->params)));
+        for (int i = 0; i < 2; ++i) in.textures[i] = mi.impostor->textures[i];
+        return;
+    }
     if (mi.terrain) {  // a node of a terrain: the draw's block and textures (renderer_terrain.h)
         std::memset(in.params, 0, sizeof(in.params));
         std::memcpy(in.params, mi.terrain->params, std::min(sizeof(in.params), sizeof(mi.terrain->params)));
@@ -3769,7 +3803,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
-                    if (!mi.terrain) count_material(mi.material);
+                    if (!mi.terrain && !mi.impostor) count_material(mi.material);
                 } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(),
                                                     mi.material->path) == stats.materialFallbacks.end()) {
                     stats.materialFallbacks.push_back(mi.material->path);
@@ -3850,7 +3884,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                     }
                 }
-                if (mi.terrain) {  // its nodes are tiles, not meshes
+                if (mi.impostor) {  // its cards are not meshes: renderStats.impostors counts them
+                    stats.impostors += int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (mi.terrain) {  // its nodes are tiles, not meshes
                     stats.terrainTiles += int(batch.mainCount);
                     stats.terrainTriangles += kTerrainTrianglesPerNode * int(batch.mainCount);
                     ++stats.meshBatches;
