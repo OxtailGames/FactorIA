@@ -328,7 +328,8 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
         hizWhy = "the depth reduction pipeline was refused by this graphics driver (see the log lines above)";
         if (!warnedHizPipeline) {
             warnedHizPipeline = true;
-            FA_WARN("render", "The depth pyramid cannot be used: {}. The CPU culling of the Occluders is used instead.", hizWhy);
+            FA_WARN("render", "The depth pyramid cannot be used: {}. The CPU culling of the Occluders is used instead.",
+                    hizWhy);
         }
         return;
     }
