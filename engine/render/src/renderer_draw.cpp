@@ -957,7 +957,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool masked = !fr.mask.empty();
     for (const SceneMesh& sm : shared) {
         if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
-        if (sm.hasLods || sm.liveTextures) special.emplace_back(meshes.size(), &sm);
+        if (sm.hasLods || sm.liveTextures || sm.chainCount != 0) special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
         mi.mr = sm.mr;
         mi.entity = sm.entity;
@@ -982,6 +982,43 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
+    // Levels of detail (M75.1). Each job picks with its own camera (a split-screen camera, a render target, a CameraView); a probe or GI
+    // capture follows the first main camera of the frame. The shadow passes of a job draw the items of the job, so they cast the level
+    // of their camera. LodFades keeps the cross-fades per camera and entity.
+    const bool lodsOn = renderScene.has_lods();
+    const bool lodFollow = fr.lodFollowMain;
+    const bool lodMainJob = !lodFollow && ctx.plan.name.compare(0, 7, "camera:") == 0;
+    const std::uint64_t lodCam = std::hash<std::string>{}(ctx.plan.name);
+    const LodView lodView{fr.cam.perspective, fr.cam.fov, fr.cam.halfH};
+    const auto lod_pick = [&](LodKind kind, std::uint64_t bits, int target, float crossFade) {
+        if (lodFollow) {
+            LodPick p;
+            p.level = target;
+            if (const LodPick* m = lodFades.main_pick(bits, kind)) p.level = m->level;  // settled: a capture never fades
+            return p;
+        }
+        const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt);
+        if (lodMainJob && !lodFades.main_set()) lodFades.remember(bits, kind, p);
+        return p;
+    };
+    std::vector<LodPick> groupPick;  // per LodGroup of the scene: the child this camera shows (level -1 = a group that draws nothing)
+    if (lodsOn) {
+        const auto& groups = renderScene.lod_groups();
+        groupPick.resize(groups.size());
+        for (std::size_t g = 0; g < groups.size(); ++g) {
+            const SceneLodGroup& sg = groups[g];
+            groupPick[g].level = -1;
+            if (sg.children <= 0 || !(sg.radius > 0.0f)) continue;
+            const float distance = length(sg.origin - fr.cam.position);
+            const float value =
+                sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
+            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), lod_group_level(*sg.group, sg.children, value),
+                                    sg.group->crossFade);
+        }
+    }
+    std::vector<char> lodDropped;  // an item whose LodGroup child is not shown
+    std::vector<std::pair<MeshItem, char>> lodOutgoing;  // the level fading out of an entity in a cross-fade, and whether it is blended
+    std::vector<const SceneMesh*> lodOutgoingMesh;
     for (const auto& [i, sm] : special) {
         MeshItem& mi = meshes[i];
         const MeshRenderer& mr = *mi.mr;
@@ -989,17 +1026,85 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
             mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         }
+        // A full-shader material has no dither: its levels switch at once.
+        const bool canFade = !(mi.material && mi.material->full);
+        float groupFade = 0.0f;
+        if (sm->chainCount != 0 && lodsOn) {
+            const std::vector<std::uint32_t>& chains = renderScene.lod_chains();
+            bool drop = false;
+            for (std::uint32_t k = 0; k < sm->chainCount; ++k) {
+                const std::uint32_t entry = chains[sm->chainFirst + k];
+                const LodPick& r = groupPick[entry >> 4];
+                const int child = int(entry & 15u);
+                if (r.level < 0) continue;
+                if (child == r.level) {
+                    if (r.fading() && canFade && groupFade == 0.0f) groupFade = r.amount;
+                } else if (r.fading() && child == r.from && canFade) {
+                    if (groupFade == 0.0f) groupFade = -r.amount;
+                } else {
+                    drop = true;
+                }
+            }
+            if (drop) {
+                if (lodDropped.empty()) lodDropped.assign(meshes.size(), 0);
+                lodDropped[i] = 1;
+                continue;
+            }
+            mi.lodFade = groupFade;
+        }
         if (!sm->hasLods) continue;
-        const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
-        if (level == mr.mesh) continue;
-        mi.mesh = assets->mesh(level);
-        mi.lm = {};  // another mesh: the entity was baked for the one the manifest names
-        mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
-        meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+        float screen = 0.0f;
+        if (mr.lodMode == LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
+            const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
+                                          length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
+                                          length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
+            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
+        }
+        const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), lod_level_of(mr, mi.dist, screen),
+                                      canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f);
+        // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
+        const auto set_level = [&](MeshItem& item, int level) {
+            const std::string& name = lod_level_mesh(mr, level);
+            if (name == mr.mesh) return false;
+            item.mesh = assets->mesh(name);
+            item.lm = {};  // another mesh: the entity was baked for the one the manifest names
+            mesh_cull_bounds(*item.mesh, world.get<Animator>(item.entity), item.bmin, item.bmax, item.anim);
+            return true;
+        };
+        if (pick.fading()) {
+            MeshItem out = mi;
+            char outBlended = sm->blended ? 1 : 0;
+            if (set_level(out, pick.from)) outBlended = mesh_is_blended(mr, *out.mesh, out.material) ? 1 : 0;
+            out.lodFade = -pick.amount;
+            mi.lodFade = pick.amount;
+            lodOutgoing.emplace_back(std::move(out), outBlended);
+            lodOutgoingMesh.push_back(sm);
+        }
+        if (set_level(mi, pick.level)) meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+    }
+    if (lodMainJob && lodsOn) lodFades.set_main();
+    for (std::size_t k = 0; k < lodOutgoing.size(); ++k) {  // after the loop: it holds references into `meshes`
+        special.emplace_back(meshes.size(), lodOutgoingMesh[k]);
+        meshes.push_back(std::move(lodOutgoing[k].first));
+        meshBlended.push_back(lodOutgoing[k].second);
     }
     for (const auto& entry : special) {  // what the camera changed is ranked again; a value the table lacks: comparator
         MeshItem& mi = meshes[entry.first];
         mi.keyed = mi.keyed && renderScene.sort_table().key_of(fields_of(mi), mi.sortKey);
+    }
+    if (!lodDropped.empty()) {  // the children of a LodGroup this camera does not show
+        lodDropped.resize(meshes.size(), 0);
+        std::size_t kept = 0;
+        for (std::size_t i = 0; i < meshes.size(); ++i) {
+            if (lodDropped[i]) continue;
+            if (kept != i) {
+                meshes[kept] = std::move(meshes[i]);
+                meshBlended[kept] = meshBlended[i];
+            }
+            ++kept;
+        }
+        meshes.resize(kept);
+        meshBlended.resize(kept);
     }
     // The Terrains: one MeshItem per node of the quadtree the camera selects (renderer_terrain.h), opaque, ahead of the frustum job
     // like every other item.
@@ -1536,7 +1641,8 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                            for (std::size_t i = ch.begin; i < ch.end; ++i) {
                                MeshItem& mi = (*list)[i];
                                mi.castMask = 0;
-                               if (mi.mr->castShadows) {
+                               // The shadow draws the level that fades IN only (solid), never the one fading out: no dither in a shadow map.
+                               if (mi.mr->castShadows && !(mi.lodFade < 0.0f)) {
                                    // A conservative world sphere of the item for the local lights' ranges.
                                    const Vec3 centre = mi.model.transform_point((mi.bmin + mi.bmax) * 0.5f);
                                    const float scale = std::max(
@@ -1560,6 +1666,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                        });
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
+            if (mi.visible && mi.lodFade != 0.0f && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
             if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }
@@ -2332,6 +2439,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     mesh_fa_mesh_fs_params_t fu = fuScene;
     fu.fa_counts[3] = float(
         decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
+    fu.fa_gi[3] = mi.lodFade;  // the dithered LOD cross-fade (mesh_common.glsl fa_lod_dither); 0 = none
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative

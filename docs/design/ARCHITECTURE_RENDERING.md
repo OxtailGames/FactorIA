@@ -387,6 +387,35 @@ by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
   frames free their texture. The collider is in `engine/physics/src/heightfield3d.cpp` (`update_heightfield` for a `Terrain3D`), reading the
   same `TerrainHeights`.
 
+## Levels of detail (M75-P1a)
+
+The user page is docs/BIG_WORLDS.md, "Levels of detail". The selection is pure and lives in `engine/scene/{include/fa/scene,src}/lod.{h,cpp}`
+(`lod_level_of` for a `MeshRenderer`, `lod_group_level` for a `LodGroup`, `lod_screen_size`, and the cross-fade state `LodFadeState` with
+`lod_fade_step` / `lod_fade_amount`; `lod_mesh` stays the bit-identical distance function). `engine/render/src/renderer_lod.{h,cpp}`
+(`LodFades`, a member of `Renderer::Impl`) holds the render-only state.
+
+- *Scene.* `RenderScene` keeps a flag (`has_lods()`: some mesh has `lods` or some `LodGroup` exists); a scene without either skips every
+  LOD step in `gather_meshes` (the cost of that is one branch). It also lists the `LodGroup`s with the sphere of their subtree and gives each
+  mesh the chain of groups above it (`SceneMesh::chainFirst/chainCount`, `lod_chains()`), so the gather asks only "does every group above show my child".
+- *Selection per camera.* `gather_meshes` runs once per camera job. The first `camera:*` job of the frame is the main view: it `remember`s
+  its picks in `LodFades` (`main_pick`). The shadow passes use the items of the main view's list, so they draw what it chose. Probe and GI captures
+  set `Frame::lodFollowMain` (`probe_face_frame`): they read `main_pick`, never fade, and are not counted. A target, `CameraView` or split-screen
+  job has its own `plan.name`, so it steps its own fade slots with its own distance and field of view.
+- *Fade state.* A slot per (camera name hash, entity bits, kind) holds a `LodFadeState`; it advances once per gather by `Frame::dt`, a new entity
+  starts settled, and `end_frame` drops the slots nobody asked about that frame (a destroyed or hidden entity, a camera that went away).
+- *Drawing.* A fading entity makes two `MeshItem`s: the level fading in has `lodFade = +a`, the one fading out `-a`
+  (`a = t` clamped to [1/256, 255/256], so the sign survives and the dither never degenerates). `fill_fs` writes it into `fa_mesh_fs_params.fa_gi.w`
+  and `fa_lod_dither()` of `mesh_common.glsl` (interleaved gradient noise on `gl_FragCoord`, `discard` below / above `a`) is called at the
+  end of the main and depth-prepass fragment code (after the alpha clip): no new variant, no sampler. The two draws are complementary, and
+  the prepass dithers the same way, so what it writes is what the main pass shows. `lodFade` is part of `material_key` (main pass) and `order_key`, so a
+  fading item leaves its instanced batch; `same_shadow_material` ignores it. The shadow shader never dithers: the item fading out (`lodFade < 0`) is
+  skipped in the shadow cull and the one fading in casts solid.
+- *Full-shader materials* (`material->full`, `mesh_full_common.glsl`) do not call the dither: a fading entity with one switches at once (the
+  outgoing level is dropped). A mesh under a fading `LodGroup` also switches its own `lods` at once.
+- *Stats.* `RenderStats::lodCrossFades` counts the visible items with `lodFade != 0` of every main-view job; a capture does not count.
+- *Cost.* The dither is one branch on a uniform: a draw that does not fade reads `fa_gi.w == 0` and skips it. The mesh template changed
+  (its hash), so the twin fixtures of the renderer's tests were regenerated (`FA_UPDATE_FIXTURES=1`).
+
 ## PostProcess (M71)
 
 The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes that draw it are on the page

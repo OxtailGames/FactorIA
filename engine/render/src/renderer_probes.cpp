@@ -99,6 +99,7 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     fr.wantWorld = true;
     fr.wantScreen = false;
     fr.noProbes = true;
+    fr.lodFollowMain = true;
     setup_frame(fr, world, 0.0f);
     fr.targetW = fr.targetH = resolution;
     fr.renderScale = 1.0f;

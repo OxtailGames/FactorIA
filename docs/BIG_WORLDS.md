@@ -11,7 +11,7 @@ is "off" or "as before".
 
 | Part | Package | What it adds |
 |---|---|---|
-| [Levels of detail](#levels-of-detail-planned-m751) | M75.1 | screen-size thresholds, dithered cross-fade, impostors, HLOD |
+| [Levels of detail](#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup` and dithered cross-fade (drawn); impostors and HLOD (planned) |
 | [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
 | [Streaming](#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
@@ -19,32 +19,66 @@ is "off" or "as before".
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, all `false` with the status
-"planned (M75)" until its package lands: `lodCrossFade`, `impostors`, `occlusionCpu`, `occlusionGpu`, `foliage` (`terrain` is true on every backend since P5a). Ask
+"planned (M75)" until its package lands: `impostors`, `occlusionCpu`, `occlusionGpu`, `foliage` (`terrain` is true on every backend since P5a). Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
-## Levels of detail (planned, M75.1)
+## Levels of detail (M75.1)
 
-`MeshRenderer.lods` already switches meshes by distance. M75.1 adds:
+Drawn since M75-P1a: the selection by distance or screen size, `LodGroup`, and the dithered cross-fade. Not drawn yet: the
+HLOD proxy and the impostors (`hlodProxy`, `impostor`: saved and checked, no effect), and the two commands that make their
+files.
 
-- `MeshRenderer.lodMode`: `"distance"` (default, the behaviour of every scene made before M75) or `"screenSize"`. With
+`MeshRenderer.lods` switches meshes by distance, as it always did (a scene that does not use the new fields draws exactly
+as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or the first child of a `LodGroup`), level k is
+`lods[k-1]` (or child k).
+
+- `MeshRenderer.lodMode`: `"distance"` (default) or `"screenSize"`. With
   `screenSize`, an entry of `lods` is `{"mesh": "models/rock_lod1.glb", "screenSize": 0.25}`: the mesh replaces the one before it
-  when the screen size drops below 0.25. Entries go from the largest `screenSize` to the smallest. The entries are saved and checked today: a
+  when the screen size drops below 0.25 (at exactly 0.25 the nearer level stays). Entries go from the largest `screenSize` to the smallest. A
   `screenSize` that is not a number from 0 to 1 is an error, and an entry without the key of its mode, or whose `screenSize` is
-  not below the one before it, is a warning, each with the JSON pointer of the entry.
-- The screen size, for `MeshRenderer` and `LodGroup` alike, is the diameter of the world-space bounding sphere (of the mesh; of
-  the whole subtree of a `LodGroup`) divided by the visible height at the entity's distance `d`: `2 * d * tan(fovY / 2)` in
-  perspective, `2 * orthoSize` in orthographic. 1 = the sphere is as tall as the screen, 0.1 = a tenth of it. It is a fraction, so a
-  threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object (a
-  wider lens or a smaller object gives a smaller screen size), so tune thresholds with the camera the game uses.
-- `MeshRenderer.lodCrossFade`: seconds a switch fades over (a dithered cross-fade, no popping). 0 = hard switch.
-- `MeshRenderer.impostor` and `impostorDistance`: a baked ring of pictures that a camera-facing quad shows beyond the last LOD.
-  `impostorDistance` is in the unit of `lodMode`. `impostor` empty means none.
-- The `LodGroup` component on an entity whose children are the levels (child 0 the most detailed): `mode`, `thresholds` (one
-  number per child but the first, at most 8, in the unit of `mode`, ordered), `crossFade`, and an HLOD proxy for a whole cell:
-  `hlodProxy` (a mesh path) with `hlodThreshold` (needed when the proxy is set).
+  not below the one before it, is a warning, each with the JSON pointer of the entry (an entry without the key of the mode in use is
+  ignored when drawing).
+- The screen size, for `MeshRenderer` and `LodGroup` alike, is the diameter of the world-space bounding sphere divided by the
+  visible height at the entity's distance `d`: `2 * d * tan(fovY / 2)` in perspective, `2 * orthoSize` in orthographic. 1 = the
+  sphere is as tall as the screen, 0.1 = a tenth of it. `d` is the distance from the camera to the entity's origin (the group
+  entity's origin for a `LodGroup`, like `distance` mode). For a `MeshRenderer` the sphere is the diagonal of the full-detail mesh's box times the
+  entity's largest scale; for a `LodGroup` it is the sphere that bounds the meshes of its whole subtree (every level, so the
+  group does not change size when it changes level). It is a fraction, so a threshold means the same at every resolution; it
+  does change with the field of view, the zoom and the size of the object (a wider lens or a smaller object gives a smaller
+  screen size), so tune thresholds with the camera the game uses.
+- `LodGroup` on an entity whose children are the levels (child 0 the most detailed): `mode`, `thresholds` (one number per child
+  but the first, at most 8, in the unit of `mode`: they grow in `distance`, shrink in `screenSize`), `crossFade`. A threshold
+  is reached when the distance is at or above it, or the screen size is below it. Only the meshes in the subtree of the chosen
+  child are drawn; the meshes of the other children and everything below them are skipped. Lights, particles, colliders and
+  scripts of the skipped children are not touched. A child's own `MeshRenderer.lods` still work, but with no fade while the
+  group fades. A child past the ninth level is never drawn.
+- **Which camera chooses.** The camera of the main view (the first camera job of the frame) chooses every level. The shadow
+  passes and the probe and global-illumination captures draw the level that camera chose, so a shadow is the shadow of what the
+  player sees and a capture does not pop. In split screen, and for a `CameraView` or a camera that draws to a render target,
+  each camera chooses for its own view (its own distance, field of view and fade). An entity that no camera sees keeps no
+  state.
+- `MeshRenderer.lodCrossFade` and `LodGroup.crossFade`: seconds a switch fades over. 0 = a hard switch. During the fade
+  both levels are drawn (`renderStats.lodCrossFades` counts them: two per fading entity), each one through a screen-space
+  dither (interleaved gradient noise on the pixel) that is the complement of the other's, so every pixel of the silhouette
+  shows exactly one of the two levels and the share of the new one grows from 0 to 1. There is no blending and no new shader
+  variant: the dither is a `discard` driven by one per-draw number, so it works with the depth prepass, the opaque pass and
+  every backend (`render.supports` `lodCrossFade` is true everywhere). The fade state is render-only: it advances with the frame
+  delta, is never saved, and a script cannot read it. Details:
+  - A new entity, or one that comes back into view, starts settled at its level: it does not fade in from nothing.
+  - If the level goes back while a fade runs, the fade turns round where it is (no restart); a third level cuts the fade and
+    fades from the level that was fading in.
+  - Shadows: a fading entity casts the shadow of the new level only, and the level that leaves casts nothing. The shadow shader never
+    dithers, so a shadow does not flicker.
+  - Instancing: draws are batched per level. An entity that is fading is drawn on its own (its two levels are two draws), so a
+    fade costs two draws and a lost batch for the entity, only while it runs.
+  - A mesh whose material is a full-shader material (docs/shaders/) switches at once: it has no dither, and only the new level
+    is drawn.
+  - A scene with no `lods` and no `LodGroup` pays nothing: the renderer checks one flag per scene.
+- `MeshRenderer.impostor` and `impostorDistance`, and `LodGroup.hlodProxy` and `hlodThreshold` (the HLOD proxy of a whole cell):
+  saved and checked, **no effect yet**.
 - `model.generate_lods {model, levels, ratios, maxError, apply}` simplifies a model into lower levels (deterministic) and writes
   them; `model.bake_impostor {model, views, resolution, apply}` bakes the impostor atlas. Both fail with `not_built` today.
-- `renderStats` gets `lodCrossFades` and `impostors` (this frame's counts).
+- `renderStats.lodCrossFades` is drawn; `impostors` stays 0.
 
 ## Occlusion (planned, M75.2)
 

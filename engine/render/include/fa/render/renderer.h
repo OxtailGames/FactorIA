@@ -163,7 +163,7 @@ struct RenderStats {
     int meshesOccluded =
         0;  // M75.2: of meshesCulled, the MeshRenderer entities hidden behind occluders or closed portals
     int lodCrossFades =
-        0;  // M75.1: meshes drawn in a dithered LOD cross-fade (MeshRenderer.lodCrossFade, LodGroup.crossFade)
+        0;  // M75.1: meshes drawn as one level of a dithered LOD cross-fade (an entity fading between two levels counts 2)
     int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
     int terrainTiles = 0;      // M75.5: Terrain tiles drawn in the main pass (after the LOD selection and the culling)
     int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`; the tiles are not in `meshes`)
