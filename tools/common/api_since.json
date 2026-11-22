@@ -1566,6 +1566,7 @@
     "render.inspect": "0.4.0",
     "render.light_probes": "0.33.0",
     "render.material_cost": "0.33.0",
+    "render.occlusion": "unreleased",
     "render.output": "0.31.0",
     "render.pick": "0.4.0",
     "render.probe_refresh": "0.33.0",

@@ -440,13 +440,14 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
-- [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, or the cascades of the sun's shadow, instead of the game picture, or report which view is on. _Since 0.31.0._
+- [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Since 0.34.0._
 - [`render.gi_grid`](commands/game.md#rendergi_grid): The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry. _Since 0.33.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Since 0.33.0._
 - [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Since 0.33.0._
+- [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and hidden; optionally the depth buffer as a PNG. _Not released yet._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Since 0.33.0._

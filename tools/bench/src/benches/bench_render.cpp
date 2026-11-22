@@ -12,6 +12,7 @@
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
+#include "fa/scene/components_world.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -136,6 +137,18 @@ void build_3d(World& w) {
     }
 }
 
+// build_3d with three wall Occluders across the field (24 m wide, 8 m tall, at z = 0): the cubes and spheres behind them are hidden from
+// the camera, so the frame draws fewer meshes (M75.2: the occlusion culling on the CPU).
+void build_3d_occluded(World& w) {
+    build_3d(w);
+    for (int i = 0; i < 3; ++i) {
+        Entity wall = make(w, {-25.0f + float(i) * 25.0f, 4, 0});
+        w.get<Transform>(wall)->scale = {24, 8, 1};
+        w.add<MeshRenderer>(wall).mesh = "cube";
+        w.add<Occluder>(wall);
+    }
+}
+
 Bench render_bench(const char* name, const char* summary, void (*build)(World&), std::int64_t items, const char* unit) {
     Bench b;
     b.name = name;
@@ -176,6 +189,11 @@ void add_render_benches(std::vector<Bench>& out) {
     out.push_back(render_bench(
         "render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
         build_3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.occlusion3d",
+                               "render.frame3d with three wall Occluders: 8 frames of 1600 meshes, most of those "
+                               "behind the walls hidden (the cost of the "
+                               "rasterizer and of 1600 tests, less the draws it saves)",
+                               build_3d_occluded, 8 * 1600, "meshes"));
 }
 
 }  // namespace fa::bench
