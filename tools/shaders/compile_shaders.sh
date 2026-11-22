@@ -6,6 +6,7 @@
 #   tools/shaders/compile_shaders.sh            # all shaders
 #   tools/shaders/compile_shaders.sh mesh quad  # only these
 #
+# A top file that needs defines names them in a `// shdc-defines: A:B` comment (sokol-shdc --defines).
 # Only top files (the ones declaring an @program) are compiled. The others are templates they @include, with paths
 # relative to the including file (mesh_common.glsl: the mesh template every mesh program, built-in or a material's,
 # is made from; docs/design/CUSTOM_SHADERS.md).
@@ -76,7 +77,12 @@ for input in "$SRC"/*.glsl; do
     grep -q '^@program' "$input" || continue  # a template, compiled through the files that include it
     output="$OUT/$name.glsl.h"
     echo "shdc: ${input#"$ROOT"/} -> ${output#"$ROOT"/}"
-    "$SHDC" --input "$input" --output "$output" --slang "$SLANG" --format sokol --ifdef --no-log-cmdline
+    # A file that needs preprocessor flags from the command line (terrain.glsl: FA_HAS_VERTEX, FA_INST_2, as a custom material's top
+    # file gets them) names them in a comment: `// shdc-defines: A:B`.
+    defines="$(sed -n 's|^// shdc-defines: *||p' "$input" | head -n 1 | tr -d '\r')"
+    extra=()
+    [ -z "$defines" ] || extra=(--defines "$defines")
+    "$SHDC" --input "$input" --output "$output" --slang "$SLANG" --format sokol --ifdef --no-log-cmdline ${extra[@]+"${extra[@]}"}
     compiled=$((compiled + 1))
 done
 [ "$compiled" -gt 0 ] || { echo "no shader matches: $*" >&2; exit 1; }
