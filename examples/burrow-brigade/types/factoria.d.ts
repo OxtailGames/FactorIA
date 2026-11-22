@@ -12226,29 +12226,29 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS_TERRAIN.md, "Foliage"); the fields are saved and checked today.
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"); `foliage.paint`, `foliage.scatter` and `foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).
    * 
    * Category: 3D
    * @since unreleased
    */
   export interface FoliageComponent {
     /**
-     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows. The binary format of the file is defined by the foliage package (M75.6, P6a). `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
+     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     meshes: any;
     /**
-     * Project-relative data file with the instances (position, rotation, scale and mesh index of each); `foliage.paint` and `foliage.scatter` create and write it. "" (default) = no instances, nothing drawn. (asset path: any)
+     * Project-relative data file with the instances (position, yaw, scale, mesh index and up direction of each; little-endian, versioned, up to 2000000 instances, docs/BIG_WORLDS_TERRAIN.md). Loaded in the background and again when the file changes on disk; a missing or invalid file draws nothing and is reported once. "" (default) = no instances, nothing drawn. (asset path: any)
      * @since unreleased
      */
     instances: string;
     /**
-     * 0..1: the share of the instances that are drawn, thinned out evenly (a quality setting: 0.5 draws every second instance). Default 1.
+     * 0..1: the share of the instances that are drawn, thinned out in a fixed pseudo-random order by instance index (a quality setting: lowering it only removes instances and raising it brings the same ones back, so nothing flickers). Default 1.
      * @since unreleased
      */
     density: number;
     /**
-     * Metres the top of an instance sways in the wind, 0..10; the base stays put. 0 (default) = no wind.
+     * Metres the top of an instance sways in the wind, 0..10; the base stays put (the mesh is sheared in its height, so a flat mesh sways its top edge). The phase depends on the instance position. 0 (default) = no wind.
      * @since unreleased
      */
     windStrength: number;
@@ -12258,12 +12258,12 @@ declare module "factoria" {
      */
     windFrequency: number;
     /**
-     * Metres from the camera beyond which an instance uses the next LOD of its mesh (a model with LODs). 0.1..100000. Default 40.
+     * Metres from the camera beyond which an instance uses the next LOD of its mesh: for `meshes[i]` = "assets/models/grass.glb" the file `assets/models/grass.lod1.glb` (the name the model LOD chain bake gives its first level); without that file the instance keeps its mesh. 0.1..100000. Default 40.
      * @since unreleased
      */
     lodDistance: number;
     /**
-     * Metres from the camera where instances start to fade out (a dithered fade), 0..100000. Default 80.
+     * Metres from the camera where instances start to fade out (a dithered fade in 8 steps), 0..100000. Default 80.
      * @since unreleased
      */
     fadeStart: number;
@@ -12561,6 +12561,11 @@ declare module "factoria" {
      */
     volumetricQuality: "low" | "medium" | "high";
     /**
+     * Which occlusion culling the 3D cameras use (docs/BIG_WORLDS_LOD.md, "Occlusion"): cpu (default) = the Occluder entities are rasterised on the CPU into a small depth buffer and the meshes behind them are left out of the picture; gpu = the opaque meshes of the last frame (their depth and normal prepass) are reduced to a hierarchical depth image by a compute shader, read back without waiting, and every mesh is tested against it, so the Occluders are not needed and a mesh hides what is behind it. The depth is one frame old (a mesh that comes out from behind another can show one frame late, a camera cut draws everything for a frame) and the camera draws the prepass every frame: it costs one more pass over the opaque meshes, so use it for scenes with thousands of meshes behind buildings and hills. A camera culled this way does not use the Occluders. Where the backend has no compute shaders (GLES3, WebGL2, macOS OpenGL; render.supports occlusionGpu says no) gpu falls back to cpu with one warning and auto to cpu silently. Perspective cameras only (an orthographic one keeps the cpu culling); a camera that draws into a CameraView is not culled by the pyramid unless it has its own post-processing, and a reflection probe's or realtime GI capture never is. Shadows are never culled by it.
+     * @since unreleased
+     */
+    occlusionMode: "cpu" | "gpu" | "auto";
+    /**
      * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (asset path: any)
      * @since 0.33.0
      */
@@ -12706,7 +12711,7 @@ declare module "factoria" {
     Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
     Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
     ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; occlusionMode?: "cpu" | "gpu" | "auto"; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).

@@ -677,19 +677,27 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-TEST_CASE(
-    "features: the big-world rows of M75 are false and say planned (M75) until the package that draws them lands") {
-    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
-    for (const char* name : {"occlusionGpu", "foliage"}) {
-        CAPTURE(name);
-        REQUIRE(find_feature(name) >= 0);
-        CHECK(feature_table()[std::size_t(find_feature(name))].kind == FeatureKind::Engine);
-        CHECK(std::string(feature_table()[std::size_t(find_feature(name))].doc).find("M75") != std::string::npos);
+// (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)
+TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they exist (M75.2b)") {
+    REQUIRE(find_feature("occlusionGpu") >= 0);
+    const auto& row = feature_table()[std::size_t(find_feature("occlusionGpu"))];
+    CHECK(row.planned == nullptr);
+    std::string why;
+    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "occlusionGpu"));
+    CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu(FeatureBackend::D3d11, true, true, true, false), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "occlusionGpu", &why));
+    CHECK_FALSE(why.empty());
+    CHECK_FALSE(supported(gpu(FeatureBackend::WebGl2, true, true, false), "occlusionGpu", &why));
+}
+
+TEST_CASE("features: foliage is drawn on every backend, without compute (M75-P6a)") {
+    REQUIRE(find_feature("foliage") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("foliage"))].kind == FeatureKind::Engine);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
         std::string why;
-        CHECK_FALSE(supported(full, name, &why));
-        CHECK(why.find("planned (M75)") != std::string::npos);
-        CHECK_FALSE(
-            supported(gpu(FeatureBackend::Gles3, false, false, false), name, &why));  // false whatever the reason
+        CHECK_MESSAGE(supported(gpu(b, false, false, false), "foliage", &why), why);
     }
 }
 

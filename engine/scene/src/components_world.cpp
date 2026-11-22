@@ -560,7 +560,8 @@ void register_world_components(TypeRegistry& r) {
          "Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the "
          "`world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, "
          "those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A "
-         "scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "
+         "scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming "
+         "(docs/BIG_WORLDS_STREAMING.md, "
          "\"Streaming\").",
          "World")
         .field("loadRadius", &StreamingAnchor::loadRadius,
@@ -701,34 +702,47 @@ void register_world_components(TypeRegistry& r) {
          "Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of "
          "positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and "
          "`foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every "
-         "instance picks one by index): use several entities for kinds that need different settings (wind, fade). No "
-         "effect yet: M75.6 draws it (docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"); the fields are saved and checked today.",
+         "instance picks one by index): use several entities for kinds that need different settings (wind, fade). The "
+         "renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the "
+         "format, the "
+         "culling and the limits: docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"); `foliage.paint`, `foliage.scatter` and "
+         "`foliage.clear` are not built yet, so the file is written by `write_foliage` (fa/scene/foliage.h).",
          "3D")
         .field("meshes", &Foliage::meshes,
                "Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): "
                "[\"assets/models/grass.glb\", \"assets/models/flower.glb\"]. The instances file stores, for every "
                "instance, the index of its mesh in this array, so reordering the array changes which mesh each "
-               "instance shows. The binary format of the file is defined by the foliage package (M75.6, P6a). "
-               "`foliage.scatter` writes all the meshes of its rule here. Default [\"cube\"].")
+               "instance shows; an index past the end makes the file invalid. `foliage.scatter` (not built yet) writes "
+               "all "
+               "the meshes of its rule here. Default [\"cube\"].")
         .asset_field(
             "instances", &Foliage::instances, "any",
-            "Project-relative data file with the instances (position, rotation, scale and mesh index of each); "
-            "`foliage.paint` and `foliage.scatter` create and write it. \"\" (default) = no instances, nothing drawn.")
-        .field("density", &Foliage::density,
-               "0..1: the share of the instances that are drawn, thinned out evenly (a quality setting: 0.5 draws "
-               "every second instance). Default 1.")
+            "Project-relative data file with the instances (position, yaw, scale, mesh index and up direction of each; "
+            "little-endian, versioned, up to 2000000 instances, docs/BIG_WORLDS_TERRAIN.md). Loaded in the background "
+            "and again when the file changes on disk; a missing or invalid file draws nothing and is reported once. "
+            "\"\" (default) = no instances, nothing drawn.")
+        .field(
+            "density", &Foliage::density,
+            "0..1: the share of the instances that are drawn, thinned out in a fixed pseudo-random order by instance "
+            "index (a quality setting: lowering it only removes instances and raising it brings the same ones "
+            "back, so nothing flickers). Default 1.")
         .range(0, 1)
         .field("windStrength", &Foliage::windStrength,
-               "Metres the top of an instance sways in the wind, 0..10; the base stays put. 0 (default) = no wind.")
+               "Metres the top of an instance sways in the wind, 0..10; the base stays put (the mesh is sheared in its "
+               "height, so a flat mesh sways its top edge). The phase depends on the instance position. 0 (default) = "
+               "no wind.")
         .range(0, 10)
         .field("windFrequency", &Foliage::windFrequency, "Swings per second of the wind sway, 0..20. Default 0.5.")
         .range(0, 20)
         .field("lodDistance", &Foliage::lodDistance,
-               "Metres from the camera beyond which an instance uses the next LOD of its mesh (a model with LODs). "
-               "0.1..100000. Default 40.")
+               "Metres from the camera beyond which an instance uses the next LOD of its mesh: for `meshes[i]` = "
+               "\"assets/models/grass.glb\" the file `assets/models/grass.lod1.glb` (the name the model LOD chain bake "
+               "gives its first level); "
+               "without that file the instance keeps its mesh. 0.1..100000. Default 40.")
         .range(0.1f, 100000)
         .field("fadeStart", &Foliage::fadeStart,
-               "Metres from the camera where instances start to fade out (a dithered fade), 0..100000. Default 80.")
+               "Metres from the camera where instances start to fade out (a dithered fade in 8 steps), 0..100000. "
+               "Default 80.")
         .range(0, 100000)
         .field("fadeEnd", &Foliage::fadeEnd,
                "Metres from the camera beyond which instances are not drawn at all; above fadeStart. 0..100000. "
@@ -742,7 +756,8 @@ void register_world_components(TypeRegistry& r) {
          "The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by "
          "`terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The "
          "result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. "
-         "The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "
+         "The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it "
+         "(docs/BIG_WORLDS_TERRAIN.md, "
          "\"Foliage\").",
          "3D")
         .field("meshes", &ScatterRule::meshes,
