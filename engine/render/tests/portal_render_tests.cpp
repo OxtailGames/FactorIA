@@ -245,3 +245,28 @@ TEST_CASE(
     CHECK(g.renderer.stats().meshesCulledByArea == 1);
     CHECK(g.renderer.stats().meshes == 1);
 }
+
+TEST_CASE("portals on a GPU: a camera with areaCulling off draws every room, whatever the portals say") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World none, shut;
+    make_rooms(none, false, true);
+    make_rooms(shut, true, false);
+    const Image everything = g.render(none);
+    const RenderStats base = g.renderer.stats();
+    g.render(shut);
+    CHECK(g.renderer.stats().meshesCulledByArea == 3);  // the default: the closed door hides room B and the outside
+    auto* cam = shut.get<Camera>(shut.find("cam"));
+    REQUIRE(cam);
+    CHECK(cam->areaCulling);  // on by default
+    cam->areaCulling = false;
+    const Image all = g.render(shut);
+    const RenderStats st = g.renderer.stats();
+    CHECK(st.meshesCulledByArea == 0);
+    CHECK(st.portalsVisited == 0);
+    CHECK(st.meshes == base.meshes);
+    CHECK(differing(all, everything) == 0);
+    cam->areaCulling = true;  // and back on: culled again
+    g.render(shut);
+    CHECK(g.renderer.stats().meshesCulledByArea == 3);
+}

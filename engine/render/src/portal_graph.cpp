@@ -124,7 +124,18 @@ PortalAreaBox make_portal_area(std::int32_t id, const Mat4& model, Vec3 size, st
     b.entity = entity;
     b.valid = axis_len(model, 0) > 1e-6f && axis_len(model, 1) > 1e-6f && axis_len(model, 2) > 1e-6f &&
               std::isfinite(size.x + size.y + size.z);
-    if (b.valid) b.inv = model.inverse();
+    if (b.valid) {
+        b.inv = model.inverse();
+        constexpr float inf = std::numeric_limits<float>::infinity();
+        b.wmin = {inf, inf, inf};
+        b.wmax = {-inf, -inf, -inf};
+        const Vec3 h = size * 0.5f;
+        for (int k = 0; k < 8; ++k) {
+            const Vec3 c = model.transform_point({(k & 1) ? h.x : -h.x, (k & 2) ? h.y : -h.y, (k & 4) ? h.z : -h.z});
+            b.wmin = {std::min(b.wmin.x, c.x), std::min(b.wmin.y, c.y), std::min(b.wmin.z, c.z)};
+            b.wmax = {std::max(b.wmax.x, c.x), std::max(b.wmax.y, c.y), std::max(b.wmax.z, c.z)};
+        }
+    }
     return b;
 }
 
@@ -162,15 +173,28 @@ std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& a
 bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached,
                       const Mat4& model, Vec3 bmin, Vec3 bmax) {
     auto reachedId = [&](std::int32_t id) { return std::binary_search(reached.begin(), reached.end(), id); };
+    constexpr float inf = std::numeric_limits<float>::infinity();
+    // The mesh's eight corners in world space and their bounds, once for every area (the old loop multiplied two matrices and moved
+    // the corners again for each one).
+    Vec3 corners[8];
+    Vec3 wlo{inf, inf, inf}, whi{-inf, -inf, -inf};
+    for (int k = 0; k < 8; ++k) {
+        corners[k] =
+            model.transform_point({(k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z});
+        wlo = {std::min(wlo.x, corners[k].x), std::min(wlo.y, corners[k].y), std::min(wlo.z, corners[k].z)};
+        whi = {std::max(whi.x, corners[k].x), std::max(whi.y, corners[k].y), std::max(whi.z, corners[k].z)};
+    }
+    // A margin (a thousandth of the box plus a millimetre) so the reject never differs from the exact test on a touching face.
+    const Vec3 pad = (whi - wlo) * 1.0e-3f + Vec3{1.0e-3f, 1.0e-3f, 1.0e-3f};
     bool whollyInside = false;
     for (const PortalAreaBox& a : areas) {
         if (!a.valid) continue;
-        const Mat4 m = a.inv * model;  // model space of the mesh -> local space of the area
-        constexpr float inf = std::numeric_limits<float>::infinity();
-        Vec3 lo{inf, inf, inf}, hi{-inf, -inf, -inf};
+        if (a.wmin.x > whi.x + pad.x || a.wmax.x < wlo.x - pad.x || a.wmin.y > whi.y + pad.y ||
+            a.wmax.y < wlo.y - pad.y || a.wmin.z > whi.z + pad.z || a.wmax.z < wlo.z - pad.z)
+            continue;                                  // the world bounds do not touch: neither do the boxes
+        Vec3 lo{inf, inf, inf}, hi{-inf, -inf, -inf};  // the mesh's corners in the local space of the area
         for (int k = 0; k < 8; ++k) {
-            const Vec3 c =
-                m.transform_point({(k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z});
+            const Vec3 c = a.inv.transform_point(corners[k]);
             lo = {std::min(lo.x, c.x), std::min(lo.y, c.y), std::min(lo.z, c.z)};
             hi = {std::max(hi.x, c.x), std::max(hi.y, c.y), std::max(hi.z, c.z)};
         }

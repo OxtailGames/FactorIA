@@ -817,8 +817,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         PostPlan& pp = ctx.postPlan;
         pp.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
-        // fogHeightBase is an absolute height: in local coordinates it moves down as the floating origin moves up (M75.4b).
-        pp.fogFx.heightBase -= float(world.origin().y);
+        // fogHeightBase is an absolute height (the +-1e6 cap of make_fog_plan is on that authored value, before this): in local
+        // coordinates it moves down as the floating origin moves up (M75.4b). Subtracted in double, rounded to a float once.
+        pp.fogFx.heightBase = float(double(pp.fogFx.heightBase) - world.origin().y);
         const std::uint32_t shaftsBit = 1u << int(PostEffect::SunShafts);
         if ((pp.readMask & shaftsBit) != 0 && !pp.fogFx.shafts && debugView != DebugView::Ao) {
             pp.readMask &= ~shaftsBit;  // no sun in view: the shafts draw nothing, so they need no depth
@@ -836,7 +837,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         const SceneSettings& vss = world.settings();
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
-        ctx.postPlan.vol.heightBase -= float(world.origin().y);  // an absolute height, like the fog's (M75.4b)
+        // An absolute height like the fog's (its +-10000 range is on the authored value); subtracted in double (M75.4b).
+        ctx.postPlan.vol.heightBase = float(double(ctx.postPlan.vol.heightBase) - world.origin().y);
         // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
         if (ctx.postPlan.vol.on) {
             if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
@@ -1194,11 +1196,12 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
     // are not culled (they show the scene from a point the Occluders were not placed for).
     // Areas and portals (M75.2) come first (a mesh in a room the portals do not show needs no depth test); the same single branch.
-    if (!fr.noProbes && !fr.giCapture && world.any<OcclusionArea>()) portal_cull_meshes(world, fr, meshes);
+    if (!fr.noProbes && !fr.giCapture && fr.cam.areaCulling && world.any<OcclusionArea>())
+        portal_cull_meshes(world, fr, meshes);
     // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
     const bool cullable = !fr.noProbes && !fr.giCapture;
     if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))
-        ctx.hiz = hiz_cull(world, fr, meshes);
+        ctx.hiz = hiz_cull(world, fr, meshes, ctx.plan.view);
     const bool occluded = cullable && !ctx.hiz && world.any<Occluder>() && occlude_meshes(world, fr, z01, meshes);
     // The Foliage instances (renderer_foliage.h): after the culling, because the foliage culls its own chunks (with the buffer the
     // Occluders just filled) and its items are made visible or not by it.
@@ -1217,7 +1220,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
         stats.foliageInstancesCulled += fc.culled;
     }
-    for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
+    for (std::size_t i = 0; i < meshes.size(); ++i)
+        (meshBlended[i] ? blended : opaque).push_back(std::move(meshes[i]));  // the last use
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
         return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
@@ -1753,7 +1757,8 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                            }
                        });
         for (auto& mi : *list) {
-            if (!mi.visible) ++stats.meshesCulled;
+            if (!mi.visible && !mi.foliage)
+                ++stats.meshesCulled;  // a foliage instance kept for the shadows counts in foliageInstancesCulled
             if (mi.visible && mi.lodFade != 0.0f && !mi.foliage && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
             if (mi.visible && mi.hlod && !ctx.fr.lodFollowMain) ++stats.hlodProxies;
             if (!doShadows) mi.casts = false;

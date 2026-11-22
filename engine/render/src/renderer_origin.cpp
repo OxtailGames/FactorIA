@@ -24,9 +24,17 @@ void Renderer::Impl::watch_world(World& world) {
     originObserver = world.on_origin_shifted([this, w = &world](const DVec3& offset) { origin_shifted(*w, offset); });
 }
 
+void Renderer::Impl::watch_world_if_free(World& world) {
+    // A capture of another world (a preview, a graph's) must not take the observer from the world the game draws: that world could
+    // rebase before the next update() found it again. A renderer that watches nothing (only captures so far), or a world that died,
+    // takes this one.
+    if (originWorld && originWorld != &world && !originWorldAlive.expired()) return;
+    watch_world(world);
+}
+
 void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
+    if (!initialized) return;  // nothing is kept yet, and the counter is of the rebases the renderer followed
     ++originShifts;
-    if (!initialized) return;
     const Vec3 off{float(offset.x), float(offset.y), float(offset.z)};  // a whole multiple of the step: exact in float
     // The cameras the effects reproject from: the previous camera is where the current one would have been, `offset` farther away. A
     // point that did not move now has the coordinates q' = q - offset, and the matrix of the frame before knew it as q' + offset.
