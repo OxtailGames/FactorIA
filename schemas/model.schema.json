@@ -145,7 +145,7 @@
             "lockBorder": {
               "type": "boolean",
               "default": true,
-              "description": "Open edges and borders between parts do not move (so parts and UV islands stay apart)."
+              "description": "Open edges (borders of the surface) do not move. The seams between parts are kept either way."
             },
             "normalWeight": {
               "type": "number",
