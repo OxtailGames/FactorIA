@@ -261,8 +261,8 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
     return {};
 }
 
-std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t, const TerrainHeights& th,
-                               HeightfieldEdit& edit) {
+std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t,
+                               const TerrainHeights& th, HeightfieldEdit& edit) {
     edit = HeightfieldEdit{};
     const int n = th.samples;
     const float cells = float(std::max(n - 1, 1));
@@ -271,22 +271,23 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, cons
     if (f.attempted && now == f.tried) return f.problem;
     f.attempted = true;
     f.tried = now;
-    if (!th.valid() || !(t.size.x > 0.0f) || !(t.size.y > 0.0f) || !std::isfinite(t.size.x) || !std::isfinite(t.size.y) ||
-        !std::isfinite(t.heightScale) || !std::isfinite(t.heightOffset)) {
+    if (!th.valid() || !(t.size.x > 0.0f) || !(t.size.y > 0.0f) || !std::isfinite(t.size.x) ||
+        !std::isfinite(t.size.y) || !std::isfinite(t.heightScale) || !std::isfinite(t.heightOffset)) {
         f.valid = false;
-        f.problem = std::format(
-            "entity '{}': Terrain.size = [{}, {}], heightScale = {} and heightOffset = {} must be finite numbers, size above 0, so "
-            "the terrain has no collider. Set e.g. size [512, 512], heightScale 100, heightOffset 0.",
-            who, t.size.x, t.size.y, t.heightScale, t.heightOffset);
+        f.problem =
+            std::format("entity '{}': Terrain.size = [{}, {}], heightScale = {} and heightOffset = {} must be finite "
+                        "numbers, size above 0, so "
+                        "the terrain has no collider. Set e.g. size [512, 512], heightScale 100, heightOffset 0.",
+                        who, t.size.x, t.size.y, t.heightScale, t.heightOffset);
         return f.problem;
     }
     // The same expression as the vertex shader and TerrainGrid::y_of: the collider is the surface that is drawn.
     const float scale = t.heightScale * (1.0f / float(fa::kTerrainRawMax)), offset = t.heightOffset;
     auto height_of = [&](std::uint16_t raw) { return offset + scale * float(raw); };
     const std::size_t cols = std::size_t(n), samples = cols * cols;
-    const bool sameShape = !f.h.empty() && f.built.rows == now.rows && f.built.cols == now.cols && f.built.dx == now.dx &&
-                           f.built.dz == now.dz && f.built.scale == now.scale && f.built.offset == now.offset &&
-                           f.built.hId == now.hId;
+    const bool sameShape = !f.h.empty() && f.built.rows == now.rows && f.built.cols == now.cols &&
+                           f.built.dx == now.dx && f.built.dz == now.dz && f.built.scale == now.scale &&
+                           f.built.offset == now.offset && f.built.hId == now.hId;
     if (!sameShape) {
         f.rows = f.cols = n;
         f.dx = dx;
@@ -331,7 +332,8 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, cons
         };
         each_changed([&](int r, int c, std::size_t) {
             ++changedSamples;
-            const int ra = std::max(r - 1, 0), rb = std::min(r, n - 2), ca = std::max(c - 1, 0), cb = std::min(c, n - 2);
+            const int ra = std::max(r - 1, 0), rb = std::min(r, n - 2), ca = std::max(c - 1, 0),
+                      cb = std::min(c, n - 2);
             for (int rr = ra; rr <= rb; ++rr)
                 for (int cc = ca; cc <= cb; ++cc) {
                     float lo, hi;

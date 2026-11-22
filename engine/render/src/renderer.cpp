@@ -570,7 +570,9 @@ void Renderer::clear_asset_cache() {
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {
-    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() + impl_->decalAtlas.bytes : 0;
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() +
+                                        impl_->decalAtlas.bytes
+                                  : 0;
 }
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {

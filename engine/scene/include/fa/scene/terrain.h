@@ -31,9 +31,10 @@ namespace fa {
 
 class World;
 
-inline constexpr int kTerrainMinSamples = 33;     // samples per side: one tile (32 cells) of the drawn grid
-inline constexpr int kTerrainMaxSamples = 4097;   // 16.8 million samples: 33.6 MB of heights on the CPU, 33.6 MB on the GPU
-inline constexpr int kTerrainTileCells = 32;      // cells along one side of a drawn tile (one shared 33 x 33 grid patch)
+inline constexpr int kTerrainMinSamples = 33;  // samples per side: one tile (32 cells) of the drawn grid
+inline constexpr int kTerrainMaxSamples =
+    4097;                                     // 16.8 million samples: 33.6 MB of heights on the CPU, 33.6 MB on the GPU
+inline constexpr int kTerrainTileCells = 32;  // cells along one side of a drawn tile (one shared 33 x 33 grid patch)
 inline constexpr float kTerrainRawMax = 65535.0f;  // a white sample
 
 // A rectangle of samples (inclusive). c = column (x), r = row (z).
@@ -71,7 +72,7 @@ private:
         std::uint64_t version = 0;
         TerrainRect rect;
     };
-    std::vector<Edit> edits_;      // the last kEditHistory edits, oldest first
+    std::vector<Edit> edits_;       // the last kEditHistory edits, oldest first
     std::uint64_t oldestKept_ = 0;  // the version before the oldest edit kept: readers at or after it can be answered
     static constexpr std::size_t kEditHistory = 64;
 };
@@ -98,7 +99,7 @@ Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size
 
 // What terrain_sample() answers at one world (x, z).
 struct TerrainSample {
-    float height = 0.0f;  // world y of the surface
+    float height = 0.0f;   // world y of the surface
     Vec3 normal{0, 1, 0};  // unit, world space (the normal of the triangle under the point)
 };
 

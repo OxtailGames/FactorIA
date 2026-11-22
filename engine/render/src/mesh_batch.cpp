@@ -237,7 +237,8 @@ void pack_instance_extras(const std::vector<MeshItem>& items, std::vector<MeshBa
             if (mi.terrain) {  // a node of a terrain: its own two vec4
                 const std::size_t at = data.size();
                 data.resize(at + floats);
-                std::memcpy(data.data() + at, mi.terrainNode.data(), std::min(floats, mi.terrainNode.size()) * sizeof(float));
+                std::memcpy(data.data() + at, mi.terrainNode.data(),
+                            std::min(floats, mi.terrainNode.size()) * sizeof(float));
                 return;
             }
             const float* packed = cache ? cache->get(mi.entity, *mi.mr, *mat) : nullptr;

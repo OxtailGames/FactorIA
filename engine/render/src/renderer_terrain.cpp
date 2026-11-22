@@ -159,9 +159,9 @@ MaterialAsset* TerrainRenderer::material() {
             s = {};
         }
         matState_ = -1;
-        FA_ERROR("render",
-                 "The Terrain program could not be built for this graphics backend (see the sokol log lines above), so terrains are "
-                 "not drawn. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR("render", "The Terrain program could not be built for this graphics backend (see the sokol log lines "
+                           "above), so terrains are "
+                           "not drawn. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return nullptr;
     }
     auto m = std::make_unique<MaterialAsset>();
@@ -197,7 +197,8 @@ bool TerrainRenderer::upload(Entry& en, Entity e) {
     if (h.samples > limit) {
         en.failed = true;
         FA_ERROR("render",
-                 "A Terrain heightmap has {0} x {0} samples, but this GPU's largest texture is {1} x {1}, so the terrain is not drawn. "
+                 "A Terrain heightmap has {0} x {0} samples, but this GPU's largest texture is {1} x {1}, so the "
+                 "terrain is not drawn. "
                  "Hint: resample the heightmap to {2} samples a side or fewer (2^n + 1).",
                  h.samples, limit, std::max(33, limit - (limit % 32 == 0 ? 0 : 0)));
         return false;
@@ -219,7 +220,9 @@ bool TerrainRenderer::upload(Entry& en, Entity e) {
         if (en.tex.image.id) sg_destroy_image(en.tex.image);
         en.tex.image = {};
         en.failed = true;
-        FA_ERROR("render", "The height texture of a Terrain ({0} x {0}) could not be created (out of GPU memory?), so the terrain is not drawn.",
+        FA_ERROR("render",
+                 "The height texture of a Terrain ({0} x {0}) could not be created (out of GPU memory?), so the "
+                 "terrain is not drawn.",
                  h.samples);
         return false;
     }
@@ -327,7 +330,8 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
         std::memcpy(d.params, model.m, sizeof(model.m));
         const float cells = float(j.grid.cells());
         const float p4[4] = {j.camLocal.x, j.camLocal.y, j.camLocal.z, cells};
-        const float p5[4] = {j.grid.cellX, j.grid.cellZ, j.grid.heightScale * (1.0f / kTerrainRawMax), j.grid.heightOffset};
+        const float p5[4] = {j.grid.cellX, j.grid.cellZ, j.grid.heightScale * (1.0f / kTerrainRawMax),
+                             j.grid.heightOffset};
         const float p6[4] = {1.0f / l0.tileSize, 1.0f / l0.tileSize,
                              albedo ? 1.0f + float(albedo->tex_fix(v.linear, true)) : 0.0f,
                              normal ? 1.0f + float(normal->tex_fix(v.linear, false)) : 0.0f};
@@ -376,8 +380,14 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
             mi.paramsHash = j.draw->hash;
             mi.terrain = j.draw;
             terrain_node_box(j.grid, n, mi.bmin, mi.bmax);
-            mi.terrainNode = {float(n.first_column()), float(n.first_row()), float(n.step()), float(n.level),
-                              j.ranges.morph_start(int(n.level)), j.ranges.morph_end(int(n.level)), 0.0f, 0.0f};
+            mi.terrainNode = {float(n.first_column()),
+                              float(n.first_row()),
+                              float(n.step()),
+                              float(n.level),
+                              j.ranges.morph_start(int(n.level)),
+                              j.ranges.morph_end(int(n.level)),
+                              0.0f,
+                              0.0f};
             mi.dist = length(j.model.transform_point((mi.bmin + mi.bmax) * 0.5f) - v.camera);
             out.push_back(std::move(mi));
         }

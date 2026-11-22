@@ -212,7 +212,8 @@ struct World::Impl {
 };
 
 World::World()
-    : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()), terrain_(std::make_unique<TerrainStore>()) {
+    : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()),
+      terrain_(std::make_unique<TerrainStore>()) {
     ensure_builtin_components();
     impl_->infoPool = &impl_->pool(type_of<EntityInfo>());
     impl_->transformPool = &impl_->pool(type_of<Transform>());

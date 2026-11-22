@@ -14,11 +14,11 @@ is "off" or "as before".
 | [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
 | [Streaming](#streaming-planned-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](#floating-origin-planned-m754) | M75.4 | positions stay exact far from the origin |
-| [Terrain](#terrain-planned-m755) | M75.5 | heightmap terrain with splat layers, holes, collision |
+| [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision (layers 1+, splat layers and holes: planned) |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, all `false` with the status
-"planned (M75)" until its package lands: `lodCrossFade`, `impostors`, `occlusionCpu`, `occlusionGpu`, `terrain`, `foliage`. Ask
+"planned (M75)" until its package lands: `lodCrossFade`, `impostors`, `occlusionCpu`, `occlusionGpu`, `foliage` (`terrain` is true on every backend since P5a). Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Levels of detail (planned, M75.1)
@@ -107,25 +107,64 @@ floating origin off: `enabled` false, `origin` `[0, 0, 0]`, `rebases` 0). `world
 (tests, cutscenes). `world.absolute_position {entity}` returns `{entity, position, origin, local}`: `position` is the origin plus the
 entity's world position, in doubles. All three fail with `not_built` today.
 
-## Terrain (planned, M75.5)
+## Terrain (M75.5, in parts)
 
-The `Terrain` component draws a heightmap with a GPU level of detail (a quadtree of one grid mesh, read by vertex texture fetch, so
-it also works on GLES3 and WebGL2) and splat-mapped material layers, with an automatic collider. In a scene and in scripts it is
-called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type).
+The `Terrain` component draws a heightmap with a GPU level of detail and gives it a collider. In a scene and in scripts it is
+called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What works today (P5a):** the
+heightmap drawn as tiles that coarsen with distance, the material of the first layer, the shadows, `collision`, and the counters.
+**Planned (P5d):** the blend of up to 8 layers by the splat maps, and holes. The fields for them are saved and checked today and
+do nothing yet. The terrain sculpting and painting commands are P5b/P5c.
 
 | Field | Meaning |
 |---|---|
-| `heightmap` | 16-bit greyscale PNG or `.r16` file (raw little-endian 16-bit, square: its side is `sqrt(bytes / 2)` samples, so 1025 x 1025 is 2 101 250 bytes); empty = flat at `heightOffset` |
+| `heightmap` | 16-bit greyscale PNG or `.r16` file (raw little-endian 16-bit, square: its side is `sqrt(bytes / 2)` samples, so 1025 x 1025 is 2 101 250 bytes); empty = flat at `heightOffset`. The side must be 2^n + 1 (33 to 4097); a side of 2^n is padded by one sample. An 8-bit PNG is accepted with a warning (256 heights: terraces) |
 | `size` | metres `[x, z]` the terrain covers, centred on the entity, each above 0 and at most 100 000. The heightmap is stretched over it: a 1025-sample map over 2048 m has a sample every 2 m, and resolution and `size` are independent |
 | `heightScale`, `heightOffset` | metres of height of a white sample, and metres added after it |
-| `splatMaps` | up to 2 RGBA PNG paths; channel c of map m weights `layers[4 * m + c]` |
-| `layers` | up to 8 of `{albedo, normal, tileSize, roughness, metallic, normalScale}`. All the albedo textures share one size and format, and so do all the normal textures: the layers become texture arrays, because 8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read |
-| `holes` | greyscale PNG; a pixel of 128 or more cuts a hole (caves, wells) |
-| `lodQuality`, `castShadows`, `collision` | mesh density multiplier, shadows, and the automatic `Heightfield3D` collider |
+| `splatMaps` | up to 2 RGBA PNG paths; channel c of map m weights `layers[4 * m + c]` (planned: not drawn yet) |
+| `layers` | up to 8 of `{albedo, normal, tileSize, roughness, metallic, normalScale}`. All the albedo textures share one size and format, and so do all the normal textures: the layers become texture arrays, because 8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read. Only `layers[0]` is drawn today; without it, or without its `albedo`, the terrain is a neutral lit grey |
+| `holes` | greyscale PNG; a pixel of 128 or more cuts a hole (caves, wells) (planned: no hole is cut yet, in the picture or in the collider) |
+| `lodQuality` | multiplier of the distances where the terrain coarsens (see below) |
+| `castShadows` | the terrain casts shadows (the tiles outside the camera still cast, at the levels the camera chose) |
+| `collision` | the automatic static collider (see below) |
+
+**How it is drawn.** The terrain is a quadtree over its heightmap. A node of level `l` covers `32 * 2^l` cells and is drawn as one
+shared 33 x 33 patch (2048 triangles), instanced, so the finest tiles are 32 cells wide whatever the map's size. The vertex shader
+reads the height of each vertex from an RG8 texture of the heights (vertex texture fetch: GLES3 and WebGL2 need no more), and the
+vertices of odd row and column morph toward the next coarser level as the camera leaves the level's range, so a tile never shows a
+crack or a pop against its neighbour. The normals come from the height texture in the fragment shader (shading does not change when
+a tile changes level), and the material is the mesh pipeline's: shadow maps, the depth prepass, SSAO, fog, clustered lights and the
+post stack treat it as a MeshRenderer. The tiles are chosen on the CPU for each camera by the jobs system, culling every node's box
+against the frustum (against nothing when `castShadows`, so the shadow cascades see the terrain around the camera).
+
+`lodQuality` (clamped to 0.1 to 4) scales the distances: the range of level `l` is `3 * 32 * 2^l * cell * lodQuality` metres (never less than three node
+sizes beyond the level below), measured on the ground plane and in the terrain's own space, before `Transform.scale`. Above 1 the finer levels reach
+further, below 1 the finest levels are dropped (0.5 drops the finest, 0.25 the two finest). The default 1 draws about a tile
+per 32 cells near the camera. `renderStats.terrainTiles` and `terrainTriangles` count the tiles of the main pass and their
+triangles (2048 each, also in `triangles`; tiles are not in `meshes`). `render.supports {"feature": "terrain"}` is true on every
+backend; the limit is the GPU's largest texture: a map of 4097 samples a side needs 4097, and a GPU that offers 4096 does not
+draw it (an error says so once, and the terrain is skipped).
+
+**Cost.** Per terrain: 2 bytes per sample on the GPU (33.5 MB for 4097 x 4097) and on the CPU (the same, plus the tile bounds), and
+with `collision` 4 bytes per sample more for the collider (67 MB). A sculpt (`TerrainHeights::mark_dirty`) updates the collider and the
+tile bounds only where the rectangle says, but **re-sends the whole height texture** (the renderer has no sub-rectangle upload
+path): a brush stroke on a 4097 x 4097 map costs about 33.5 MB of upload per frame it is drawn in, so sculpting tools should
+batch edits to one `mark_dirty` per frame. Selecting the tiles for one camera is a quadtree walk that visits a few hundred nodes, also for 4097 x 4097 (the timing is printed
+by the `terrain_lod_tests.cpp` bench). A scene with no `Terrain` pays nothing: no texture, no program and no job.
+
+**Collision.** `collision` (default true) makes the entity a static heightfield collider built from the same heights the renderer
+draws, with the diagonal the patch triangles use, so a ray and the picture meet within float rounding. It needs no `Collider3D` or
+`Heightfield3D`; an entity with its own `Collider3D` keeps that one, and a non-static `RigidBody3D` on the entity is refused with a
+message. `Transform` position, rotation and scale apply as for `Heightfield3D`. A map larger than `Heightfield3D`'s 4096 samples
+works here (up to 4097).
+
+**For code that edits or reads the terrain (sculpting, foliage).** `world.terrain().heights(world, entity)` returns the shared
+`TerrainHeights` (`data`, `samples`, `set`, `mark_dirty(rect)`, `version`); the renderer, the collider and the tile bounds each follow
+its `dirty_since` history, so one `mark_dirty` updates all three. `terrain_sample(world, entity, worldX, worldZ, out)` and
+`terrain_height_at` give the height (and the normal) of the surface that is drawn and collides, through the entity's transform.
+The declarations are in `engine/scene/include/fa/scene/terrain.h`.
 
 `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes` and `terrain.generate` (seeded noise and erosion, the same
 arguments always give the same file) write the heightmap, splat and hole files. They fail with `not_built` today.
-`renderStats` gets `terrainTiles` and `terrainTriangles`.
 
 ## Foliage (planned, M75.6)
 

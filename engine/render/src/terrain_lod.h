@@ -21,7 +21,7 @@
 
 namespace fa::render {
 
-inline constexpr int kTerrainPatch = 33;                   // vertices per side of the shared patch (32 cells)
+inline constexpr int kTerrainPatch = 33;                      // vertices per side of the shared patch (32 cells)
 inline constexpr int kTerrainPatchCells = kTerrainTileCells;  // 32
 inline constexpr int kTerrainTrianglesPerNode = kTerrainPatchCells * kTerrainPatchCells * 2;
 
@@ -102,8 +102,8 @@ void select_terrain_nodes(const TerrainGrid& g, const TerrainTileBounds& bounds,
 
 // The height (raw sample units, fractional once morphed) of vertex (gx, gz) (0..32) of `node` for a camera at `cameraLocal`: the CPU
 // twin of the vertex shader. gx and gz of a vertex of the node's edge name the same point as the neighbour's vertex there.
-float terrain_vertex_raw(const fa::TerrainHeights& h, const TerrainGrid& g, const TerrainLodRanges& ranges, const TerrainNode& node,
-                         int gx, int gz, Vec3 cameraLocal);
+float terrain_vertex_raw(const fa::TerrainHeights& h, const TerrainGrid& g, const TerrainLodRanges& ranges,
+                         const TerrainNode& node, int gx, int gz, Vec3 cameraLocal);
 // The local position of that vertex.
 Vec3 terrain_vertex_position(const fa::TerrainHeights& h, const TerrainGrid& g, const TerrainLodRanges& ranges,
                              const TerrainNode& node, int gx, int gz, Vec3 cameraLocal);

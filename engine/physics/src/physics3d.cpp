@@ -786,12 +786,14 @@ void Physics3D::sync(World& world) {
                 std::string why;
                 const std::shared_ptr<fa::TerrainHeights> heights = world.terrain().heights(world, e, &why);
                 if (!isStatic)
-                    problem = std::format(
-                        "entity '{}' has a Terrain with collision on and a {} RigidBody3D. A terrain is static ground. Set the "
-                        "RigidBody3D type to static, or remove the RigidBody3D.",
-                        world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
+                    problem = std::format("entity '{}' has a Terrain with collision on and a {} RigidBody3D. A terrain "
+                                          "is static ground. Set the "
+                                          "RigidBody3D type to static, or remove the RigidBody3D.",
+                                          world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
                 else if (!heights)
-                    problem = why.empty() ? std::format("entity '{}': the Terrain has no heights to collide with", world.id_of(e)) : why;
+                    problem = why.empty() ? std::format("entity '{}': the Terrain has no heights to collide with",
+                                                        world.id_of(e))
+                                          : why;
                 else {
                     if (!b.hf) b.hf = std::make_shared<HeightfieldShape>();
                     HeightfieldEdit edit;
