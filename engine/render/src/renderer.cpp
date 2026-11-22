@@ -453,6 +453,7 @@ void Renderer::shutdown() {
         im.sssFx.release();
         im.ramps.destroy();
         im.terrains.destroy();
+        im.impostors.destroy();
         im.foliage.destroy();
         im.assets.reset();
         im.destroy_targets();

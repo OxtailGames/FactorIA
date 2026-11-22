@@ -677,22 +677,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-TEST_CASE(
-    "features: the big-world rows of M75 are false and say planned (M75) until the package that draws them lands") {
-    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
-    for (const char* name : {"impostors"}) {
-        CAPTURE(name);
-        REQUIRE(find_feature(name) >= 0);
-        CHECK(feature_table()[std::size_t(find_feature(name))].kind == FeatureKind::Engine);
-        CHECK(std::string(feature_table()[std::size_t(find_feature(name))].doc).find("M75") != std::string::npos);
-        std::string why;
-        CHECK_FALSE(supported(full, name, &why));
-        CHECK(why.find("planned (M75)") != std::string::npos);
-        CHECK_FALSE(
-            supported(gpu(FeatureBackend::Gles3, false, false, false), name, &why));  // false whatever the reason
-    }
-}
-
+// (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)
 TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they exist (M75.2b)") {
     REQUIRE(find_feature("occlusionGpu") >= 0);
     const auto& row = feature_table()[std::size_t(find_feature("occlusionGpu"))];

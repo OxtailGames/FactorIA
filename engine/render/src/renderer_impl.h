@@ -33,6 +33,7 @@
 #include "renderer_env.h"
 #include "renderer_lod.h"
 #include "renderer_foliage.h"
+#include "renderer_impostor.h"
 #include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
@@ -98,11 +99,12 @@ struct Renderer::Impl {
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
-    TerrainRenderer terrains;  // the Terrain components' height textures, patch and program (renderer_terrain.h)
-    FoliageRenderer foliage;   // the Foliage components: instances file, chunks and items (renderer_foliage.h)
-    GradientRamps ramps;       // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
-    float textScale = 1.0f;    // Renderer::set_text_scale
-    float uiScale = 1.0f;      // Renderer::set_ui_scale
+    ImpostorRenderer impostors;  // the impostor atlases, card and program (renderer_impostor.h)
+    TerrainRenderer terrains;    // the Terrain components' height textures, patch and program (renderer_terrain.h)
+    FoliageRenderer foliage;     // the Foliage components: instances file, chunks and items (renderer_foliage.h)
+    GradientRamps ramps;         // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
+    float textScale = 1.0f;      // Renderer::set_text_scale
+    float uiScale = 1.0f;        // Renderer::set_ui_scale
 
     // The game target (make_target): gameTarget.colorAtt / resolveAtt / depthAtt are what the passes draw into, gameTarget.texView what
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
