@@ -1,5 +1,5 @@
 // The foliage tool (View > Foliage tool): paint instances of the selected Foliage into the world, or erase them, with a brush in
-// the viewport (docs/editor/EDITOR_PANELS.md, "Foliage tool"). The brush (settings, stamps along the mouse path, ring, ray against
+// the viewport (docs/editor/EDITOR_FOLIAGE.md, "Foliage tool"). The brush (settings, stamps along the mouse path, ring, ray against
 // the ground) is the shared one of brush.h and the ground is the Terrain the Foliage grows on (its ScatterRule.terrain, else the
 // entity itself or its parent); this file adds the foliage's own: the foliage.paint arguments and the panel.
 //

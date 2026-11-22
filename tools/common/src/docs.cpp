@@ -213,6 +213,8 @@ const std::vector<DocManifestEntry>& manifest() {
          aud({kUser, kEngineDev})},
         {"editor-panels", "Editor pages: the project, image, vector, sound and music panels.",
          aud({kUser, kEngineDev})},
+        {"editor-foliage", "Editor pages: the foliage tool, a brush that paints and erases the instances of a Foliage.",
+         aud({kUser, kEngineDev})},
         {"editor-animation", "Editor pages: the model, particles and animation panels and the bone tools.",
          aud({kUser, kEngineDev})},
         {"editor-testing", "Editor pages: testing the editor, the autotest sections and how to add a check.",
