@@ -1847,6 +1847,22 @@ void Audio::stop_all() {
     for (auto& rt : im.musicOrphans) im.chan_stop(*rt, MusicQuantize::None, 0.05f);
 }
 
+void Audio::origin_shifted(Vec3 offset) {
+    Impl::Call call(*impl_);
+    Impl& im = *impl_;
+    // Every position audio remembers moves with the origin and nothing else: a velocity is the difference of two positions of
+    // the same frame pair, so it is the same before and after (no doppler spike), and the head model only sees directions.
+    im.lastListenerPos -= offset;
+    for (auto& [k, ea] : im.ents) {
+        (void)k;
+        ea.dopp.prev -= offset;
+    }
+    for (SpatialShot& sh : im.shots) {
+        sh.pos -= offset;
+        sh.dopp.prev -= offset;
+    }
+}
+
 void Audio::on_scene_load() {
     Impl::Call call(*impl_);
     Impl& im = *impl_;

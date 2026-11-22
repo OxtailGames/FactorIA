@@ -1,10 +1,11 @@
 # Big worlds
 
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
-kilometres wide. **Milestone M75 builds this in parts, and none of it draws or simulates anything yet.** Every part below is marked
-"(planned, M75.n)". What exists today is the data and the names: the components and fields (they save, load and validate, and
-do nothing yet), the project setting `world.floatingOrigin`, the counters in `renderStats`, the `render.supports` rows and the
-commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in. A game that adds them today loses nothing:
+kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (everything but what the renderer keeps,
+package M75.4b); the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
+do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
+commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
+`world.origin`, `world.rebase` and `world.absolute_position`, which work. A game that adds the rest today loses nothing:
 when a package lands, the scenes already written start to work. Nothing here changes a game that does not use it: every default
 is "off" or "as before".
 
@@ -13,7 +14,7 @@ is "off" or "as before".
 | [Levels of detail](#levels-of-detail-planned-m751) | M75.1 | screen-size thresholds, dithered cross-fade, impostors, HLOD |
 | [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
 | [Streaming](#streaming-planned-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
-| [Floating origin](#floating-origin-planned-m754) | M75.4 | positions stay exact far from the origin |
+| [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
 | [Terrain](#terrain-planned-m755) | M75.5 | heightmap terrain with splat layers, holes, collision |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
@@ -77,16 +78,14 @@ cell's root.
   read-only and fail with `not_built` today. A script that waits for them checks that its scene is still the current one first.
 - Tests count units of work, not milliseconds, so a result does not depend on the speed of the machine.
 
-## Floating origin (planned, M75.4)
+## Floating origin
 
 `Transform` stays a float, which has a precision of about a millimetre at 8 km and a hand's width at 100 km. Far from the origin
 things shake. The floating origin keeps what is near the camera near (0, 0, 0): the world holds a double-precision origin (`DVec3`
-in `fa/core/math.h`), and when the anchor goes past a threshold the engine moves everything by a whole number of steps, on the
-fixed tick (so it is deterministic): root positions, physics bodies, particles, audio sources, navigation data, the camera history
-that motion vectors use. Scripts get an `originShifted` event with the offset. Saves and `world.absolute_position` add the origin and
-the local position in double.
+in `fa/core/math.h`), and when the anchor goes past a threshold the engine moves everything by a whole number of steps, at the end
+of a fixed tick (so it is deterministic), in one step with no frame where two systems disagree.
 
-Off by default; a game opts in in `factoria.json`:
+Off by default and free when off (one branch per fixed tick); a game opts in in `factoria.json`:
 
 ```json
 "world": { "floatingOrigin": { "enabled": true, "threshold": 2048, "step": 256, "anchor": "camera" } }
@@ -95,17 +94,89 @@ Off by default; a game opts in in `factoria.json`:
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | turn the floating origin on |
-| `threshold` | `2048` | metres from the origin at which the anchor causes a shift (16 to 10 000 000) |
+| `threshold` | `2048` | metres from the local origin at which the anchor causes a shift (16 to 10 000 000) |
 | `step` | `256` | the origin moves by whole multiples of this, so repeated shifts stay exact: an integer power of two from 1 to 1 048 576 (2^20), so every shift is an exact float operation. Left out, it is the largest power of two at most `min(256, threshold)`, so `{"threshold": 128}` alone is valid (step 128). When you write it, it must not be above `threshold` |
-| `anchor` | `"camera"` | `"camera"` (the active 3D camera) or `"entity:<id>"` (the entity with that id) |
+| `anchor` | `"camera"` | `"camera"` (the first rendering camera) or `"entity:<id>"` (the entity with that id) |
 
-The setting is read and checked today and changes nothing: a wrong key, number or anchor is an error that names the JSON pointer
-(`/world/floatingOrigin/step`) and the fix. `"enabled": false` with the other keys at their defaults is not written back.
+A wrong key, number or anchor is an error that names the JSON pointer (`/world/floatingOrigin/step`) and the fix.
+`"enabled": false` with the other keys at their defaults is not written back.
 
-`world.origin {}` reads the origin; it always returns one shape, `{enabled, origin, rebases, threshold, step, anchor}` (with the
-floating origin off: `enabled` false, `origin` `[0, 0, 0]`, `rebases` 0). `world.rebase {offset | entity}` moves it on demand
-(tests, cutscenes). `world.absolute_position {entity}` returns `{entity, position, origin, local}`: `position` is the origin plus the
-entity's world position, in doubles. All three fail with `not_built` today.
+### When it shifts
+
+After each fixed tick, when the anchor is farther than `threshold` from the local origin on ANY axis (x, y or z: a flight game
+climbs, a ground game never has a large y), the engine rebases by the anchor's position rounded to the nearest multiple of `step`
+on each axis. Then the anchor is near (0, 0, 0) again. A camera that is an entity of a hierarchy is measured by its world
+position.
+
+Why a whole multiple of a power of two: a float far from the origin is a multiple of its own spacing (a power of two), so
+`p - k * step` with `step` at least that spacing is a float again with NO rounding, whatever `k` is. The origin (a double) only
+ever holds sums of multiples of `step`, exact up to 2^53 steps, so a rebase by `+offset` and then by `-offset` gives back every
+position and the origin bit for bit. An arbitrary offset (1234.567) would round every position it moves, and each shift would add
+its own error to the origin. `world.rebase` refuses an offset that is not a multiple, or that is more than 16 777 216 steps
+(a float cannot hold that many exactly), and says the nearest valid one.
+
+### What moves
+
+A rebase subtracts the offset from every ROOT `Transform` (children follow: their position is local to the parent) and adds it to
+the world's origin, and in the same step:
+
+- 3D and 2D physics: bodies, the broad phase, the contacts and their caches, kinematic targets, joint anchors pinned to a world
+  point, the sleeping state (a sleeping body stays asleep, and nothing wakes) and character controllers. The 2D shift is exact in
+  metres only when `pixelsPerMeter` is a power of two; with any other value (the default 100) Box2D's metres and the Transform's
+  pixels convert with a rounding of about one ulp per rebase.
+- Navigation: baked meshes and grids (they are shifted, not baked again) and off-mesh links. A path a script got from
+  `nav.findPath` is a list of local positions it keeps: after an `originShifted` event ask again (or keep absolute positions).
+- Audio: listener and source positions (velocities do not change, so there is no doppler spike).
+- World-space particles and their trails, queued game-feel spawns and effects aimed at a world point, the render interpolation
+  records (no jump at the next frame), light-probe group points, tweens that hold a position (`tween.position` and the like
+  follow the shift, from the next tween tick on even when the shift came from a command or a script between two steps, so no
+  tween ever writes the old position; a tween on a screen-space entity does not).
+- A root with `Parallax` moves by `offset * factor` on x and y (z by the whole offset), not by `offset`: it is drawn at its
+  position plus `camera * (1 - factor)`, so this keeps what the player sees (drawn minus camera) the same when the camera
+  moves by `-offset`. Factor 1 moves as any root, factor 0 (glued to the camera) does not move. The shift is exact in float for
+  a power-of-two factor (0.5, 0.25, 1); any other factor rounds the layer by about one ulp of its position per rebase.
+- Roots that are screen-space do NOT move: UI widgets (`Panel`, `Button`, ...) and `Sprite`, `Shape2D`, `Text` or
+  `ParticleEmitter` with `space: "screen"`. Their position is an offset on the screen.
+
+A scene holds ABSOLUTE positions: it saves `"origin": [x, y, z]` next to its entities (only when it is not zero) and the
+positions are local to that origin. A normal (non-additive) load restores the origin, so everything is where it was. An
+ADDITIVE load keeps the origin of the world it joins and places what it loads at its absolute position: every loaded root
+Transform (and every world-anchored joint, `NavLink3D.end` and `LightProbeGroup` point among the loaded entities, the same set
+a rebase moves, a Parallax root by its factor) moves by `file origin - world origin`, computed in doubles. A file without an
+`origin` has origin 0, so a cell saved at origin 0 and loaded additively into a world at origin 4096 lands at `-4096` locally
+and its `absolute_position` is what the file says. Streaming relies on this. Roots loaded under a `parent` are relative to it
+and do not move.
+
+### What scripts must do
+
+Scripts hear one `originShifted` event per rebase: `game.on("originShifted", ({ offset, origin }) => ...)`, both arrays of three
+doubles (metres), `offset` what was subtracted from every local position and `origin` the new origin. It runs in the next
+`dispatchEvents`, after the shift: positions read in it are already the new ones.
+
+- Never keep a world position across a tick in a game that enables the floating origin: after a rebase it is wrong by `offset`.
+  Keep `entity.absolutePosition` (an array of three doubles: the origin plus the world position) and compare in absolute terms, or
+  subtract `offset` from what you kept when the event arrives.
+- `entity.position`, `entity.worldPosition` and everything else you read stays local (float) and is what you write back.
+- `game.origin` is the current origin (doubles).
+
+### Floating origin commands
+
+`world.origin {}` reads the origin; it always returns one shape, `{enabled, origin, rebases, threshold, step, anchor}` plus
+`anchorPosition` (the anchor's local position, `null` when there is none); with the floating origin off `enabled` is false,
+`origin` `[0, 0, 0]` and `rebases` 0. `world.rebase {origin | entity}` moves the origin on demand (tests, cutscenes): `origin` is the
+NEW origin in world metres (rounded to a multiple of `step`; not a delta, and not the `offset` of the `originShifted` event, which
+is what was subtracted), `entity` centres on that entity, neither centres on the anchor. `offset` is the deprecated old name of
+`origin`: it still works, and giving both is an error. It
+fails with `not_enabled` when the setting is off. `world.absolute_position {entity}` returns `{entity, position, origin, local}`:
+`position` is the origin plus the entity's world position, in doubles, and `local` the float position everything else reads. In C++:
+`World::origin()`, `absolute_position(Entity)`, `to_local(DVec3)`, `to_absolute(Vec3)`, `rebase(Vec3)`, `rebase_count()` and
+`on_origin_shifted(callback)` (one call per rebase, with the offset).
+
+### What M75.4b adds
+
+The renderer keeps some state in world space (the camera history that motion vectors, SSR and temporal effects reproject from,
+the 2D global-illumination field's history, the realtime-GI grid anchors). Until M75.4b registers its `on_origin_shifted`
+observer, a rebase shows one frame of ghosting in those effects, and the GI grid is laid out again. Nothing else is missing.
 
 ## Terrain (planned, M75.5)
 
@@ -155,7 +226,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 
 | Command | Package | Writes files |
 |---|---|---|
-| `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 | no |
+| `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 (built) | no |
 | `world.cells`, `world.stream_status` | M75.3 | no |
 | `world.split_cells`, `world.merge_cells` | M75.3 | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |

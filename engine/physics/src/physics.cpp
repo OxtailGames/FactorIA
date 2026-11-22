@@ -75,6 +75,11 @@ void Physics::step(World& world, float dt) {
     impl_->p3d.nav_update(world, true);
 }
 
+void Physics::origin_shifted(World& world, Vec3 offset) {
+    impl_->p2d.origin_shifted(world, offset);
+    impl_->p3d.origin_shifted(world, offset);
+}
+
 std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, std::int32_t mask) {
     RaycastOptions o;
     o.mask = mask;

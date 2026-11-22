@@ -218,6 +218,16 @@ struct Engine::Impl {
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
+    // ---- floating origin (engine_origin.cpp, docs/BIG_WORLDS.md "Floating origin")
+    // Moves the origin by `offset` (a whole multiple of the project's step per axis): World::rebase (Transforms, particles, queued
+    // effects, origin observers = the renderer), then the physics, the audio and the navigation, then one `originShifted` game event.
+    // All in one call on the main thread, between fixed steps, so no frame sees the subsystems disagree.
+    void rebase_origin(Vec3 offset);
+    // After a fixed step: when floatingOrigin is enabled and the anchor is farther than `threshold` from the local origin on any axis,
+    // rebase by the anchor's position rounded to `step`. One branch when it is off.
+    void auto_rebase_origin();
+    // The local world position of the project's anchor ("camera": the first rendering camera; "entity:<id>"). False when there is none.
+    bool origin_anchor_position(Vec3& out);
     void render(double dt);  // per-frame: draws in Always mode, only simulates visuals in OnDemand
     void draw(double dt,
               bool settled = false);  // draws the world now; settled = settle_visuals() already ran since the last step
