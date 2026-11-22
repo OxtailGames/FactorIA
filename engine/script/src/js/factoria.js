@@ -5018,7 +5018,7 @@
     // terrainTriangles count the Terrain tiles drawn in the main pass and their triangles (also in triangles; not in meshes).
     // lodCrossFades counts the meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras
     // (a fading entity counts two; probe and GI captures do not count). hlodProxies counts the HLOD proxy meshes drawn (LodGroup.hlodProxy past
-    // hlodThreshold, instead of the group's children). occluders, occlusionTests and meshesOccluded count the CPU occlusion culling;
+    // hlodThreshold, instead of the group's children; and the proxy of a streamed cell that is not loaded, StreamedWorld.hlodDistance). occluders, occlusionTests and meshesOccluded count the CPU occlusion culling;
     // portalsVisited and meshesCulledByArea the area and portal culling (0 with no enabled OcclusionArea). The other
     // big-world counters (M75, 0 until their package draws): impostors, foliageInstances, foliageInstancesCulled. Throws
     // without graphics. The same numbers as the game.render_stats command and the perf.measure render fields.

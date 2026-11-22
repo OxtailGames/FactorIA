@@ -1,4 +1,6 @@
-// world.bake_hlod (docs/BIG_WORLDS_LOD.md, "HLOD proxy"): merges every mesh under an entity into ONE mesh in the entity's local space,
+// world.bake_hlod and world.bake_cell_hlods (docs/BIG_WORLDS_LOD.md, "HLOD proxy"; docs/BIG_WORLDS_STREAMING.md, "HLOD proxies").
+//
+// world.bake_hlod: merges every mesh under an entity into ONE mesh in the entity's local space,
 // simplifies it with the engine's own simplifier (model_make_lod: the one `model.generate_lods` and the game-ready bake use) and writes
 // it as a .glb, ready for LodGroup.hlodProxy. With `apply` it sets LodGroup.hlodProxy (and a default hlodThreshold) on the entity, through
 // the same set_component the scene.set_component command uses, so the editor makes it one undo step.
@@ -7,7 +9,9 @@
 // so the same scene and arguments give the same bytes.
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
+#include <cstdint>
 #include <map>
 #include <utility>
 #include <vector>
@@ -21,6 +25,7 @@
 #include "fa/scene/gltf_mesh.h"
 #include "fa/scene/mesh_store.h"
 #include "fa/scene/model_game_ready.h"
+#include "fa/scene/world_index.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/world.h"
 
@@ -176,6 +181,103 @@ void append_mesh(Merged& out, const MeshData& src, const Mat4& m, const std::str
     ++out.meshes;
 }
 
+// `ratio` and `maxError` of the bake commands: checked (with their JSON pointer) before anything is read; the default is a tenth of the
+// triangles when neither is given.
+ModelLodSpec parse_lod_spec(const Json& args) {
+    if (args.contains("ratio") && !args["ratio"].is_null() && !args["ratio"].is_number())
+        fail("`ratio` (/ratio) is " + args["ratio"].dump() + ": it must be a number.",
+             "Pass the share of triangles to keep, 0 < ratio <= 1, e.g. 0.1.");
+    if (args.contains("maxError") && !args["maxError"].is_null() && !args["maxError"].is_number())
+        fail("`maxError` (/maxError) is " + args["maxError"].dump() + ": it must be a number of metres.",
+             "Pass how far the simplified surface may move, e.g. 0.25.");
+    ModelLodSpec spec;
+    const bool hasRatio = args.contains("ratio") && args["ratio"].is_number();
+    const bool hasError = args.contains("maxError") && args["maxError"].is_number();
+    if (hasRatio) {
+        const double r = args["ratio"].get<double>();
+        if (!(r > 0.0 && r <= 1.0))
+            fail("`ratio` (/ratio) is " + args["ratio"].dump() + ": it must be above 0 and at most 1.",
+                 "Pass the share of triangles to keep: 0.1 keeps a tenth, 1 keeps them all (only merges and welds).");
+        spec.ratio = r;
+    }
+    if (hasError) {
+        const double e = args["maxError"].get<double>();
+        if (!(e > 0.0 && e <= 1.0e6))
+            fail("`maxError` (/maxError) is " + args["maxError"].dump() + ": it must be above 0 metres.",
+                 "Pass how far the simplified surface may move, e.g. 0.25 for a building seen from far away.");
+        spec.error = e;
+    }
+    if (!hasRatio && !hasError) spec.ratio = 0.1;
+    return spec;
+}
+
+// What a merge collects besides the geometry: the entities it left out (with why; the first kMaxSkippedListed are listed) and the
+// meshes already read (one per mesh + texture + colour).
+struct MergeRun {
+    Merged merged;
+    Json skipped = Json::array();
+    std::size_t skippedCount = 0;
+    std::map<std::string, MeshData> cache;
+    void skip(const std::string& id, const std::string& why) {
+        ++skippedCount;
+        if (skipped.size() < kMaxSkippedListed) skipped.push_back(Json::object({{"entity", id}, {"reason", why}}));
+    }
+};
+
+// Merges the meshes of the entities on `stack` and of everything under them (hierarchy order: the stack's LAST entry first, children in
+// order) into `run.merged`, each moved by `toLocal * world matrix`. Inactive entities, GPU-instanced renderers and meshes that cannot be
+// read are skipped and listed.
+void merge_walk(World& world, std::vector<Entity> stack, const Mat4& toLocal, MergeRun& run) {
+    while (!stack.empty()) {
+        const Entity e = stack.back();
+        stack.pop_back();
+        const std::vector<Entity>& kids = std::as_const(world).children(e);
+        for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
+        const MeshRenderer* mr = std::as_const(world).get<MeshRenderer>(e);
+        if (!mr) continue;
+        const std::string id = world.id_of(e);
+        if (!world.active_in_hierarchy(e)) {
+            run.skip(id, "inactive");
+            continue;
+        }
+        if (mr->instances > 0) {
+            run.skip(id, "GPU instances (MeshRenderer.instances) are drawn by their material, not from the mesh");
+            continue;
+        }
+        const std::string key = mr->mesh + "\n" + mr->texture + "\n" + std::to_string(mr->color.r) + "," +
+                                std::to_string(mr->color.g) + "," + std::to_string(mr->color.b) + "," +
+                                std::to_string(mr->color.a);
+        auto cached = run.cache.find(key);
+        if (cached == run.cache.end()) {
+            auto data = mesh_data_of(world, *mr);
+            if (!data.ok()) {
+                run.skip(id, data.error().message);
+                continue;
+            }
+            cached = run.cache.emplace(key, std::move(data.value())).first;
+        }
+        if (cached->second.triangle_count() == 0) {
+            run.skip(id, "no triangles");
+            continue;
+        }
+        append_mesh(run.merged, cached->second, toLocal * world.world_matrix(e), id);
+    }
+}
+
+// The merged arrays as one mesh: built, welded by material and simplified by `spec`. `label` names the entity or cell in the errors.
+MeshData simplify_merged(const Merged& merged, const ModelLodSpec& spec, const std::string& label, ModelLodInfo* info) {
+    auto built = build_mesh_data(merged.in);
+    if (!built.ok()) fail("The merged mesh is not valid: " + built.error().message, built.error().hint, "internal");
+    auto welded = model_merge_by_material(built.value());
+    if (!welded.ok())
+        fail("Cannot merge the meshes under '" + label + "': " + welded.error().message, welded.error().hint);
+    auto simplified = model_make_lod(welded.value(), spec, info);
+    if (!simplified.ok())
+        fail("Cannot simplify the merged mesh of '" + label + "': " + simplified.error().message,
+             simplified.error().hint);
+    return std::move(simplified.value());
+}
+
 Json bake_hlod(Engine::Impl& I, const Json& args) {
     const char* kCommand = "world.bake_hlod";
     for (auto it = args.begin(); it != args.end(); ++it) {
@@ -223,30 +325,7 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
                                            : "Pass an entity id or a project-relative scene path.");
     if (!args.contains("out") || !args["out"].is_string())
         fail("`out` is missing (/out).", "Pass the .glb to write, e.g. \"out\":\"assets/hlod/block.glb\".");
-    if (args.contains("ratio") && !args["ratio"].is_null() && !args["ratio"].is_number())
-        fail("`ratio` (/ratio) is " + args["ratio"].dump() + ": it must be a number.",
-             "Pass the share of triangles to keep, 0 < ratio <= 1, e.g. 0.1.");
-    if (args.contains("maxError") && !args["maxError"].is_null() && !args["maxError"].is_number())
-        fail("`maxError` (/maxError) is " + args["maxError"].dump() + ": it must be a number of metres.",
-             "Pass how far the simplified surface may move, e.g. 0.25.");
-    ModelLodSpec spec;
-    const bool hasRatio = args.contains("ratio") && args["ratio"].is_number();
-    const bool hasError = args.contains("maxError") && args["maxError"].is_number();
-    if (hasRatio) {
-        const double r = args["ratio"].get<double>();
-        if (!(r > 0.0 && r <= 1.0))
-            fail("`ratio` (/ratio) is " + args["ratio"].dump() + ": it must be above 0 and at most 1.",
-                 "Pass the share of triangles to keep: 0.1 keeps a tenth, 1 keeps them all (only merges and welds).");
-        spec.ratio = r;
-    }
-    if (hasError) {
-        const double e = args["maxError"].get<double>();
-        if (!(e > 0.0 && e <= 1.0e6))
-            fail("`maxError` (/maxError) is " + args["maxError"].dump() + ": it must be above 0 metres.",
-                 "Pass how far the simplified surface may move, e.g. 0.25 for a building seen from far away.");
-        spec.error = e;
-    }
-    if (!hasRatio && !hasError) spec.ratio = 0.1;
+    const ModelLodSpec spec = parse_lod_spec(args);
 
     // The file is judged before the meshes are read and merged (the capability, then the path rules).
     require_capability(Capability::WriteProject, kCommand, "writing the proxy mesh to `out`");
@@ -295,14 +374,10 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
 
     // Every MeshRenderer under the root, in hierarchy order, moved into the root's local space.
     const Mat4 toLocal = world->world_matrix(root).inverse();
-    Merged merged;
-    Json skipped = Json::array();
-    std::size_t skippedCount = 0;
-    std::map<std::string, MeshData> cache;
-    const auto skip = [&](const std::string& id, const std::string& why) {
-        ++skippedCount;
-        if (skipped.size() < kMaxSkippedListed) skipped.push_back(Json::object({{"entity", id}, {"reason", why}}));
-    };
+    MergeRun run;
+    Merged& merged = run.merged;
+    const Json& skipped = run.skipped;
+    const std::size_t& skippedCount = run.skippedCount;
     // What is merged: the subtrees of the root's children (the children ARE the levels of a LodGroup, so under one only child 0, the
     // full-detail level, is merged). The root's own MeshRenderer is not: a LodGroup does not hide it, so it would stay drawn next to
     // the proxy, and the proxy is meant to stand for what is under the root.
@@ -317,7 +392,7 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
              "Wrap the children in ONE child entity (it becomes LOD 0 of the group) and bake the entity again, or bake "
              "without `apply` and set LodGroup.hlodProxy yourself on an entity whose children are the levels.");
     if (std::as_const(*world).get<MeshRenderer>(root))
-        skip(world->id_of(root), "the entity's own MeshRenderer is not merged");
+        run.skip(world->id_of(root), "the entity's own MeshRenderer is not merged");
     std::size_t levelsIgnored = 0;
     std::vector<Entity> stack;
     if (rootGroup && !rootKids.empty()) {
@@ -326,40 +401,7 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     } else {
         for (auto it = rootKids.rbegin(); it != rootKids.rend(); ++it) stack.push_back(*it);
     }
-    while (!stack.empty()) {
-        const Entity e = stack.back();
-        stack.pop_back();
-        const std::vector<Entity>& kids = std::as_const(*world).children(e);
-        for (auto it = kids.rbegin(); it != kids.rend(); ++it) stack.push_back(*it);
-        const MeshRenderer* mr = std::as_const(*world).get<MeshRenderer>(e);
-        if (!mr) continue;
-        const std::string id = world->id_of(e);
-        if (!world->active_in_hierarchy(e)) {
-            skip(id, "inactive");
-            continue;
-        }
-        if (mr->instances > 0) {
-            skip(id, "GPU instances (MeshRenderer.instances) are drawn by their material, not from the mesh");
-            continue;
-        }
-        const std::string key = mr->mesh + "\n" + mr->texture + "\n" + std::to_string(mr->color.r) + "," +
-                                std::to_string(mr->color.g) + "," + std::to_string(mr->color.b) + "," +
-                                std::to_string(mr->color.a);
-        auto cached = cache.find(key);
-        if (cached == cache.end()) {
-            auto data = mesh_data_of(*world, *mr);
-            if (!data.ok()) {
-                skip(id, data.error().message);
-                continue;
-            }
-            cached = cache.emplace(key, std::move(data.value())).first;
-        }
-        if (cached->second.triangle_count() == 0) {
-            skip(id, "no triangles");
-            continue;
-        }
-        append_mesh(merged, cached->second, toLocal * world->world_matrix(e), id);
-    }
+    merge_walk(*world, std::move(stack), toLocal, run);
     const std::string rootId = world->id_of(root);
     if (merged.meshes == 0 || merged.in.indices.empty()) {
         std::string why;
@@ -372,17 +414,8 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
              "MeshRenderer components. scene.query {\"component\":\"MeshRenderer\"} lists them.");
     }
 
-    auto built = build_mesh_data(merged.in);
-    if (!built.ok()) fail("The merged mesh is not valid: " + built.error().message, built.error().hint, "internal");
-    auto welded = model_merge_by_material(built.value());
-    if (!welded.ok())
-        fail("Cannot merge the meshes under '" + rootId + "': " + welded.error().message, welded.error().hint);
     ModelLodInfo info;
-    auto simplified = model_make_lod(welded.value(), spec, &info);
-    if (!simplified.ok())
-        fail("Cannot simplify the merged mesh of '" + rootId + "': " + simplified.error().message,
-             simplified.error().hint);
-    const MeshData& proxy = simplified.value();
+    const MeshData proxy = simplify_merged(merged, spec, rootId, &info);
     auto saved = save_mesh_glb_at(proxy, *outPath);
     if (!saved.ok()) {
         const std::string code(fs::path_error_code(saved.error()));
@@ -419,6 +452,289 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         result["applied"] = true;
         result["hlodThreshold"] = round4(threshold);
     }
+    return result;
+}
+
+// The cells `world.bake_cell_hlods` is asked for: `cells` is a list of [i, j] pairs or {"i", "j"} objects; absent = every cell of the
+// index. Every entry is checked against the index before anything is read (JSON pointer /cells/N).
+std::vector<const WorldCell*> select_cells(const WorldIndex& index, const Json& args) {
+    std::vector<const WorldCell*> out;
+    if (!args.contains("cells") || args["cells"].is_null()) {
+        for (const WorldCell& c : index.cells) out.push_back(&c);
+        return out;
+    }
+    if (!args["cells"].is_array())
+        fail("`cells` (/cells) is " + args["cells"].dump() + ": it must be a list of cell coordinates.",
+             "Pass [[0,0],[1,0]] or [{\"i\":0,\"j\":0}], or leave `cells` out to bake every cell.");
+    std::size_t n = 0;
+    for (const Json& e : args["cells"]) {
+        const std::string ptr = "/cells/" + std::to_string(n);
+        ++n;
+        std::int64_t i = 0, j = 0;
+        bool good = false;
+        const auto whole = [](const Json& v, std::int64_t& r) {
+            if (!v.is_number()) return false;
+            const double d = v.get<double>();
+            if (!(d >= -1.0e9 && d <= 1.0e9) || d != std::floor(d)) return false;
+            r = std::int64_t(d);
+            return true;
+        };
+        if (e.is_array() && e.size() == 2)
+            good = whole(e[0], i) && whole(e[1], j);
+        else if (e.is_object() && e.contains("i") && e.contains("j"))
+            good = whole(e["i"], i) && whole(e["j"], j);
+        if (!good)
+            fail("`cells` entry " + ptr + " is " + e.dump() + ": it must be a coordinate [i, j] of two whole numbers.",
+                 "Write each cell as [0,0] or {\"i\":0,\"j\":0}; `world.cells` lists the coordinates of the index.");
+        const WorldCell* found = i >= INT32_MIN && i <= INT32_MAX && j >= INT32_MIN && j <= INT32_MAX
+                                     ? index.find(std::int32_t(i), std::int32_t(j))
+                                     : nullptr;
+        if (!found) {
+            std::vector<std::string> names;
+            for (const WorldCell& c : index.cells)
+                names.push_back("[" + std::to_string(c.i) + "," + std::to_string(c.j) + "]");
+            fail("`cells` entry " + ptr + " names the cell [" + std::to_string(i) + "," + std::to_string(j) +
+                     "], which is not in '" + index.path + "'.",
+                 did_you_mean("[" + std::to_string(i) + "," + std::to_string(j) + "]", names).empty()
+                     ? "world.cells lists the cells of the index."
+                     : did_you_mean("[" + std::to_string(i) + "," + std::to_string(j) + "]", names));
+        }
+        for (const WorldCell* c : out)
+            if (c == found)
+                fail("`cells` entry " + ptr + " repeats the cell [" + std::to_string(i) + "," + std::to_string(j) +
+                         "].",
+                     "List every cell once.");
+        out.push_back(found);
+    }
+    std::sort(out.begin(), out.end(),
+              [](const WorldCell* a, const WorldCell* b) { return a->j != b->j ? a->j < b->j : a->i < b->i; });
+    return out;
+}
+
+// One baked cell, kept in memory until every cell is done (a failure writes nothing).
+struct CellBake {
+    const WorldCell* cell = nullptr;
+    std::string file;  // project-relative .glb
+    MeshData mesh;
+    std::size_t meshes = 0, trianglesBefore = 0;
+    double error = 0.0;
+    std::size_t skipped = 0;
+};
+
+Json bake_cell_hlods(Engine::Impl& I, const Json& args) {
+    (void)I;
+    const char* kCommand = "world.bake_cell_hlods";
+    for (auto it = args.begin(); it != args.end(); ++it) {
+        const std::string& k = it.key();
+        if (k != "world" && k != "outDir" && k != "cells" && k != "ratio" && k != "maxError" && k != "maxDistance" &&
+            k != "dryRun")
+            fail("Unknown argument `" + k + "` at /" + k + ".",
+                 "The arguments are world, outDir, cells, ratio, maxError, maxDistance and dryRun.");
+    }
+    if (!args.contains("world") || !args["world"].is_string() || args["world"].get<std::string>().empty())
+        fail(
+            "`world` is missing (/world).",
+            "Pass the index file to bake, e.g. {\"world\":\"worlds/town.world.json\"} (world.split_cells writes one).");
+    for (const char* key : {"outDir", "maxDistance", "dryRun"}) {
+        if (!args.contains(key) || args[key].is_null()) continue;
+        const bool good = std::string(key) == "outDir" ? args[key].is_string() && !args[key].get<std::string>().empty()
+                          : std::string(key) == "dryRun" ? args[key].is_boolean()
+                                                         : args[key].is_number();
+        if (!good)
+            fail(std::string("`") + key + "` (/" + key + ") is " + args[key].dump() + ": it must be " +
+                     (std::string(key) == "outDir"   ? "a non-empty folder path."
+                      : std::string(key) == "dryRun" ? "true or false."
+                                                     : "a number of metres."),
+                 std::string(key) == "outDir" ? "Pass a project folder, e.g. \"worlds/town_hlod\"."
+                 : std::string(key) == "dryRun"
+                     ? "Pass true to bake and report without writing anything."
+                     : "Pass the farthest distance the proxies are drawn at, e.g. 900; 0 clears it.");
+    }
+    const bool dryRun = args.value("dryRun", false);
+    const ModelLodSpec spec = parse_lod_spec(args);
+    bool setDistance = false;
+    double maxDistance = 0.0;
+    if (args.contains("maxDistance") && args["maxDistance"].is_number()) {
+        maxDistance = args["maxDistance"].get<double>();
+        if (!(maxDistance >= 0.0 && maxDistance <= 1.0e9))
+            fail("`maxDistance` (/maxDistance) is " + args["maxDistance"].dump() +
+                     ": it must be between 0 and 1e9 metres.",
+                 "Pass the farthest distance from an anchor the proxies are drawn at, e.g. 900; 0 means "
+                 "StreamedWorld.hlodDistance.");
+        setDistance = true;
+    }
+
+    auto indexNorm = fs::normalize_checked(args["world"].get<std::string>());
+    if (!indexNorm.ok() || fs::is_absolute(indexNorm.value()))
+        fail("`world` (/world) '" + args["world"].get<std::string>() + "' is not a project-relative path.",
+             "Use a path such as worlds/town.world.json.");
+    const std::string indexPath = indexNorm.value();
+    // The folder: the index path without its .world.json, plus _hlod. The path rules are judged before the index or any scene is read.
+    std::string outDir =
+        args.contains("outDir") && args["outDir"].is_string() ? args["outDir"].get<std::string>() : indexPath;
+    if (!(args.contains("outDir") && args["outDir"].is_string())) {
+        for (const char* ext : {".world.json", ".json"})
+            if (ends_with(lower(outDir), ext)) {
+                outDir.resize(outDir.size() - std::string(ext).size());
+                break;
+            }
+        outDir += "_hlod";
+    }
+    while (outDir.size() > 1 && (outDir.back() == '/' || outDir.back() == '\\')) outDir.pop_back();
+    if (!dryRun) require_capability(Capability::WriteProject, kCommand, "writing the proxy meshes and the index");
+    const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
+    const auto cell_file = [&](std::int32_t i, std::int32_t j) {
+        auto file = mesh_glb_path(outDir + "/" + std::to_string(i) + "_" + std::to_string(j) + ".glb", anywhere);
+        if (!file.ok()) {
+            const std::string code(fs::path_error_code(file.error()));
+            throw CommandError(code.empty() ? "invalid_argument" : code, "`outDir` (/outDir): " + file.error().message,
+                               file.error().hint);
+        }
+        return file.value();
+    };
+    (void)cell_file(0, 0);
+    std::string indexWrite;
+    if (!dryRun) indexWrite = resolve_caller_project_path(indexPath, kCommand);
+
+    WorldIndexOptions options;
+    options.checkFiles = false;
+    auto loaded = load_world_index(indexPath, options);
+    if (!loaded.ok())
+        fail("Cannot read the index '" + indexPath + "' (/world): " + loaded.error().message, loaded.error().hint,
+             "not_found");
+    const WorldIndex index = std::move(loaded.value());
+    const std::vector<const WorldCell*> chosen = select_cells(index, args);
+    std::vector<CellBake> bakes;
+    for (const WorldCell* c : chosen) {
+        CellBake b;
+        b.cell = c;
+        b.file = cell_file(c->i, c->j);
+        bakes.push_back(std::move(b));
+    }
+
+    // Merge and simplify every cell in memory. A cell that cannot be read stops the command: nothing has been written yet.
+    Json skippedCells = Json::array();
+    std::vector<CellBake> done;
+    for (CellBake& b : bakes) {
+        const WorldCell& c = *b.cell;
+        auto text = fs::read_text(c.scene);
+        if (!text.ok())
+            fail("Cannot read the scene '" + c.scene + "' of cell [" + c.id() + "]: " + text.error().message,
+                 text.error().hint, "not_found");
+        auto parsed = parse_json(text.value(), c.scene);
+        if (!parsed.ok()) fail(parsed.error().message, parsed.error().hint);
+        World scratch;
+        LoadReport report = load_scene(scratch, parsed.value(), c.scene);
+        if (report.error_count() > 0) {
+            std::string detail;
+            std::size_t shown = 0;
+            for (const LoadMessage& m : report.messages)
+                if (m.severity == LoadMessage::Severity::Error && ++shown <= 5) detail += "\n  " + m.to_string();
+            fail("Cannot bake cell [" + c.id() + "]: '" + c.scene + "' has " + std::to_string(report.error_count()) +
+                     " load error(s):" + detail,
+                 "Fix the file first (project.validate lists every problem with its JSON pointer). Nothing was "
+                 "written.");
+        }
+        const DVec3 corner = world_cell_corner(index, c);
+        const Mat4 toLocal = Mat4::translate(Vec3{-float(corner.x), -float(corner.y), -float(corner.z)});
+        MergeRun run;
+        std::vector<Entity> stack = scratch.roots();
+        std::reverse(stack.begin(), stack.end());
+        merge_walk(scratch, std::move(stack), toLocal, run);
+        if (run.merged.meshes == 0 || run.merged.in.indices.empty()) {
+            skippedCells.push_back(
+                Json::object({{"coord", Json::array({c.i, c.j})},
+                              {"reason", "no active MeshRenderer with triangles in '" + c.scene + "' (" +
+                                             std::to_string(run.skippedCount) +
+                                             " skipped): the cell keeps its current proxy, if any"}}));
+            continue;
+        }
+        ModelLodInfo info;
+        b.mesh = simplify_merged(run.merged, spec, "cell [" + c.id() + "]", &info);
+        b.meshes = run.merged.meshes;
+        b.trianglesBefore = run.merged.sourceTriangles;
+        b.error = info.error;
+        b.skipped = run.skippedCount;
+        done.push_back(std::move(b));
+    }
+    if (done.empty() && !chosen.empty() && !dryRun)
+        fail("No cell has a mesh to bake (" + std::to_string(skippedCells.size()) +
+                 " cells skipped, first: " + skippedCells[0]["reason"].get<std::string>() + ").",
+             "Check the cell scenes with scene.query {\"component\":\"MeshRenderer\"}; a cell without meshes needs no "
+             "proxy.");
+
+    Json baked = Json::array();
+    std::size_t trianglesBefore = 0, triangles = 0;
+    for (const CellBake& b : done) {
+        trianglesBefore += b.trianglesBefore;
+        triangles += b.mesh.triangle_count();
+        baked.push_back(Json::object({{"coord", Json::array({b.cell->i, b.cell->j})},
+                                      {"mesh", b.file},
+                                      {"meshes", b.meshes},
+                                      {"trianglesBefore", b.trianglesBefore},
+                                      {"triangles", b.mesh.triangle_count()},
+                                      {"vertices", b.mesh.vertex_count()},
+                                      {"error", round4(b.error)},
+                                      {"skipped", b.skipped}}));
+    }
+    Json result = Json::object({{"world", indexPath},
+                                {"outDir", outDir},
+                                {"baked", baked},
+                                {"cellsBaked", done.size()},
+                                {"cellsSkipped", skippedCells},
+                                {"trianglesBefore", trianglesBefore},
+                                {"triangles", triangles},
+                                {"dryRun", dryRun},
+                                {"written", Json::array()}});
+    if (dryRun || done.empty()) return result;
+
+    // The files first, then the index that names them: an index never points at a file that is not there. A failure says what was
+    // written; the index is changed only when every file is in place, by one atomic write of the index read again just before.
+    Json written = Json::array();
+    for (const CellBake& b : done) {
+        auto saved = save_mesh_glb_at(b.mesh, b.file);
+        if (!saved.ok()) {
+            const std::string code(fs::path_error_code(saved.error()));
+            throw CommandError(
+                code.empty() ? "write_failed" : code,
+                "Cannot write '" + b.file + "': " + saved.error().message + " (" + std::to_string(written.size()) +
+                    " proxy files were written; the index is unchanged).",
+                saved.error().hint.empty() ? "Check that the folder is writable and the file is not open elsewhere."
+                                           : saved.error().hint);
+        }
+        written.push_back(*saved);
+    }
+    auto fresh = load_world_index(indexPath, options);
+    if (!fresh.ok())
+        fail("The index '" + indexPath + "' changed while baking and cannot be read now: " + fresh.error().message +
+                 " (" + std::to_string(written.size()) + " proxy files were written; the index is unchanged).",
+             fresh.error().hint, "write_failed");
+    WorldIndex next = std::move(fresh.value());
+    for (const CellBake& b : done) {
+        WorldCell* target = nullptr;
+        for (WorldCell& c : next.cells)
+            if (c.i == b.cell->i && c.j == b.cell->j) target = &c;
+        if (!target)
+            fail("Cell [" + b.cell->id() + "] is no longer in '" + indexPath + "': the index changed while baking (" +
+                     std::to_string(written.size()) + " proxy files were written; the index is unchanged).",
+                 "Run world.bake_cell_hlods again.", "write_failed");
+        target->hlod = b.file;
+        if (setDistance) target->hlodMaxDistance = maxDistance;
+    }
+    const Json nextJson = world_index_to_json(next);
+    {
+        auto check = parse_world_index(nextJson, indexPath, options);
+        if (!check.ok())
+            fail("The index this bake would write is not valid: " + check.error().message, check.error().hint,
+                 "internal");
+    }
+    auto w = fs::write_text(indexWrite, dump_json(nextJson));
+    if (!w.ok())
+        fail("Cannot write '" + indexPath + "': " + w.error().message + " (" + std::to_string(written.size()) +
+                 " proxy files were written; the index is unchanged).",
+             w.error().hint, "write_failed");
+    result["written"] = written;
+    result["indexWritten"] = indexPath;
     return result;
 }
 
@@ -471,7 +787,45 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
                "apply":{"type":"boolean","default":false,"description":"Also set LodGroup.hlodProxy (and a default hlodThreshold) on `entity`. Not with `scene`."}}})"),
          false, "world"},
         [&I](const Json& a) { return bake_hlod(I, a); });
-    declare_command_capabilities(I.commands, {{"world.bake_hlod", capability_sets::edits_project()}});
+    I.commands.add({"world.bake_cell_hlods",
+                    "Bake the HLOD proxy of every cell of a streamed world and name it in the world index.",
+                    "For each cell of the index (or the `cells` you list) loads the cell's scene on the side, merges "
+                    "every active MeshRenderer in it "
+                    "into ONE mesh in the space of the cell's corner (the cell's minimum corner on the plane, height "
+                    "0), simplifies it with the "
+                    "simplifier of world.bake_hlod (`ratio`, default 0.1; `maxError`, metres) and writes "
+                    "<outDir>/<i>_<j>.glb, then sets "
+                    "`hlod.mesh` of those cells in the index (with `hlod.maxDistance` when you pass `maxDistance`), "
+                    "one atomic write of the index "
+                    "after every file is in place. The streamer draws the proxy while the cell is not loaded and "
+                    "StreamedWorld.hlodDistance is above "
+                    "0 (docs.read BIG_WORLDS_STREAMING, \"HLOD proxies\"). Example: world.bake_cell_hlods "
+                    "{\"world\":\"worlds/town.world.json\",\"maxDistance\":900}." FA_COMMAND_DETAILS
+                    "Deterministic: the same scenes and arguments write the same bytes. A cell with no mesh is listed "
+                    "in `cellsSkipped` and keeps "
+                    "its current proxy. The cell scenes are loaded on the side, so their procedural meshes do not "
+                    "exist there and custom material "
+                    "files, per-entity overrides and textures embedded in a .glb are not carried (as in "
+                    "world.bake_hlod). The index is rewritten in "
+                    "its canonical key order. `dryRun` bakes and reports (triangles, errors) without writing a file. A "
+                    "cell scene that cannot be "
+                    "read or has load errors stops the command before anything is written. Result: {world, outDir, "
+                    "baked: [{coord, mesh, meshes, "
+                    "trianglesBefore, triangles, vertices, error, skipped}], cellsBaked, cellsSkipped, "
+                    "trianglesBefore, triangles, dryRun, "
+                    "written, indexWritten?}.",
+                    parse_schema(R"({"type":"object","required":["world"],"properties":{
+               "world":{"type":"string","x-fa-path":"read","description":"Project-relative world index (<name>.world.json) whose cells are baked; it is rewritten with the hlod entries."},
+               "outDir":{"type":"string","x-fa-path":"write","description":"Project folder for the proxy files <i>_<j>.glb. Default: the index path without .world.json plus _hlod (worlds/town_hlod)."},
+               "cells":{"type":"array","items":{},"description":"Cells to bake, as [i, j] pairs or {i, j} objects. Default: every cell of the index."},
+               "ratio":{"type":"number","exclusiveMinimum":0,"maximum":1,"description":"Share of the triangles to keep (0.1 = a tenth). Default 0.1 when maxError is not given."},
+               "maxError":{"type":"number","exclusiveMinimum":0,"description":"The most the simplified surface may move from the merged one, in metres."},
+               "maxDistance":{"type":"number","minimum":0,"description":"Sets hlod.maxDistance of the baked cells: the farthest distance from an anchor their proxy is drawn at (0 = StreamedWorld.hlodDistance). Without it the cells keep their current value."},
+               "dryRun":{"type":"boolean","default":false,"description":"Bake and report without writing the files or the index."}}})"),
+                    false, "world"},
+                   [&I](const Json& a) { return bake_cell_hlods(I, a); });
+    declare_command_capabilities(I.commands, {{"world.bake_hlod", capability_sets::edits_project()},
+                                              {"world.bake_cell_hlods", capability_sets::edits_project()}});
 }
 
 }  // namespace fa

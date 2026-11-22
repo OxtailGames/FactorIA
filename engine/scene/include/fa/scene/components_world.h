@@ -96,6 +96,8 @@ struct StreamedWorld {
     float cameraLoadRadius =
         0.0f;  // metres; above 0 the active camera is an anchor with this load radius (0 = it is not)
     float cameraUnloadRadius = 0.0f;  // metres; 0 = 1.25 times cameraLoadRadius
+    float hlodDistance =
+        0.0f;  // metres from an anchor within which a cell that is not loaded draws its HLOD proxy; 0 = none drawn
 };
 
 // The visual and collision terrain: a heightmap drawn with GPU LOD and splat-mapped material layers. M75.5. The component is
