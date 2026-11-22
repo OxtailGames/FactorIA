@@ -214,7 +214,8 @@ TEST_CASE("portals on a GPU: a portal that names a missing area, joins an area t
     CHECK(g.renderer.stats().portalsVisited == 0);
 }
 
-TEST_CASE("portals on a GPU: a floor under a room stays drawn from outside, a mesh across two areas from either of them") {
+TEST_CASE(
+    "portals on a GPU: a floor under a room stays drawn from outside, a mesh across two areas from either of them") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     // A floor tile wider than the rooms whose centre is inside room A: it also belongs to the outside, so a camera outside sees it.
@@ -225,17 +226,21 @@ TEST_CASE("portals on a GPU: a floor under a room stays drawn from outside, a me
     w.get<Transform>(w.find("cam"))->position = {0, 1.6f, 30};
     g.render(w);
     const RenderStats s = g.renderer.stats();
-    CHECK(s.meshesCulledByArea == 3);  // the cube of A and the two of B, behind the shut door and the wall of the camera's side
-    CHECK(s.meshes == 1);              // the floor
+    CHECK(s.meshesCulledByArea ==
+          3);              // the cube of A and the two of B, behind the shut door and the wall of the camera's side
+    CHECK(s.meshes == 1);  // the floor
     // A cube wholly inside room A is not drawn from outside, while a mesh that sticks out of it is (it is outside too).
     World span;
     make_rooms(span, true, false, false, false);
-    Entity across = add_cube(span, "across", {0, 1, -5}, Color::hex(0xe0e0e0));  // centre on the wall between A (z > -5) and B
-    span.get<Transform>(across)->scale = {2, 2, 4};                                // z -7..-3: in A and in B, wholly in neither
-    g.render(span);  // the camera is in A, the door is shut
+    Entity across =
+        add_cube(span, "across", {0, 1, -5}, Color::hex(0xe0e0e0));  // centre on the wall between A (z > -5) and B
+    span.get<Transform>(across)->scale = {2, 2, 4};                  // z -7..-3: in A and in B, wholly in neither
+    g.render(span);                                                  // the camera is in A, the door is shut
     CHECK(g.renderer.stats().meshesCulledByArea == 0);
     CHECK(g.renderer.stats().meshes == 2);
-    span.get<Transform>(span.find("cam"))->position = {0, 1.6f, -10};  // now in B: A's cube is culled, the mesh across is not
+    span.get<Transform>(span.find("cam"))->position = {0, 1.6f,
+                                                       -10};  // now in B: A's cube is culled, the mesh across is not
+    span.get<Transform>(span.find("cam"))->rotation = {0, 180, 0};
     g.render(span);
     CHECK(g.renderer.stats().meshesCulledByArea == 1);
     CHECK(g.renderer.stats().meshes == 1);
