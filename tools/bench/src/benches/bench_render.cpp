@@ -14,6 +14,7 @@
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
 #include "fa/scene/components_world.h"
+#include "fa/scene/impostor.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -165,6 +166,46 @@ void build_lod3d(World& w) {
     }
 }
 
+// The 3D scene again, every cube and sphere an impostor beyond 30 m (M75-P1c): an atlas of 4 x 4 frames of 32 pixels written into the
+// bench's project, about 700 of the 1600 meshes are cards (one batch), the rest keep their meshes. The cost of the pick of each mesh, the
+// card's vertex work and the 3-frame blend of the fragment shader.
+void build_impostor3d(World& w) {
+    build_3d(w);
+    const std::filesystem::path dir = env().dir;
+    ImpostorAtlas atlas;
+    atlas.views = 4;
+    atlas.frameSize = 32;
+    atlas.albedo = "assets/bench_impostor.png";
+    atlas.normal = "assets/bench_impostor_normal.png";
+    atlas.radius = 0.8f;
+    Image albedo, normal;
+    albedo.width = albedo.height = normal.width = normal.height = 128;
+    albedo.rgba.assign(128u * 128u * 4, 255);
+    normal.rgba.assign(128u * 128u * 4, 255);
+    for (std::size_t k = 0; k < albedo.rgba.size(); k += 4) {
+        const int x = int((k / 4) % 128) % 32, y = int((k / 4) / 128) % 32;
+        albedo.rgba[k] = std::uint8_t(80 + x * 4);
+        albedo.rgba[k + 1] = std::uint8_t(120 + y * 3);
+        albedo.rgba[k + 2] = 90;
+        albedo.rgba[k + 3] = (x - 16) * (x - 16) + (y - 16) * (y - 16) < 15 * 15 ? 255 : 0;
+        normal.rgba[k] = 128;
+        normal.rgba[k + 1] = 255;
+        normal.rgba[k + 2] = 128;
+    }
+    auto put = [&](const std::string& path, const std::vector<std::uint8_t>& bytes) {
+        (void)fs::write_bytes(fs::path_to_utf8(dir / fs::path_from_utf8(path)), bytes.data(), bytes.size());
+    };
+    put(atlas.albedo, encode_png(albedo));
+    put(atlas.normal, encode_png(normal));
+    const std::string text = impostor_to_json(atlas).dump(2);
+    put("assets/bench_impostor.impostor.json", std::vector<std::uint8_t>(text.begin(), text.end()));
+    w.each<MeshRenderer>([](Entity, MeshRenderer& m) {
+        if (m.mesh != "cube" && m.mesh != "sphere") return;
+        m.impostor = "assets/bench_impostor.impostor.json";
+        m.impostorDistance = 30.0f;
+    });
+}
+
 // build_3d with three wall Occluders across the field (24 m wide, 8 m tall, at z = 0): the cubes and spheres behind them are hidden from
 // the camera, so the frame draws fewer meshes (M75.2: the occlusion culling on the CPU).
 void build_3d_occluded(World& w) {
@@ -297,6 +338,10 @@ void add_render_benches(std::vector<Bench>& out) {
                                "render.frame3d with two lower levels on every mesh and 40 LodGroups of three meshes: "
                                "the cost of picking the levels",
                                build_lod3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.impostor3d",
+                               "render.frame3d with every cube and sphere an impostor card beyond 30 m: the cost of "
+                               "picking, drawing and shading the cards",
+                               build_impostor3d, 8 * 1600, "meshes"));
     out.push_back(render_bench("render.occlusion3d",
                                "render.frame3d with three wall Occluders: 8 frames of 1600 meshes, most of those "
                                "behind the walls hidden (the cost of the "

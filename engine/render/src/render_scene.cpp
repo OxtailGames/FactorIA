@@ -330,7 +330,8 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
             assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh, mr.mesh.empty() ? kCube : mr.mesh, sm.lm);
         }
-        sm.hasLods = !mr.lods.empty();
+        sm.hasLods =
+            !mr.lods.empty() || (!mr.impostor.empty() && mr.impostorDistance > 0.0f);  // the impostor is a level too
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
         const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
         const bool colors = mr.materialColors.is_object() && !mr.materialColors.empty();
@@ -462,8 +463,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         fields_[i] = {sm.mesh,       sm.tex,   sm.normalTex,          sm.mr,
                       sm.entity,     sm.anim,  sm.material,           sm.paramsHash,
                       sm.colorsHash, sm.flash, sm.lm.mesh != nullptr, sm.probeKey};
-        if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
+        if (!sm.hasLods) continue;
         anyLods_ = true;
+        if (!sm.mr->lods.is_array()) continue;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;
             const auto m = e.find("mesh");

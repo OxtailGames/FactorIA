@@ -10,15 +10,15 @@ is "off" or "as before".
 
 | Part | Package | What it adds |
 |---|---|---|
-| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup`, dithered cross-fade and the HLOD proxy with `world.bake_hlod` (drawn); impostors (planned) |
+| [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup`, dithered cross-fade, impostor cards and the HLOD proxy with `world.bake_hlod` (all drawn) |
 | [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders (CPU) and a depth pyramid of the camera's picture (GPU) built, areas and portals (planned) |
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
 | [Terrain](BIG_WORLDS_TERRAIN.md#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
 | [Foliage](BIG_WORLDS_TERRAIN.md#foliage) | M75.6 | instanced vegetation and rocks: drawn from an instances file with chunk culling, fade, LOD, wind and thinning; the scatter and paint commands are planned |
 
-`renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
-"planned (M75)" until its package lands (`impostors`); `occlusionCpu`, `terrain` and `foliage` are `true` on every backend and `occlusionGpu` where the GPU has compute shaders (D3D11, Metal, OpenGL 4.3). Ask
+`renderer.supports` (the `render.supports` command) lists a row per renderer feature: `impostors`, `occlusionCpu`, `terrain` and
+`foliage` are `true` on every backend and `occlusionGpu` where the GPU has compute shaders (D3D11, Metal, OpenGL 4.3). Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Pages
@@ -45,7 +45,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | `world.cells`, `world.stream_status` | M75.3 | no |
 | `tilemap.split_cells` | M75.3b | yes |
 | `world.split_cells`, `world.merge_cells` | M75.3c (built) | yes |
-| `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
+| `model.generate_lods`, `model.bake_impostor` | M75.1 (built) | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
 | `foliage.scatter`, `foliage.paint`, `foliage.clear` | M75.6 | yes |
 

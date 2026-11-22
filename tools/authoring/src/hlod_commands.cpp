@@ -311,11 +311,13 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     // Refused before any mesh is read: LodGroup.hlodProxy on an entity that is not a group yet would make its children LOD levels.
     if (apply && !rootGroup && rootKids.size() > 1)
         fail("`apply` (/apply): '" + world->id_of(root) + "' has " + std::to_string(rootKids.size()) +
-                 " children and no LodGroup, and a LodGroup turns its children into LOD levels (child 0 is drawn up close, "
+                 " children and no LodGroup, and a LodGroup turns its children into LOD levels (child 0 is drawn up "
+                 "close, "
                  "the others only past thresholds): applying would hide all but the first child.",
              "Wrap the children in ONE child entity (it becomes LOD 0 of the group) and bake the entity again, or bake "
              "without `apply` and set LodGroup.hlodProxy yourself on an entity whose children are the levels.");
-    if (std::as_const(*world).get<MeshRenderer>(root)) skip(world->id_of(root), "the entity's own MeshRenderer is not merged");
+    if (std::as_const(*world).get<MeshRenderer>(root))
+        skip(world->id_of(root), "the entity's own MeshRenderer is not merged");
     std::size_t levelsIgnored = 0;
     std::vector<Entity> stack;
     if (rootGroup && !rootKids.empty()) {
@@ -392,8 +394,7 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
 
     // The default threshold: the proxy takes over at 8 times the group's size (Distance) or below 3% of the screen (ScreenSize).
     const float dx = proxy.bmax.x - proxy.bmin.x, dy = proxy.bmax.y - proxy.bmin.y, dz = proxy.bmax.z - proxy.bmin.z;
-    const float diameter =
-        std::sqrt(dx * dx + dy * dy + dz * dz);
+    const float diameter = std::sqrt(dx * dx + dy * dy + dz * dz);
     Json result = Json::object({{"saved", *saved},
                                 {"entity", rootId},
                                 {"meshes", merged.meshes},
@@ -437,14 +438,17 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
          "as a "
          ".glb at `out`. With `apply` it also sets LodGroup.hlodProxy (adding the LodGroup) and a default "
          "hlodThreshold "
-         "on the entity (refused when it has several children and no LodGroup: they would become LOD levels), one undo step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity "
+         "on the entity (refused when it has several children and no LodGroup: they would become LOD levels), one undo "
+         "step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity "
          "of "
          "a scene file; no `apply`). Deterministic: the same scene and arguments write the same bytes. Result: {saved, "
          "entity, meshes, trianglesBefore, triangles, vertices, submeshes, error, diameter, skipped, applied, "
          "hlodThreshold?}. Example: world.bake_hlod {\"entity\":\"town_block\",\"out\":\"assets/hlod/town_block.glb\","
          "\"apply\":true}. Details: docs.read BIG_WORLDS_LOD, \"Levels of detail\", the HLOD proxy." FA_COMMAND_DETAILS
-         "A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) before `apply`; "
-         "`levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: 8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
+         "A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) "
+         "before `apply`; "
+         "`levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: "
+         "8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
          "mode; "
          "an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed "
          "in "

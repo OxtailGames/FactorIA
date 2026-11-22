@@ -182,13 +182,14 @@ TEST_CASE("world.bake_hlod: apply sets LodGroup.hlodProxy and a default threshol
     CHECK(e.world().get<LodGroup>(block)->hlodThreshold == 77.0f);
 }
 
-TEST_CASE("world.bake_hlod: apply refuses an entity with several children and no LodGroup, and tells how to wrap them") {
+TEST_CASE(
+    "world.bake_hlod: apply refuses an entity with several children and no LodGroup, and tells how to wrap them") {
     Project p;
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    const std::string t = error_text(
-        e, Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"apply", true}}));
+    const std::string t =
+        error_text(e, Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"apply", true}}));
     CHECK(t.find("/apply") != std::string::npos);
     CHECK(t.find("LOD levels") != std::string::npos);
     CHECK(t.find("ONE child entity") != std::string::npos);
