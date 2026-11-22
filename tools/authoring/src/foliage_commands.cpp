@@ -728,10 +728,10 @@ Json do_clear(Engine::Impl& I, const Json& a) {
 // ------------------------------------------------------------------------------------------------ foliage.restore
 
 Json do_restore(Engine::Impl& I, const Json& a) {
-    Field f = open_field(I, a);
     if (!a.contains("file") || !a["file"].is_string() || a["file"].get<std::string>().empty())
         bad("/file", "Missing `file`", "Pass the `undo` of a foliage command as it was returned.");
     const std::string file = write_target("/file", a["file"].get<std::string>());
+    Field f = open_field(I, a);
     if (!a.contains("data") || !(a["data"].is_null() || a["data"].is_string()))
         bad("/data", "`data` must be the base64 of the file, or null to delete it", "Pass the `undo` as returned.");
     if (!a.contains("meshes") || !a["meshes"].is_array())

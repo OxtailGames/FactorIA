@@ -44,6 +44,8 @@ A stroke never puts two instances closer than half the average gap of `density` 
 
 ## `foliage.restore` (modifies state)
 
+Not released yet (on main after 0.34.0).
+
 Put a Foliage's instances file back: the undo and redo of the foliage.* edits.
 
 Capabilities: read, state, writeProject
