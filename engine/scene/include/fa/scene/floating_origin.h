@@ -1,4 +1,4 @@
-// Floating origin helpers (M75.4, docs/BIG_WORLDS.md "Floating origin"): the arithmetic of a rebase. World::rebase does the shift;
+// Floating origin helpers (M75.4, docs/BIG_WORLDS_STREAMING.md "Floating origin"): the arithmetic of a rebase. World::rebase does the shift;
 // these decide WHEN and BY HOW MUCH, in one place the engine, the commands and the tests share.
 //
 // Why the offset is a whole multiple of `step` per axis, and `step` a power of two: a float position p far from 0 is a multiple of

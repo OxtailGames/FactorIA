@@ -166,7 +166,8 @@ struct RenderStats {
     int meshesOccluded =
         0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders (still drawn into shadow maps)
     int lodCrossFades =
-        0;  // M75.1: meshes drawn in a dithered LOD cross-fade (MeshRenderer.lodCrossFade, LodGroup.crossFade)
+        0;  // M75.1: meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras (a fading
+            // entity counts 2; probe and GI captures do not count)
     int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
     int terrainTiles = 0;      // M75.5: Terrain tiles drawn in the main pass (after the LOD selection and the culling)
     int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`; the tiles are not in `meshes`)
@@ -529,6 +530,12 @@ public:
     // not loaded yet; {} before init().
     Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+    // What the Terrain textures cost the GPU work since the renderer started (a test looks at them; not a stat of the picture): the height
+    // textures sent whole, the rectangles of them a sculpt re-sent, and the layer and control arrays built.
+    struct TerrainUploads {
+        std::uint64_t whole = 0, rects = 0, arrays = 0;
+    };
+    TerrainUploads terrain_uploads() const;
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
     // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a
@@ -589,7 +596,7 @@ public:
     // as <prefix>-emission.png, <prefix>-occluders.png and <prefix>-distance.png and the report lists them in "files"; a failure is in "error".
     // Reads the GPU back (a command, never the frame). Empty object before init().
     Json gi2d_field(std::string_view savePrefix = {}, std::string_view job = {});
-    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS.md, "Occlusion"): the report of the `render.occlusion` command
+    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS_LOD.md, "Occlusion"): the report of the `render.occlusion` command
     // {supported, debugView, active, limits, camera, width, height, occluders, triangles, coveredCells, tests, hidden}. `active` is false
     // (and the rest left out) when no camera of the last frame had an enabled Occluder. With `savePath` (a UTF-8 path of a .png) the
     // depth buffer of the last camera that had occluders is written as a grey picture (black = no occluder; the nearer, the brighter) and

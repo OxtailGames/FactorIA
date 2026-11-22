@@ -1,4 +1,4 @@
-// The world streamer (docs/BIG_WORLDS.md, "Streaming"): loads and unloads the cells of a streamed world around the StreamingAnchor
+// The world streamer (docs/BIG_WORLDS_STREAMING.md, "Streaming"): loads and unloads the cells of a streamed world around the StreamingAnchor
 // entities. One per engine, made with the engine, never serialized. Main thread only.
 //
 //   StreamedWorld (a component) names the index file (<name>.world.json, fa/scene/world_index.h). Every FIXED TICK `update()` reads the

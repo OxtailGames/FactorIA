@@ -18,6 +18,11 @@ namespace fa::render {
 
 struct TerrainDraw;
 
+// The sort key of every node of a Terrain (renderer_terrain.cpp): after any key a scene's items get, so they follow the scene's own
+// batches and, the sort being stable, stay in the order they were gathered (one terrain after the other). Without it one terrain made
+// the whole frame's items "unkeyed" and sorted with the slow comparator.
+inline constexpr std::uint64_t kTerrainSortKey = ~std::uint64_t(0);
+
 // One MeshRenderer entity, gathered for this frame.
 struct MeshItem {
     MeshAsset* mesh = nullptr;
@@ -43,6 +48,9 @@ struct MeshItem {
     std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // The LOD cross-fade of the item (M75.1, lod_fade_amount): 0 = none, +a = a level fading in, -a = a level fading out; the shader
+    // dithers with it (mesh_common.glsl fa_lod_dither). Items with different values never share a draw; the shadow pass ignores it.
+    float lodFade = 0.0f;
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
     // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)

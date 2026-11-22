@@ -1,4 +1,4 @@
-// The index of a streamed world (docs/BIG_WORLDS.md, "Streaming"): `<name>.world.json`, the list of the cells of a big world, each
+// The index of a streamed world (docs/BIG_WORLDS_STREAMING.md, "Streaming"): `<name>.world.json`, the list of the cells of a big world, each
 // one a scene file that the engine loads and unloads around the StreamingAnchor entities (engine/runtime world_streamer.h).
 //
 //   {

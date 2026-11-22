@@ -1,4 +1,4 @@
-// Occlusion culling on the CPU (M75.2, docs/BIG_WORLDS.md, "Occlusion"): a small depth buffer that the Occluder entities are
+// Occlusion culling on the CPU (M75.2, docs/BIG_WORLDS_LOD.md, "Occlusion"): a small depth buffer that the Occluder entities are
 // rasterised into, and the test of a mesh's box against it. Private to fa_render; Renderer::Impl::occlude_meshes drives it.
 //
 // What the buffer holds. kOcclusionWidth (256) cells across and 256 / aspect down (144 for a 16:9 camera, at most 512), with

@@ -46,7 +46,7 @@ void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3
 }
 
 namespace {
-auto material_key(const MeshItem& a, bool withProbe = true) {
+auto material_key(const MeshItem& a, bool main = true) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic,
                            r.roughness, r.emissive.r, r.emissive.g, r.emissive.b, r.emissiveStrength, r.clearcoat,
@@ -56,7 +56,7 @@ auto material_key(const MeshItem& a, bool withProbe = true) {
                            r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y, r.normalScale, a.anim, a.material,
                            a.paramsHash, a.colorsHash, a.flash.r, a.flash.g, a.flash.b, a.flash.a,
                            a.lm.mesh ? a.entity.bits() : std::uint64_t(0), decal_recv(r), subsurface_of(r),
-                           withProbe ? a.probeKey : std::uint64_t(0));
+                           main ? a.probeKey : std::uint64_t(0), main ? a.lodFade : 0.0f);
 }
 
 // The order of the batches: the same values, with each asset by its name (path or key) and a skinned item by its
@@ -85,7 +85,7 @@ auto order_key(const MeshItem& a) {
         order_float(r.uvScale.y), order_float(r.normalScale),
         (a.anim || a.lm.mesh) ? a.entity.bits() : std::uint64_t(0), name_of(a.material), a.paramsHash, a.colorsHash,
         order_float(a.flash.r), order_float(a.flash.g), order_float(a.flash.b), order_float(a.flash.a), decal_recv(r),
-        subsurface_of(r), a.probeKey);
+        subsurface_of(r), a.probeKey, order_float(a.lodFade));
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
@@ -94,8 +94,8 @@ bool same_material(const MeshItem& a, const MeshItem& b) {
     if (a.keyed && b.keyed && a.sortKey != b.sortKey) return false;
     return material_key(a) == material_key(b);
 }
-// The same, ignoring the light probe SH: the shadow pass never reads it, so batches that differ only there draw their
-// casters as one run (build_batches).
+// The same, ignoring the light probe SH and the LOD cross-fade: the shadow pass reads neither, so batches that differ only there
+// draw their casters as one run (build_batches).
 bool same_shadow_material(const MeshItem& a, const MeshItem& b) {
     return material_key(a, false) == material_key(b, false);
 }
@@ -115,15 +115,19 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
     if (sortByMaterial) {
         const bool allKeyed = std::all_of(items.begin(), items.end(), [](const MeshItem& m) { return m.keyed; });
         if (allKeyed) {
-            // A stable sort of (key, index) pairs: equal keys are equal items, so this is the order the comparator gives.
+            // A stable sort of (key, lod fade, index): equal keys are equal items except for a LOD cross-fade, which the key does not
+            // hold, so the fade breaks the tie (items fading by the same amount stay together and share a batch).
             struct Entry {
                 std::uint64_t key;
+                float fade;
                 std::uint32_t index;
             };
             std::vector<Entry> order(items.size());
-            for (std::size_t i = 0; i < items.size(); ++i) order[i] = {items[i].sortKey, std::uint32_t(i)};
+            for (std::size_t i = 0; i < items.size(); ++i)
+                order[i] = {items[i].sortKey, items[i].lodFade, std::uint32_t(i)};
             rjobs::stable_sort(
-                "render.sort_meshes", order, [](const Entry& a, const Entry& b) { return a.key < b.key; },
+                "render.sort_meshes", order,
+                [](const Entry& a, const Entry& b) { return a.key != b.key ? a.key < b.key : a.fade < b.fade; },
                 kParallelSortItems, kSortGrain);
             std::vector<MeshItem> sorted;
             sorted.reserve(items.size());

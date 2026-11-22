@@ -312,11 +312,11 @@ std::vector<FeatureDef> build_table() {
          nullptr},
         // The big worlds of M75 (docs/BIG_WORLDS.md): planned "M75" until each package draws its row.
         {"lodCrossFade", "",
-         "Dithered cross-fade between two levels of detail (MeshRenderer.lodCrossFade, LodGroup.crossFade): both "
-         "levels "
-         "are drawn for the fade's duration, each with a screen-door mask, so a change of level does not pop. Every "
-         "backend (M75.1).",
-         "M75"},
+         "Level of detail by distance or screen size (MeshRenderer.lods with lodMode, LodGroup) and the dithered "
+         "cross-fade between two levels (MeshRenderer.lodCrossFade, LodGroup.crossFade): both levels are drawn for "
+         "the fade's duration, each on the pixels the other leaves (a screen-space dither, no texture), so a change "
+         "of level does not pop. Every backend (M75.1); a mesh with a full-shader material switches at once.",
+         nullptr},
         {"impostors", "",
          "Impostors: a mesh far away is drawn as one camera-facing quad that shows a baked picture of the model from "
          "the nearest of a ring of angles (MeshRenderer.impostor, the model.bake_impostor command). Every backend "
@@ -336,8 +336,12 @@ std::vector<FeatureDef> build_table() {
         {"terrain", "",
          "Terrain: a heightmap drawn as a quadtree of tiles that coarsen with distance (the Terrain component, M75): "
          "one 33 x 33 patch instanced per tile, the heights read in the vertex shader, morphed between levels, lit and "
-         "shadowed like a mesh, with the first material layer and an optional height collider. Splat-mapped layers and "
-         "holes are planned (M75). Every backend whose textures reach the heightmap's size.",
+         "shadowed like a mesh, with up to 8 layers (albedo and normal texture arrays, roughness, metallic) blended by "
+         "two RGBA splat maps, holes cut in the geometry, and an optional height collider. Every backend whose "
+         "textures reach the sizes the report's `limits` give: maxTextureSize (the heightmap's side), and "
+         "maxArrayLayers and maxArrayTextureSize for the layer textures (up to 8 layers) and the splat maps and holes "
+         "(up to 3 layers); a terrain beyond them is not drawn (the heightmap) or is drawn with neutral grey layers "
+         "(the layers), and the log says which.",
          nullptr},
         {"foliage", "",
          "Foliage: thousands of instances of a mesh drawn with GPU instancing from a data file, with wind, LODs and a "
@@ -478,6 +482,10 @@ FeatureEnv feature_env_from_sokol() {
             env.backend = FeatureBackend::Headless;
             break;  // the dummy backend (and any sokol backend the engine never builds)
     }
+    const sg_limits limits = sg_query_limits();
+    env.maxTextureSize = limits.max_image_size_2d;
+    env.maxArrayLayers = limits.max_image_array_layers;
+    env.maxArrayTextureSize = limits.max_image_size_array;
     const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     env.halfTargets = half.render && half.blend && half.filter;
     const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
@@ -520,6 +528,9 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         list.push_back(row);
     }
     out["features"] = list;
+    out["limits"] = Json::object({{"maxTextureSize", env.maxTextureSize},
+                                  {"maxArrayLayers", env.maxArrayLayers},
+                                  {"maxArrayTextureSize", env.maxArrayTextureSize}});
     return out;
 }
 

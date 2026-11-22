@@ -152,7 +152,7 @@ struct HeightfieldShape {
 std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heightfield3D& c, HeightfieldEdit& edit);
 // The same for a Terrain3D: the grid is the terrain's own heights (so the collider is the surface that is drawn, triangle for
 // triangle), taken in again through the rectangle each mark_dirty() named since the last call. No side limit but the terrain's own
-// (4097); no holes yet (P5d).
+// (4097); the cells of the holes mask are left out (TerrainHeights::holes, followed through holesVersion).
 std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t,
                                const TerrainHeights& heights, HeightfieldEdit& edit);
 

@@ -177,7 +177,7 @@ struct Engine::Impl {
     // pool started (whether its IO thread runs depends on the pool), stopped before the engine waits for its jobs.
     std::unique_ptr<BackgroundLoader> loader;
     std::unique_ptr<WorldStreamer>
-        streamer;                        // made with the loader, destroyed before it (docs/BIG_WORLDS.md, "Streaming")
+        streamer;                        // made with the loader, destroyed before it (docs/BIG_WORLDS_STREAMING.md, "Streaming")
     std::optional<int> replayLoadUnits;  // a replay entry's "loadUnits": the units of the coming frame
     bool replaying = false;              // a windowed replay runs: frames without "loadUnits" take the fixed budget
     // Starts a background load (scene.preload, assets.preload, an async scene.load) for a script or a command. An async
@@ -221,7 +221,7 @@ struct Engine::Impl {
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
-    // ---- floating origin (engine_origin.cpp, docs/BIG_WORLDS.md "Floating origin")
+    // ---- floating origin (engine_origin.cpp, docs/BIG_WORLDS_STREAMING.md "Floating origin")
     // Moves the origin by `offset` (a whole multiple of the project's step per axis): World::rebase (Transforms, particles, queued
     // effects, origin observers = the renderer), then the physics, the audio and the navigation, then one `originShifted` game event.
     // All in one call on the main thread, between fixed steps, so no frame sees the subsystems disagree.
