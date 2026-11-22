@@ -670,8 +670,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`foliage.clear`](commands/world.md#foliageclear-modifies-state): Remove every instance of a Foliage, or those in a rectangle. _Not released yet._
 - [`foliage.paint`](commands/world.md#foliagepaint-modifies-state): Add or remove foliage instances by hand in a circle on the ground. _Not released yet._
-- [`foliage.restore`](commands/world.md#foliagerestore-modifies-state): Put a Foliage's instances file back: the undo and redo of the foliage.* edits. _Not released yet._
+- [`foliage.redo`](commands/world.md#foliageredo-modifies-state): Redo the foliage edit the last foliage.undo took back. _Not released yet._
 - [`foliage.scatter`](commands/world.md#foliagescatter-modifies-state): Fill a Foliage's instances by a ScatterRule over a terrain, deterministically. _Not released yet._
+- [`foliage.undo`](commands/world.md#foliageundo-modifies-state): Undo the last foliage.scatter, foliage.paint or foliage.clear of a Foliage. _Not released yet._
 - [`terrain.create`](commands/world.md#terraincreate-modifies-state): Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap. _Not released yet._
 - [`terrain.generate`](commands/world.md#terraingenerate-modifies-state): Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step). _Not released yet._
 - [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one undo step). _Not released yet._

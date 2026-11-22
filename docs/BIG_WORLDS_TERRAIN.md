@@ -248,7 +248,7 @@ until then the commands are the way to fill a field.
   Result: `{file, instances, bytes, candidates, placed, rejected: {outside, hole, height, slope, layer, spacing}, meshes: [{mesh,
   count}], rule, terrain, undo}`. It is refused, before anything is written, with `too_many_instances` when the result would hold
   more than 2,000,000 instances and with `too_many_candidates` when the area holds more than 16.7 million grid cells.
-- `foliage.paint {entity, center, radius, mode?, density?, mesh?, seed?, rule?}` adds (`mode` `add`, the default) instances inside
+- `foliage.paint {entity, center, radius, mode?, density?, mesh?, seed?, rule?, continueStroke?}` adds (`mode` `add`, the default) instances inside
   the circle of `radius` metres around `center` (world `[x, z]`) with the same placement rules as the scatter (the ScatterRule of
   `rule` or of the entity itself; without one, the ScatterRule defaults and equal mesh weights) and the same hash grid, so the same
   arguments always add the same instances. `density` is per square metre (default the rule's), `mesh` limits the brush to one of
@@ -258,6 +258,22 @@ until then the commands are the way to fill a field.
   instances, file, counts, undo}`; a stroke that changes nothing says why and writes nothing.
 - `foliage.clear {entity, region?}` removes every instance (the file stays, empty), or only those inside `region` (`[minX, minZ,
   maxX, maxZ]` world metres, edges included). Result: `{removed, instances, file, undo}`.
-- Undo: every one of the three returns `undo`, a `foliage.restore` call that carries the previous file (base64; null when there was
-  none), `Foliage.meshes` and `Foliage.instances`. Calling it puts them back, deletes a file the command created and returns
-  its own `undo`, which is the redo. The payload is the size of the previous file (up to 52 MB for 2 million instances).
+- `foliage.undo {entity}` and `foliage.redo {entity}` step the history of that Foliage entity back and forward: they put the
+  instances file, `Foliage.meshes` and `Foliage.instances` as they were before (or after) the newest edit, and delete the file
+  when the undone edit had created it. Result: `{entity, undone | redone (the name of the command), file, instances, deleted,
+  undoDepth, redoDepth}`. They are refused with `nothing_to_undo` / `nothing_to_redo`, and with `stale_history` when the file,
+  `Foliage.meshes` or `Foliage.instances` was changed by anything but the foliage commands since the last step (the history is
+  then cleared and nothing is written).
+- History: `foliage.scatter`, `foliage.paint` and `foliage.clear` each push one step into an in-memory history kept per Foliage
+  entity, like the terrain's. A step holds only what changed (the removed instances with their indices, and the added ones), so a
+  brush stroke costs a few KB, not the whole file. The history keeps at most 64 steps and 128 MB; when a new step does not fit,
+  the oldest are dropped and the result says `historyDropped` (how many) with a `historyNote`. A new edit clears the redo steps.
+  Every editing result carries `undo`, the short call `{"command": "foliage.undo", "args": {"entity": <id>}}` (absent when the
+  command changed nothing), plus `undoDepth` and `redoDepth`. `foliage.paint` with `continueStroke: true` adds its change to
+  the newest step instead of making a new one (the result says `continued: true`), so a stroke sent in pieces is one undo. It
+  is an error (`/continueStroke`) when the newest step is not a paint of this Foliage or an undo came after it: send the first
+  piece without it.
+- What survives: the history lives in the process only. A scene save does not touch it. A scene reload, a restart, or a change
+  of the file, `Foliage.meshes` or `Foliage.instances` made outside the foliage commands (a text edit, a script, a version-control
+  restore) ends it: the next editing command says `historyReset`, and `foliage.undo` answers `stale_history`. `foliage.restore`
+  (with the whole file as base64) no longer exists.

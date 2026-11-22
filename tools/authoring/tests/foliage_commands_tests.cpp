@@ -1,6 +1,7 @@
-// M75-P6b: foliage.scatter, foliage.paint, foliage.clear and foliage.restore (tools/authoring/src/foliage_commands.cpp): a
-// deterministic scatter over a terrain, every rejection rule, the mesh weights, the spacing, the 2M cap, paint, clear, undo, redo
-// and the errors that teach.
+// M75-P6b / P6c-a: foliage.scatter, foliage.paint, foliage.clear, foliage.undo and foliage.redo
+// (tools/authoring/src/foliage_commands.cpp): a deterministic scatter over a terrain (with a golden hash), every rejection rule, the
+// mesh weights, the spacing, the 2M cap, a transformed Foliage, alignToNormal, paint, clear, the in-memory undo history (strokes,
+// the budget, a stale history) and the errors that teach.
 #include <doctest.h>
 
 #include <algorithm>
@@ -24,15 +25,17 @@ namespace {
 struct Project {
     stdfs::path dir;
     Engine e;
-    Project() {
+    explicit Project(bool withScene = true) {
         authoring::install();
         dir = fs::make_temp_dir("fa_foliage_cmd").value();
         stdfs::create_directories(dir / "scenes");
         std::ofstream(dir / "factoria.json", std::ios::binary)
-            << R"({"format":"factoria.project/1","name":"Foliage","id":"com.example.foliage","mainScene":"scenes/main.scene.json",
-                   "display":{"width":320,"height":180}})";
-        std::ofstream(dir / "scenes/main.scene.json", std::ios::binary)
-            << R"({"format": "factoria.scene/1", "entities": []})";
+            << (std::string(R"({"format":"factoria.project/1","name":"Foliage","id":"com.example.foliage",)") +
+                (withScene ? R"("mainScene":"scenes/main.scene.json",)" : R"("mainScene":"",)") +
+                R"("display":{"width":320,"height":180}})");
+        if (withScene)  // without it the project has no start scene at all: the engine runs with an empty world
+            std::ofstream(dir / "scenes/main.scene.json", std::ios::binary)
+                << R"({"format": "factoria.scene/1", "entities": []})";
         EngineConfig c;
         c.projectDir = dir.generic_string();
         c.headless = true;
@@ -95,7 +98,7 @@ TEST_CASE("foliage.scatter: the same rule, seed and terrain give the same file b
     p.field("b", kOne);
     Json ra = p.ok("foliage.scatter", R"({"entity":"a"})");
     Json rb = p.ok("foliage.scatter", R"({"entity":"b"})");
-    CHECK(ra["file"] == "scenes/main.a.foliage");  // no scene is loaded from a file: assets/foliage/ or next to it
+    CHECK(ra["file"] == "scenes/main.a.foliage");  // next to the scene (with no scene: assets/foliage/, tested below)
     CHECK(ra["instances"].get<int>() > 500);
     CHECK(ra["placed"] == ra["instances"]);
     CHECK(p.bytes(ra["file"].get<std::string>()) == p.bytes(rb["file"].get<std::string>()));
@@ -276,41 +279,306 @@ TEST_CASE("foliage.clear: all, or by rectangle") {
     CHECK(r.contains("note"));
 }
 
-TEST_CASE("foliage commands: undo and redo restore the file, the meshes and the field") {
+TEST_CASE("foliage.scatter: the file of one fixed seed has the same FNV-1a hash on every compiler and CPU") {
+    // The golden: a literal checked on MSVC, x86 GCC and ARM. The candidates, the draws and the quantised numbers are IEEE double
+    // operations, so a change of this value means a platform differs (or the generator changed on purpose: then say why).
+    Project p;
+    p.field("g1", R"({"meshes":[{"mesh":"assets/models/a.glb","weight":2},{"mesh":"assets/models/b.glb","weight":1}],
+                      "density":0.7,"seed":12345,"scaleRange":[0.8,1.4],"minSpacing":0.9,"alignToNormal":0.5})");
+    p.ok("terrain.sculpt", R"({"entity":"g","tool":"raise","center":[8,-6],"radius":18,"amount":6,"strength":1})");
+    Json r = p.ok("foliage.scatter", R"({"entity":"g1"})");
+    const auto b = p.bytes(r["file"].get<std::string>());
+    std::uint64_t h = 1469598103934665603ull;  // FNV-1a, 64 bits
+    for (std::uint8_t byte : b) {
+        h ^= byte;
+        h *= 1099511628211ull;
+    }
+    INFO("instances " << r["instances"].dump() << ", bytes " << b.size() << ", hash " << h);
+    CHECK(h == 4368253582388478046ull);
+}
+
+TEST_CASE("foliage.scatter: a Foliage under a transformed parent stores local positions that land on the ground") {
+    Project p;
+    p.ok("scene.spawn", R"({"id":"par","components":{"Transform":{"position":[10,2,5]}}})");
+    p.ok("scene.spawn", R"({"id":"kid","parent":"par","components":{"Foliage":{},"ScatterRule":{"terrain":"g",
+         "meshes":[{"mesh":"assets/models/pine.glb"}],"density":0.5,"seed":4}}})");
+    Json r = p.ok("foliage.scatter", R"({"entity":"kid"})");
+    REQUIRE(r["instances"].get<int>() > 300);
+    const float y = p.ground();
+    for (const FoliageInstance& in : p.load("kid")) {
+        CHECK(in.position.x + 10.0f >= -32.001f);  // the world position is inside the terrain
+        CHECK(in.position.x + 10.0f <= 32.001f);
+        CHECK(in.position.z + 5.0f >= -32.001f);
+        CHECK(in.position.z + 5.0f <= 32.001f);
+        CHECK(in.position.y + 2.0f == doctest::Approx(y).epsilon(1e-3));  // local y = ground - the parent's height
+    }
+    // a brush at a WORLD position finds the instances through the parent transform
+    Json pt = p.ok("foliage.paint", R"({"entity":"kid","center":[0,0],"radius":3,"density":2,"seed":3})");
+    CHECK(pt["added"].get<int>() > 10);
+    const auto all = p.load("kid");
+    int near = 0;
+    for (const FoliageInstance& in : all)
+        if (std::hypot(in.position.x + 10.0f, in.position.z + 5.0f) <= 3.001f) ++near;
+    CHECK(near >= pt["added"].get<int>());
+    Json rm = p.ok("foliage.paint", R"({"entity":"kid","mode":"remove","center":[0,0],"radius":3})");
+    CHECK(rm["removed"].get<int>() == near);
+}
+
+TEST_CASE("foliage.scatter: alignToNormal leans the instances away from the slope, slopeRange keeps the flat ground") {
+    Project p;
+    p.ok("terrain.sculpt", R"({"entity":"g","tool":"raise","center":[0,0],"radius":20,"amount":12,"strength":1})");
+    p.field("lean", R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"alignToNormal":1,"seed":2})");
+    p.ok("foliage.scatter", R"({"entity":"lean"})");
+    int leaning = 0;
+    for (const FoliageInstance& in : p.load("lean")) {
+        CHECK(in.up.y > 0.0f);
+        CHECK(in.up.x * in.up.x + in.up.y * in.up.y + in.up.z * in.up.z == doctest::Approx(1.0f).epsilon(0.02));
+        const float r = std::hypot(in.position.x, in.position.z);
+        if (r > 6.0f && r < 18.0f) {  // on the hill's flank: the up axis points outwards, away from the centre
+            CHECK(in.up.x * in.position.x + in.up.z * in.position.z > 0.0f);
+            if (in.up.y < 0.97f) ++leaning;
+        }
+    }
+    CHECK(leaning > 20);
+    // half-lean tilts less than a full lean
+    p.field("half", R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"alignToNormal":0.5,"seed":2})");
+    p.ok("foliage.scatter", R"({"entity":"half"})");
+    float minFull = 1.0f, minHalf = 1.0f;
+    for (const FoliageInstance& in : p.load("lean")) minFull = std::min(minFull, in.up.y);
+    for (const FoliageInstance& in : p.load("half")) minHalf = std::min(minHalf, in.up.y);
+    CHECK(minHalf > minFull);
+    // slopeRange: only the steep flank, then only the flat ground
+    p.field("steep", R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"slopeRange":[10,90],"seed":2})");
+    Json steep = p.ok("foliage.scatter", R"({"entity":"steep"})");
+    p.field("flat", R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"slopeRange":[0,10],"seed":2})");
+    Json flat = p.ok("foliage.scatter", R"({"entity":"flat"})");
+    CHECK(steep["instances"].get<int>() > 100);
+    CHECK(flat["instances"].get<int>() > 100);
+    for (const FoliageInstance& in : p.load("steep")) CHECK(std::hypot(in.position.x, in.position.z) < 21.0f);
+    for (const FoliageInstance& in : p.load("flat")) CHECK(std::hypot(in.position.x, in.position.z) > 0.0f);
+}
+
+TEST_CASE("foliage.scatter: `rule` takes the ScatterRule from another entity, and a layerMask picks any layer") {
+    Project p;
+    p.ok("scene.spawn", R"({"id":"recipe","components":{"ScatterRule":{"terrain":"g","density":0.5,"seed":9,
+         "meshes":[{"mesh":"assets/models/a.glb","weight":1}]}}})");
+    p.ok("scene.spawn", R"({"id":"plain","components":{"Foliage":{}}})");
+    Json r = p.ok("foliage.scatter", R"({"entity":"plain","rule":"recipe"})");
+    CHECK(r["rule"] == "recipe");
+    CHECK(r["instances"].get<int>() > 500);
+    CHECK(p.e.world().get<Foliage>(p.e.world().find("plain"))->meshes == Json::array({"assets/models/a.glb"}));
+    CHECK(contains(p.refused("foliage.scatter", R"({"entity":"plain","rule":"plain"})"), "ScatterRule"));
+    // three layers: layer 1 painted around (20, 20), layer 2 around (-20, -20)
+    p.ok("scene.set_component",
+         R"({"id":"g","component":"Terrain","fields":{"layers":[{"tileSize":4},{"tileSize":4},{"tileSize":4}]}})");
+    p.ok("terrain.paint", R"({"entity":"g","layer":1,"center":[20,20],"radius":8,"strength":1})");
+    p.ok("terrain.paint", R"({"entity":"g","layer":2,"center":[-20,-20],"radius":8,"strength":1})");
+    auto around = [&](const char* id, const char* mask, int expectAt) {
+        p.field(id,
+                std::string(R"({"meshes":[{"mesh":"assets/models/pine.glb"}],"density":1,"layerMask":)") + mask + "}");
+        Json s = p.ok("foliage.scatter", std::string(R"({"entity":")") + id + R"("})");
+        CHECK(s["instances"].get<int>() > 30);
+        int a = 0, b = 0, other = 0;
+        for (const FoliageInstance& in : p.load(id)) {
+            if (std::hypot(in.position.x - 20.0f, in.position.z - 20.0f) < 9.0f)
+                ++a;
+            else if (std::hypot(in.position.x + 20.0f, in.position.z + 20.0f) < 9.0f)
+                ++b;
+            else
+                ++other;
+        }
+        CHECK(other == 0);
+        if (expectAt == 2) {
+            CHECK(a == 0);
+            CHECK(b > 30);
+        } else if (expectAt == 3) {
+            CHECK(a > 30);
+            CHECK(b > 30);
+        }
+    };
+    around("only2", "4", 2);  // layer 2 only
+    around("both", "6", 3);   // layers 1 and 2
+}
+
+TEST_CASE("foliage.scatter: with no scene the file goes to assets/foliage/") {
+    Project p(false);
+    p.field("meadow", kOne);
+    Json r = p.ok("foliage.scatter", R"({"entity":"meadow"})");
+    CHECK(r["file"] == "assets/foliage/meadow.foliage");
+    CHECK(fs::exists("assets/foliage/meadow.foliage"));
+}
+
+TEST_CASE("foliage.paint: the errors point at the argument, a rule's density 0 teaches, remove needs no ground") {
+    Project p;
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":0.5,"seed":1})");
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"f","center":["x",0],"radius":1})"), "/center/0"));
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"f","center":[0,1e9],"radius":1})"), "/center/1"));
+    p.ok("foliage.scatter", R"({"entity":"f"})");
+    // a rule with density 0 and no `density` argument: a teaching error, not a silent "outside"
+    p.ok("scene.set_component", R"({"id":"f","component":"ScatterRule","fields":{"density":0}})");
+    const std::string e = p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":3})");
+    CHECK(contains(e, "/density"));
+    CHECK(contains(e, "above 0"));
+    // ...which a `density` of the call sidesteps
+    CHECK(p.call("foliage.paint", R"({"entity":"f","center":[0,0],"radius":3,"density":1})").ok);
+    // remove: no Terrain and no ground needed
+    p.ok("scene.destroy", R"({"id":"g"})");
+    CHECK_FALSE(p.call("foliage.paint", R"({"entity":"f","center":[0,0],"radius":3,"density":1,"seed":5})").ok);
+    Json rm = p.ok("foliage.paint", R"({"entity":"f","mode":"remove","center":[0,0],"radius":3})");
+    CHECK(rm["removed"].get<int>() > 5);
+}
+
+TEST_CASE("foliage.undo and foliage.redo: every edit is a step, byte for byte") {
     Project p;
     p.field("f", kOne);
     Json s = p.ok("foliage.scatter", R"({"entity":"f"})");
     const std::string file = s["file"].get<std::string>();
+    CHECK(s["undo"] == Json::parse(R"({"command":"foliage.undo","args":{"entity":"f"}})"));
+    CHECK(s["undoDepth"] == 1);
+    CHECK(s["redoDepth"] == 0);
+    CHECK(s.dump().size() < 1500);  // the result is small however big the file is
     const auto scattered = p.bytes(file);
-    // undo of the first scatter: no file before, no instances field, the meshes of a new Foliage
-    Json undo = s["undo"];
-    CHECK(undo["command"] == "foliage.restore");
+    CHECK(contains(p.refused("foliage.redo", R"({"entity":"f"})"), "nothing_to_redo"));
     Json c = p.ok("foliage.clear", R"({"entity":"f","region":[-32,-32,0,0]})");
     const auto cleared = p.bytes(file);
     CHECK(cleared != scattered);
-    Json back = p.ok("foliage.restore", c["undo"]["args"].dump());
+    Json u = p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(u["undone"] == "foliage.clear");
+    CHECK(u["redoDepth"] == 1);
     CHECK(p.bytes(file) == scattered);
-    // redo
-    p.ok("foliage.restore", back["undo"]["args"].dump());
+    Json rd = p.ok("foliage.redo", R"({"entity":"f"})");
+    CHECK(rd["redone"] == "foliage.clear");
     CHECK(p.bytes(file) == cleared);
-    // undo the paint, then the scatter itself: the file is gone and the field is empty again
+    // paint, then undo it, then a new edit clears the redo list
     Json pt = p.ok("foliage.paint", R"({"entity":"f","center":[10,10],"radius":4,"density":3})");
-    Json u1 = p.ok("foliage.restore", pt["undo"]["args"].dump());
+    CHECK(pt["added"].get<int>() > 20);
+    CHECK(pt["undoDepth"] == 3);
+    const auto painted = p.bytes(file);
+    p.ok("foliage.undo", R"({"entity":"f"})");
     CHECK(p.bytes(file) == cleared);
-    p.ok("foliage.restore", s["undo"]["args"].dump());
+    p.ok("foliage.redo", R"({"entity":"f"})");
+    CHECK(p.bytes(file) == painted);
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    p.ok("foliage.clear", R"({"entity":"f","region":[0,0,5,5]})");
+    CHECK(contains(p.refused("foliage.redo", R"({"entity":"f"})"), "nothing_to_redo"));
+    // back to the beginning: the file is gone and the field is empty again
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    Json last = p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(last["deleted"] == true);
     CHECK_FALSE(fs::exists(file));
     const Foliage* f = p.e.world().get<Foliage>(p.e.world().find("f"));
     CHECK(f->instances.empty());
     CHECK(f->meshes == Json::array({"cube"}));
-    // restore refuses what it cannot read, and changes nothing
-    CHECK(contains(p.refused("foliage.restore", R"({"entity":"f","file":"x.foliage","meshes":["cube"],"data":"AAAA"})"),
-                   "x.foliage"));
-    CHECK_FALSE(fs::exists("x.foliage"));
+    CHECK(contains(p.refused("foliage.undo", R"({"entity":"f"})"), "nothing_to_undo"));
+    // and all the way forward again, to the scatter
+    p.ok("foliage.redo", R"({"entity":"f"})");
+    CHECK(p.bytes(file) == scattered);
+    CHECK(f->meshes == Json::array({"assets/models/pine.glb"}));
+    // scattering over a filled file is one step too: the undo brings the old file back
+    p.ok("scene.set_component", R"({"id":"f","component":"ScatterRule","fields":{"seed":99}})");
+    p.ok("foliage.scatter", R"({"entity":"f"})");
+    CHECK(p.bytes(file) != scattered);
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(p.bytes(file) == scattered);
+}
+
+TEST_CASE("foliage.paint: continueStroke makes the stamps of one stroke ONE undo step") {
+    Project p;
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    p.ok("foliage.scatter", R"({"entity":"f"})");
+    p.ok("foliage.clear", R"({"entity":"f"})");
+    const std::string file = p.e.world().get<Foliage>(p.e.world().find("f"))->instances;
+    const auto empty = p.bytes(file);
+    Json a = p.ok("foliage.paint", R"({"entity":"f","center":[0,0],"radius":4,"density":2})");
+    CHECK(a["undoDepth"] == 3);
+    Json b = p.ok("foliage.paint", R"({"entity":"f","center":[3,0],"radius":4,"density":2,"continueStroke":true})");
+    Json c = p.ok("foliage.paint", R"({"entity":"f","center":[6,0],"radius":4,"density":2,"continueStroke":true})");
+    CHECK(b["continued"] == true);
+    CHECK(c["undoDepth"] == 3);  // no new step
+    const std::size_t n = p.load("f").size();
+    CHECK(n == a["added"].get<std::size_t>() + b["added"].get<std::size_t>() + c["added"].get<std::size_t>());
+    const auto stroked = p.bytes(file);
+    // a remove stamp continues a paint stroke too (the eraser of a brush that paints and erases)
+    Json d = p.ok("foliage.paint", R"({"entity":"f","mode":"remove","center":[2,0],"radius":2,"continueStroke":true})");
+    CHECK(d["removed"].get<int>() > 3);
+    CHECK(d["undoDepth"] == 3);
+    const auto erased = p.bytes(file);
+    Json e =
+        p.ok("foliage.paint", R"({"entity":"f","center":[2,0],"radius":3,"density":3,"seed":8,"continueStroke":true})");
+    CHECK(e["undoDepth"] == 3);
+    // one undo takes the whole stroke back
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(p.bytes(file) == empty);
+    p.ok("foliage.redo", R"({"entity":"f"})");
+    CHECK(p.load("f").size() == n - d["removed"].get<std::size_t>() + e["added"].get<std::size_t>());
+    // continueStroke after an undo, after another command, or with nothing before it is refused (the history stays)
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":4,"continueStroke":true})"),
+                   "/continueStroke"));
+    p.ok("foliage.redo", R"({"entity":"f"})");
+    p.ok("foliage.clear", R"({"entity":"f","region":[100,100,101,101]})");  // nothing in the region: no step
+    p.ok("foliage.clear", R"({"entity":"f","region":[-1,-1,1,1]})");
+    CHECK(contains(p.refused("foliage.paint", R"({"entity":"f","center":[0,0],"radius":4,"continueStroke":true})"),
+                   "another command"));
+    (void)stroked;
+    (void)erased;
+}
+
+TEST_CASE("foliage history: the budget drops the oldest steps and the result says so") {
+    Project p;
+    p.field("f", R"({"meshes":[{"mesh":"assets/models/a.glb"}],"density":1,"seed":2})");
+    p.ok("foliage.scatter", R"({"entity":"f"})");
+    p.ok("foliage.clear", R"({"entity":"f"})");  // 2 steps
+    int dropped = 0;
+    Json last;
+    for (int i = 0; i < 70; ++i) {
+        last = p.ok("foliage.paint", "{\"entity\":\"f\",\"center\":[" + std::to_string(-28 + (i % 14) * 4) + "," +
+                                         std::to_string(-28 + (i / 14) * 4) + "],\"radius\":1.5,\"density\":2}");
+        if (last.contains("historyDropped")) dropped += last["historyDropped"].get<int>();
+        if (i < 61) CHECK_FALSE(last.contains("historyDropped"));
+    }
+    CHECK(dropped == 72 - 64);
+    CHECK(contains(last["historyNote"].get<std::string>(), "64"));
+    CHECK(last["undoDepth"] == 64);
+    // 64 undos work, the 65th has nothing left
+    for (int i = 0; i < 64; ++i) REQUIRE(p.call("foliage.undo", R"({"entity":"f"})").ok);
+    CHECK(contains(p.refused("foliage.undo", R"({"entity":"f"})"), "nothing_to_undo"));
+}
+
+TEST_CASE("foliage history: a change outside the foliage commands clears it instead of applying it to other bytes") {
+    Project p;
+    p.field("f", kOne);
+    Json s = p.ok("foliage.scatter", R"({"entity":"f"})");
+    p.ok("foliage.clear", R"({"entity":"f","region":[-32,-32,0,0]})");
+    const std::string file = s["file"].get<std::string>();
+    // the file is rewritten behind the history's back
+    const auto bytes = p.bytes(file);
+    std::vector<std::uint8_t> other(bytes.begin(), bytes.begin() + 16 + 26 * 3);
+    other[8] = 3;
+    other[9] = other[10] = other[11] = 0;
+    REQUIRE(fs::write_bytes(file, other.data(), other.size()).ok());
+    const std::string e = p.refused("foliage.undo", R"({"entity":"f"})");
+    CHECK(contains(e, "stale_history"));
+    CHECK(p.bytes(file) == other);  // nothing was changed
+    CHECK(contains(p.refused("foliage.undo", R"({"entity":"f"})"), "nothing_to_undo"));
+    // the next edit starts a fresh history and says that the old one went
+    Json c = p.ok("foliage.clear", R"({"entity":"f"})");
+    CHECK(c["undoDepth"] == 1);
+    p.ok("foliage.undo", R"({"entity":"f"})");
+    CHECK(p.bytes(file) == other);
+    // a damaged file cannot be undone to, but a scatter replaces it (with no undo step)
+    const std::uint8_t junk[5] = {1, 2, 3, 4, 5};
+    REQUIRE(fs::write_bytes(file, junk, 5).ok());
+    Json again = p.ok("foliage.scatter", R"({"entity":"f"})");
+    CHECK_FALSE(again.contains("undo"));
+    CHECK(again.contains("historyReset"));
+    CHECK(again["undoDepth"] == 0);
 }
 
 TEST_CASE("foliage commands: registered as real commands in the world category") {
     Project p;
-    for (const char* n : {"foliage.scatter", "foliage.paint", "foliage.clear", "foliage.restore"}) {
+    for (const char* n : {"foliage.scatter", "foliage.paint", "foliage.clear", "foliage.undo", "foliage.redo"}) {
         const CommandInfo* info = p.e.commands().info(n);
         REQUIRE(info != nullptr);
         CHECK(info->category == "world");
@@ -319,4 +587,5 @@ TEST_CASE("foliage commands: registered as real commands in the world category")
         CHECK(info->description.find("Example") != std::string::npos);
         CHECK(info->description.size() < 1500);
     }
+    CHECK(p.e.commands().info("foliage.restore") == nullptr);
 }
