@@ -174,7 +174,7 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
                    });
     I.commands.add(
         {"world.cells", "List the cells of the streamed world and which are loaded.",
-         "Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, \"Streaming\"): {world, "
+         "Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS_STREAMING.md, \"Streaming\"): {world, "
          "dimension, cellSize, total, "
          "matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: \"unloaded\" | \"queued\" "
          "| \"loading\" | "

@@ -1,4 +1,4 @@
-// World::rebase and the arithmetic of the floating origin (fa/scene/floating_origin.h, docs/BIG_WORLDS.md "Floating origin").
+// World::rebase and the arithmetic of the floating origin (fa/scene/floating_origin.h, docs/BIG_WORLDS_STREAMING.md "Floating origin").
 #include "fa/scene/floating_origin.h"
 
 #include <cmath>

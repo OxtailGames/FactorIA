@@ -822,7 +822,7 @@
       },
       {
        "sig": "on(name: string, fn: (data: any, source: Entity | null) => void): () => void",
-       "doc": "Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves."
+       "doc": "Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS_STREAMING.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves."
       },
       {
        "sig": "readonly settings: Components[\"SceneSettings\"]",

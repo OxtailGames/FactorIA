@@ -596,7 +596,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS_STREAMING.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -11979,7 +11979,7 @@ declare module "factoria" {
     customPasses: any;
   }
   /**
-   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the meshes of the other children and their descendants are skipped; lights, particles and the rest of a skipped child are not touched). The camera of the main view chooses the level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS.md, "Levels of detail").
+   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the meshes of the other children and their descendants are skipped; lights, particles and the rest of a skipped child are not touched). The camera of the main view chooses the level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS_LOD.md, "Levels of detail").
    * 
    * Category: 3D
    * @since unreleased
@@ -12013,7 +12013,7 @@ declare module "factoria" {
     hlodThreshold: number;
   }
   /**
-   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS.md, "Occlusion"); the fields are saved and checked today.
+   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS_LOD.md, "Occlusion"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
@@ -12048,7 +12048,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "Occlusion").
    * 
    * Category: 3D
    * @since unreleased
@@ -12067,7 +12067,7 @@ declare module "factoria" {
     areaId: number;
   }
   /**
-   * An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS_LOD.md, "Occlusion").
    * 
    * Category: 3D
    * @since unreleased
@@ -12096,7 +12096,7 @@ declare module "factoria" {
     open: boolean;
   }
   /**
-   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS.md, "Streaming").
+   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "Streaming").
    * 
    * Category: World
    * @since unreleased
@@ -12124,7 +12124,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS.md, "Streaming").
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS_STREAMING.md, "Streaming").
    * 
    * Category: World
    * @since unreleased
@@ -12167,7 +12167,7 @@ declare module "factoria" {
     cameraUnloadRadius: number;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. The renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer: each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the holes are cut out of the surface, its shadow and its collider, and a ray passes through them. `render.supports` lists the limits of the GPU ("limits"). docs/BIG_WORLDS.md, "Terrain (M75.5)".
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. The renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer: each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the holes are cut out of the surface, its shadow and its collider, and a ray passes through them. `render.supports` lists the limits of the GPU ("limits"). docs/BIG_WORLDS_TERRAIN.md, "Terrain (M75.5)".
    * 
    * Category: 3D
    * @since unreleased
@@ -12226,7 +12226,7 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS_TERRAIN.md, "Foliage"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
@@ -12279,7 +12279,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS.md, "Foliage").
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
    * 
    * Category: 3D
    * @since unreleased

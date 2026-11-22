@@ -180,7 +180,7 @@ struct Renderer::Impl {
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS.md "Floating origin"). The renderer watches the world it was last
+    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
     // moves what it keeps in world space across frames by the same offset: the cameras the motion vectors reproject from, the 2D GI
     // field's geometry and history, the realtime GI's anchors, the occlusion debug boxes. Everything else is rebuilt from the world each

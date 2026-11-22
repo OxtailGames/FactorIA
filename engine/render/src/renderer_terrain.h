@@ -1,4 +1,4 @@
-// The GPU side of the Terrain component (M75-P5a, docs/BIG_WORLDS.md "Terrain"): one RG8 height texture per terrain, the shared 33 x 33
+// The GPU side of the Terrain component (M75-P5a, docs/BIG_WORLDS_TERRAIN.md "Terrain"): one RG8 height texture per terrain, the shared 33 x 33
 // patch every node is drawn with, the program (shaders/terrain.glsl) and, per camera, the CDLOD selection (terrain_lod.h) turned into
 // MeshItems. A node is an instance of the patch in the ordinary mesh pipeline (an in-memory material with two vec4 of instance data), so
 // the shadows, the prepass, the SSAO, the fog and the clustered lights draw the terrain as they draw any MeshRenderer.

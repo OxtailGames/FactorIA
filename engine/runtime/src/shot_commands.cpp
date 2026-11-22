@@ -854,7 +854,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "hidden; optionally the depth buffer as a PNG.",
          "Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that "
          "had "
-         "an enabled Occluder (docs/BIG_WORLDS.md, \"Occlusion\"): the size of its depth buffer, the Occluders and "
+         "an enabled Occluder (docs/BIG_WORLDS_LOD.md, \"Occlusion\"): the size of its depth buffer, the Occluders and "
          "triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in "
          "renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no "
          "occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view "
@@ -1237,7 +1237,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
          "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
-         "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS.md, "
+         "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
          "The environment variable FA_RENDER_DEBUG_VIEW sets the first view "
          "at start. The picture changes only on a frame "

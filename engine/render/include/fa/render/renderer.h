@@ -596,7 +596,7 @@ public:
     // as <prefix>-emission.png, <prefix>-occluders.png and <prefix>-distance.png and the report lists them in "files"; a failure is in "error".
     // Reads the GPU back (a command, never the frame). Empty object before init().
     Json gi2d_field(std::string_view savePrefix = {}, std::string_view job = {});
-    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS.md, "Occlusion"): the report of the `render.occlusion` command
+    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS_LOD.md, "Occlusion"): the report of the `render.occlusion` command
     // {supported, debugView, active, limits, camera, width, height, occluders, triangles, coveredCells, tests, hidden}. `active` is false
     // (and the rest left out) when no camera of the last frame had an enabled Occluder. With `savePath` (a UTF-8 path of a .png) the
     // depth buffer of the last camera that had occluders is written as a grey picture (black = no occluder; the nearer, the brighter) and

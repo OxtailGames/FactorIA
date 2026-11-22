@@ -372,7 +372,7 @@ files while frames run. The pieces and who owns what:
   prefix of the same order, whose length a recording keeps as `"loadUnits"`). An async scene load whose files are ready
   becomes the frame's pending scene change (`apply_scene_change` at the end of the frame); a scene change asked meanwhile
   cancels it.
-- **`Kind::CellLoad`** (`"cell.load"`, the cells of a streamed world, docs/BIG_WORLDS.md "Streaming"): a job with the same SCAN
+- **`Kind::CellLoad`** (`"cell.load"`, the cells of a streamed world, docs/BIG_WORLDS_STREAMING.md "Streaming"): a job with the same SCAN
   item (the cell's scene file is read, parsed once and its text and binary files listed and warmed) and the same per-file items,
   but it never becomes a scene change and has no script handle. Several run at once (the `WorldStreamer` of `runtime`
   starts them, at most `StreamedWorld.maxLoadsInFlight`); they take items in the loader's usual round robin in start order, within
