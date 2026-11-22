@@ -756,16 +756,16 @@ public:
     LightmapUi lightmap_;
     bool showLightmap_ = false;
 
-    // Cells panel (cells_panel.cpp; View > Cells): editing a streamed world (docs/BIG_WORLDS.md, "Editing a streamed world"). `cells_` is the
+    // Cells panel (cells_panel.cpp; View > Cells): editing a streamed world (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"). `cells_` is the
     // model (cell_edit.h): which cells are loaded as editable entities, which are dirty, Save. The panel lists the cells nearest the view,
     // loads / unloads / selects them, and the viewport draws their grid (cells_overlay) in the colours of the list. Edit mode only: Play
     // streams by distance and the editor's cells are put back at Stop.
     struct CellsUi {
-        int radiusCells = 1;      // "Load around": how many cells out from the camera's cell
-        bool overlay = true;      // draw the grid in the viewport
+        int radiusCells = 1;              // "Load around": how many cells out from the camera's cell
+        bool overlay = true;              // draw the grid in the viewport
         std::int32_t askI = 0, askJ = 0;  // the dirty cell the "unload?" question is about
         bool ask = false;
-        std::string status;       // the last result line of the panel
+        std::string status;         // the last result line of the panel
         std::vector<CellRow> rows;  // the list, rebuilt when the view cell or the state changes
         std::int64_t rowsKey = INT64_MIN;
         std::int32_t focusI = 0, focusJ = 0;
@@ -773,7 +773,8 @@ public:
     };
     void draw_cells_panel();
     void draw_cells_overlay(ImDrawList* dl, Renderer& r, const std::function<ImVec2(Vec3)>& project);
-    void cells_refresh_rows();  // cellsUi_.rows: the loaded cells and the nearest ones of the index, when the view or the state changed
+    void
+    cells_refresh_rows();  // cellsUi_.rows: the loaded cells and the nearest ones of the index, when the view or the state changed
     bool cells_view_point(double& a, double& b);  // the camera's position on the world's plane (absolute metres)
     bool cells_load_around_view(std::string* message);
     bool cells_save(bool only, std::int32_t i, std::int32_t j);

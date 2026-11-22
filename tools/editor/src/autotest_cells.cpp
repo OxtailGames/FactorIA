@@ -33,8 +33,9 @@ std::string cell_path(std::int32_t i, std::int32_t j) {
 }
 
 Json entity_json(const std::string& id, double x, double y) {
-    return Json::object({{"id", id},
-                         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({x, y, 0.0})}})}})}});
+    return Json::object(
+        {{"id", id},
+         {"components", Json::object({{"Transform", Json::object({{"position", Json::array({x, y, 0.0})}})}})}});
 }
 
 void write_cell(std::int32_t i, std::int32_t j, const Json& entities) {
@@ -44,9 +45,10 @@ void write_cell(std::int32_t i, std::int32_t j, const Json& entities) {
 
 Json index_cell(std::int32_t i, std::int32_t j) {
     const double a = double(i) * kCell, b = double(j) * kCell;
-    return Json::object({{"coord", Json::array({i, j})},
-                         {"scene", cell_path(i, j)},
-                         {"bounds", Json::object({{"min", Json::array({a, b})}, {"max", Json::array({a + kCell, b + kCell})}})}});
+    return Json::object(
+        {{"coord", Json::array({i, j})},
+         {"scene", cell_path(i, j)},
+         {"bounds", Json::object({{"min", Json::array({a, b})}, {"max", Json::array({a + kCell, b + kCell})}})}});
 }
 
 // The x of the entity `id` in a cell file, or a number that cannot be a position when the file does not hold it.
@@ -100,31 +102,35 @@ void Editor::at_section_W2(AtScript& at) {
         w->x0 = double(w->ci) * kCell;
         w->y0 = double(w->cj) * kCell;
         const std::int32_t far = w->ci + 6;
-        write_cell(w->ci, w->cj,
-                   Json::array({entity_json("w2_a1", w->x0 + 10, w->y0 + 10), entity_json("w2_a2", w->x0 + 20, w->y0 + 10)}));
+        write_cell(
+            w->ci, w->cj,
+            Json::array({entity_json("w2_a1", w->x0 + 10, w->y0 + 10), entity_json("w2_a2", w->x0 + 20, w->y0 + 10)}));
         write_cell(w->ci + 1, w->cj, Json::array({entity_json("w2_b1", w->x0 + 150, w->y0 + 20)}));
         write_cell(far, w->cj, Json::array({entity_json("w2_f1", w->x0 + 650, w->y0 + 20)}));
-        const Json index = Json::object({{"format", "factoria.world/1"},
-                                         {"version", 1},
-                                         {"dimension", "2d"},
-                                         {"cellSize", kCell},
-                                         {"origin", Json::array({0.0, 0.0})},
-                                         {"cells", Json::array({index_cell(w->ci, w->cj), index_cell(w->ci + 1, w->cj),
-                                                                index_cell(far, w->cj)})}});
+        const Json index = Json::object(
+            {{"format", "factoria.world/1"},
+             {"version", 1},
+             {"dimension", "2d"},
+             {"cellSize", kCell},
+             {"origin", Json::array({0.0, 0.0})},
+             {"cells", Json::array({index_cell(w->ci, w->cj), index_cell(w->ci + 1, w->cj), index_cell(far, w->cj)})}});
         (void)fs::write_text("worlds/w2.world.json", index.dump(2));
         const Json streamer = Json::object(
-            {{"id", "w2_streamer"}, {"components", Json::object({{"StreamedWorld", Json::object({{"world", "worlds/w2.world.json"}})}})}});
+            {{"id", "w2_streamer"},
+             {"components", Json::object({{"StreamedWorld", Json::object({{"world", "worlds/w2.world.json"}})}})}});
         const Json anchor = Json::object(
             {{"id", "w2_anchor"},
-             {"components", Json::object({{"Transform", Json::object({{"position", Json::array({cx, cy, 0.0})}})},
-                                          {"StreamingAnchor", Json::object({{"loadRadius", 150.0}, {"unloadRadius", 200.0}})}})}});
+             {"components",
+              Json::object({{"Transform", Json::object({{"position", Json::array({cx, cy, 0.0})}})},
+                            {"StreamingAnchor", Json::object({{"loadRadius", 150.0}, {"unloadRadius", 200.0}})}})}});
         for (const Json& e : {streamer, anchor}) {
             const CommandResult r = engine_->commands().call("scene.spawn", e);
             at_check(r.ok, "the autotest adds an entity of the streamed world: " + r.error.dump());
         }
     });
     step(6, [this, w] {
-        at_check(cells_.has_index(), "the editor finds the index of the scene's StreamedWorld (" + cells_.error() + ")");
+        at_check(cells_.has_index(),
+                 "the editor finds the index of the scene's StreamedWorld (" + cells_.error() + ")");
         at_check(cells_.index().cells.size() == 3 && cells_.loaded_count() == 0,
                  "the index lists three cells and none is loaded");
         at_check(world().find_by_id("w2_a1").is_null() && world().find_by_id("w2_f1").is_null(),
@@ -139,7 +145,8 @@ void Editor::at_section_W2(AtScript& at) {
         pendingFocus_ = "Cells";
     });
     step(4, [this] {
-        at_check(at_visible("cells:around") && at_visible("cells:save"), "the panel has Load around the view and Save cells");
+        at_check(at_visible("cells:around") && at_visible("cells:save"),
+                 "the panel has Load around the view and Save cells");
         at_check(!at_enabled("cells:save"), "Save cells is disabled while no cell has changes");
         cellsUi_.radiusCells = 1;
         pendingFocus_ = "Cells";
@@ -148,7 +155,8 @@ void Editor::at_section_W2(AtScript& at) {
     // Load around the camera: the cell under it, not the far one.
     click("cells:around");
     step(4, [this, w] {
-        at_check(cells_.is_loaded(w->ci, w->cj), "Load around the view loads the cell under the camera (" + cellsUi_.status + ")");
+        at_check(cells_.is_loaded(w->ci, w->cj),
+                 "Load around the view loads the cell under the camera (" + cellsUi_.status + ")");
         at_check(!cells_.is_loaded(w->ci + 6, w->cj), "...and not the far cell");
         at_check(!world().find_by_id("w2_a1").is_null() && world().find_by_id("w2_f1").is_null(),
                  "...its entities are in the scene, the far cell's are not");
@@ -163,7 +171,8 @@ void Editor::at_section_W2(AtScript& at) {
         pendingFocus_ = "Cells";
     });
     step(3, [this, w] {
-        at_check(world().info(selected()).streamedCell, "the root of a cell can be selected (the Select button does it)");
+        at_check(world().info(selected()).streamedCell,
+                 "the root of a cell can be selected (the Select button does it)");
         select_id("w2_a1");
         w->indexBefore = fs::read_text("worlds/w2.world.json").value_or("");
         w->bBefore = fs::read_text(cell_path(w->ci + 1, w->cj)).value_or("");
@@ -181,18 +190,21 @@ void Editor::at_section_W2(AtScript& at) {
                  "an edit of an entity of a loaded cell goes through: " + err);
     });
     step(4, [this, w] {
-        at_check(cells_.is_dirty(w->ci, w->cj) && !cells_.is_dirty(w->ci + 1, w->cj), "the edited cell is marked, the other is not");
+        at_check(cells_.is_dirty(w->ci, w->cj) && !cells_.is_dirty(w->ci + 1, w->cj),
+                 "the edited cell is marked, the other is not");
         at_check(dirty() && at_enabled("cells:save"), "the editor shows unsaved changes and Save cells is enabled");
         pendingFocus_ = "Cells";
     });
     click("cells:save");
     step(4, [this, w] {
         at_check(!cells_.any_dirty(), "Save cells clears the mark");
-        at_check(std::abs(x_in_file(cell_path(w->ci, w->cj), "w2_a1") - (w->x0 + 11)) < 1e-3, "...the edited cell's file has the new position");
+        at_check(std::abs(x_in_file(cell_path(w->ci, w->cj), "w2_a1") - (w->x0 + 11)) < 1e-3,
+                 "...the edited cell's file has the new position");
         at_check(fs::read_text(cell_path(w->ci + 1, w->cj)).value_or("") == w->bBefore &&
                      fs::read_text(cell_path(w->ci + 6, w->cj)).value_or("") == w->farBefore,
                  "...the other cells' files are not written");
-        at_check(fs::read_text("worlds/w2.world.json").value_or("") == w->indexBefore, "...nor the index (its bounds did not change)");
+        at_check(fs::read_text("worlds/w2.world.json").value_or("") == w->indexBefore,
+                 "...nor the index (its bounds did not change)");
     });
 
     // An entity dragged across the border is filed into the cell its position is in, at Save.
@@ -215,13 +227,16 @@ void Editor::at_section_W2(AtScript& at) {
     click("cells:save");
     step(4, [this, w] {
         at_check(!cells_.any_dirty(), "Save cells clears the marks after a re-file");
-        at_check(x_in_file(cell_path(w->ci, w->cj), "w2_a2") < -1.0e17, "the first cell's file no longer holds the entity");
+        at_check(x_in_file(cell_path(w->ci, w->cj), "w2_a2") < -1.0e17,
+                 "the first cell's file no longer holds the entity");
         at_check(std::abs(x_in_file(cell_path(w->ci + 1, w->cj), "w2_a2") - (w->x0 + 130)) < 1e-3,
                  "...the second cell's file holds it, at its position");
         at_check(x_in_file(cell_path(w->ci + 1, w->cj), "w2_b1") > -1.0e17, "...next to the entity that was there");
         const Entity a2 = world().find_by_id("w2_a2");
-        at_check(!a2.is_null() && world().parent(a2) == cells_.root_of(w->ci + 1, w->cj), "...and in the scene it is under the second cell's root");
-        at_check(fs::read_text(cell_path(w->ci + 6, w->cj)).value_or("") == w->farBefore, "the far cell's file was never written");
+        at_check(!a2.is_null() && world().parent(a2) == cells_.root_of(w->ci + 1, w->cj),
+                 "...and in the scene it is under the second cell's root");
+        at_check(fs::read_text(cell_path(w->ci + 6, w->cj)).value_or("") == w->farBefore,
+                 "the far cell's file was never written");
     });
 
     // Play streams by distance; Stop brings the loaded cells back.
@@ -233,7 +248,8 @@ void Editor::at_section_W2(AtScript& at) {
     });
     step(3, [this] {
         at_check(cells_.suspended(), "while the game plays the editor's cells are suspended");
-        at_check(world().find_by_id("w2_f1").is_null(), "...and the game streams by distance: the far cell is not loaded");
+        at_check(world().find_by_id("w2_f1").is_null(),
+                 "...and the game streams by distance: the far cell is not loaded");
     });
     step(3, [this] { stop(); });
     step(6, [this, w] {
@@ -241,7 +257,8 @@ void Editor::at_section_W2(AtScript& at) {
         at_check(cells_.is_loaded(w->ci, w->cj) && cells_.is_loaded(w->ci + 1, w->cj) && cells_.loaded_count() == 2,
                  "...the same two cells are loaded");
         const Entity a1 = world().find_by_id("w2_a1");
-        at_check(!a1.is_null() && world().parent(a1) == cells_.root_of(w->ci, w->cj), "...their entities are under their roots");
+        at_check(!a1.is_null() && world().parent(a1) == cells_.root_of(w->ci, w->cj),
+                 "...their entities are under their roots");
         at_check(!cells_.any_dirty(), "...and clean: Play changed nothing");
         at_check(world().find_by_id("w2_f1").is_null(), "...and the far cell is not loaded");
     });

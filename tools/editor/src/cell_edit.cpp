@@ -115,8 +115,7 @@ std::uint64_t CellEdit::fingerprint(World& world, Entity root) {
 
 Entity CellEdit::make_root(World& world, const Key& k) {
     // The same shape the streamer makes (engine/runtime world_streamer.cpp, do_apply): the root at the ABSOLUTE (0, 0, 0).
-    const Entity root =
-        world.create("cell " + key_text(k), "cell_" + std::to_string(k.i) + "_" + std::to_string(k.j));
+    const Entity root = world.create("cell " + key_text(k), "cell_" + std::to_string(k.i) + "_" + std::to_string(k.j));
     world.info(root).streamedCell = true;
     if (Transform* t = world.get<Transform>(root)) t->position = world.to_local(DVec3{0.0, 0.0, 0.0});
     return root;
@@ -160,7 +159,8 @@ bool CellEdit::load(World& world, std::int32_t i, std::int32_t j, std::string* e
                     (error_.empty() ? std::string(" (no StreamedWorld names an index).") : ": " + error_));
     if (slots_.count(k)) return true;
     if (slots_.size() >= std::size_t(kMaxLoaded))
-        return fail("Already " + std::to_string(kMaxLoaded) + " cells are loaded, the most the editor holds. Unload some first.");
+        return fail("Already " + std::to_string(kMaxLoaded) +
+                    " cells are loaded, the most the editor holds. Unload some first.");
     const WorldCell* cell = find_cell(k);
     if (!cell)
         return fail("The index " + indexPath_ + " has no cell " + key_text(k) +
@@ -233,8 +233,7 @@ bool CellEdit::unload(World& world, std::int32_t i, std::int32_t j, bool discard
     if (it == slots_.end()) return true;
     const bool dirty = it->second.isNew || it->second.current != it->second.baseline;
     if (dirty && !discard) {
-        if (error)
-            *error = "Cell " + key_text(it->first) + " has unsaved changes. Save it first, or discard them.";
+        if (error) *error = "Cell " + key_text(it->first) + " has unsaved changes. Save it first, or discard them.";
         return false;
     }
     if (!suspended_ && !it->second.root.is_null() && world.alive(it->second.root)) world.destroy(it->second.root);
@@ -268,7 +267,8 @@ void CellEdit::update(World& world, bool busy) {
         s.current = fingerprint(world, s.root);
     }
     for (const Key& k : gone) {
-        warnings_ = "The root entity of cell " + key_text(k) + " was deleted: the cell is closed and its file is unchanged.";
+        warnings_ =
+            "The root entity of cell " + key_text(k) + " was deleted: the cell is closed and its file is unchanged.";
         slots_.erase(k);
     }
 }
@@ -386,7 +386,8 @@ Json CellEdit::capture(World& world) {
     Json out = Json::object();
     if (suspended_) return out;
     for (auto& [k, s] : slots_)
-        if (!s.root.is_null() && world.alive(s.root)) out[key_text(k)] = entities_json(world, s.root, PrefabSave::Marks);
+        if (!s.root.is_null() && world.alive(s.root))
+            out[key_text(k)] = entities_json(world, s.root, PrefabSave::Marks);
     return out;
 }
 
@@ -488,8 +489,9 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
     if (writeSet.empty() && !indexDirty_) return rep;
     auto allowed = [&](const std::string& path, const std::string& what) -> std::string {
         auto judged = fs::resolve_for_write(path, fs::WriteRoot::Project, false);
-        if (!judged.ok()) return what + " '" + path + "': " + judged.error().message +
-                                 (judged.error().hint.empty() ? "" : " (hint: " + judged.error().hint + ")");
+        if (!judged.ok())
+            return what + " '" + path + "': " + judged.error().message +
+                   (judged.error().hint.empty() ? "" : " (hint: " + judged.error().hint + ")");
         return {};
     };
     for (const Key& k : writeSet) {
@@ -501,7 +503,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
             path = c->scene;
         else
             path = new_cell_path(k);
-        if (std::string bad = allowed(path, "Cell " + key_text(k)); !bad.empty()) return fail(bad + " Nothing was saved.");
+        if (std::string bad = allowed(path, "Cell " + key_text(k)); !bad.empty())
+            return fail(bad + " Nothing was saved.");
         if (it == slots_.end() && !find_cell(k) && fs::exists(path))
             return fail("Cell " + key_text(k) + " would be a new file '" + path +
                         "', but that file exists and is not in the index. Nothing was saved. Move or delete it, "
@@ -522,7 +525,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         } else {
             if (slots_.size() >= std::size_t(kMaxLoaded)) {
                 for (const Key& a : added) unload(world, a.i, a.j, true, nullptr);
-                return fail("Too many cells are loaded to add cell " + key_text(t) + ". Unload some first. Nothing was saved.");
+                return fail("Too many cells are loaded to add cell " + key_text(t) +
+                            ". Unload some first. Nothing was saved.");
             }
             Slot s;
             s.scene = new_cell_path(t);
@@ -575,7 +579,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
             n.i = k.i;
             n.j = k.j;
             n.scene = s.scene;
-            const double a0 = next.originA + double(k.i) * next.cellSize, b0 = next.originB + double(k.j) * next.cellSize;
+            const double a0 = next.originA + double(k.i) * next.cellSize,
+                         b0 = next.originB + double(k.j) * next.cellSize;
             if (d3) {
                 n.boundsMin = Vec3{float(a0), float(haveY ? minY : 0.0), float(b0)};
                 n.boundsMax = Vec3{float(a0 + next.cellSize), float(haveY ? maxY : 0.0), float(b0 + next.cellSize)};
@@ -594,9 +599,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         }
         docs[k] = std::move(file);
     }
-    std::sort(next.cells.begin(), next.cells.end(), [](const WorldCell& x, const WorldCell& y) {
-        return x.j != y.j ? x.j < y.j : x.i < y.i;
-    });
+    std::sort(next.cells.begin(), next.cells.end(),
+              [](const WorldCell& x, const WorldCell& y) { return x.j != y.j ? x.j < y.j : x.i < y.i; });
     const bool writeIndex = indexChange || indexDirty_;
     if (writeIndex) {
         WorldIndexOptions opts;
@@ -604,7 +608,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         auto checked = parse_world_index(world_index_to_json(next), indexPath_, opts);
         if (!checked.ok())
             return fail("The index would be invalid after this save: " + checked.error().message + " (" +
-                        checked.error().hint + ") Nothing was written; the entities stay where they are in the editor.");
+                        checked.error().hint +
+                        ") Nothing was written; the entities stay where they are in the editor.");
     }
 
     // 6. Writes: the cells that receive entities first, so a failure in between leaves an entity twice, never lost.

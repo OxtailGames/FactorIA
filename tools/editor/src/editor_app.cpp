@@ -1102,7 +1102,8 @@ void Editor::on_frame(double dt) {
         sync_scene_path();
         if (play_ == PlayState::Edit) {
             cells_.refresh(world());
-            cells_.update(world(), ImGui::IsMouseDown(ImGuiMouseButton_Left));  // a drag is checked when the button is up
+            cells_.update(world(),
+                          ImGui::IsMouseDown(ImGuiMouseButton_Left));  // a drag is checked when the button is up
         }
         ai_drain_events();
         ai_asset_notify_other_chats();
@@ -1324,7 +1325,8 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
     redo_.clear();
     if (keepUndo) undo_.push_back(std::move(before));
     dirty_ = false;
-    cells_.reload(world());  // the loaded cells are read again from their files too (a dirty scene or cell was asked about first)
+    cells_.reload(
+        world());  // the loaded cells are read again from their files too (a dirty scene or cell was asked about first)
     notify("Reloaded " + scenePath_);
 }
 
@@ -1344,7 +1346,8 @@ void Editor::play() {
         cells_.update(world(), false);
         playSnapshot_ = snapshot_state();
         engine_->begin_load_trace();  // the session's loading section and first-use order start with the scene's load
-        restore_scene(playSnapshot_, false);  // fresh instantiate: scripts and physics start clean; the game streams its cells
+        restore_scene(playSnapshot_,
+                      false);  // fresh instantiate: scripts and physics start clean; the game streams its cells
         engine_->set_play_world(
             true);  // a command that writes scene data (lightmap.bake_status apply) skips it: Stop throws it away
         reset_feel_choices();
@@ -1613,7 +1616,7 @@ int Editor::panels_mask() const {
         showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,   showAi_,
         showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_, showImage_,
         showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,  showLevelGen_,
-        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_,   showCells_};
+        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_,  showCells_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1625,7 +1628,7 @@ void Editor::set_panels_mask(int mask) {
         &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,   &showAi_,
         &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_, &showImage_,
         &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,  &showLevelGen_,
-        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_,   &showCells_};
+        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_,  &showCells_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 

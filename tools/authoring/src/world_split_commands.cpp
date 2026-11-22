@@ -1,4 +1,4 @@
-// world.split_cells and world.merge_cells (docs/BIG_WORLDS.md, "Editing a streamed world"): cut a scene into a streamed world (an
+// world.split_cells and world.merge_cells (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"): cut a scene into a streamed world (an
 // index `<name>.world.json`, one scene per cell and one persistent scene) and put the cells back into one scene. They work on the
 // files: the scene is loaded into a scratch World only to know where each root entity is, and the entities that are written are
 // the JSON of the source scene itself, untouched, so a split followed by a merge gives back the same entities and components with
@@ -96,8 +96,8 @@ std::string global_reason(const World& w, Entity root, const Json& entry) {
             reason = "it has an AudioListener or a MusicPlayer";
         else if (w.has<StreamedWorld>(e) || w.has<StreamingAnchor>(e))
             reason = "it has a StreamedWorld or a StreamingAnchor";
-        else if (has_any<Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton,
-                         Captions, Chart>(w, e))
+        else if (has_any<Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, Captions,
+                         Chart>(w, e))
             reason = "it is user interface (screen space)";
         else if (const Light* l = w.get<Light>(e); l && l->type == LightType::Directional)
             reason = "it is a directional light (a sun has no place)";
@@ -194,7 +194,8 @@ Json split_cells(Engine::Impl&, const Json& args) {
              "Pass the width of a cell in metres, for example 128.");
     const std::string dimension = args.value("dimension", std::string("3d"));
     if (dimension != "3d" && dimension != "2d")
-        fail("`dimension` is \"" + dimension + "\": it is \"3d\" (cells on the XZ plane) or \"2d\" (cells on the XY plane).",
+        fail("`dimension` is \"" + dimension +
+                 "\": it is \"3d\" (cells on the XZ plane) or \"2d\" (cells on the XY plane).",
              "Use \"3d\" for a 3D scene and \"2d\" for a side-view or top-down 2D scene.");
     const bool d3 = dimension == "3d";
     const bool dryRun = args.value("dryRun", false);
@@ -208,10 +209,11 @@ Json split_cells(Engine::Impl&, const Json& args) {
                  "Name the index like worlds/level.world.json; the cell scenes go in a folder next to it "
                  "(worlds/level_cells/).");
     } else {
-        indexPath = write_path(ends_with(scenePath, kSceneSuffix)
-                                   ? scenePath.substr(0, scenePath.size() - std::string(kSceneSuffix).size()) + kIndexSuffix
-                                   : scenePath + kIndexSuffix,
-                               "out", dryRun, kCommand);
+        indexPath =
+            write_path(ends_with(scenePath, kSceneSuffix)
+                           ? scenePath.substr(0, scenePath.size() - std::string(kSceneSuffix).size()) + kIndexSuffix
+                           : scenePath + kIndexSuffix,
+                       "out", dryRun, kCommand);
     }
     const std::string base = indexPath.substr(0, indexPath.size() - std::string(kIndexSuffix).size());
     const std::string cellDir = base + "_cells";
@@ -227,10 +229,11 @@ Json split_cells(Engine::Impl&, const Json& args) {
             for (const Json& v : scene["origin"])
                 if (v.is_number() && v.get<double>() != 0.0) nonzero = true;
         if (nonzero)
-            fail(scenePath + "/origin is " + scene["origin"].dump() +
-                     ": the scene is saved relative to a floating origin, so its positions are not absolute.",
-                 "Rebase it to the origin first (world.rebase to [0,0,0], then scene.save), then split: the cell scenes "
-                 "hold absolute positions.");
+            fail(
+                scenePath + "/origin is " + scene["origin"].dump() +
+                    ": the scene is saved relative to a floating origin, so its positions are not absolute.",
+                "Rebase it to the origin first (world.rebase to [0,0,0], then scene.save), then split: the cell scenes "
+                "hold absolute positions.");
     }
     const Json& entities = scene["entities"];
     World scratch;
@@ -241,9 +244,10 @@ Json split_cells(Engine::Impl&, const Json& args) {
             std::size_t shown = 0;
             for (const LoadMessage& m : report.messages)
                 if (m.severity == LoadMessage::Severity::Error && ++shown <= 5) detail += "\n  " + m.to_string();
-            fail("Cannot split '" + scenePath + "': it has " + std::to_string(report.error_count()) + " load error(s):" +
-                     detail,
-                 "Fix the file first (project.validate lists every problem with its JSON pointer). Nothing was written.");
+            fail("Cannot split '" + scenePath + "': it has " + std::to_string(report.error_count()) +
+                     " load error(s):" + detail,
+                 "Fix the file first (project.validate lists every problem with its JSON pointer). Nothing was "
+                 "written.");
         }
     }
     const std::vector<Entity> roots = scratch.roots();
@@ -276,9 +280,10 @@ Json split_cells(Engine::Impl&, const Json& args) {
         std::int64_t ci = 0, cj = 0;
         grid.cell_of(double(p.x), double(d3 ? p.z : p.y), ci, cj);
         if (ci <= -kMaxWorldCoord || ci >= kMaxWorldCoord || cj <= -kMaxWorldCoord || cj >= kMaxWorldCoord)
-            fail(scenePath + ptr + ": the entity '" + id + "' is at (" + std::to_string(p.x) + ", " + std::to_string(p.y) +
-                     ", " + std::to_string(p.z) + "), cell [" + std::to_string(ci) + ", " + std::to_string(cj) +
-                     "] of " + std::to_string(cellSize) + " metres: farther than a world index holds.",
+            fail(scenePath + ptr + ": the entity '" + id + "' is at (" + std::to_string(p.x) + ", " +
+                     std::to_string(p.y) + ", " + std::to_string(p.z) + "), cell [" + std::to_string(ci) + ", " +
+                     std::to_string(cj) + "] of " + std::to_string(cellSize) +
+                     " metres: farther than a world index holds.",
                  "Use a bigger cellSize, or move the entity (or tag it \"global\" to keep it out of the cells).");
         CellPlan& c = plans[{std::int32_t(cj), std::int32_t(ci)}];
         c.i = std::int32_t(ci);
@@ -299,12 +304,12 @@ Json split_cells(Engine::Impl&, const Json& args) {
         }
     }
     if (std::int64_t(plans.size()) > kMaxWorldCells)
-        fail("The split would make " + std::to_string(plans.size()) + " cells, over the " + std::to_string(kMaxWorldCells) +
-                 " an index holds.",
+        fail("The split would make " + std::to_string(plans.size()) + " cells, over the " +
+                 std::to_string(kMaxWorldCells) + " an index holds.",
              "Use a bigger cellSize.");
     if (plans.empty())
-        fail(scenePath + " has no entity to put in a cell (" + std::to_string(globalRoots.size()) +
-                 " of its " + std::to_string(roots.size()) + " root entities are global).",
+        fail(scenePath + " has no entity to put in a cell (" + std::to_string(globalRoots.size()) + " of its " +
+                 std::to_string(roots.size()) + " root entities are global).",
              "A scene whose entities are all cameras, lights and UI has nothing to stream. Place the level's entities "
              "in the scene, or tag fewer of them \"global\".");
 
@@ -312,16 +317,19 @@ Json split_cells(Engine::Impl&, const Json& args) {
     std::map<std::string, std::string> groupOf;
     for (std::size_t k : globalRoots) collect_group_ids(entities[k], "", groupOf);
     for (auto& [key, c] : plans)
-        for (std::size_t k : c.roots) collect_group_ids(entities[k], std::to_string(c.i) + "," + std::to_string(c.j), groupOf);
+        for (std::size_t k : c.roots)
+            collect_group_ids(entities[k], std::to_string(c.i) + "," + std::to_string(c.j), groupOf);
     std::vector<std::string> warnings;
     std::size_t crossRefs = 0;
-    for (std::size_t k : globalRoots) walk_refs(entities[k], "/entities/" + std::to_string(k), groupOf, "", warnings, crossRefs);
+    for (std::size_t k : globalRoots)
+        walk_refs(entities[k], "/entities/" + std::to_string(k), groupOf, "", warnings, crossRefs);
     for (auto& [key, c] : plans)
         for (std::size_t k : c.roots)
             walk_refs(entities[k], "/entities/" + std::to_string(k), groupOf,
                       std::to_string(c.i) + "," + std::to_string(c.j), warnings, crossRefs);
     if (crossRefs > warnings.size())
-        warnings.push_back("... and " + std::to_string(crossRefs - warnings.size()) + " more references between cells.");
+        warnings.push_back("... and " + std::to_string(crossRefs - warnings.size()) +
+                           " more references between cells.");
 
     // The files.
     WorldIndex index = grid;
@@ -374,7 +382,8 @@ Json split_cells(Engine::Impl&, const Json& args) {
             if (clash.empty() && same_file(c.scene, scenePath)) clash = c.scene;
         if (!clash.empty())
             fail("'" + clash + "' is the scene being split: the split never changes it.",
-                 "Pass another \"out\" (for example worlds/level.world.json) so the index and the cells go to new files.");
+                 "Pass another \"out\" (for example worlds/level.world.json) so the index and the cells go to new "
+                 "files.");
     }
     std::vector<std::string> clashes;
     if (!overwrite) {
@@ -454,7 +463,8 @@ Json merge_cells(Engine::Impl&, const Json& args) {
              "Pass the merged scene, for example \"out\": \"scenes/level.scene.json\".");
     const std::string outPath = write_path(args["out"].get<std::string>(), "out", dryRun, kCommand);
     if (!ends_with(outPath, kSceneSuffix))
-        fail("out '" + outPath + "' does not end in " + kSceneSuffix + ".", "Name the scene like scenes/level.scene.json.");
+        fail("out '" + outPath + "' does not end in " + kSceneSuffix + ".",
+             "Name the scene like scenes/level.scene.json.");
 
     auto loaded = load_world_index(worldPath);
     if (!loaded.ok()) fail("Cannot merge '" + worldPath + "': " + loaded.error().message, loaded.error().hint);
@@ -462,7 +472,8 @@ Json merge_cells(Engine::Impl&, const Json& args) {
 
     for (const WorldCell& c : index.cells)
         if (same_file(outPath, c.scene) || same_file(outPath, index.persistent))
-            fail("out '" + outPath + "' is a file of the world being merged ('" + (same_file(outPath, index.persistent) ? index.persistent : c.scene) +
+            fail("out '" + outPath + "' is a file of the world being merged ('" +
+                     (same_file(outPath, index.persistent) ? index.persistent : c.scene) +
                      "'): the merge never changes them.",
                  "Pass another \"out\" for the merged scene.");
     if (same_file(outPath, worldPath)) fail("out '" + outPath + "' is the index itself.", "Pass another \"out\".");
@@ -479,8 +490,9 @@ Json merge_cells(Engine::Impl&, const Json& args) {
         const Json file = read_json_file(path, isPersistent ? "persistent scene" : "cell scene");
         ++filesRead;
         if (!file.is_object() || !file.contains("entities") || !file["entities"].is_array())
-            fail(path + " has no \"entities\" array.",
-                 "A cell file looks like {\"format\": \"factoria.scene/1\", \"entities\": [...]}. Nothing was written.");
+            fail(
+                path + " has no \"entities\" array.",
+                "A cell file looks like {\"format\": \"factoria.scene/1\", \"entities\": [...]}. Nothing was written.");
         if (isPersistent) {
             if (file.contains("settings")) merged["settings"] = file["settings"];
             if (file.contains("origin")) merged["origin"] = file["origin"];
@@ -494,9 +506,10 @@ Json merge_cells(Engine::Impl&, const Json& args) {
     if (!index.persistent.empty()) take(index.persistent, true);
     for (const WorldCell& c : index.cells) take(c.scene, false);
     if (!duplicates.empty())
-        fail("Two files of the world have the same entity id: " + duplicates[0] +
-                 (duplicates.size() > 1 ? " (and " + std::to_string(duplicates.size() - 1) + "+ more)" : "") + ".",
-             "Ids are unique in a scene: rename one of the entities in its cell file, then merge. Nothing was written.");
+        fail(
+            "Two files of the world have the same entity id: " + duplicates[0] +
+                (duplicates.size() > 1 ? " (and " + std::to_string(duplicates.size() - 1) + "+ more)" : "") + ".",
+            "Ids are unique in a scene: rename one of the entities in its cell file, then merge. Nothing was written.");
     merged["entities"] = std::move(list);
 
     bool wrote = false;
@@ -526,23 +539,34 @@ Json merge_cells(Engine::Impl&, const Json& args) {
 void register_world_split_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
     I.commands.add(
-        {"world.split_cells",
-         "Cut a scene into a streamed world: an index, one scene per cell and a persistent scene.",
-         "Reads a scene file and writes `<out>` (a world index, default: the scene's name with .world.json), one scene per "
+        {"world.split_cells", "Cut a scene into a streamed world: an index, one scene per cell and a persistent scene.",
+         "Reads a scene file and writes `<out>` (a world index, default: the scene's name with .world.json), one scene "
+         "per "
          "non-empty cell in `<out without .world.json>_cells/<i>_<j>.scene.json`, and the persistent scene "
-         "`<out without .world.json>_persistent.scene.json` (named in the index's `persistent` key). A ROOT entity goes whole, "
-         "with all its children, to the cell its world position is in: cell [i, j] is floor((x - origin) / cellSize) on the "
+         "`<out without .world.json>_persistent.scene.json` (named in the index's `persistent` key). A ROOT entity "
+         "goes whole, "
+         "with all its children, to the cell its world position is in: cell [i, j] is floor((x - origin) / cellSize) "
+         "on the "
          "plane (XZ for \"3d\", XY for \"2d\"), cell borders belong to the higher cell, the index origin is [0, 0]. "
-         "Details: docs/BIG_WORLDS.md, \"Editing a streamed world\". " FA_COMMAND_DETAILS
-         "GLOBAL entities stay in the persistent scene instead, together with the scene's `settings`: a root entity whose "
-         "subtree has a Camera, an AudioListener, a MusicPlayer, a StreamedWorld, a StreamingAnchor, any user-interface "
-         "component or a directional Light, that has no Transform, or whose tags include \"global\". The cells' bounds are "
-         "the cell rectangle on the plane and the lowest and highest position of its entities in height (3d). The entities "
-         "are written exactly as the source scene has them (same ids, components and children, in the source order), so "
-         "world.merge_cells gives them back. A scene with a floating `origin` is refused (rebase it first). A string in an "
-         "entity's components that is the id of an entity in another cell is reported in `warnings`: such a reference is "
-         "empty while the other cell is not loaded. The output is deterministic (the same scene and cellSize give the same "
-         "bytes). The source scene is never changed; existing files are only replaced with `overwrite`; `dryRun` reports "
+         "Details: docs/BIG_WORLDS_STREAMING.md, \"Editing a streamed world\". " FA_COMMAND_DETAILS
+         "GLOBAL entities stay in the persistent scene instead, together with the scene's `settings`: a root entity "
+         "whose "
+         "subtree has a Camera, an AudioListener, a MusicPlayer, a StreamedWorld, a StreamingAnchor, any "
+         "user-interface "
+         "component or a directional Light, that has no Transform, or whose tags include \"global\". The cells' bounds "
+         "are "
+         "the cell rectangle on the plane and the lowest and highest position of its entities in height (3d). The "
+         "entities "
+         "are written exactly as the source scene has them (same ids, components and children, in the source order), "
+         "so "
+         "world.merge_cells gives them back. A scene with a floating `origin` is refused (rebase it first). A string "
+         "in an "
+         "entity's components that is the id of an entity in another cell is reported in `warnings`: such a reference "
+         "is "
+         "empty while the other cell is not loaded. The output is deterministic (the same scene and cellSize give the "
+         "same "
+         "bytes). The source scene is never changed; existing files are only replaced with `overwrite`; `dryRun` "
+         "reports "
          "without writing. "
          "Result: {world, persistent, cells, entities, globalEntities, globalList, files, written, cellList, warnings, "
          "notes}. Example: world.split_cells "
@@ -560,11 +584,14 @@ void register_world_split_commands(Engine& engine, Engine::Impl& I) {
         [&I](const Json& a) { return split_cells(I, a); });
     I.commands.add(
         {"world.merge_cells", "Merge the cells of a streamed world back into one scene file.",
-         "The inverse of world.split_cells: reads the index `world`, its persistent scene and every cell scene, and writes "
+         "The inverse of world.split_cells: reads the index `world`, its persistent scene and every cell scene, and "
+         "writes "
          "all their entities into the one scene `out`, with the persistent scene's `settings`: the persistent scene's "
-         "entities first, then each cell's in index order (by j, then i), each entity with its children, ids and components "
-         "exactly as in its file. So split then merge gives the same entities (the order of the roots follows the cells). "
-         "Details: docs/BIG_WORLDS.md, \"Editing a streamed world\". " FA_COMMAND_DETAILS
+         "entities first, then each cell's in index order (by j, then i), each entity with its children, ids and "
+         "components "
+         "exactly as in its file. So split then merge gives the same entities (the order of the roots follows the "
+         "cells). "
+         "Details: docs/BIG_WORLDS_STREAMING.md, \"Editing a streamed world\". " FA_COMMAND_DETAILS
          "Two files with the same entity id are an error (nothing is written). The world's files are never changed and "
          "`out` may not be one of them; an existing `out` is replaced only with `overwrite`; `dryRun` reports without "
          "writing. "
