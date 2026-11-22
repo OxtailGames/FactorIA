@@ -279,6 +279,9 @@ struct Renderer::Impl {
     OcclusionShown occlusionShown;  // this frame (cleared when it begins)
     OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
     void occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    // M75.2, areas and portals (renderer_portals.cpp): (entity, what) pairs already warned about (what: an unknown areaId, or a code).
+    std::set<std::pair<std::uint64_t, std::int64_t>> warnedPortalEntities;
+    void portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes);
     void occlusion_overlay();
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;

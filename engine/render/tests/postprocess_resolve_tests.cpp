@@ -575,8 +575,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 6 rows of M75 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 6 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 7 rows of M75 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 7 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -970,7 +970,7 @@ TEST_CASE("Renderer::supports: an unknown name, or a renderer that is not initia
 TEST_CASE("RenderStats: the M75 counters start at zero and are listed in to_json") {
     const RenderStats s;
     const Json j = s.to_json();
-    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "lodCrossFades", "impostors",
+    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "portalsVisited", "meshesCulledByArea", "lodCrossFades", "impostors",
                             "terrainTiles", "terrainTriangles", "foliageInstances", "foliageInstancesCulled"}) {
         INFO(key);
         REQUIRE(j.contains(key));

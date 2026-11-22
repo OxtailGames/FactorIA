@@ -1146,6 +1146,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     });
     // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
     // are not culled (they show the scene from a point the Occluders were not placed for).
+    // Areas and portals (M75.2) come first (a mesh in a room the portals do not show needs no depth test); the same single branch.
+    if (!fr.noProbes && !fr.giCapture && world.any<OcclusionArea>()) portal_cull_meshes(world, fr, meshes);
     if (!fr.noProbes && !fr.giCapture && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.

@@ -1,7 +1,7 @@
 # Big worlds
 
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
-kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (the world, the physics, the audio and the renderer follow a rebase); the CPU occluders of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
+kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (the world, the physics, the audio and the renderer follow a rebase); the CPU occluders and the areas and portals of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
 do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
 commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
 `world.origin`, `world.rebase`, `world.absolute_position`, `world.split_cells`, `world.merge_cells` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
@@ -11,14 +11,14 @@ is "off" or "as before".
 | Part | Package | What it adds |
 |---|---|---|
 | [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup` and dithered cross-fade (drawn); impostors and HLOD (planned) |
-| [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders (CPU built; GPU planned), areas and portals (planned) |
+| [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders and areas and portals (CPU built; GPU planned) |
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
 | [Terrain](BIG_WORLDS_TERRAIN.md#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
 | [Foliage](BIG_WORLDS_TERRAIN.md#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, `false` with the status
-"planned (M75)" until its package lands (`impostors`, `occlusionGpu`, `foliage`); `occlusionCpu` and `terrain` are `true` on every backend. Ask
+"planned (M75)" until its package lands (`impostors`, `occlusionGpu`, `foliage`); `occlusionCpu`, `occlusionPortals` and `terrain` are `true` on every backend. Ask
 it before relying on one, as for every other feature (docs/RENDERING.md).
 
 ## Pages

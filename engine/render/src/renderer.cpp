@@ -51,6 +51,8 @@ Json RenderStats::to_json() const {
                 {"occluders", occluders},
                 {"occlusionTests", occlusionTests},
                 {"meshesOccluded", meshesOccluded},
+                {"portalsVisited", portalsVisited},
+                {"meshesCulledByArea", meshesCulledByArea},
                 {"lodCrossFades", lodCrossFades},
                 {"impostors", impostors},
                 {"terrainTiles", terrainTiles},
