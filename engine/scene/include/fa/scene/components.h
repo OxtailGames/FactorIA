@@ -143,6 +143,8 @@ enum class TextDirection : std::int32_t { Auto, Ltr, Rtl };
 // The most GPU instances one MeshRenderer or Sprite draws (MeshRenderer.instances, Sprite.instances).
 inline constexpr std::int32_t kMaxMeshInstances = 1 << 24;
 
+// Where the normals of a lit sprite come from (Sprite.normalFrom).
+enum class SpriteNormalFrom : std::int32_t { File, Sprite, Height };
 struct Sprite {
     std::string texture;      // asset path; "" draws a solid quad of `color`
     Rect region{0, 0, 0, 0};  // source rect in texture pixels (top-left origin); 0 size = whole texture
@@ -162,6 +164,18 @@ struct Sprite {
                0};     // 9-slice borders in texture pixels [left, top, right, bottom] (0 = stretch the whole region)
     bool lit = false;  // world space only: shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;  // tangent-space normal map with the same layout as `texture` ("" = flat); needs lit
+    // M74: emission, light layers, rim light and generated normals.
+    Color emissive{0, 0, 0,
+                   1};  // light the sprite gives out (colour 0..1, HDR strength is emissiveIntensity); black = none
+    float emissiveIntensity = 1.0f;
+    std::string emissiveMap;       // texture laid out like `texture`: where the sprite glows ("" = whole sprite)
+    std::int32_t lightLayers = 1;  // bit mask of the Light2D.lightLayers that light this sprite (bit 0 = 1)
+    Color rimColor{1, 1, 1, 1};    // colour of the rim light
+    float rimIntensity = 0.0f;     // 0 = no rim light
+    float rimWidth = 0.1f;         // width of the rim as a fraction of the sprite's size
+    SpriteNormalFrom normalFrom = SpriteNormalFrom::File;
+    std::string heightMap;        // grey image the normals are made from with normalFrom height
+    float normalStrength = 1.0f;  // relief of a generated normal map
     Vec2 skew{
         0,
         0};  // shear in degrees [x, y] about the pivot: x leans the top edge sideways, y tilts the right edge up/down
@@ -313,6 +327,7 @@ struct Shape2D {
         5;  // star: number of tips (kShape2DMinTips..kShape2DMaxTips); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;  // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
     bool lit = false;          // world space only: shaded by Light2D entities and SceneSettings.ambientLight
+    std::int32_t lightLayers = 1;  // M74: bit mask of the Light2D.lightLayers that light this shape (bit 0 = 1)
     float cornerRadius =
         0.0f;  // rectangle: radius of the rounded corners in world units (clamped to half the shorter side)
     float softness =
@@ -424,9 +439,13 @@ struct Tilemap {
     Json terrains = Json::array();  // autotile rules: terrains painted with tilemap.paint_terrain (fa/scene/autotile.h)
     Color color{1, 1, 1, 1};
     std::int32_t layer = -10;
-    bool lit = false;            // shaded by Light2D entities and SceneSettings.ambientLight
-    std::string normalMap;       // normal map image with the same layout as the tileset ("" = flat); needs lit
-    bool occludesLight = false;  // the tiles in solidTiles block the light of Light2D with castShadows
+    bool lit = false;              // shaded by Light2D entities and SceneSettings.ambientLight
+    std::string normalMap;         // normal map image with the same layout as the tileset ("" = flat); needs lit
+    bool occludesLight = false;    // the tiles in solidTiles block the light of Light2D with castShadows
+    std::int32_t lightLayers = 1;  // M74: bit mask of the Light2D.lightLayers that light this tilemap (bit 0 = 1)
+    Color emissive{0, 0, 0,
+                   1};  // M74: light the tiles give out (colour 0..1, HDR strength is emissiveIntensity); black = none
+    float emissiveIntensity = 1.0f;  // M74: multiplies emissive
     // Runtime only (not a field, not saved): the last tiles written by set_tilemap_tile(), oldest first, a few thousand at
     // most (the oldest are dropped). Nobody empties it: every consumer (2D physics, the tile cost grid) keeps the
     // TilemapStamp it built from and asks tilemap_edits_since() for what happened after it. `editsArray` is the tiles.id()
@@ -487,6 +506,59 @@ struct Light2D {
     float direction = 270.0f;  // directional: degrees the light travels towards (0 = right, 90 = up, 270 = down)
     float elevation = 45.0f;   // directional: degrees above the drawing plane (90 = straight at the picture)
     bool castShadows = false;  // point: solid tiles of Tilemaps with occludesLight block this light
+    // M74: soft shadows, light layers and cookies.
+    float size = 0.0f;               // point: radius of the light source in world units; 0 = hard shadow edges
+    std::int32_t lightLayers = -1;   // bit mask of the layers this light shines on (-1 = all)
+    std::string cookie;              // texture projected by the light ("" = none)
+    float cookieRotationDeg = 0.0f;  // degrees the cookie is turned
+    float cookieScale = 1.0f;        // size of the cookie as a multiple of the light's diameter
+};
+
+// M74: an occluder of Light2D shadows that is not a Tilemap tile.
+enum class ShadowCaster2DShape : std::int32_t { SpriteAlpha, Polygon, Box };
+struct ShadowCaster2D {
+    ShadowCaster2DShape shape = ShadowCaster2DShape::SpriteAlpha;
+    ArrayF32 points;                // polygon: [x0, y0, x1, y1, ...] in the entity's local space
+    Vec2 size{32.0f, 32.0f};        // box: width and height in world units
+    float alphaThreshold = 0.5f;    // sprite alpha: pixels with alpha above this block light
+    bool selfShadow = false;        // true: the caster also darkens itself
+    std::int32_t lightLayers = -1;  // bit mask of the Light2D.lightLayers it blocks (-1 = all)
+    bool enabled = true;
+};
+
+// M74: scene-wide 2D global illumination (radiance cascades); nothing is computed unless this component exists and
+// is enabled.
+enum class GI2DQuality : std::int32_t { Low, Medium, High };
+struct GlobalIllumination2D {
+    bool enabled = true;
+    GI2DQuality quality = GI2DQuality::Medium;
+    float intensity = 1.0f;
+    float bounce = 0.5f;  // 0..1 how much of its last frame's irradiance, times its colour, a blocker bounces back
+    float range =
+        512.0f;  // world units around the view that the field covers (emitters and occluders beyond do not count)
+    float resolutionScale =
+        0.5f;  // field texels per screen pixel (the field is computed at this fraction of the picture's size)
+};
+
+// M74: a reflective, refractive water area; its top edge is the surface.
+struct Water2D {
+    Vec2 size{256.0f, 128.0f};
+    Color tint{0.2f, 0.5f, 0.7f, 0.5f};
+    float reflection = 0.5f;
+    float refraction = 4.0f;     // distortion in pixels
+    float waveAmplitude = 2.0f;  // world units
+    float waveLength = 64.0f;    // world units
+    float waveSpeed = 1.0f;      // waves per second
+    std::int32_t layer = 10;     // draw order: the water shows what is drawn before it (lower layers)
+    std::string material;        // optional sprite material (M72)
+};
+
+// M74: a rectangle that distorts what is drawn behind it.
+struct DistortionZone2D {
+    Vec2 size{128.0f, 128.0f};
+    float strength = 1.0f;
+    std::int32_t layer = 20;  // draw order: the zone bends what is drawn before it (lower layers)
+    std::string material;     // sprite material ("" = the built-in ripple)
 };
 
 // Where a ParticleEmitter's particles are born, how they leave, what they bounce on and what trail they leave: see

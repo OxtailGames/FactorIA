@@ -80,6 +80,47 @@ void Editor::image_update_textures(ImageModel& m) {
         }
     }
     if (!m.tileset_layer() && u.terrain.view) retire(u.terrain);
+    if (!u.lit || m.width() <= 0 || m.height() <= 0) {
+        if (u.litTex.view) retire(u.litTex);
+        u.litWhy.clear();
+    } else {
+        // the light: the mouse while it is over the picture (the last place it was kept), or a circle round the middle
+        const float w = float(m.width()), h = float(m.height());
+        if (u.litOrbit) {
+            // 30 steps a second at most: the lamp stays put between steps, so the picture is lit and uploaded 30 times a second, not every frame
+            const double a = std::floor(ImGui::GetTime() * 30.0) / 30.0 * 0.8;
+            const float radius = std::max(w, h) * 0.45f;
+            u.litX = w * 0.5f + radius * float(std::cos(a));
+            u.litY = h * 0.5f + radius * float(std::sin(a));
+        } else if (u.mouseImageX >= 0 && u.mouseImageY >= 0) {
+            u.litX = u.mouseImageX;
+            u.litY = u.mouseImageY;
+        } else if (u.litX < 0 || u.litY < 0) {
+            u.litX = w * 0.5f;
+            u.litY = h * 0.5f;
+        }
+        NormalLight light;
+        light.point = true;
+        light.x = double(u.litX);
+        light.y = double(u.litY);
+        light.height = double(u.litHeight);
+        light.intensity = double(u.litIntensity);
+        light.flipGreen = u.litFlipGreen;
+        const Image& lit = m.lit_picture(u.litLayer, light, kLitMaxSide, &u.litWhy);
+        if (lit.empty()) {
+            if (u.litTex.view) retire(u.litTex);
+        } else if (u.litTex.view == 0 || u.litTex.revision != m.lit_revision() || u.litTex.w != lit.width ||
+                   u.litTex.h != lit.height) {
+            retire(u.litTex);
+            ImageTexture t;
+            if (ui::make_texture(lit.width, lit.height, lit.rgba.data(), t.image, t.view)) {
+                t.w = lit.width;
+                t.h = lit.height;
+                t.revision = m.lit_revision();
+                u.litTex = t;
+            }
+        }
+    }
     const bool wantTint = m.has_selection() && (u.tint || m.selection_edges_truncated());
     if (!wantTint) {
         if (u.selectionTint.view) retire(u.selectionTint);
@@ -235,7 +276,20 @@ void Editor::draw_image_canvas(ImageModel& m, ImVec2 size) {
             }
         u.tiledDrawn = true;
     }
-    if (u.picture.view) dl->AddImage(texture_ref(u.picture, u.zoom < 1.0f), p0, p1);
+    u.litDrawn = false;
+    if (u.litTex.view && u.lit) {
+        // the picture lit by the normal layer, in place of the plain one (the texture may have fewer pixels than the picture)
+        dl->AddImage(texture_ref(u.litTex, u.zoom < 1.0f), p0, p1);
+        u.litDrawn = true;
+    } else if (u.picture.view) {
+        dl->AddImage(texture_ref(u.picture, u.zoom < 1.0f), p0, p1);
+    }
+    if (u.lit && u.litDrawn && !u.litOrbit) {
+        // where the lamp is
+        const ImVec2 lamp = image_to_screen(u.litX, u.litY);
+        dl->AddCircleFilled(lamp, 4.0f, IM_COL32(255, 230, 120, 230));
+        dl->AddCircle(lamp, 6.0f, IM_COL32(0, 0, 0, 200));
+    }
     dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 160));
 
     u.gridDrawn = false;

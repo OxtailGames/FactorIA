@@ -7,7 +7,8 @@
 // come after the masks and may change the footprint (a shadow or an outline grows the raster; the raster keeps its origin, so
 // nothing else needs to know).
 //
-// Adjustments: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold.
+// Adjustments: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold, and the normal-map
+// operations normalMap, normalFlip, normalSmooth, normalStrength, normalize (image_normal.h; they work on 8-bit pixels, like a PNG).
 // Effects: colorOverlay, outline, stroke, dropShadow, outerGlow, innerGlow, blur, sharpen, noise, shade.
 //
 // Everything is CPU, float and deterministic (no clock, no random numbers: noise is a hash of the seed and the pixel), and works
@@ -19,6 +20,7 @@
 #include <filesystem>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/image_normal.h"
 #include "fa/tooling/project_fs.h"
 #include "image_doc_internal.h"
 
@@ -106,6 +108,49 @@ const std::vector<OpDef>& adjustment_defs() {
          "others `below` (default "
          "black); alpha is kept: {\"type\": \"threshold\", \"level\": 0.5}.",
          {"level", "above", "below"}},
+        {"normalMap",
+         "Turns the layer's pixels (or, in an adjustment layer, everything drawn below it) into a tangent-space normal "
+         "map (+X right, +Y "
+         "UP the picture, flat = #8080ff) that Sprite.normalMap can use. `from`: sprite (default) reads the pixels as "
+         "a sprite, with a "
+         "bevel from the transparent edge plus luminance times alpha as the height, like Sprite.normalFrom = sprite; "
+         "height reads them as "
+         "a grey height map (white = high, alpha ignored), like normalFrom = height. `strength` is the relief (0..32, "
+         "default 1; 0 is "
+         "flat). `source` (a PNG of the project) is the grey height map to use instead of the pixels, read at the "
+         "layer's own pixels "
+         "(outside it the surface is flat); it needs `from` height. `tile: true` wraps the slope at the edges for a "
+         "tiling texture. With "
+         "tile false the bytes are those the renderer makes for the same picture and strength. The result is opaque. "
+         "Edit it further with "
+         "normalFlip, normalSmooth, normalStrength and normalize: {\"type\": \"normalMap\", \"from\": \"sprite\", "
+         "\"strength\": 1.5}.",
+         {"from", "strength", "source", "tile"}},
+        {"normalFlip",
+         "Mirrors a component of a normal map so it stays a valid one: `channel` y (default; the green channel, which "
+         "turns an OpenGL map "
+         "into a DirectX one and back), x (red) or both. Transparent pixels are left alone; flipping twice gives the "
+         "same bytes (it maps each byte p to 255 - p, so a flat 128 becomes 127): "
+         "{\"type\": \"normalFlip\", \"channel\": \"y\"}.",
+         {"channel"}},
+        {"normalSmooth",
+         "Smooths a normal map: blurs its vectors with a Gaussian of `radius` pixels (sigma, 0..16, default 1) and "
+         "makes them unit length "
+         "again, so no edge turns dark or flat. `tile: true` wraps around the edges: {\"type\": \"normalSmooth\", "
+         "\"radius\": 1.5}.",
+         {"radius", "tile"}},
+        {"normalStrength",
+         "Scales the relief of a normal map: `amount` (0..8, default 1) multiplies the slopes, so 2 is twice as steep, "
+         "0.5 half as steep "
+         "and 0 flat; the vectors stay unit length: {\"type\": \"normalStrength\", \"amount\": 2}.",
+         {"amount"}},
+        {"normalize",
+         "Makes every vector of a normal map unit length (a painted or blended map drifts off it). With `flatten` "
+         "(default true) a "
+         "transparent or half-transparent pixel becomes the flat normal mixed in by its alpha, and the layer is "
+         "opaque, as a normal map "
+         "file should be; `flatten: false` keeps the alpha: {\"type\": \"normalize\"}.",
+         {"flatten"}},
     };
     return defs;
 }
@@ -513,6 +558,37 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         integer("seed", 0, 2147483647);
         choice("mode", {"mono", "color"});
     }
+    if (kind == "normalMap") {
+        choice("from", {"sprite", "height"});
+        range("strength", 0, 32);
+        boolean("tile");
+        auto it = op.find("source");
+        if (it != op.end()) {
+            const std::string file = it->is_string() ? it->get<std::string>() : std::string();
+            if (!it->is_string() || to_lower(file).size() < 5 || to_lower(file).substr(file.size() - 4) != ".png") {
+                bad("source",
+                    "`source` of normalMap must be the project path of a PNG, got " + describe_json_value(*it) + ".");
+            } else {
+                if (string_or(op, "from", "sprite") != "height")
+                    bad("source", "`source` is a grey height map, so it needs \"from\": \"height\" (this normalMap "
+                                  "reads `from` " +
+                                      string_or(op, "from", "sprite") + ").");
+                if (!projectDir.empty()) {
+                    std::error_code ec;
+                    auto path = resolve_project_path(projectDir, file);
+                    if (!path.ok() || !stdfs::is_regular_file(*path, ec))
+                        bad("source", "The height map '" + file + "' does not exist in the project.");
+                }
+            }
+        }
+    }
+    if (kind == "normalFlip") choice("channel", {"y", "x", "both"});
+    if (kind == "normalSmooth") {
+        range("radius", 0, 16);
+        boolean("tile");
+    }
+    if (kind == "normalStrength") range("amount", 0, 8);
+    if (kind == "normalize") boolean("flatten");
     if (kind == "shade") {
         boolean("flipGreen");
         range("smooth", 0, 16);
@@ -926,6 +1002,45 @@ void apply_quantize(const Json& op, const std::string& method, bool allowLevels,
 
 }  // namespace
 
+namespace {
+
+// normalMap: the layer's pixels (or the grey `source` PNG) as a height field, made into a normal map by the engine's kernel.
+void apply_normal_map(const Json& op, Raster& r, const OpEnv& env) {
+    const std::string from = string_or(op, "from", "sprite");
+    const double strength = number_or(op, "strength", 1);
+    const bool tile = bool_or(op, "tile", false);
+    const int ox = r.ox, oy = r.oy;
+    if (r.empty()) return;
+    if (!op.contains("source")) {
+        const Image map = make_normal_map(to_image(r), from, strength, tile);
+        if (map.empty()) return;
+        r = from_image(map);
+    } else {
+        const Image& height = env.image(op["source"].get<std::string>());
+        const Image map = make_normal_map(height, from, strength, tile);
+        Raster out(r.w, r.h);
+        for (int y = 0; y < r.h; ++y)
+            for (int x = 0; x < r.w; ++x) {
+                const int mx = x + ox, my = y + oy;
+                float* p = out.at(x, y);
+                p[3] = 1.0f;
+                if (!map.empty() && mx >= 0 && my >= 0 && mx < map.width && my < map.height) {
+                    const std::uint8_t* t = &map.rgba[(std::size_t(my) * map.width + mx) * 4];
+                    for (int c = 0; c < 3; ++c) p[c] = t[c] / 255.0f;
+                } else {  // outside the height map the surface is flat
+                    p[0] = 128.0f / 255.0f;
+                    p[1] = 128.0f / 255.0f;
+                    p[2] = 1.0f;
+                }
+            }
+        r = std::move(out);
+    }
+    r.ox = ox;
+    r.oy = oy;
+}
+
+}  // namespace
+
 void apply_adjustments(const std::vector<Json>& list, Raster& r, const OpEnv& env) {
     for (const Json& op : list) {
         const std::string type = op.value("type", std::string());
@@ -1041,6 +1156,24 @@ void apply_adjustments(const std::vector<Json>& list, Raster& r, const OpEnv& en
                 p[1] = c.g;
                 p[2] = c.b;
             }
+        } else if (type == "normalMap") {
+            apply_normal_map(op, r, env);
+        } else if (type == "normalFlip" || type == "normalSmooth" || type == "normalStrength" || type == "normalize") {
+            Image map = to_image(r);
+            if (type == "normalFlip") {
+                const std::string channel = string_or(op, "channel", "y");
+                normal_map_flip(map, channel != "y", channel != "x");
+            } else if (type == "normalSmooth") {
+                normal_map_smooth(map, number_or(op, "radius", 1), bool_or(op, "tile", false));
+            } else if (type == "normalStrength") {
+                normal_map_scale(map, number_or(op, "amount", 1));
+            } else {
+                normal_map_normalize(map, bool_or(op, "flatten", true));
+            }
+            const int ox = r.ox, oy = r.oy;
+            r = from_image(map);
+            r.ox = ox;
+            r.oy = oy;
         }
     }
 }

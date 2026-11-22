@@ -240,7 +240,7 @@ top-level entity. The search box keeps the entities whose name or id contains ev
 
 **Inspector.** One collapsing header per component of the selected entity (hover the header for the component's
 description, the x removes it; Transform and EntityInfo stay). One row per field, built from reflection: tick box for
-bool, drag for numbers (the field's range limits the drag; click a number to type it), vectors and rects as one drag per
+bool, drag for numbers (the field's range limits the drag; click a number to type it), eight toggles (layers 0 to 7, lit = in the mask; they wrap into rows of 4 or 2 in a narrow Inspector) above the number for every `lightLayers` mask (Sprite, Shape2D, Tilemap, Light2D, ShadowCaster2D; a click flips one bit and keeps the others, also of each entity of a multi-selection; the number reaches layers 8 to 31 and -1 for all), vectors and rects as one drag per
 number, a colour picker, a drop-down for enums and for entity references (by id), a text box plus a file list for assets
 (only files of the right type), and a multi-line text box for free-form JSON (`Script.props`...) that is applied when you
 click away and refuses invalid JSON, showing the parse error. A number array longer than 512 elements (a big tile map, the vertices of a sprite mesh of more than 128 points) shows only its length, not its numbers: the Inspector rebuilds its JSON every frame, so edit such a field with `scene.set_component`, a script or the file. Hover a name for the field's doc string and range. Read-only

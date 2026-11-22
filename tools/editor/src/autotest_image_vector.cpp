@@ -46,6 +46,7 @@ void Editor::at_section_I2(AtScript& at) {
         struct Is {
             size_t undo = 0;
             int mark = 0;
+            float winW = 0, winH = 0;
         };
         auto is = std::make_shared<Is>();
         const std::string docPath = "assets/at-image.image.json";
@@ -250,6 +251,95 @@ void Editor::at_section_I2(AtScript& at) {
             ImageModel& m = *image_.model;
             at_check(m.last_composite_ms() >= 0.0 && m.composites() > 0, "the panel measured its composites");
             FA_INFO("autotest", "image panel: {} composites, last {:.2f} ms", m.composites(), m.last_composite_ms());
+        });
+
+        // ---- the Light preview (docs/images/IMAGES_EFFECTS_COMMANDS.md, "Normal maps"): a hidden normal layer made by image.normal.generate lights the picture, the
+        // lamp follows the mouse, Orbit moves it by itself, and none of it is a document edit
+        step(2, [this, is, docPath] {
+            Json args = Json::object({{"path", docPath}, {"from", "height"}, {"strength", 8}, {"name", "normal"}});
+            const CommandResult r = engine_->commands().call("image.normal.generate", args);
+            at_check(r.ok, "image.normal.generate made a normal layer from the picture: " +
+                               (r.ok ? std::string() : command_error_text(r.error)));
+            after_command("image.normal.generate", args, r);
+            at_check(!image_.lit && !image_.litDrawn, "the Light preview starts off");
+        });
+        // the panel looks at the files on disk every 20 frames and loads what the command wrote
+        wait_until([this] { return image_.model->layer_rows().size() == 3; });
+        step(2, [this, is] {
+            is->undo = undo_depth();
+            is->mark = int(image_.model->layer_rows().size());
+        });
+        wait_until([this] { return at_visible("img:light"); });
+        click_widget("img:light");
+        wait_until([this] { return image_.litDrawn; });
+        step(3, [this, is] {
+            ImageModel& m = *image_.model;
+            const ImageLayer* L = m.layer(image_.litLayer);
+            at_check(image_.lit && L && L->name == "normal" && !L->visible,
+                     "the Light toggle picked the hidden normal layer as the normal map");
+            at_check(image_.litDrawn && image_.litTex.view != 0 && image_.litWhy.empty(),
+                     "...and the canvas draws the lit picture");
+            NormalLight light;
+            light.x = double(image_.litX);
+            light.y = double(image_.litY);
+            light.height = double(image_.litHeight);
+            light.intensity = double(image_.litIntensity);
+            std::string why;
+            const Image& lit = m.lit_picture(image_.litLayer, light, kLitMaxSide, &why);
+            at_check(!lit.empty() && lit.width == m.picture().width && lit.height == m.picture().height,
+                     "...at the size of the picture (it is below the preview's size limit)");
+            at_check(lit.rgba != m.picture().rgba, "...and the light changes the colours: " + why);
+            at_check(undo_depth() == is->undo && m.layer_rows().size() == std::size_t(is->mark),
+                     "...and a preview is no edit: no undo step, no layer added");
+            is->mark = int(m.lit_revision());
+        });
+        // the lamp follows the mouse
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(4.0f, 4.0f)); });
+        step(4, [this, is] {
+            const std::uint64_t first = image_.model->lit_revision();
+            at_check(int(first) != is->mark && image_.litX < 6.0f && image_.litY < 6.0f,
+                     "moving the mouse over the picture moves the lamp and lights it again");
+            is->mark = int(first);
+        });
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, image_screen_pos(28.0f, 26.0f)); });
+        step(4, [this, is] {
+            at_check(int(image_.model->lit_revision()) != is->mark && image_.litX > 26.0f && image_.litY > 24.0f,
+                     "...and again at the other corner");
+        });
+        snap("editor_image_light.png");
+        // a narrow panel: the row wraps onto a second line instead of running out of the options bar
+        step(2, [is] {
+            ImGuiWindow* w = ImGui::FindWindowByName("Image");
+            if (w) {
+                is->winW = w->Size.x;
+                is->winH = w->Size.y;
+            }
+            ImGui::SetWindowSize("Image", ImVec2(520, 520));
+        });
+        step(4, [this, is] {
+            at_check(image_.litRowOverflow <= 1.0f,
+                     "the Light row fits a narrow Image panel (it wraps), overflow px: " +
+                         std::to_string(image_.litRowOverflow));
+            if (is->winW > 0) ImGui::SetWindowSize("Image", ImVec2(is->winW, is->winH));
+        });
+        step(4, [] {});
+        click_widget("img:light:orbit");
+        step(2, [this, is] {
+            at_check(image_.litOrbit, "Orbit turned on");
+            is->mark = int(image_.model->lit_revision());
+        });
+        // the relight is quantized in time, so wait for it instead of counting frames
+        wait_until([this, is] { return int(image_.model->lit_revision()) != is->mark; });
+        step(2, [this, is] {
+            at_check(int(image_.model->lit_revision()) != is->mark,
+                     "...the lamp circles by itself (the picture is lit again each frame)");
+            image_.litOrbit = false;
+        });
+        click_widget("img:light");
+        step(4, [this, is] {
+            at_check(!image_.lit && !image_.litDrawn && image_.litTex.view == 0,
+                     "turning Light off shows the plain picture again");
+            at_check(undo_depth() == is->undo, "...and the whole preview left the undo stack alone");
         });
 
         // ---- a picture from the (fake) image provider: Inpaint selection... adds a provider layer, masked by the selection

@@ -1,6 +1,7 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <set>
@@ -598,10 +599,8 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                      "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
         }
         if (const Sprite* sp = world_.get<Sprite>(e)) {
-            if (!sp->normalMap.empty() && !sp->lit)
-                warn(cptr + "/Sprite/normalMap",
-                     "Sprite.normalMap is set but Sprite.lit is false, so the normal map is not used",
-                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            // Sprite.lit false is one cause for normalMap, normalFrom and heightMap having no effect: it is warned
+            // about once, below (the others only when the sprite is lit, so the fix of one does not hide the next).
             if (const std::string problem = sprite_vertex_colors_problem(*sp); !problem.empty())
                 error(cptr + "/Sprite/vertexColors", problem,
                       "vertexColors is [r, g, b, a, ...] with 4 numbers (0..1) per vertex of the (meshColumns + 1) x "
@@ -614,6 +613,68 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                       "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, "
                       "8, 8, 8].");
         }
+        // M74: the 2D lighting and effects components (their numbers are range-checked by reflection; these are the
+        // contradictions between fields).
+        const std::string who = "'" + world_.id_of(e) + "'";
+        if (const Sprite* sp = world_.get<Sprite>(e)) {
+            if (sp->lit && sp->normalFrom == SpriteNormalFrom::Height && sp->heightMap.empty())
+                warn(cptr + "/Sprite/heightMap",
+                     "Sprite.normalFrom is \"height\" on " + who + " but heightMap is empty, so the sprite is flat",
+                     "Set \"heightMap\" to a grey image laid out like the texture, or use \"normalFrom\": \"sprite\" "
+                     "or \"file\".");
+            if (!sp->lit && sp->normalFrom != SpriteNormalFrom::File)
+                warn(cptr + "/Sprite/normalFrom",
+                     "Sprite.normalFrom is \"" +
+                         std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") + "\" on " +
+                         who + " but Sprite.lit is false, so no normals are used and the setting has no effect",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalFrom.");
+            else if (!sp->lit && !sp->normalMap.empty())
+                warn(cptr + "/Sprite/normalMap",
+                     "Sprite.normalMap is set on " + who + " but Sprite.lit is false, so the normal map is not used",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            if (sp->lit && !sp->normalMap.empty() && sp->normalFrom != SpriteNormalFrom::File)
+                warn(cptr + "/Sprite/normalMap",
+                     "Sprite.normalMap is set on " + who + " while normalFrom is \"" +
+                         std::string(sp->normalFrom == SpriteNormalFrom::Sprite ? "sprite" : "height") +
+                         "\", so the normal map file is ignored",
+                     "Set \"normalFrom\": \"file\" to use normalMap, or remove normalMap.");
+            if (sp->lit && sp->space == RenderSpace::Screen)
+                warn(cptr + "/Sprite/lit",
+                     "Sprite.lit is true on " + who + " but the sprite is in screen space, which Light2D never lights",
+                     "Set \"lit\": false, or use \"space\": \"world\" for a sprite that the lights should shade.");
+            if (sp->rimIntensity > 0.0f && !sp->lit)
+                warn(cptr + "/Sprite/rimIntensity",
+                     "Sprite.rimIntensity is " + std::format("{:g}", sp->rimIntensity) + " on " + who +
+                         " but Sprite.lit is false, so no rim light is drawn",
+                     "Set \"lit\": true and add a Light2D entity, or set rimIntensity to 0.");
+        }
+        if (const Light2D* li = world_.get<Light2D>(e)) {
+            if (li->type == Light2DType::Directional && !li->cookie.empty())
+                warn(cptr + "/Light2D/cookie",
+                     "Light2D.cookie is \"" + li->cookie + "\" on " + who +
+                         " but the light is directional, so the cookie is ignored",
+                     "Set \"type\": \"point\" to shine through the cookie, or remove cookie.");
+        }
+        // A size is printed in the short number format ("0", "-3.5"), not as 0.000000.
+        auto positive_size = [&](const char* comp, const Vec2& size) {
+            if (!(size.x > 0.0f) || !(size.y > 0.0f))
+                error(cptr + "/" + comp + "/size",
+                      std::string(comp) + ".size is [" + std::format("{:g}", size.x) + ", " +
+                          std::format("{:g}", size.y) + "] on " + who + ", but both sides must be above 0",
+                      "Write a size in world units, for example \"size\": [256, 128], or remove the component.");
+        };
+        if (const ShadowCaster2D* sc = world_.get<ShadowCaster2D>(e)) {
+            if (sc->shape == ShadowCaster2DShape::Box) positive_size("ShadowCaster2D", sc->size);
+            if (sc->shape == ShadowCaster2DShape::Polygon) {
+                if (sc->points.size() % 2 != 0 || (sc->points.size() > 0 && sc->points.size() < 6))
+                    error(cptr + "/ShadowCaster2D/points",
+                          "ShadowCaster2D.points has " + std::to_string(sc->points.size()) + " numbers on " + who +
+                              ", but a polygon needs an x and a y for each of at least 3 points",
+                          "Write [x0, y0, x1, y1, x2, y2, ...], for example [-16, -16, 16, -16, 0, 16].");
+            }
+        }
+        if (const Water2D* wa = world_.get<Water2D>(e)) positive_size("Water2D", wa->size);
+        if (const DistortionZone2D* dz = world_.get<DistortionZone2D>(e)) positive_size("DistortionZone2D", dz->size);
         if (const ParticleEmitter* pe = world_.get<ParticleEmitter>(e)) {
             for (const ParticleProblem& issue : particle_emitter_problems(*pe)) {
                 std::string pptr = cptr + "/ParticleEmitter" + issue.pointer;

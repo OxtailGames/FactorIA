@@ -44,7 +44,6 @@ WINDOWS_SECONDS = {
     "physics": 94.7,
     "editor_autotest_1": 80.1,
     "example_larkspur-lodge_test": 67.0,
-    "ltc_tables_up_to_date": 60.0,  # ESTIMATE (30-100 s in an optimized build): replace from the next green run
     "editor_autotest_4": 52.9,
     "example_burrow-brigade_test": 48.1,
     "tooling_4": 46.6,
@@ -57,6 +56,7 @@ WINDOWS_SECONDS = {
     "editor_autotest_2": 40.3,
     "example_larkspur-lodge_perf": 36.6,
     "runtime": 34.5,
+    "ltc_tables_up_to_date": 30.2,
     "scene": 27.5,
     "audio": 24.6,
     "script": 23.7,

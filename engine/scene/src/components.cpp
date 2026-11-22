@@ -70,6 +70,15 @@ std::string material_params_doc_2d(const char* extra = "") {
             .c_str());
 }
 
+// M74: the doc of `lightLayers` on a lit visual (Sprite, Shape2D, Tilemap).
+std::string light_layers_doc_2d(const char* what) {
+    return std::string("Bit mask (a whole number, -1 = every bit) of the light layers this ") + what +
+           " is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are "
+           "the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights "
+           "default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from "
+           "reaching a foreground, an interior or a UI.";
+}
+
 std::string material_doc_2d(const char* type, const char* what) {
     return std::string("Project-relative path of a custom material, a *.material.json file of kind \"sprite\" (e.g. "
                        "\"materials/wave.material.json\"), or \"\" (default) for the built-in look. The material's "
@@ -630,7 +639,48 @@ void register_builtin_components(TypeRegistry& r) {
             "and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same "
             "size). "
             "It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. "
-            "Ignored unless `lit` is true.")
+            "Ignored unless `lit` is true and normalFrom is file.")
+        .field(
+            "emissive", &Sprite::emissive,
+            "Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights "
+            "say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom "
+            "of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space "
+            "sprite (a screen-space sprite does not light the scene). Black "
+            "(default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. "
+            "Alpha of the colour is ignored.")
+        .field("emissiveIntensity", &Sprite::emissiveIntensity,
+               "HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as "
+               "written; above 1 goes past white and feeds the bloom. Default 1.")
+        .range(0, 1000)
+        .asset_field(
+            "emissiveMap", &Sprite::emissiveMap, "texture",
+            "Texture laid out exactly like `texture` and `region` that says where the sprite glows: its RGB is "
+            "multiplied with `emissive` per pixel, so only the windows or runes of a sprite shine. Empty "
+            "(default) = the whole sprite emits `emissive`, shaped by its own alpha.")
+        .field("lightLayers", &Sprite::lightLayers, light_layers_doc_2d("sprite").c_str())
+        .field("rimColor", &Sprite::rimColor,
+               "Colour of the rim light: a bright edge on the side of the sprite that faces a Light2D, as if light "
+               "wrapped around it. Alpha is ignored. Only drawn when rimIntensity is above 0 and the sprite is lit.")
+        .field("rimIntensity", &Sprite::rimIntensity,
+               "Strength of the rim light. 0 (default) = off. 1 = a rim as bright as the light that makes it.")
+        .range(0, 16)
+        .field("rimWidth", &Sprite::rimWidth,
+               "Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin "
+               "edge, 0.5 a wide glow.")
+        .range(0.01f, 1)
+        .enum_field("normalFrom", &Sprite::normalFrom, {"file", "sprite", "height"},
+                    "Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. "
+                    "sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as "
+                    "higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` "
+                    "sets the relief of a generated map; `normalMap` is ignored with sprite and height.")
+        .asset_field("heightMap", &Sprite::heightMap, "texture",
+                     "Grey image laid out like `texture` (white = high, black = low) that the normals are generated "
+                     "from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none.")
+        .field("normalStrength", &Sprite::normalStrength,
+               "Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image "
+               "says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one "
+               "image (an animated strength) a sprite gets the closest one already made.")
+        .range(0, 16)
         .field(
             "skew", &Sprite::skew,
             "Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the "
@@ -803,8 +853,11 @@ void register_builtin_components(TypeRegistry& r) {
          "lights "
          "(directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap "
          "with "
-         "occludesLight cast shadows (at most 32 shadow-casting lights per frame). "
-         "The light sits at the entity's position (Transform) and ignores layers.",
+         "occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the "
+         "256 lights a frame shades), soft with `size`. "
+         "The light sits at the entity's position (Transform) and ignores sorting layers (Sprite.layer): it lights "
+         "every layer of the draw order. `lightLayers` chooses which Sprite, Shape2D and Tilemap it lights and which "
+         "ShadowCaster2D block it, `size` softens its shadows, and `cookie` shines it through a texture.",
          "2D")
         .enum_field("type", &Light2D::type, {"point", "directional"},
                     "point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the "
@@ -833,15 +886,183 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, 90)
         .field(
             "castShadows", &Light2D::castShadows,
-            "Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far "
-            "side of a "
+            "Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block "
+            "this light, so the far side of a "
             "wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it "
             "are in "
             "shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the "
             "next "
-            "frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per "
-            "frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. "
-            "Default false.");
+            "frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a "
+            "shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen "
+            "by lightLayers. Directional lights cast no shadows. Default false.")
+        .field("size", &Light2D::size,
+               "Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard "
+               "edges. Larger = an area light: shadows get a penumbra that widens with the distance from the "
+               "occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about "
+               "2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the "
+               "occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up "
+               "to 44 shadow-row reads per pixel the "
+               "light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.")
+        .range(0, 100000)
+        .field("lightLayers", &Light2D::lightLayers,
+               "Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a "
+               "Sprite, Shape2D or Tilemap when their lightLayers share a bit with it, and a ShadowCaster2D blocks it "
+               "only when their lightLayers share a bit. Layers 0..31 are the bits of the number (1 = layer 0, 2 = "
+               "layer 1, 4 = layer 2 ...). Default -1 (all layers).")
+        .asset_field("cookie", &Light2D::cookie, "texture",
+                     "Texture the light shines through (a window, foliage, a gobo): its brightness multiplies the "
+                     "light across the light's disc, centred on the entity. Point lights only. Empty (default) = no "
+                     "cookie.")
+        .field("cookieRotationDeg", &Light2D::cookieRotationDeg,
+               "Degrees the cookie is turned around the light, counter-clockwise. Default 0.")
+        .range(-360, 360)
+        .field("cookieScale", &Light2D::cookieScale,
+               "Size of the cookie as a multiple of the light's diameter (2 x radius): 1 (default) fits the "
+               "cookie to the whole disc, 0.5 makes it half as big, 2 shows its middle half.")
+        .range(0.01f, 100);
+
+    r.add<ShadowCaster2D>(
+         "ShadowCaster2D",
+         "Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with "
+         "occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from "
+         "`shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation "
+         "and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is "
+         "not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: "
+         "docs/rendering/RENDERING_2D_SHADOWS.md.",
+         "2D")
+        .enum_field("shape", &ShadowCaster2D::shape, {"spriteAlpha", "polygon", "box"},
+                    "The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose "
+                    "alpha is above alphaThreshold (needs a Sprite). polygon: the outline in `points`. box: a "
+                    "rectangle of `size` centred on the entity.")
+        .field("points", &ShadowCaster2D::points,
+               "polygon only: the outline as a flat array of numbers [x0, y0, x1, y1, ...] in the entity's local "
+               "space (world units before the Transform's scale and rotation, +y up), at least 3 points (6 numbers) "
+               "in order around the shape. The shape may be convex or concave. Default [] (blocks nothing).")
+        .field("size", &ShadowCaster2D::size,
+               "box only: [width, height] in world units, centred on the entity, before its scale. Both must be "
+               "above 0. Default [32, 32].")
+        .field("alphaThreshold", &ShadowCaster2D::alphaThreshold,
+               "spriteAlpha only: pixels with alpha above this value block light, 0..1. Default 0.5; lower it to let "
+               "soft edges and smoke cast a shadow.")
+        .range(0, 1)
+        .field("selfShadow", &ShadowCaster2D::selfShadow,
+               "true: the caster is shadowed by its own silhouette, so the side facing away from a light is dark. "
+               "false (default): the caster is lit as if it did not block light, which looks right for a character.")
+        .field("lightLayers", &ShadowCaster2D::lightLayers,
+               "Bit mask (a whole number, -1 = every bit) of the Light2D.lightLayers this caster blocks: a light "
+               "whose lightLayers share no bit with it shines through. Layers 0..31 are the bits of the number (1 = "
+               "layer 0, 2 = layer 1 ...). Default -1 (every light).")
+        .field("enabled", &ShadowCaster2D::enabled,
+               "false switches the caster off without removing the component, so it casts no shadow. Default true.");
+
+    r.add<GlobalIllumination2D>(
+         "GlobalIllumination2D",
+         "Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and "
+         "tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, "
+         "with no baking. Off unless an entity of the scene has this component and `enabled` is true (the first one "
+         "counts), so a scene without it costs nothing and draws the same pixels. It needs render targets of "
+         "16-bit float colour and a memory budget: where the GPU has none, or `quality` and `range` ask for more "
+         "than the platform budgets (render.supports 2dGlobalIllumination says which), the scene is drawn without it "
+         "and the log tells why once. Only LIT visuals receive the light (albedo times the irradiance at their "
+         "position, whatever their lightLayers); unlit visuals, 3D meshes, and pictures drawn into their own image "
+         "(render targets, CameraView, editor views, camera captures) get none. Light comes from emitters and "
+         "occluders inside the view plus `range`. Details, cost and limits: docs/rendering/RENDERING_2D_GI.md.",
+         "2D")
+        .field("enabled", &GlobalIllumination2D::enabled,
+               "false switches the global illumination off without removing the component. Default true.")
+        .enum_field(
+            "quality", &GlobalIllumination2D::quality, {"low", "medium", "high"},
+            "How finely the cascades sample the light, as counts that are the same on every machine (rays are those of "
+            "cascade 0): low = 3 cascades, a probe every 4 texels, 16 rays per probe, 20 steps per ray; medium "
+            "(default) = 4 cascades, a probe "
+            "every 2 texels, 4 rays per probe, 28 steps; high = 5 cascades, a probe every 2 texels, 4 rays, 40 "
+            "steps. A small view uses fewer cascades than that. High needs 5 cascade passes: on a phone or a "
+            "browser it is over the budget and the scene is drawn without GI (use medium there). It changes the "
+            "cost, not the meaning of the other fields.")
+        .field("intensity", &GlobalIllumination2D::intensity,
+               "Multiplies the irradiance a lit visual receives (the light it adds is albedo times irradiance times "
+               "this), 0..16. 1 = the light as the cascades computed it (default), 0 = no light added.")
+        .range(0, 16)
+        .field(
+            "bounce", &GlobalIllumination2D::bounce,
+            "0..1: how much of the light that reached a surface (last frame's irradiance) it bounces back, times its "
+            "colour: a red wall tints the floor next to it. 0 = only the light of emitters, no bounce; 1 = "
+            "surfaces reflect all they receive times their colour. Only things that block light (ShadowCaster2D, "
+            "solid Tilemap cells) bounce. Default 0.5.")
+        .range(0, 1)
+        .field(
+            "range", &GlobalIllumination2D::range,
+            "World units added around the camera's view on every side: the field of emitters and occluders covers the "
+            "view plus this margin, so a lamp just off screen still lights it and a wall just off screen still "
+            "shadows it; what is farther away does not exist for the GI. Larger costs more memory (the field "
+            "grows with it) and over the platform's budget turns the GI off with a log line. 1..100000, default "
+            "512.")
+        .range(1, 100000)
+        .field("resolutionScale", &GlobalIllumination2D::resolutionScale,
+               "Texels of the field per screen pixel, 0.1..1: 0.5 (default) computes the field at half the screen's "
+               "resolution; lower is cheaper and softer, and a thin shadow caster narrower than a texel can be missed. "
+               "The field's sides are rounded up to a multiple of 32 texels and its memory is about 64 bytes a texel.")
+        .range(0.1f, 1);
+
+    r.add<Water2D>(
+         "Water2D",
+         "A rectangle of water: it reflects what is above its surface, refracts what is below it and waves "
+         "along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the "
+         "surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on "
+         "lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is "
+         "drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/"
+         "RENDERING_2D_WATER.md).",
+         "2D")
+        .field("size", &Water2D::size,
+               "[width, height] of the water area in world units, before the entity's scale; both above 0. The top "
+               "edge is the surface. Default [256, 128].")
+        .field("tint", &Water2D::tint,
+               "Colour (and opacity, the alpha) of the water body: what is seen through it is mixed with this. "
+               "Default [0.2, 0.5, 0.7, 0.5].")
+        .field("reflection", &Water2D::reflection,
+               "0..1: how much of what is above the surface shows mirrored in the water. 0 = none, 1 = a mirror. "
+               "Default 0.5.")
+        .range(0, 1)
+        .field("refraction", &Water2D::refraction,
+               "How far what is under the water is displaced by the waves, in pixels of the picture, 0..256. 0 = no "
+               "distortion. Default 4.")
+        .range(0, 256)
+        .field("waveAmplitude", &Water2D::waveAmplitude,
+               "Height of the waves of the surface in world units, 0..1000. 0 = a still surface. Default 2.")
+        .range(0, 1000)
+        .field("waveLength", &Water2D::waveLength,
+               "Distance between two wave crests in world units, 0.1..100000. Default 64.")
+        .range(0.1f, 100000)
+        .field("waveSpeed", &Water2D::waveSpeed,
+               "How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). "
+               "0 = frozen. Default 1.")
+        .range(-100, 100)
+        .field("layer", &Water2D::layer,
+               "Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so "
+               "what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.")
+        .asset_field("material", &Water2D::material, "material",
+                     "Optional sprite material (*.material.json of kind \"sprite\", docs/SHADERS.md) that replaces "
+                     "the built-in water look; the area is its quad. Empty (default) = the built-in water.");
+
+    r.add<DistortionZone2D>(
+         "DistortionZone2D",
+         "A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the "
+         "picture under the area is displaced by a ripple, or by the pattern of a sprite material. The entity's "
+         "Transform places the centre of the area.",
+         "2D")
+        .field("size", &DistortionZone2D::size,
+               "[width, height] of the zone in world units, before the entity's scale; both above 0. Default "
+               "[128, 128].")
+        .field("strength", &DistortionZone2D::strength,
+               "How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled "
+               "by the material when there is one). 0 = no distortion. Default 1.")
+        .range(0, 100)
+        .field("layer", &DistortionZone2D::layer,
+               "Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a "
+               "higher layer is not bent. Default 20.")
+        .asset_field("material", &DistortionZone2D::material, "material",
+                     "Sprite material (*.material.json of kind \"sprite\", docs/SHADERS.md) that makes the "
+                     "displacement. Empty (default) = the built-in ripple.");
 
     r.add<SpriteAnimator>(
          "SpriteAnimator",
@@ -1165,6 +1386,7 @@ void register_builtin_components(TypeRegistry& r) {
             "shapes "
             "for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false "
             "(default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D.")
+        .field("lightLayers", &Shape2D::lightLayers, light_layers_doc_2d("shape").c_str())
         .field("cornerRadius", &Shape2D::cornerRadius,
                "rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). "
                "Clamped to half "
@@ -1495,6 +1717,21 @@ void register_builtin_components(TypeRegistry& r) {
                "solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap "
                "needs no "
                "`lit` itself to cast. Default false.")
+        .field("lightLayers", &Tilemap::lightLayers,
+               (light_layers_doc_2d("tilemap") +
+                " With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D "
+                "with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.")
+                   .c_str())
+        .field("emissive", &Tilemap::emissive,
+               "Light the tiles give out, added after the lighting so they show in a dark scene. Colour components "
+               "are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an "
+               "enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works "
+               "with or without "
+               "`lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.")
+        .field("emissiveIntensity", &Tilemap::emissiveIntensity,
+               "HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes "
+               "past white and feeds the bloom. Default 1.")
+        .range(0, 1000)
         .asset_field(
             "material", &Tilemap::material, "material",
             material_doc_2d("Tilemap",

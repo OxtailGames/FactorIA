@@ -257,12 +257,15 @@ void Renderer::Impl::destroy_targets() {
     xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
+    gi2d.free_images();
     fogFx.forget_targets();
     volFx.forget_targets();
     sssFx.forget_targets();
     customPost.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
+    for (Target& t : extraLightTargets) destroy_target(t);
+    lightBuffers = 0;
     lightW = lightH = 0;
     filterActive = false;
     hudActive = false;
@@ -339,6 +342,7 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
     t.asset.height = h;
+    t.asset.live = true;
     return &t.asset;
 }
 
@@ -463,27 +467,41 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
 
 // Makes (or keeps) the light buffer: `scale` times the size of the game target, in the format the GPU draws lights in.
 // False (and one logged error) when it cannot be created: lit visuals then use the per-pixel path.
-bool Renderer::Impl::ensure_light_target(float scale) {
+bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
     if (lightTargetFailed) return false;
+    buffers = std::clamp(buffers, 1, kMaxLightBuffers2D);
     const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
     const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
     const sg_pixel_format fmt = gpu.light_format();
-    if (lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt) return true;
-    destroy_target(lightTarget);
+    if (lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt && lightBuffers >= buffers)
+        return true;
+    // M74: a size or format change remakes every buffer; a frame that needs more sets of lights only adds the missing ones.
+    const bool remake = !(lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt);
+    if (remake) {
+        destroy_target(lightTarget);
+        for (Target& t : extraLightTargets) destroy_target(t);
+        lightBuffers = 0;
+    }
     TargetDesc d;
     d.label = "light-buffer";
     d.width = w;
     d.height = h;
     d.colorFormat = fmt;
-    lightTarget = make_target(d);
-    if (!lightTarget.valid()) {
-        FA_ERROR(
-            "render",
-            "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only", w,
-            h, kDirectLights2D);
-        destroy_target(lightTarget);
-        lightTargetFailed = true;
-        return false;
+    for (int i = lightBuffers; i < buffers; ++i) {
+        Target& t = i == 0 ? lightTarget : extraLightTargets[i - 1];
+        t = make_target(d);
+        if (!t.valid()) {
+            FA_ERROR(
+                "render",
+                "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only",
+                w, h, kDirectLights2D);
+            destroy_target(lightTarget);
+            for (Target& e : extraLightTargets) destroy_target(e);
+            lightBuffers = 0;
+            lightTargetFailed = true;
+            return false;
+        }
+        lightBuffers = i + 1;
     }
     lightW = w;
     lightH = h;
@@ -559,6 +577,8 @@ void Renderer::Impl::trim_shadow_rows() {
 }
 
 void Renderer::Impl::destroy_light_resources() {
+    destroy_target(cookieTarget);
+    cookieStamp.clear();
     for (ShadowRowsSlot& s : shadowRowsRing) {
         if (s.view.id) sg_destroy_view(s.view);
         if (s.img.id) sg_destroy_image(s.img);

@@ -14,7 +14,9 @@
 // ATTR_/UB_/VIEW_/SMP_ constants and quad_vs_params_t / quad_quad_fs_params_t members), so a param or texture of a material must
 // not take any of them (parse_material refuses them: tools/common/src/shaders_generate.cpp, template_globals reads this file and
 // its @includes, so a new global here is covered without a list to update). What a snippet may use is the contract below
-// and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb().
+// and the fa_ names: fa_time, fa_sample_main(), fa_scene_rgb(), and (fragment stage only) fa_scene_color(uv) with fa_world_to_uv(p):
+// the picture drawn so far in the camera job (view 15, `fa_scene_tex`, declared by the program only when the snippet calls it; the
+// renderer then copies the target before the item, docs/rendering/RENDERING_2D_WATER.md).
 //
 // Bindings. Uniform blocks: vertex 0 vs_params (+ 4 for the material's vertex-stage block), fragment 1 quad_fs_params (+ 5 for
 // the material). Views 0-3 (tex, normal_tex, light_tex, shadow_tex) and samplers 0-2 (smp, light_smp, shadow_smp) are the
@@ -126,6 +128,7 @@ flat in vec4 fa_inst_v2;
 @end
 
 @include light_shadow.glsl
+@include light_cookie.glsl
 @include color_space.glsl
 
 @vs vs
@@ -232,7 +235,7 @@ layout(binding=1) uniform quad_fs_params {
     vec4 light_map;            // xy = 1 / the size of the target in pixels, z = the range the light buffer holds
     vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
     vec4 light_color[16];      // rgb color * intensity; w falloff exponent
-    vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow
+    vec4 light_shadow_v[16];   // x = v coordinate of the light's row in shadow_tex, -1 = it casts no shadow; y = Light2D.size
     // The fog of the camera's post stack (PostProcess.fog*) on the quads of the world: the same formula as fog.glsl. Only the full
     // program reads it (a batch under stack fog never uses quad_plain). All 0 without that fog: nothing changes.
     vec4 fog_col;              // rgb = what the quad fades to (the fog colour; 0 for an additive quad, 1 for a multiplying one), w = density
@@ -243,6 +246,23 @@ layout(binding=1) uniform quad_fs_params {
     vec4 fa_time;              // x = seconds of game time since the scene started
     vec4 fa_target;            // xy = 1 / the size of the render target in pixels, z = 1 when render targets have their origin at the
                                // bottom (OpenGL), which flips screen_uv.y so that it runs down on every backend
+    // M74 (docs/rendering/RENDERING_2D_EMISSION.md). The emission, rim light and cookies of the quads; all 0 for a batch without them.
+    vec4 fx_emit;              // rgb = the HDR light the item gives out, added after the lighting; w = 0 none, 1 = no emissive map,
+                               //     2, 3, 4 = the emissive map, decoded with fa_tex_fix mode w - 2
+    vec4 fx_emit_uv;           // emissive map uv = uv * xy + zw
+    vec4 fx_rim;               // rgb = rim colour * intensity; w = 1 when the item has a rim light (lit sprites)
+    vec4 fx_rim_uv;            // xy = the rim's width in uv units along u and v
+    vec4 light_cookie[16];     // per light: its cookie cell in the atlas (light_cookie.glsl), w = 0 no cookie
+    vec4 light_cookie_xf[16];  // per light: the cookie's projection (light_cookie.glsl)
+    // For a material that calls fa_scene_color() / fa_world_to_uv() (the renderer fills them only for those; zero otherwise).
+    vec4 fa_scene;             // screen_uv * xy + zw = the position in the copy of the picture drawn so far (0..1 over the camera's
+                               // rectangle, y down); the copy is the camera's rectangle of the target
+    vec4 fa_world_uv[3];       // rows of the camera's view-projection already turned into screen_uv: u = row0 . p / row2 . p,
+                               // v = row1 . p / row2 . p for p = (world x, y, z, 1)
+    // M74-P3b (docs/rendering/RENDERING_2D_GI.md): the irradiance of the 2D GI cascades. gi_p.x = GlobalIllumination2D.intensity, 0 = none
+    // (every unlit batch, and every frame without GI); gi_xf: the image's uv = world * xy + zw.
+    vec4 gi_xf;
+    vec4 gi_p;
 };
 @end
 
@@ -265,6 +285,24 @@ vec3 scene_rgb(vec3 c) {
 // What the snippet may call from fragment().
 vec4 fa_sample_main(vec2 p) { return tex_color(p); }   // the main texture of the sprite, in the colour space of the scene
 vec3 fa_scene_rgb(vec3 c) { return scene_rgb(c); }     // an sRGB colour of the author (a param of type color) in the scene's space
+
+// The picture drawn so far in the camera (everything under this item: sorted before it), at `uv` (0..1 over the render target, y down: the
+// space of i.screen_uv), bilinear and clamped to the picture's edge. Calling it is what asks the renderer to keep a copy of the picture
+// before the item is drawn (docs/shaders/SHADERS_SPRITES.md, "The scene colour"); in the HUD (space "screen") there is none and it returns
+// transparent black. The alpha is the picture's.
+vec4 fa_scene_color(vec2 uv) {
+    if (fa_scene.x <= 0.0) return vec4(0.0);   // no copy of the picture here (the HUD, a debug draw)
+    vec2 p = uv * fa_scene.xy + fa_scene.zw;
+    p.y = mix(p.y, 1.0 - p.y, fa_target.z);   // the copy keeps the image rows of the target: bottom first in OpenGL
+    return textureLod(sampler2D(fa_scene_tex, light_smp), clamp(p, vec2(0.0), vec2(1.0)), 0.0);
+}
+// Where a world position lands on the screen, as screen_uv (0..1 over the render target, y down; outside 0..1 = off screen): to read
+// fa_scene_color at another place of the world, such as the mirror image of this pixel in water.
+vec2 fa_world_to_uv(vec3 world) {
+    vec4 q = vec4(world, 1.0);
+    float w = dot(fa_world_uv[2], q);
+    return vec2(dot(fa_world_uv[0], q), dot(fa_world_uv[1], q)) / (abs(w) > 1e-6 ? w : 1.0);
+}
 
 // The screen position of the fragment as the snippet sees it: 0..1 over the render target, y running down on every backend.
 vec2 fa_screen_uv() {
@@ -311,6 +349,13 @@ layout(binding=0) uniform texture2D tex;
 layout(binding=1) uniform texture2D normal_tex;   // lit quads: the normal map (a 1x1 image when unused)
 layout(binding=2) uniform texture2D light_tex;    // lit quads, light buffer path: the point lights added up (light.glsl)
 layout(binding=3) uniform texture2D shadow_tex;   // lit quads with a shadow caster in reach: one row per light (light_shadow.glsl)
+layout(binding=12) uniform texture2D fx_emissive_tex;   // M74: the emissive map of an item that has one (a 1x1 white image otherwise)
+layout(binding=13) uniform texture2D fx_cookie_tex;     // M74: the cookie atlas (a 1x1 white image when no light has a cookie)
+layout(binding=14) uniform texture2D fx_gi_tex;         // M74-P3b: the irradiance of the GI cascades (a 1x1 white image without them)
+layout(binding=15) uniform texture2D fa_scene_tex; // fa_scene_color(): the picture drawn so far (declared by the program only when the snippet calls it)
+// Fragment-stage texture views of `fs` at most: tex, normal_tex, light_tex, shadow_tex (4) + a sprite material's own textures (4,
+// kMaxMaterialTextures) + fx_emissive_tex, fx_cookie_tex, fx_gi_tex, fa_scene_tex (4) = 12, under the 16 GLES3 / WebGL2 guarantee (the
+// vertex copies of the material's textures, views 8-11, belong to the vertex stage). fs_plain declares fewer.
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform sampler light_smp;      // bilinear: the light buffer may be smaller than the target
 layout(binding=2) uniform sampler shadow_smp;     // nearest
@@ -329,9 +374,27 @@ in float world_z;
 out vec4 frag_color;
 
 @include_block light_shadow
+@include_block light_cookie
 @include_block color_space
 
 @include_block fa_quad_fs_common
+
+// The cookie of light i at the world offset `d` (world - light) of a point light: 1 without one.
+float cookie_att(int i, vec2 d) {
+    vec4 cell = light_cookie[i];
+    if (cell.w == 0.0) { return 1.0; }
+    vec3 cc = cookie_coord(cell, light_cookie_xf[i], d);
+    return cookie_value(textureLod(sampler2D(fx_cookie_tex, light_smp), cc.xy, 0.0)) * cc.z;
+}
+
+// The irradiance image's value at this fragment's world position, premultiplied by its validity (the probes inside an occluder hold none),
+// so the weighted bilinear filter never darkens a neighbour; nothing outside the field.
+vec3 gi_irradiance() {
+    vec2 g = world_xy * gi_xf.xy + gi_xf.zw;
+    vec4 e = textureLod(sampler2D(fx_gi_tex, light_smp), g, 0.0);
+    bool inside = g.x >= 0.0 && g.y >= 0.0 && g.x <= 1.0 && g.y <= 1.0;
+    return inside && e.a > 0.02 ? e.rgb / e.a * gi_p.x : vec3(0.0);
+}
 
 vec3 lit_color(vec4 base, float mode) {
     vec3 n = vec3(0.0, 0.0, 1.0);
@@ -346,6 +409,7 @@ vec3 lit_color(vec4 base, float mode) {
     // One return at the end: fxc warns (X4000, logged at run time on D3D11) about an early return before the loop.
     bool flat_lit = !use_normal && lit.z > 0.5;
     vec3 total = flat_lit ? flat_ambient.rgb : ambient.rgb;
+    if (gi_p.x > 0.0) { total += gi_irradiance(); }  // M74-P3b: the light the 2D GI cascades bring to this point (times the albedo below)
     if (flat_lit && lit.z < 1.5) {
         // A flat surface faces every light head on, so each light adds color * falloff and they add up: the light buffer
         // already holds that sum (gl_FragCoord is the pixel of the same target, in the same orientation).
@@ -364,12 +428,52 @@ vec3 lit_color(vec4 base, float mode) {
             float dist = length(d);
             att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
             l = vec3(d, lp.z) / max(length(vec3(d, lp.z)), 0.0001);
-            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow(light_shadow_v[i].x, -d, lp.w); }
+            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow_sized(light_shadow_v[i].x, light_shadow_v[i].y, -d, lp.w); }
+            att *= cookie_att(i, -d);
         }
         float ndl = use_normal ? max(dot(n, l), 0.0) : 1.0;
         total += lc.rgb * (att * ndl);
     }
     return base.rgb * total;
+}
+
+// The rim light of a lit sprite (Sprite.rimIntensity): the alpha of the picture is sampled `fx_rim_uv` away to the left, right, above and
+// below, which says how close the edge is and where it points (the alpha falls towards the outside); every light of the loop adds its
+// own contribution where the edge faces it. Only the first 16 lights are read, as in the per-pixel path.
+vec3 rim_color(float a0, float mode) {
+    vec2 w = fx_rim_uv.xy;
+    float al = texture(sampler2D(tex, smp), uv - vec2(w.x, 0.0)).a;
+    float ar = texture(sampler2D(tex, smp), uv + vec2(w.x, 0.0)).a;
+    float au = texture(sampler2D(tex, smp), uv - vec2(0.0, w.y)).a;
+    float ad = texture(sampler2D(tex, smp), uv + vec2(0.0, w.y)).a;
+    float edge = a0 * (1.0 - min(min(al, ar), min(au, ad)));
+    // Outward in the picture's (right, up) axes; v runs down.
+    vec2 o = vec2(al - ar, ad - au);
+    float ol = length(o);
+    float a = params.y;
+    vec2 t = vec2(cos(a), sin(a));
+    vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
+    vec2 out_w = (o.x * t + o.y * b) / max(ol, 1e-4);
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 16; i++) {
+        if (float(i) >= lit.x) { break; }
+        vec4 lp = light_pos[i];
+        vec4 lc = light_color[i];
+        vec2 to_l;
+        float att = 1.0;
+        if (lp.w < 0.0) {
+            to_l = lp.xy / max(length(lp.xy), 1e-4);
+        } else {
+            vec2 d = lp.xy - world_xy;
+            float dist = length(d);
+            att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
+            to_l = d / max(dist, 1e-4);
+            if (light_shadow_v[i].x >= 0.0) { att *= light_shadow_sized(light_shadow_v[i].x, light_shadow_v[i].y, -d, lp.w); }
+            att *= cookie_att(i, -d);
+        }
+        sum += lc.rgb * (att * max(dot(out_w, to_l), 0.0));
+    }
+    return sum * fx_rim.rgb * edge;
 }
 
 // Mode 7: the colour and alpha of one pixel of a rounded rectangle / circle, with its gradient and soft edge.
@@ -443,6 +547,7 @@ void main() {
     } else if (mode > 4.5) {
         vec4 base = tex_color(uv) * color;
         frag_color = vec4(lit_color(base, mode), base.a);
+        if (fx_rim.w > 0.5) { frag_color.rgb += rim_color(base.a, mode); }
     } else if (mode > 3.5) {
         frag_color = vec4(color.rgb, color.a * texture(sampler2D(tex, smp), uv).r);
     } else {
@@ -460,6 +565,14 @@ void main() {
             cov = t * t * (3.0 - 2.0 * t);
         }
         frag_color = vec4(shade ? lit_color(color, 5.0) : color.rgb, color.a * cov);
+    }
+    // M74: the light the item gives out, added after the lighting (and shaded by nothing), in the scene's own HDR range.
+    if (fx_emit.w > 0.5) {
+        vec3 e = fx_emit.rgb;
+        if (fx_emit.w > 1.5) {
+            e *= fa_tex_fix(texture(sampler2D(fx_emissive_tex, smp), uv * fx_emit_uv.xy + fx_emit_uv.zw).rgb, fx_emit.w - 2.0);
+        }
+        frag_color.rgb += e;
     }
     // The material's fragment() (an empty one in the engine's own program) sees what the mode drew, before the flash, the multiply
     // conversion and the fog.
@@ -506,7 +619,9 @@ void main() {
 // engine's own plain program (no FA_MATERIAL) has no uniform block at all.
 @fs fs_plain
 layout(binding=0) uniform texture2D tex;
+layout(binding=15) uniform texture2D fa_scene_tex;
 layout(binding=0) uniform sampler smp;
+layout(binding=1) uniform sampler light_smp;
 
 in vec2 uv;
 in vec4 color;

@@ -327,7 +327,7 @@
         },
         "adjustments": {
           "type": "array",
-          "description": "Colour operations applied to the layer's pixels, in order, before the masks. For an adjustment layer: what it applies to everything below. Types: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold.",
+          "description": "Colour operations applied to the layer's pixels, in order, before the masks. For an adjustment layer: what it applies to everything below. Types: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold, normalMap, normalFlip, normalSmooth, normalStrength, normalize.",
           "items": {
             "$ref": "#/$defs/operation"
           }
@@ -992,11 +992,11 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "adjustments: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold. effects: colorOverlay, outline, stroke, dropShadow, outerGlow, innerGlow, blur, sharpen, noise, shade. The keys of each are in docs/IMAGES.md; the error for a wrong key lists them."
+          "description": "adjustments: invert, brightness, levels, curves, hsv, posterize, quantize, dither, gradientMap, colorBalance, threshold, normalMap, normalFlip, normalSmooth, normalStrength, normalize. effects: colorOverlay, outline, stroke, dropShadow, outerGlow, innerGlow, blur, sharpen, noise, shade. The keys of each are in docs/IMAGES.md; the error for a wrong key lists them."
         },
         "amount": {
           "type": "number",
-          "description": "brightness: -1..1 added to red, green and blue. colorOverlay: 0..1, how far towards `color`. sharpen: 0..10. noise: 0..1. shade: 0..1, how much of the lighting is mixed in."
+          "description": "brightness: -1..1 added to red, green and blue. colorOverlay: 0..1, how far towards `color`. sharpen: 0..10. noise: 0..1. shade: 0..1, how much of the lighting is mixed in. normalStrength: 0..8, multiplies the slopes of a normal map (default 1)."
         },
         "color": {
           "description": "A colour: \"#rrggbb\", \"#rrggbbaa\", a name such as \"white\", or [r, g, b(, a)] with components in 0..1 (bytes if any is above 1). Used as stored: no conversion to linear light.",
@@ -1040,9 +1040,12 @@
             "rgb",
             "red",
             "green",
-            "blue"
+            "blue",
+            "y",
+            "x",
+            "both"
           ],
-          "description": "levels, curves: rgb, red, green or blue."
+          "description": "levels, curves: rgb, red, green or blue. normalFlip: y (default, the green channel), x (red) or both."
         },
         "points": {
           "type": "array",
@@ -1131,7 +1134,7 @@
         },
         "strength": {
           "type": "number",
-          "description": "quantize, dither: 0..1 scale of the dither. shade: 0..32 slope of the alpha height map. outerGlow, innerGlow: 0..8."
+          "description": "quantize, dither: 0..1 scale of the dither. shade: 0..32 slope of the alpha height map. outerGlow, innerGlow: 0..8. normalMap: 0..32, the relief (default 1)."
         },
         "stops": {
           "type": "array",
@@ -1240,7 +1243,28 @@
         },
         "radius": {
           "type": "number",
-          "description": "blur: sigma (gaussian, 0..64) or half-width (box). sharpen: sigma 0.1..32."
+          "description": "blur: sigma (gaussian, 0..64) or half-width (box). sharpen: sigma 0.1..32. normalSmooth: sigma 0..16, default 1."
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "sprite",
+            "height"
+          ],
+          "description": "normalMap: sprite (default) reads the pixels as a sprite (bevel from the transparent edge plus luminance times alpha), height as a grey height map (white = high)."
+        },
+        "source": {
+          "type": "string",
+          "description": "normalMap: project path of a grey PNG height map used instead of the layer's pixels (needs from height)."
+        },
+        "tile": {
+          "type": "boolean",
+          "description": "normalMap, normalSmooth: wrap around the edges, for a tiling texture."
+        },
+        "flatten": {
+          "type": "boolean",
+          "default": true,
+          "description": "normalize: a transparent or half-transparent pixel becomes the flat normal mixed in by its alpha and the layer becomes opaque."
         },
         "seed": {
           "type": "integer",

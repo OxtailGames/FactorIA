@@ -24,14 +24,25 @@ struct TransientPoolStats {
     int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
 };
 // The ring of images that hold the shadow rows of the 2D lights: how many it holds now and how many images were made
-// since the renderer was.
+// since the renderer was, and how many sprite contours of ShadowCaster2D were extracted from alpha (shadow2d.h).
 struct ShadowRowsStats {
-    int slots = 0, uploads = 0;
+    int slots = 0, uploads = 0, contours = 0;
 };
 
 // How many times the physical sky drew its tables (renderer_sky_phys.h): the air's, the picture's view and the environment's.
 struct SkyBuilds {
     int air = 0, view = 0, envView = 0;
+};
+
+// One slot of the 2D GI field (gi2d.h) as the last frame left it.
+struct Gi2dFieldInfo {
+    bool exists = false, ready = false;
+    int width = 0, height = 0, passes = 0, emitters = 0, occluders = 0;
+    double texel = 0.0, originX = 0.0, originY = 0.0;
+    // The cascades (M74-P3b): their count, cascade 0's probe spacing, the irradiance image's size, whether it holds a finished frame (the
+    // next frame's history) and whether the last frame ran the priming chain (the bounce had no history).
+    int cascades = 0, probeSpacing = 0, irradianceWidth = 0, irradianceHeight = 0;
+    bool irradianceReady = false, history = false, primed = false;
 };
 
 }  // namespace render
@@ -58,6 +69,11 @@ struct RendererTestAccess {
     static void probe_force_rgba8(bool force);
     static bool probe_tile_valid(Renderer& r, std::uint64_t id);
     static int probe_volume_count(Renderer& r);
+    // The 2D GI field (gi2d.h): image `which` (0 emission, 1 occluders, 2 distance, 3 irradiance) of slot `slot` as floats, RGBA, row 0 = the smallest world y;
+    // what the slot holds; how many slots keep images.
+    static bool gi2d_read(Renderer& r, int slot, int which, std::vector<float>& out, std::string* error);
+    static render::Gi2dFieldInfo gi2d_info(Renderer& r, int slot);
+    static int gi2d_slots_in_use(Renderer& r);
 };
 
 namespace render {
@@ -101,6 +117,11 @@ inline void renderer_force_output(Renderer& r, const HdrOutputInfo* info) { Rend
 // The last frame's finished picture as floats (RGBA, top row first): as the final target holds it (`present` false), or
 // through present()'s encode for the output (scRGB, PQ, EDR or sRGB values). False with `error` where the GPU cannot
 // draw or read back an RGBA16F image.
+inline bool renderer_gi2d_read(Renderer& r, int slot, int which, std::vector<float>& out, std::string* error) {
+    return RendererTestAccess::gi2d_read(r, slot, which, out, error);
+}
+inline Gi2dFieldInfo renderer_gi2d_info(Renderer& r, int slot) { return RendererTestAccess::gi2d_info(r, slot); }
+inline int renderer_gi2d_slots_in_use(Renderer& r) { return RendererTestAccess::gi2d_slots_in_use(r); }
 inline bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error) {
     return RendererTestAccess::read_floats(r, present, out, error);
 }

@@ -15,16 +15,21 @@ widget see docs/MENUS.md, "A camera inside the UI".
 
 ## Pages
 
-This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on nine pages (`docs.read rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
+This page has the render targets, the post-processing stack, the depth and normals prepass, capture and HDR output. The rest is on thirteen pages (`docs.read rendering-2d-shadows`, `rendering-2d-emission`, `rendering-2d-gi`, `rendering-2d-water`, `rendering-effects`, `rendering-passes`, `rendering-screen-effects`, `rendering-lighting`, `rendering-lightmaps`, `rendering-decals-fog`, `rendering-probes`, `rendering-light-probes`, `rendering-transmission`):
 
+- 2D global illumination (`GlobalIllumination2D`, M74): a player can switch it Off, Low, Medium or High from the Graphics tab of the menu kit's options (the "2D lighting" button writes `enabled` and `quality` of every `GlobalIllumination2D` of the scene and of scenes loaded later, docs/MENUS.md); where `render.supports` says `2dGlobalIllumination` is not available the scene is drawn without it whatever the setting.
+- [2D emission and light masks (M74.2)](rendering/RENDERING_2D_EMISSION.md): `Sprite.emissive` and the bloom, `lightLayers`, `Light2D.cookie`, the rim light and the normal maps generated from a sprite.
+- [2D global illumination (M74.3)](rendering/RENDERING_2D_GI.md): `GlobalIllumination2D`, radiance cascades, `quality`, the cost in passes and memory, who receives the light, and when it is off.
 - [Screen-space effects](rendering/RENDERING_EFFECTS.md): ambient occlusion and its cost, screen-space reflections, and the outline (both modes, where it is skipped).
 - [The passes of a frame](rendering/RENDERING_PASSES.md): every pass of the post-processing stack, when it runs and what it draws.
+- [Soft 2D shadows and shadow casters (M74.1)](rendering/RENDERING_2D_SHADOWS.md): `ShadowCaster2D` (box, polygon, sprite alpha), `Light2D.size` penumbra, light layers, up to 256 shadowed lights, the caches, caps and costs.
 - [Lighting (M73)](rendering/RENDERING_LIGHTING.md): the Light, scene and material fields of the M73 lighting, which of them draw yet, and the `render.supports` rows.
 - [Lightmaps and baked light (M73.4)](rendering/RENDERING_LIGHTMAPS.md): baked lightmaps, the bake commands, light probes and mixed lights.
 - [Decals and volumetric fog (M73.5)](rendering/RENDERING_DECALS_FOG.md): `Decal` projection, volumetric fog and light shafts.
 - [Reflection probes (M73)](rendering/RENDERING_PROBES.md): the `ReflectionProbe` component, realtime and baked captures, `probe.bake`, `render.probes`, the atlas and its limits.
 - [Light probes and mixed lights](rendering/RENDERING_LIGHT_PROBES.md): `LightProbeGroup`, how the bake stores light for moving objects, what receives it, and what a light of each mode does to each receiver.
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
+- [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets

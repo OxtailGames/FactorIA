@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <format>
+#include <vector>
 
 #include "editor_internal.h"
 #include "fa/core/strings.h"
@@ -168,12 +169,13 @@ void Editor::image_close_document() {
 
 void Editor::image_release_textures() {
     ImageUi& u = image_;
-    for (ImageTexture* t : {&u.picture, &u.selectionTint, &u.terrain})
+    for (ImageTexture* t : {&u.picture, &u.selectionTint, &u.terrain, &u.litTex})
         if (t->image || t->view) ui::destroy_texture(t->image, t->view);
     for (const ImageUi::Dead& d : u.graveyard) ui::destroy_texture(d.image, d.view);
     u.picture = ImageTexture{};
     u.selectionTint = ImageTexture{};
     u.terrain = ImageTexture{};
+    u.litTex = ImageTexture{};
     u.graveyard.clear();
 }
 
@@ -571,12 +573,52 @@ void Editor::draw_image_tools(ImageModel& m) {
     ImGui::EndDisabled();
 }
 
+namespace {
+// Width of a Light row control: the widget, then its label (checkboxes and sliders carry theirs on the right).
+float light_item_width(float widget, const char* label) {
+    return widget + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x;
+}
+// The widths of the Light row's controls, in order (the first one is the checkbox itself).
+// Keep in step with draw_image_light_row below (same controls, same order): they must change together.
+std::vector<float> light_row_widths(const ImageUi& u) {
+    const float box = ImGui::GetFrameHeight();
+    std::vector<float> w = {light_item_width(box, "Light")};
+    if (!u.lit) return w;
+    w.push_back(130);
+    w.push_back(light_item_width(box, "Orbit"));
+    w.push_back(light_item_width(90, "Height"));
+    w.push_back(light_item_width(80, "Strength"));
+    w.push_back(light_item_width(box, "Flip green"));
+    if (!u.litWhy.empty()) w.push_back(ImGui::CalcTextSize(u.litWhy.c_str()).x);
+    return w;
+}
+// How many lines the Light row takes in a bar `avail` px wide: the same greedy wrap light_same_line does.
+int light_row_lines(const ImageUi& u, float avail) {
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    int lines = 1;
+    float x = 0;
+    bool first = true;
+    for (float w : light_row_widths(u)) {
+        if (first || x + spacing + w <= avail) {
+            x += (first ? 0.0f : spacing) + w;
+        } else {
+            ++lines;
+            x = w;
+        }
+        first = false;
+    }
+    return lines;
+}
+}  // namespace
+
 void Editor::draw_image_options(ImageModel& m) {
     ImageUi& u = image_;
     const bool editable = play_ == PlayState::Edit;
     const bool indexed = !m.palette().empty() && m.layer(m.selected_layer()) &&
                          m.layer(m.selected_layer())->kind == ImageLayerKind::Indexed;
-    const float h = ImGui::GetFrameHeightWithSpacing() * 3 + 6;
+    // the Light row wraps onto more lines in a narrow panel: count them from the real widths of its controls
+    const int rows = 2 + light_row_lines(u, ImGui::GetContentRegionAvail().x);
+    const float h = ImGui::GetFrameHeightWithSpacing() * float(rows) + 6;
     ImGui::BeginChild("##imgopts", ImVec2(0, h), false, ImGuiWindowFlags_NoScrollbar);
     ImGui::BeginDisabled(!editable);
     ImGui::AlignTextToFramePadding();
@@ -714,7 +756,84 @@ void Editor::draw_image_options(ImageModel& m) {
                 "Show the selection as a blue tint (it shows when the outline would be too long to draw).");
     }
     ImGui::EndDisabled();
+    // third row: the light preview (it only looks at the picture, so it works in Play too)
+    draw_image_light_row(m);
     ImGui::EndChild();
+}
+
+void Editor::draw_image_light_row(ImageModel& m) {
+    // The control list here is mirrored by light_row_widths / light_row_lines above: change them together.
+    ImageUi& u = image_;
+    // Next item on this line when `width` (label included) still fits in the options bar, else on a new line.
+    const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    u.litRowOverflow = 0;
+    auto light_same_line = [&](float width) {
+        u.litRowOverflow = std::max(u.litRowOverflow, ImGui::GetItemRectMax().x - rowRight);
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= rowRight) ImGui::SameLine();
+    };
+    ImGui::AlignTextToFramePadding();
+    if (ImGui::Checkbox("Light", &u.lit) && u.lit) {
+        // start with the layer that most likely holds a normal map: the selected one if it is hidden, else the first hidden layer
+        const ImageLayer* sel = m.layer(m.selected_layer());
+        if (sel && !sel->visible && sel->kind != ImageLayerKind::Group) {
+            u.litLayer = m.selected_layer();
+        } else if (!m.layer(u.litLayer)) {
+            std::string firstHidden;
+            for (const ImageLayerRow& r : m.layer_rows())
+                if (!r.isGroup && !r.visible) {
+                    firstHidden = r.path;
+                    break;
+                }
+            u.litLayer = !firstHidden.empty() ? firstHidden : m.selected_layer();
+        }
+    }
+    at_track("img:light");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Preview the picture lit by a layer used as its normal map (make one with image.normal.generate, or add a "
+            "normalMap operation to a layer). A lamp follows the mouse. Nothing is saved.");
+    if (!u.lit) return;
+    light_same_line(130);
+    const ImageLayer* chosen = m.layer(u.litLayer);
+    ImGui::SetNextItemWidth(130);
+    if (ImGui::BeginCombo("##imglitlayer", chosen ? (chosen->name.empty() ? u.litLayer.c_str() : chosen->name.c_str())
+                                                  : "pick the normal layer")) {
+        for (const ImageLayerRow& r : m.layer_rows()) {
+            if (r.isGroup) continue;
+            ImGui::PushID(r.path.c_str());
+            const std::string label = std::string(std::size_t(r.depth) * 2, ' ') + (r.name.empty() ? r.path : r.name) +
+                                      (r.visible ? "" : " (hidden)");
+            if (ImGui::Selectable(label.c_str(), r.path == u.litLayer)) u.litLayer = r.path;
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    at_track("img:light:layer");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The layer drawn as the normal map. Hide it to see the sprite: a visible normal layer is "
+                          "part of the picture.");
+    light_same_line(light_item_width(ImGui::GetFrameHeight(), "Orbit"));
+    ImGui::Checkbox("Orbit", &u.litOrbit);
+    at_track("img:light:orbit");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The lamp circles the picture instead of following the mouse.");
+    light_same_line(light_item_width(90, "Height"));
+    ImGui::SetNextItemWidth(90);
+    ImGui::SliderFloat("Height", &u.litHeight, 4, 400, "%.0f", ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How far above the picture the lamp is, in pixels. Low = long, harsh shading.");
+    light_same_line(light_item_width(80, "Strength"));
+    ImGui::SetNextItemWidth(80);
+    ImGui::SliderFloat("Strength", &u.litIntensity, 0, 4, "%.1f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How strongly the normals change the colour (1 = like the shade operation).");
+    light_same_line(light_item_width(ImGui::GetFrameHeight(), "Flip green"));
+    ImGui::Checkbox("Flip green", &u.litFlipGreen);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The map is DirectX style (green points down the picture).");
+    if (!u.litWhy.empty()) {
+        light_same_line(ImGui::CalcTextSize(u.litWhy.c_str()).x);
+        ImGui::TextDisabled("%s", u.litWhy.c_str());
+    }
+    u.litRowOverflow = std::max(u.litRowOverflow, ImGui::GetItemRectMax().x - rowRight);
 }
 
 // ---------------------------------------------------------------------------------------------------- palette and frames --

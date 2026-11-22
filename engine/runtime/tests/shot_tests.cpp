@@ -9,6 +9,7 @@
 #include "fa/core/image.h"
 #include "fa/core/profiler.h"
 #include "fa/core/screenshot_files.h"
+#include "fa/render/renderer.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/components.h"
@@ -420,6 +421,88 @@ TEST_CASE("render.gi_grid: empty without a RealtimeGI, lists a grid with its pro
     cfg.graphics = false;
     REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
     auto nr = headless.commands().call("render.gi_grid", Json::object());
+    REQUIRE_FALSE(nr.ok);
+    CHECK(nr.error.dump().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("render.gi2d_field: no fields without GlobalIllumination2D, one field with it and its four PNGs, and no "
+          "renderer") {
+    TempProject p("gi2d-field-command");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    e.step(2);
+    auto none = c.call("render.gi2d_field", Json::object());
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["enabled"] == false);
+    CHECK(none.result["fields"].empty());
+    Entity gi = e.world().create("gi");
+    auto& g = e.world().add<GlobalIllumination2D>(gi);
+    g.range = 16.0f;
+    e.step(2);
+    auto r = c.call("render.gi2d_field", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["enabled"] == true);
+    {
+        // GLCORE, D3D11 and Metal always have RGBA16F render targets that blend and filter: there `supported: false` is a bug to see, not
+        // a branch to take. Only GLES 3 and the dummy backend may lack them.
+        const std::string backend = fa::Renderer::backend_name();
+        if (backend == "glcore" || backend == "d3d11" || backend == "metal") {
+            INFO("backend ", backend, ": ", r.result["message"].dump());
+            CHECK(r.result["supported"] == true);
+        }
+    }
+    if (r.result["supported"] == false) {
+        MESSAGE("render.gi2d_field: this GPU has no RGBA16F render targets: ", r.result["message"].dump());
+        CHECK(r.result["message"].get<std::string>().find("2dGlobalIllumination") != std::string::npos);
+        CHECK(r.result["fields"].empty());
+    } else {
+        REQUIRE(r.result["fields"].size() == 1);
+        const Json& f = r.result["fields"][0];
+        CHECK(f["ready"] == true);
+        CHECK(f["width"] ==
+              192);  // (320 + 2 x 16) / 2 at the default resolutionScale 0.5, and 2 more, up to a multiple of 32
+        CHECK(f["height"] == 128);
+        CHECK(f["cascades"]["cascades"] == 4);                      // quality medium
+        const std::string prefix = fs::path_to_utf8(p.dir / "gi");  // JSON text: UTF-8
+        auto saved = c.call("render.gi2d_field", Json{{"save", prefix}});
+        REQUIRE_MESSAGE(saved.ok, saved.error.dump());
+        CHECK_FALSE(saved.result.contains("error"));
+        REQUIRE(saved.result["files"].size() == 4);
+        for (const char* name : {"emission", "occluders", "distance", "irradiance"}) {
+            auto img = load_image(fs::path_to_utf8(p.dir / (std::string("gi-") + name + ".png")));
+            REQUIRE_MESSAGE(img.ok(), name);
+            const bool probes =
+                std::string(name) == "irradiance";  // one pixel a probe: the field's size over the spacing of 2
+            CHECK(img.value().width == (probes ? 96 : 192));
+            CHECK(img.value().height == (probes ? 64 : 128));
+        }
+        // `save` is a prefix: a file name or a folder gives a teaching error (and writes nothing).
+        for (const std::string& bad : {prefix + ".png", prefix + ".PNG", prefix + "/"}) {
+            auto refused = c.call("render.gi2d_field", Json{{"save", bad}});
+            REQUIRE_FALSE_MESSAGE(refused.ok, bad);
+            const std::string text = refused.error.dump();
+            CHECK(text.find("invalid_argument") != std::string::npos);
+            CHECK(text.find("PREFIX") != std::string::npos);
+            CHECK(text.find("-emission.png") != std::string::npos);
+        }
+        auto missing = c.call("render.gi2d_field", Json{{"save", prefix}, {"job", "camera:99"}});
+        REQUIRE_MESSAGE(missing.ok, missing.error.dump());
+        CHECK(missing.result["error"].get<std::string>().find("camera:99") != std::string::npos);
+    }
+    auto bad = c.call("render.gi2d_field", Json{{"save", 5}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("save") != std::string::npos);
+    auto unknown = c.call("render.gi2d_field", Json{{"frames", 5}});
+    REQUIRE_FALSE(unknown.ok);
+
+    TempProject q("gi2d-field-command-none");
+    Engine headless;
+    EngineConfig cfg = headless_cfg(q);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(headless.init(cfg, nullptr, &err), err);
+    auto nr = headless.commands().call("render.gi2d_field", Json::object());
     REQUIRE_FALSE(nr.ok);
     CHECK(nr.error.dump().find("renderer") != std::string::npos);
 }

@@ -56,6 +56,7 @@ void register_image_commands(CommandRegistry& registry, const std::string& proje
     imgedit::register_tile_commands(registry, projectDir);
     imgedit::register_frame_commands(registry, projectDir);
     imgedit::register_resize_command(registry, projectDir);
+    imgedit::register_normal_command(registry, projectDir);
     imgedit::register_provider_commands(registry, projectDir);
     {
         CommandInfo info;

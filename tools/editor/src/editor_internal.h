@@ -531,6 +531,7 @@ public:
     void draw_image_toolbar(ImageModel& m);
     void draw_image_tools(ImageModel& m);
     void draw_image_options(ImageModel& m);
+    void draw_image_light_row(ImageModel& m);  // the "Light" preview toggle and its settings (image_panel.cpp)
     void draw_image_canvas(ImageModel& m, ImVec2 size);
     void draw_image_palette(ImageModel& m);
     void draw_image_frames(ImageModel& m);

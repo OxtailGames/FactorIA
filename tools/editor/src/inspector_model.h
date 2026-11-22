@@ -4,6 +4,7 @@
 // inspector_panel.cpp) only draw and call these.
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,7 +30,8 @@ enum class FieldWidget {
     EntityCombo,
     EnumCombo,
     AssetPicker,
-    JsonText
+    JsonText,
+    LayerMask  // an int that is a bit mask of layers (the `lightLayers` fields): one toggle per layer 0..7 plus the number
 };
 
 // Runtime-only fields (serialized == false) are not shown: they are the engine's state, not the scene's.
@@ -51,6 +53,16 @@ inline std::optional<std::size_t> inspector_array_length(const Json& v) {
     return std::nullopt;
 }
 FieldWidget widget_for(const FieldInfo& f);
+// A bit-mask field the Inspector draws as layer toggles: an int field named lightLayers (Sprite, Shape2D, Tilemap, Light2D,
+// ShadowCaster2D).
+bool is_layer_mask_field(const FieldInfo& f);
+// The layers that have a toggle of their own (the rest are edited through the number next to them).
+inline constexpr int kLayerMaskToggles = 8;
+// `mask` with layer `bit` (0..31) switched on or off; every other bit, the ones without a toggle included, is kept.
+std::int32_t layer_mask_with(std::int32_t mask, int bit, bool on);
+inline bool layer_mask_has(std::int32_t mask, int bit) {
+    return bit >= 0 && bit < 32 && ((std::uint32_t(mask) >> bit) & 1u) != 0;
+}
 const char* widget_name(FieldWidget w);
 // How many numbers a vector-like widget edits (Vec2 2, Vec3 3, Vec4/Color/Rect 4, a scalar 1, the rest 0).
 int widget_arity(FieldWidget w);
@@ -87,6 +99,9 @@ FieldMix field_mix(const std::vector<Json>& values);
 // `forced[i]` (may be shorter or empty) also replaces number i when the user committed it as exactly the value that was shown.
 Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
                       const std::vector<bool>& forced = {});
+// The `edited` value a layer-mask widget hands to multi_edit_value for one click: {"$layerBit": bit, "on": bool}. The result is
+// each entity's own mask with only that bit set or cleared.
+inline constexpr const char* kLayerBitKey = "$layerBit";
 // "3 entities".
 std::string multi_selection_title(size_t count);
 

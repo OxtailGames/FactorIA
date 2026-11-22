@@ -7,11 +7,27 @@ Part of [Performance budgets](../PERFORMANCE.md) (the entry page lists every pag
 `Light2D` point lights are added up in a light buffer that lit sprites, tiles and shapes read, so the number of lights costs
 the pixels the lights cover, not a loop per pixel over every light.
 
+`GlobalIllumination2D` (radiance cascades, [RENDERING_2D_GI.md](../rendering/RENDERING_2D_GI.md)) adds passes and GPU memory only while an enabled
+component exists, so a scene without it is unchanged (`perf.check` sees the same `drawCalls`). With it, a frame draws `2 x J + C + 5`
+fullscreen passes of the field (`J` the jump-flooding passes, 12 for a 1504-texel field, `C` the cascades: 3, 4 and 5 for `low`,
+`medium` and `high`), and `C + 1` more on a frame without bounce history (the first, after a size change or a big camera move). The
+field holds 64 bytes a texel: about 103 MiB for a 1920 x 1080 view with the default `range` 512 and `resolutionScale` 0.5, 49 MiB with a
+`range` of 128. A phone or a browser budgets 96 MiB and 4 cascade passes, a desktop 320 MiB and 5; over them the scene is drawn without GI and
+the log says what to lower. Lower `range` first, then `resolutionScale`, then `quality`.
+
 A frame with several cameras (`Camera.viewport`, split screen) draws the world once per camera: culling, sorting, 2D lights and
 their light buffer are per camera, so `drawCalls`, `triangles` and `lights` of `game.renderStats()` and `perf.measure` are the sum over
 the cameras of the frame, and a four-camera frame costs about four times a one-camera frame. The screen-space items (UI, HUD) are
 one more job over the whole screen, and the post effects run once. A game with one full-screen camera is unchanged. Budget two or
 three cameras on phones, and give the lights a radius that stays in one view so each camera keeps only the lights that reach it.
+
+GPU memory of the 2D lights: the light buffer holds 8 bytes a pixel (RGBA16F; 4 where the GPU can only blend RGBA8), at `SceneSettings.lightScale`
+of the picture's size in each direction, so it costs about `width x height x lightScale^2 x 8` bytes. One buffer is made for a scene whose
+lights are on every layer, and one more (at most 4 in all, `kMaxLightBuffers2D`) for each distinct set of lights that the visuals in view reach
+through `lightLayers`: at 4K (3840 x 2160) with `lightScale` 1 that is 63 MiB a buffer and 253 MiB for four, with `lightScale` 0.5 it is 16 MiB a
+buffer and 63 MiB for four. A frame whose lights have a `cookie` adds one 1024 x 1024 RGBA8 atlas (4 MiB, 16 cells of 256 x 256); it is
+copied again only when the cookies of the frame, or one of their files, change. A cookie that is a live texture (`target:<name>` of a
+camera, or a compute image) changes every frame, so a frame with one copies the atlas every frame.
 
 What the budget is:
 
@@ -19,7 +35,9 @@ What the budget is:
 | --- | --- | --- |
 | Cameras drawn per frame (`Camera.viewport`, split screen) | 8: the lowest `depth`s | the others are not drawn, one warning |
 | Lights that shade a frame (`lights2d`) | 256: directional first, then the point lights whose radius reaches the camera view | the rest is counted in `lights2dDropped`, one warning per scene |
-| Lights that cast shadows (`lights2dShadowed`) | 32, the ones ranked first, and only lights with a solid tile of an `occludesLight` Tilemap within their radius | the others shine through walls, one warning per scene |
+| Lights that cast shadows (`lights2dShadowed`) | 256 (the lights a frame shades), and only lights with a solid tile of an `occludesLight` Tilemap or a `ShadowCaster2D` within their radius | the lights over 256 are left out of the frame, one warning per scene |
+| Copies of the picture drawn so far (`Water2D`, `DistortionZone2D`, sprite materials that call `fa_scene_color()`), per camera | 8: each run of reading draws that follows other draws makes one (`sceneCopies` of `game.renderStats()` is the sum over the cameras) | the runs after the 8th read the last copy and do not see what was drawn between, one warning per scene |
+| `ShadowCaster2D` read per frame, and per light | 2048 per frame in entity order; 512 per light's row; 256 segments each | the others block no light, one warning |
 | Lights on a lit sprite or tile WITH a normal map | the first 16 of the order above (its shading depends on each light's direction) | the others still light flat surfaces |
 
 The `maxLights` budget of `perf.json` counts `lights + lights2d` of one frame (see above): set it to the lights the game
@@ -42,6 +60,14 @@ That is roughly 0.01 ms per light of this size (it grows with the covered pixels
 as big as the screen costs more), and roughly 0.03 ms per shadow-casting light. The rays of a shadow are traced on the CPU
 (1024 per light); the result is kept while the light, its radius and the tiles around it stay the same, so only a light that
 moves, or whose surroundings were edited, pays for its rays again. A still light costs its pixels, not its rays.
+
+`ShadowCaster2D` and `Light2D.size` (docs/rendering/RENDERING_2D_SHADOWS.md) add two costs, both zero in a scene that uses
+neither. A caster joins the tiles in the row of every light whose radius reaches it, rasterised into the angles it covers: a
+row of a light reaching a few boxes costs tens of microseconds, and 100 casters with 64 lights that all move every frame
+(every row computed again) cost about 2 ms more than the same scene still, on the Mac above. A sprite's contour is made once per
+texture, region and threshold (marching squares and simplification, on the first frame it is drawn, over at most 512 x 512
+pixels). `size` above 0 makes the light's pixels read the row up to 44 times instead of twice (12 where nothing blocks it): about
+1 ms for 64 lights of radius 120 on the same Mac, so give a size to the lights that matter and keep the others at 0.
 
 Advice for phones, tablets and the web (fill-rate bound GPUs):
 

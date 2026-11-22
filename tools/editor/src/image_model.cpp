@@ -159,6 +159,13 @@ const std::map<std::string, std::vector<Field>>& adjustment_fields() {
         {"gradientMap", {special(Field::Kind::Stops, "stops")}},
         {"colorBalance", {vec3("shadows", -1, 1), vec3("midtones", -1, 1), vec3("highlights", -1, 1)}},
         {"threshold", {num("level", 0, 1, 0.5), colour("above", "#ffffff"), colour("below", "#000000")}},
+        // normal maps (docs/images/IMAGES_EFFECTS_COMMANDS.md, "Normal maps")
+        {"normalMap",
+         {choice("from", {"sprite", "height"}, "sprite"), num("strength", 0, 32, 1), flag("tile"), text("source")}},
+        {"normalFlip", {choice("channel", {"y", "x", "both"}, "y")}},
+        {"normalSmooth", {num("radius", 0, 16, 1), flag("tile")}},
+        {"normalStrength", {num("amount", 0, 8, 1)}},
+        {"normalize", {flag("flatten", true)}},
     };
     return m;
 }
@@ -444,6 +451,66 @@ bool ImageModel::poll_external() {
 const Image& ImageModel::picture() {
     if (pictureDirty_) recomposite();
     return picture_;
+}
+
+const Image& ImageModel::lit_picture(const std::string& normalLayer, const NormalLight& light, int maxSide,
+                                     std::string* why) {
+    auto fail = [&](const std::string& text) -> const Image& {
+        if (why) *why = text;
+        if (!litOut_.empty()) {
+            litOut_ = Image{};
+            litOutKey_.clear();
+            ++litRev_;
+        }
+        return litOut_;
+    };
+    if (!valid_) return fail("The document does not load.");
+    const ImageLayer* src = layer(normalLayer);
+    if (!src) return fail("Pick the layer that holds the normal map.");
+    const Image& base = picture();  // a stroke in progress is in it
+    if (base.empty()) return fail("The picture is empty.");
+
+    // The normal layer alone: a copy of it, shown, opaque, normal blend, at its place on the canvas. Drawn again only when the document,
+    // the frame or the layer changes (a stroke in progress is not in the document yet).
+    const std::string nkey = std::to_string(docRev_) + ":" + normalLayer + ":" + std::to_string(frame_);
+    if (nkey != litNormalKey_) {
+        litNormalKey_ = nkey;
+        litNormalError_.clear();
+        litNormal_ = Image{};
+        ImageDocument one = doc_;
+        ImageLayer copy = *src;
+        const auto parent = parent_offset(normalLayer);
+        copy.visible = true;
+        copy.opacity = 1;
+        copy.blend = ImageBlend::Normal;
+        copy.clip = false;
+        copy.x += parent.first;
+        copy.y += parent.second;
+        copy.pointer = "/layers/0";
+        one.layers.assign(1, copy);
+        ImageRenderOptions options;
+        options.projectDir = projectDir_;
+        options.frame = std::min(frame_, std::max(0, image_frame_count(one) - 1));
+        auto r = composite_image_document(one, options);
+        if (r.ok())
+            litNormal_ = std::move(r->image);
+        else
+            litNormalError_ = r.error().message;
+    }
+    if (litNormal_.empty()) return fail(litNormalError_.empty() ? "The normal layer does not draw." : litNormalError_);
+
+    const std::string okey = std::to_string(pictureRev_) + "|" + nkey + "|" + std::to_string(light.point) + "|" +
+                             std::to_string(light.x) + "," + std::to_string(light.y) + "," +
+                             std::to_string(light.height) + "|" + std::to_string(light.azimuth) + "," +
+                             std::to_string(light.elevation) + "|" + std::to_string(light.intensity) + "|" +
+                             std::to_string(light.flipGreen) + "|" + std::to_string(maxSide);
+    if (okey != litOutKey_) {
+        litOut_ = light_with_normal_map(base, litNormal_, light, maxSide);
+        litOutKey_ = okey;
+        ++litRev_;
+    }
+    if (why) why->clear();
+    return litOut_;
 }
 
 void ImageModel::set_frame(int frame) {

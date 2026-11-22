@@ -14,7 +14,16 @@ namespace fa::editor {
 namespace stdfs = std::filesystem;
 
 // ---------------------------------------------------------------------------------------------- field -> widget
+bool is_layer_mask_field(const FieldInfo& f) { return f.kind == FieldKind::Int && f.name == "lightLayers"; }
+
+std::int32_t layer_mask_with(std::int32_t mask, int bit, bool on) {
+    if (bit < 0 || bit > 31) return mask;
+    const std::uint32_t m = std::uint32_t(mask), b = std::uint32_t(1) << bit;
+    return std::int32_t(on ? (m | b) : (m & ~b));
+}
+
 FieldWidget widget_for(const FieldInfo& f) {
+    if (is_layer_mask_field(f)) return FieldWidget::LayerMask;
     switch (f.kind) {
         case FieldKind::Bool: return FieldWidget::Checkbox;
         case FieldKind::Int: return FieldWidget::DragInt;
@@ -51,6 +60,7 @@ const char* widget_name(FieldWidget w) {
         case FieldWidget::EnumCombo: return "enum_combo";
         case FieldWidget::AssetPicker: return "asset_picker";
         case FieldWidget::JsonText: return "json_text";
+        case FieldWidget::LayerMask: return "layer_mask";
     }
     return "?";
 }
@@ -58,6 +68,7 @@ const char* widget_name(FieldWidget w) {
 int widget_arity(FieldWidget w) {
     switch (w) {
         case FieldWidget::DragInt:
+        case FieldWidget::LayerMask:
         case FieldWidget::DragFloat: return 1;
         case FieldWidget::Vec2: return 2;
         case FieldWidget::Vec3: return 3;
@@ -128,6 +139,16 @@ FieldMix field_mix(const std::vector<Json>& values) {
 
 Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
                       const std::vector<bool>& forced) {
+    // A click on one layer toggle: set or clear that bit in each entity's own mask, whatever the other bits are there.
+    if (edited.is_object() && edited.contains(kLayerBitKey) && edited[kLayerBitKey].is_number_integer()) {
+        const long long bit = std::clamp(edited[kLayerBitKey].get<long long>(), -1LL, 99LL);
+        const bool on = edited.value("on", false);
+        const std::int32_t own =
+            entityCurrent.is_number()
+                ? std::int32_t(std::clamp<long long>(std::llround(entityCurrent.get<double>()), INT32_MIN, INT32_MAX))
+                : 0;
+        return layer_mask_with(own, int(bit), on);
+    }
     const bool arrays = edited.is_array() && shown.is_array() && entityCurrent.is_array() &&
                         edited.size() == shown.size() && entityCurrent.size() == shown.size();
     if (!arrays) return edited;

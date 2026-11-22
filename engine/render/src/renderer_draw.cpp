@@ -1,11 +1,13 @@
 // Renderer::Impl, part 3: draw_view_job and draw_job, the passes of one frame's jobs.
 #include "color_space.h"
 #include "light_clusters.h"
+#include "light_layers.h"
 #include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
 #include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
+#include "water2d.h"
 
 #include <algorithm>
 #include <array>
@@ -91,6 +93,7 @@ struct Renderer::Impl::DrawContext {
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
     Px fullPx, camPx;
+    Gi2dJobPlan gi2d;  // gi2d_plan: the field this job's passes fill (inactive without an enabled GlobalIllumination2D)
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
@@ -142,6 +145,19 @@ struct Renderer::Impl::DrawContext {
         int levels = 0;
         sg_view atlasView{};
     } xmit;
+    // M74.4: the picture drawn so far, which Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() read (water2d.h).
+    // main_pass plans the copies before the pass begins (`copyAt`: the batches of the world group a copy is made before); draw_group makes
+    // them, and `view` is the latest copy while the world group is drawn (`live`). Nothing is planned, copied or held without such a batch.
+    struct {
+        bool live = false;
+        std::vector<std::uint32_t> copyAt;
+        std::size_t next = 0;
+        std::uint64_t handle = 0;  // the pooled image of the latest copy (0 = none)
+        sg_view view{};
+        SceneMap map;
+        sg_store_action finalStore = SG_STOREACTION_STORE;
+        TargetFormat format;
+    } sceneCopy;
     // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
     // (sss_draw_pass), the stack the blur and add passes (SssFx), and the scene uniforms carry the camera's view for the shader's visibility test.
     bool sssOn = false;
@@ -188,6 +204,8 @@ struct Renderer::Impl::DrawContext {
     // with the state physMain (exact sun and clock, the picture's table), physSunDir / physSunColor = the sun as collect_lights
     // found it, before the sky tinted its light.
     bool envSliced = false, physMainOn = false;
+    bool physSunOn =
+        false;  // a directional light is the sun of this view (physSunDir / physSunColor are its): else no sun disc
     std::uint64_t envStatic = 0;
     float envSun[3]{0.0f, 1.0f, 0.0f};
     PhysicalSkyState physMain;
@@ -211,6 +229,11 @@ struct Renderer::Impl::DrawContext {
     // light_pass
     int litMode = 0;
     sg_view shadowRowsTex{};
+    // light_plan (M74): the light buffer each layer mask of the flat lit visuals reads, and the cookies of the frame's lights (the
+    // textures by atlas cell, and the atlas image while there are any).
+    LightLayerPlan layerPlan;
+    std::vector<TextureAsset*> cookieCells;
+    sg_view cookieView{};
 };
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -539,7 +562,8 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     free_retired_shadow_targets();  // the frame before has run its graph
     lightAtlas.free_retired();
     free_retired_decal_atlases();
-    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = ResourceId{};
+    sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = sharedCookie = ResourceId{};
+    gi2d.begin_frame(!countPost);
 }
 
 // Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
@@ -557,6 +581,7 @@ void Renderer::Impl::run_frame_graph() {
         FA_ERROR("render", "Frame {} (jobs: {}) {}: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
                  running ? "cannot be drawn completely" : "draws nothing", e.message, e.hint);
     };
+    gi2d.free_unused();  // a frame without GlobalIllumination2D keeps no image of the field
     if (beforeFrameGraph) beforeFrameGraph();
     if (Result<void> r = graph.compile(); !r)
         report(r.error(), false);
@@ -895,6 +920,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     upload_instances(ctx);
     scene_uniforms(ctx);
     light_plan(ctx);
+    gi2d_plan(ctx);
     // The passes of the job join the frame graph (frame_graph.h), declared from what the phases above decided.
     build_graph(ctx);
 }
@@ -1221,8 +1247,10 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     // cannot make the sky's tables (the gradient is drawn then).
     {
         const SceneSettings& wss = world.settings();
+        ctx.physSunOn = false;
         if (fr.wantWorld && !fr.cam.studio && !lights.empty() && lights[0].color.w == 0.0f && lights[0].pos.w == 0.0f) {
             LightData& sun = lights[0];
+            ctx.physSunOn = true;
             ctx.physSunDir[0] = sun.pos.x;
             ctx.physSunDir[1] = sun.pos.y;
             ctx.physSunDir[2] = sun.pos.z;
@@ -2480,19 +2508,122 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     const DrawContext::Group& gWorld = ctx.gWorld;
     int& litMode = ctx.litMode;
     sg_view& shadowRowsTex = ctx.shadowRowsTex;
-    bool anyFlatLit = false;
-    for (const QuadBatch& qb : gWorld.batches) anyFlatLit = anyFlatLit || (qb.lit && !qb.normal);
+    bool anyFlatLit = false, anyLit = false;
+    std::vector<std::int32_t>
+        flatMasks;  // the layer masks of the flat lit batches (the receivers of the light buffers)
+    for (const QuadBatch& qb : gWorld.batches) {
+        anyLit = anyLit || qb.lit;
+        if (qb.lit && !qb.normal) {
+            anyFlatLit = true;
+            if (std::find(flatMasks.begin(), flatMasks.end(), qb.fx.layers) == flatMasks.end())
+                flatMasks.push_back(qb.fx.layers);
+        }
+    }
+    for (const QuadBatch& qb : ctx.gScreen.batches) anyLit = anyLit || qb.lit;
+    // The cookies of the lights (Light2D.cookie): one cell of the atlas each, copied by the "light-cookies" pass.
+    ctx.cookieCells = anyLit ? plan_cookies(fr) : std::vector<TextureAsset*>{};
+    ctx.cookieView = ctx.cookieCells.empty() ? sg_view{} : cookieTarget.texView;
     int points = 0;
     for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
     shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
     if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
-        if (points == 0)
+        if (points == 0) {
             litMode = 2;
-        else if (!plan.view && gpu.light_ready() && ensure_light_target(lightScale))
-            litMode = 1;  // the buffer is the game target's size
+        } else if (!plan.view && gpu.light_ready()) {
+            // M74 light layers: one buffer per distinct set of point lights the receivers in view reach (light_layers.h); one for
+            // the default scene, whose every light is on every layer.
+            ctx.layerPlan = plan_light_layers(fr.lights2d, flatMasks, true);
+            if (ctx.layerPlan.overflowed && !warnedLightBuffers2d) {
+                warnedLightBuffers2d = true;
+                FA_WARN("render",
+                        "The lit sprites, shapes and tilemaps in view reach more different sets of Light2D than the {} "
+                        "light "
+                        "buffers a frame has. Those past the first {} sets are shaded per pixel by the first {} lights "
+                        "only, so "
+                        "the other lights do not light them. Hint: use fewer distinct lightLayers masks on the visuals "
+                        "in view, "
+                        "or give the lights that must stay apart distinct bits.",
+                        kMaxLightBuffers2D, kMaxLightBuffers2D, kDirectLights2D);
+            }
+            if (ctx.layerPlan.buffers.empty()) {
+                litMode = 2;  // no mask reaches a point light: ambient and directional lights only
+            } else if (ensure_light_target(lightScale, int(ctx.layerPlan.buffers.size()))) {
+                litMode = 1;  // the buffers are the game target's size
+            }
+        }
     }
+}
+
+// ---- 2D global illumination ----
+// The field of a 2D camera job (gi2d.h): when the scene has an enabled GlobalIllumination2D and the GPU has RGBA16F targets, the job gets a
+// slot of images sized from its view and the settings, and the CPU gathers what glows and what blocks light into it; build_graph declares
+// the passes that draw them. Without the component nothing is made. Reads: world (GlobalIllumination2D), fr (camera, mask), ctx.camPx,
+// plan.view. Writes: ctx.gi2d, gi2d (slots, lastSettings).
+void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    ctx.gi2d = Gi2dJobPlan{};
+    if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
+    const Gi2dSettings s = gi2d_settings(ctx.world);
+    gi2d.lastSettings = s;
+    if (!s.on) return;
+    if (framePost)
+        gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)
+    if (!Gi2dSystem::float_targets_ok()) {
+        if (!gi2d.warned_unsupported) {
+            gi2d.warned_unsupported = true;
+            FA_WARN("render", "{}", Gi2dSystem::unsupported_message(Renderer::backend_name()));
+        }
+        return;
+    }
+    const Rect& vis = fr.cam.visible;
+    const float ppu = vis.w > 0.0f ? float(double(ctx.camPx.w) / double(vis.w)) : 0.0f;
+    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
+    if (!geom.valid) return;
+    // The cascades' counts for the quality, against the platform's budget (a phone or a browser has the smaller one): over it, no field at all.
+    const sg_backend gfxBackend = sg_query_backend();
+    const bool mobile = gfxBackend == SG_BACKEND_GLES3 || gfxBackend == SG_BACKEND_METAL_IOS;
+    const Gi2dCascadePlan cascadePlan = gi2d_cascade_plan(s.quality, geom, mobile);
+    // The fields the earlier jobs of this frame already planned, in slots and in bytes (the whole frame has one budget).
+    int slot = 0;
+    std::uint64_t usedBytes = 0;
+    for (const auto& c : jobContexts) {
+        const DrawContext* other = static_cast<const DrawContext*>(c.get());
+        if (c.get() == &ctx || !other->gi2d.active || !other->gi2d.field) continue;
+        ++slot;
+        usedBytes += other->gi2d.field->cascade.totalBytes;  // at most 4 fields of at most 2^32 bytes each: no overflow
+    }
+    const std::string why = cascadePlan.ok ? gi2d_total_budget_why(usedBytes, cascadePlan, mobile) : cascadePlan.why;
+    if (!why.empty()) {
+        // Once per reason: another quality, range or size says so again.
+        if (gi2d.budget_warn_once(why)) {
+            FA_WARN("render", "2D global illumination is off: {} The scene is drawn without it.{}", why,
+                    gi2d.lastWasLimit ? Gi2dSystem::budget_limit_note() : "");
+        }
+        return;
+    }
+    Gi2dField* field = gi2d.acquire(slot, geom, cascadePlan);
+    if (!field) return;
+    field->settings = s;
+    field->job = ctx.plan.name;
+    field->camera = fr.cam.entity.bits();
+    auto gather = std::make_shared<Gi2dGather>();
+    gi2d_gather(ctx.world, fr, geom, *gather);
+    field->stats = *gather;
+    if (gather->dropped > 0 && !gi2d.warned_dropped) {
+        gi2d.warned_dropped = true;
+        FA_WARN("render",
+                "2D global illumination: {} emitting or occluding quads are over the {} a field draws and were left "
+                "out of the field. "
+                "Hint: GlobalIllumination2D.range limits what the field covers; lower it, or merge tiles into fewer "
+                "Tilemap cells.",
+                gather->dropped, kGi2dMaxQuads);
+    }
+    ctx.gi2d.active = true;
+    ctx.gi2d.field = field;
+    ctx.gi2d.gather = std::move(gather);
+    if (assets && assets->white()) ctx.gi2d.white = assets->white()->gpu_view();
 }
 
 // The light buffer's pass (light_plan chose litMode 1): every point light of the camera is a quad added into the buffer.
@@ -2502,53 +2633,66 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const bool partial = ctx.partial;
     const sg_view shadowRowsTex = ctx.shadowRowsTex;
-    int points = 0;
-    for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
-    std::vector<LightVertex> lv;
-    lv.reserve(std::size_t(points) * 4);
     static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
-    for (const Light2DData& l : fr.lights2d) {
-        if (l.pos[3] < 0.0f) continue;
-        for (const auto& c : kCorner) {
-            LightVertex v{};
-            v.corner[0] = c[0];
-            v.corner[1] = c[1];
-            std::memcpy(v.pos, l.pos, sizeof(float) * 4);
-            std::memcpy(v.color, l.color, sizeof(float) * 4);
-            v.shadow[0] = l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
-            lv.push_back(v);
+    static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a buffer is drawn by one draw call");
+    // One buffer per set of lights the layer plan made (light_layers.h); the default scene has one, holding every point light.
+    const std::size_t buffers = std::max<std::size_t>(1, ctx.layerPlan.buffers.size());
+    for (std::size_t bi = 0; bi < buffers; ++bi) {
+        std::vector<LightVertex> lv;
+        auto add_light = [&](const Light2DData& l) {
+            const CookieShaderData cd = cookie_shader_data(l, gpu.is_gl());
+            for (const auto& c : kCorner) {
+                LightVertex v{};
+                v.corner[0] = c[0];
+                v.corner[1] = c[1];
+                std::memcpy(v.pos, l.pos, sizeof(float) * 4);
+                std::memcpy(v.color, l.color, sizeof(float) * 4);
+                v.shadow[0] =
+                    l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
+                v.shadow[1] = l.shadowSize;
+                std::memcpy(v.cookie, cd.cell, sizeof(float) * 4);
+                std::memcpy(v.cookieXf, cd.xf, sizeof(float) * 4);
+                lv.push_back(v);
+            }
+        };
+        if (ctx.layerPlan.buffers.empty()) {
+            for (const Light2DData& l : fr.lights2d)
+                if (l.pos[3] >= 0.0f) add_light(l);
+        } else {
+            for (int li : ctx.layerPlan.buffers[bi]) add_light(fr.lights2d[std::size_t(li)]);
         }
-    }
-    static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
-    sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
-    sg_write_buffer_desc wd{};
-    wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
-    wd.dst.buffer = lb;
-    sg_write_buffer_transient(&wd);
+        sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
+        wd.dst.buffer = lb;
+        sg_write_buffer_transient(&wd);
 
-    PassDesc lp = pass_into(lightTarget, "light-buffer");
-    lp.colorLoad = SG_LOADACTION_CLEAR;
-    lp.clearColor = {0, 0, 0, 0};
-    lp.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(lp);
-    // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
-    if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
-    sg_apply_pipeline(gpu.light_pipeline());
-    sg_bindings b{};
-    b.vertex_buffers[0] = lb;
-    b.index_buffer = gpu.quad_index_buffer();
-    b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-    b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    light_light_vs_params_t vu{};
-    copy_mat(vu.view_proj, fr.cam.viewProj);
-    apply_uniforms(UB_light_light_vs_params, vu);
-    light_light_fs_params_t fu{};
-    fu.range[0] = 1.0f / gpu.light_range();
-    apply_uniforms(UB_light_light_fs_params, fu);
-    sg_draw(0, int(lv.size() / 4) * 6, 1);
-    gpu.end_pass();
-    ++stats.drawCalls;
+        PassDesc lp = pass_into(light_buffer(int(bi)), "light-buffer");
+        lp.colorLoad = SG_LOADACTION_CLEAR;
+        lp.clearColor = {0, 0, 0, 0};
+        lp.colorStore = SG_STOREACTION_STORE;
+        gpu.begin_pass(lp);
+        // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
+        if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
+        sg_apply_pipeline(gpu.light_pipeline());
+        sg_bindings b{};
+        b.vertex_buffers[0] = lb;
+        b.index_buffer = gpu.quad_index_buffer();
+        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+        b.views[VIEW_light_cookie_tex] = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
+        b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+        b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
+        sg_apply_bindings(&b);
+        light_light_vs_params_t vu{};
+        copy_mat(vu.view_proj, fr.cam.viewProj);
+        apply_uniforms(UB_light_light_vs_params, vu);
+        light_light_fs_params_t fu{};
+        fu.range[0] = 1.0f / gpu.light_range();
+        apply_uniforms(UB_light_light_fs_params, fu);
+        sg_draw(0, int(lv.size() / 4) * 6, 1);
+        gpu.end_pass();
+        ++stats.drawCalls;
+    }
 }
 
 // ---- shadow pass ----
@@ -2987,7 +3131,60 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         const float row = fr.lights2d[i].extra[0];
         litUniforms.light_shadow_v[i][0] =
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
+        litUniforms.light_shadow_v[i][1] = fr.lights2d[i].shadowSize;
     }
+    // M74: the cookies of those lights (light_cookie.glsl), the same for every lit batch.
+    for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
+        const CookieShaderData cd = cookie_shader_data(fr.lights2d[i], gpu.is_gl());
+        std::memcpy(litUniforms.light_cookie[i], cd.cell, sizeof(float) * 4);
+        std::memcpy(litUniforms.light_cookie_xf[i], cd.xf, sizeof(float) * 4);
+    }
+    // M74 light layers: a lit batch is lit by the lights whose lightLayers share a bit with its own mask. litUniforms starts with every
+    // light; a batch with another mask zeroes the colour of the lights that do not reach it (and takes the directional lights that do
+    // not out of the flat ambient light). With every light on every layer (the default) nothing is ever rewritten.
+    bool everyLightEverywhere = true;
+    for (const Light2DData& l : fr.lights2d) everyLightEverywhere = everyLightEverywhere && l.layers == -1;
+    bool layersFull = true;      // litUniforms holds every light (as filled above)
+    std::int32_t layersFor = 0;  // otherwise the mask it was filled for
+    const auto lit_layers = [&](std::int32_t mask) {
+        const bool wantFull = everyLightEverywhere && mask != 0;
+        if (wantFull ? layersFull : (!layersFull && layersFor == mask)) return;
+        layersFull = wantFull;
+        layersFor = mask;
+        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
+            const bool reach = wantFull || light_reaches(fr.lights2d[i].layers, mask);
+            for (int c = 0; c < 3; ++c) litUniforms.light_color[i][c] = reach ? fr.lights2d[i].color[c] : 0.0f;
+        }
+        litUniforms.flat_ambient[0] = fr.ambient2d.r;
+        litUniforms.flat_ambient[1] = fr.ambient2d.g;
+        litUniforms.flat_ambient[2] = fr.ambient2d.b;
+        for (const Light2DData& l : fr.lights2d) {
+            if (l.pos[3] >= 0.0f || !(wantFull || light_reaches(l.layers, mask))) continue;
+            for (int c = 0; c < 3; ++c) litUniforms.flat_ambient[c] += l.color[c];
+        }
+    };
+    // M74: what a batch adds to the plain picture (QuadFx): emission and rim light, in the fragment uniforms of the batch.
+    const auto fill_fx = [&](quad_quad_fs_params_t& s, const QuadBatch& qb) {
+        std::memset(s.fx_emit, 0, sizeof s.fx_emit);
+        std::memset(s.fx_emit_uv, 0, sizeof s.fx_emit_uv);
+        std::memset(s.fx_rim, 0, sizeof s.fx_rim);
+        std::memset(s.fx_rim_uv, 0, sizeof s.fx_rim_uv);
+        const QuadFx& f = qb.fx;
+        if (f.has_emissive()) {
+            for (int c = 0; c < 3; ++c) s.fx_emit[c] = f.emissive[c];
+            s.fx_emit[3] = 1.0f;
+            if (f.emissiveMap) {
+                s.fx_emit[3] = 2.0f + float(f.emissiveMap->tex_fix(fr.linear, true, fr.displayOverLinear));
+                normal_uv_transform(*qb.tex, *f.emissiveMap, s.fx_emit_uv);
+            }
+        }
+        if (f.has_rim() && qb.lit) {
+            for (int c = 0; c < 3; ++c) s.fx_rim[c] = f.rim[c];
+            s.fx_rim[3] = 1.0f;
+            s.fx_rim_uv[0] = f.rimUv[0];
+            s.fx_rim_uv[1] = f.rimUv[1];
+        }
+    };
     // The camera's stack fog on the world's quads (shaders/quad.glsl): each batch fades to the fog colour, an additive one to nothing and a
     // multiplying one to 1 (the colour that changes nothing), by the quad's own distance. Only the full program reads it.
     quad_quad_fs_params_t fogged{};
@@ -3011,12 +3208,93 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
     const bool fogOn = fog && fog->fog;
     const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+    const sg_view cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
+    // M74-P3b: the irradiance of the 2D GI cascades, added to the lit quads of the camera's own world group (not the coverage image's).
+    // The screen and debug groups draw in screen pixels (their world_xy is not a world position) and the clear group in 0..1: the field
+    // does not apply to them, they bind the white image and gi_p.x = 0.
+    const bool giOn = ctx.gi2d.active && ctx.gi2d.cascadePasses > 0 && ctx.gi2d.irradianceView.id && !format &&
+                      ctx.gi2d.intensity > 0.0f && &batches == &ctx.gWorld.batches;
+    const sg_view giTexBound = giOn ? ctx.gi2d.irradianceView : assets->white()->view;
+    if (giOn) {
+        std::memcpy(litUniforms.gi_xf, ctx.gi2d.xf, sizeof(litUniforms.gi_xf));
+        litUniforms.gi_p[0] = ctx.gi2d.intensity;
+    }
     // The material draws: fa_time and fa_target are filled for them only (the engine's own programs never read them).
     // (the size of the image the pass draws into: the game target's, or `passW` x `passH` for a smaller one)
     const float targetInv[2] = {1.0f / float(std::max(1, passW > 0 ? passW : physW)),
                                 1.0f / float(std::max(1, passH > 0 ? passH : physH))};
+    // The world group of the main pass may read the picture drawn so far (water2d.h): before the first batch of a run of such batches the pass
+    // ends, the camera's rectangle is copied and the pass goes on from what it stored (the way the transmission copy splits it).
+    auto& sc = ctx.sceneCopy;
+    const bool sceneGroup = sc.live && &batches == &ctx.gWorld.batches;
+    auto split_for_scene = [&]() {
+        gpu.end_pass();
+        if (sc.handle) transient_targets().pool.release(sc.handle);
+        sc.handle = 0;
+        sc.view = {};
+        const int row = gpu.is_gl() ? gameTarget.h - base.y - base.h : base.y;  // image rows
+        if (waterFx.copy(transient_targets(), gpu, gameTarget, base.x, row, base.w, base.h, sc.handle, sc.view)) {
+            sc.map = scene_map(vp, base.x, base.y, base.w, base.h, gameTarget.w, gameTarget.h);
+            ++stats.sceneCopies;
+        } else if (!sceneCopyWarned) {
+            sceneCopyWarned = true;
+            if (base.w < 1 || base.h < 1)
+                FA_ERROR(
+                    "render",
+                    "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite material "
+                    "that calls fa_scene_color(): the camera's rectangle is {}x{} pixels, so there is nothing to copy; "
+                    "those items are not drawn and the materials read transparent black. Hint: give the Camera a "
+                    "viewport (or the CameraView a size) of at least one pixel each way.",
+                    base.w, base.h);
+            else
+                FA_ERROR(
+                    "render",
+                    "The picture drawn so far could not be copied for Water2D, DistortionZone2D or a sprite material "
+                    "that calls fa_scene_color(): the water and the zones are not drawn and those materials read "
+                    "transparent black. Hint: lower the render scale or the window size, and see the log lines above.");
+        }
+        const bool last = sc.next + 1 >= sc.copyAt.size();
+        PassDesc cp = pass_into(gameTarget, "game-scene");
+        cp.colorLoad = SG_LOADACTION_LOAD;
+        cp.depthLoad = SG_LOADACTION_LOAD;
+        cp.stencilLoad = SG_LOADACTION_LOAD;
+        cp.colorStore = last ? sc.finalStore : SG_STOREACTION_STORE;
+        if (!last) {
+            cp.depthStore = SG_STOREACTION_STORE;
+            cp.stencilStore = SG_STOREACTION_STORE;
+        }
+        gpu.begin_pass(cp);
+        if (ctx.partial) apply_view(ctx.camPx);
+        ++sc.next;
+        scissor = Rect{-1, -1, -1,
+                       -1};  // the new pass starts with the base viewport: the next apply_clip sets the clip again
+    };
+    // What view 15 of a material shows (kMaterialSpriteSceneView).
+    sg_view sceneBound = sceneGroup && sc.view.id ? sc.view : assets->white()->view;
     for (const QuadBatch& qb : batches) {
+        if (sceneGroup && sc.next < sc.copyAt.size() && sc.copyAt[sc.next] == std::uint32_t(&qb - batches.data())) {
+            split_for_scene();
+            sceneBound = sc.view.id ? sc.view : assets->white()->view;
+        }
         apply_clip(qb.clip);
+        if (qb.effect) {
+            // Water2D / DistortionZone2D with the built-in look: one quad drawn from the copy. Outside the world group of the main pass (the
+            // sprite-outline coverage image) or without a copy there is nothing to read: not drawn.
+            if (!sceneGroup || !sc.view.id || qb.effect > fr.world.effects.size()) continue;
+            WaterFx::DrawEnv env;
+            env.vertices = vbuf;
+            env.viewProj = &vp;
+            env.map = &sc.map;
+            env.scene = sc.view;
+            env.time = fr.time;
+            env.targetInv[0] = targetInv[0];
+            env.targetInv[1] = targetInv[1];
+            env.gl = gpu.is_gl();
+            env.depthTest = depthTest;
+            env.format = sc.format;
+            if (waterFx.draw(gpu, fr.world.effects[qb.effect - 1], qb.firstQuad, env)) ++stats.drawCalls;
+            continue;
+        }
         const bool plain = qb.plain && !fogOn;  // the lean program has no fog
         // A sprite material that built draws with its own programs (quad, quad_plain: the ones of its twin); one that
         // did not (the error material) draws with the built-in programs, its quads already tinted magenta by flatten().
@@ -3083,26 +3361,46 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         u.fa_time[0] = prog ? fr.time : 0.0f;
         apply_uniforms(UB_quad_vs_params, u);
+        sg_view batchLightTex = lightTexBound;
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
+            lit_layers(qb.fx.layers);
+            litUniforms.lit[2] = float(flatMode);
+            if (flatMode == 1 && !qb.normal) {
+                // The light buffer of this batch's layer mask (light_layers.h): none when no point light reaches it, or the loop
+                // over the first lights when the frame ran out of buffers.
+                const int buffer = ctx.layerPlan.buffer_of(qb.fx.layers);
+                if (buffer >= 0) batchLightTex = light_buffer(buffer).texView;
+                litUniforms.lit[2] = buffer >= 0 ? 1.0f : buffer == LightLayerPlan::kNoPoint ? 2.0f : 0.0f;
+            }
         }
         if (prog) {
             // The lean program of a material declares the block too (its snippet may read fa_time and fa_target).
             if (prog->has_ub(UB_quad_quad_fs_params)) {
                 quad_quad_fs_params_t fu = qb.lit ? litUniforms : fogOn ? fogged : unlit;
+                fill_fx(fu, qb);
                 fu.fa_time[0] = fr.time;
                 fu.fa_target[0] = targetInv[0];
                 fu.fa_target[1] = targetInv[1];
                 fu.fa_target[2] = gpu.is_gl() ? 1.0f : 0.0f;
+                if (sceneGroup &&
+                    sc.view
+                        .id) {  // fa_scene_color(): where the copy is (zero = no picture: it reads transparent black)
+                    std::memcpy(fu.fa_scene, sc.map.scene, sizeof(fu.fa_scene));
+                    std::memcpy(fu.fa_world_uv, sc.map.worldUv, sizeof(fu.fa_world_uv));
+                }
                 sg_range r{&fu, std::min<std::size_t>(prog->ubSize[UB_quad_quad_fs_params], sizeof(fu))};
                 sg_apply_uniforms(UB_quad_quad_fs_params, &r);
             }
             apply_use_params(*prog, *use);
         } else if (qb.lit) {
+            fill_fx(litUniforms, qb);
             apply_uniforms(UB_quad_quad_fs_params, litUniforms);
         } else if (!plain) {  // quad_plain declares no fragment uniforms
-            apply_uniforms(UB_quad_quad_fs_params, fogOn ? fogged : unlit);
+            quad_quad_fs_params_t& fs = fogOn ? fogged : unlit;
+            fill_fx(fs, qb);
+            apply_uniforms(UB_quad_quad_fs_params, fs);
         }
         // A batch from buffers is ONE quad drawn `instances` times (emit_sprite). Should another item ever make one
         // with more quads, instancing them all would repeat the whole list: draw it once, without the buffers, and say
@@ -3130,8 +3428,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             b.index_buffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
-            b.views[VIEW_quad_light_tex] = lightTexBound;
+            b.views[VIEW_quad_light_tex] = batchLightTex;
             b.views[VIEW_quad_shadow_tex] = shadowTexBound;
+            b.views[VIEW_quad_fx_emissive_tex] = (qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view();
+            b.views[VIEW_quad_fx_cookie_tex] = cookieTexBound;
+            b.views[VIEW_quad_fx_gi_tex] = giTexBound;
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -3145,6 +3446,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                     b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
+                b.views[kMaterialSpriteSceneView] = sceneBound;  // its sampler is the engine's light_smp (slot 1)
                 for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
                 for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
@@ -3217,7 +3519,27 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         const sg_store_action finalStore = mp.colorStore;
         // A transmissive draw splits the pass after the opaque phase (below): the first half keeps the picture, the depth and the stencil for the
         // second.
-        if (ctx.xmit.want) {
+        // The same for a world group that reads the picture drawn so far (Water2D, fa_scene_color; planned just below).
+        ctx.sceneCopy = {};
+        ctx.sceneCopy.finalStore = finalStore;
+        ctx.sceneCopy.format = mp.format;
+        if (fr.wantWorld && count_scene_readers(gWorld.batches) > 0 && waterFx.ready()) {
+            const int runs = plan_scene_copies(gWorld.batches, ctx.sceneCopy.copyAt);
+            if (runs > kMaxSceneCopies && !sceneCapWarned) {
+                sceneCapWarned = true;
+                FA_WARN("render",
+                        "A camera has {} separate runs of 2D draws that read the picture drawn so far (Water2D, "
+                        "DistortionZone2D, sprite "
+                        "materials that call fa_scene_color()): the picture is copied for the first {} only and the "
+                        "later runs read the "
+                        "last copy, so they do not see what is drawn between. Hint: give those items neighbouring "
+                        "layers so that they "
+                        "share a copy, or use fewer of them.",
+                        runs, kMaxSceneCopies);
+            }
+        }
+        const bool sceneSplits = !ctx.sceneCopy.copyAt.empty();
+        if (ctx.xmit.want || sceneSplits) {
             mp.colorStore = SG_STOREACTION_STORE;
             mp.depthStore = SG_STOREACTION_STORE;
             mp.stencilStore = SG_STOREACTION_STORE;
@@ -3246,7 +3568,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 sky.linear = fr.linear;
             } else if (ctx.physMainOn) {
                 sky.physical = true;
-                sky.sunDisc = true;
+                sky.sunDisc = ctx.physSunOn;  // no directional light: the gradient of the air, without a disc
                 sky.slot = 0;
                 sky.phys = ctx.physMain;
             } else {
@@ -3407,9 +3729,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             }
             PassDesc cp = pass_into(gameTarget, plan.view ? "view-glass" : fr.wantWorld ? "game-glass" : "game-hud");
             cp.colorLoad = SG_LOADACTION_LOAD;
-            cp.colorStore = finalStore;
+            cp.colorStore = sceneSplits ? SG_STOREACTION_STORE : finalStore;
             cp.depthLoad = SG_LOADACTION_LOAD;
             cp.stencilLoad = SG_LOADACTION_LOAD;
+            if (sceneSplits) {
+                cp.depthStore = SG_STOREACTION_STORE;
+                cp.stencilStore = SG_STOREACTION_STORE;
+            }
             gpu.begin_pass(cp);
             if (partial) apply_view(camPx);
         }
@@ -3417,8 +3743,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         draw_meshes(blendedBatches, blended, true);
 
         // quad groups
+        ctx.sceneCopy.live = sceneSplits;
         draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
                    ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
+        ctx.sceneCopy.live = false;
         draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
@@ -3449,6 +3777,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         gpu.end_pass();
         if (xmitImages.atlas) xmit.finish(transient_targets(), xmitImages);
+        if (ctx.sceneCopy.handle) transient_targets().pool.release(ctx.sceneCopy.handle);
+        ctx.sceneCopy.handle = 0;
+        ctx.sceneCopy.view = {};
     }  // doMainPass
 }
 
@@ -3535,16 +3866,29 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (it != jobImages.end() && std::find(shown.begin(), shown.end(), it->second.shown) == shown.end())
             shown.push_back(it->second.shown);
     }
-    ResourceId lightRes, shadowRes;
+    ResourceId lightRes, shadowRes, cookieRes;
+    if (!ctx.cookieCells
+             .empty()) {  // M74: the cookies of the lights, copied into the atlas the lit visuals and the light buffers read
+        cookieRes = shared(sharedCookie, "light-cookies", cookieTarget.color.id,
+                           import_desc(cookieTarget.w, cookieTarget.h, cookieTarget.format, "light-cookies"));
+        add("light-cookies", {}, {cookieRes}, [this, &ctx](const PassContext&) { cookie_pass(ctx.cookieCells); });
+    }
     if (ctx.litMode == 1) {
         lightRes = shared(sharedLight, "light-buffer", lightTarget.color.id,
                           import_desc(lightW, lightH, lightTarget.format, "light-buffer"));
-        add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
+        std::vector<ResourceId> lightReads;
+        if (cookieRes.valid()) lightReads.push_back(cookieRes);
+        add("light-buffer", std::move(lightReads), {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
     }
     if (ctx.doShadows) {  // no shadow caster, no pass
         shadowRes = shared(sharedShadow, "shadow-map", ctx.shadowTgt.color.id,
                            import_desc(ctx.shadowTgt.w, ctx.shadowTgt.h, ctx.shadowTgt.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
+    }
+    // The 2D GI field (gi2d_plan): its passes run before the camera's main pass, which P3b's cascades will read it in.
+    if (ctx.gi2d.active) {
+        if (gi2d.add_passes(graph, transient_targets(), gpu, ctx.gi2d, plan.name, &stats.drawCalls) == 0)
+            ctx.gi2d.active = false;
     }
     // The sky environment (plan_env): the first job that wants it declares the bake, every job that uses it reads it
     // before its main pass.
@@ -3681,6 +4025,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
+        if (cookieRes.valid()) reads.push_back(cookieRes);
+        if (ctx.gi2d.active && ctx.gi2d.cascadePasses > 0) reads.push_back(ctx.gi2d.irradiance);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (ctx.envActive) reads.push_back(envRes);
         if (ctx.physMainOn) reads.push_back(skyLutRes);

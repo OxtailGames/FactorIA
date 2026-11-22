@@ -202,6 +202,14 @@ export default class Options extends Behaviour {
         this.changeGraphics();
       });
     }
+    // 2D lighting (GlobalIllumination2D): Off, Low, Medium, High. The first click moves on from what the scene shows.
+    ui.on("click", "gfx_light", () => {
+      const all = settings.lightingChoices();
+      s.graphics.lighting2d = all[(all.indexOf(settings.lightingShown(s)) + 1) % all.length];
+      settings.applyLighting2D(s);
+      settings.save(s);
+      this.refreshGraphics();
+    });
     // HDR output only where the window's display can show it (render.supports hdrOutput); the row is greyed out otherwise.
     ui.on("change", "gfx_hdr", (e) => {
       if (this.syncing || !settings.renderSupports("hdrOutput")) return;
@@ -233,6 +241,7 @@ export default class Options extends Behaviour {
     try {
       const hasPost = settings.postProcessEntities().length > 0; // one scan of the scene per refresh
       world.find("gfx_quality").get("Button").text = i18n.t("options.gfx.quality", { quality: i18n.t(`options.gfx.q.${s.graphics.quality}`) });
+      world.find("gfx_light").get("Button").text = i18n.t("options.gfx.light", { quality: i18n.t(`options.gfx.lq.${settings.lightingShown(s)}`) });
       for (const effect of settings.GRAPHICS_EFFECTS) world.find(this.gfxRow(effect.id)).get("Toggle").value = this.effectShown(effect.id, hasPost);
       const hdr = world.find("gfx_hdr").get("Toggle");
       const hdrAvailable = settings.renderSupports("hdrOutput");
@@ -240,8 +249,14 @@ export default class Options extends Behaviour {
       hdr.value = hdrAvailable && (s.graphics.hdr ?? world.settings?.hdrOutput === "auto");
       const note = world.find("graphics_note");
       const none = !hasPost;
-      note.active = none || !hdrAvailable;
-      note.get("Text").text = i18n.t(none ? "options.gfx.note" : "options.gfx.hdrNote");
+      // the 2D lighting button has nothing to change in a 2D scene without a GlobalIllumination2D (a 3D scene never shows this note)
+      const noLight = settings.lightingEntities().length === 0 && settings.lightingRelevant(s);
+      note.active = none || noLight || !hdrAvailable;
+      const lines = [];
+      if (none) lines.push(i18n.t("options.gfx.note"));
+      if (noLight) lines.push(i18n.t("options.gfx.lightNote"));
+      if (!hdrAvailable) lines.push(i18n.t("options.gfx.hdrNote"));
+      note.get("Text").text = lines.join(" ");
     } finally {
       this.syncing = false;
     }

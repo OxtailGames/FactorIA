@@ -1,7 +1,7 @@
 // The graphics tab of the options (scripts/ui/options.js, scripts/settings.js): the quality button and the effect switches change
 // the PostProcess fields of the scene and are saved in storage. The scene's PostProcess is added here, so the test passes in any game.
 import { test, expect, game } from "factoria:test";
-import { world, storage, scene } from "factoria";
+import { world, storage, scene, i18n } from "factoria";
 import * as settings from "../scripts/settings.js";
 
 /** Opens the options of the menu scene on the Graphics tab with a gamepad; focus is on the tab. */
@@ -27,6 +27,7 @@ test("graphics tab: switching an effect changes the PostProcess and is saved", (
   const pad = openGraphics();
   expect(fx().bloomEnabled).toBe(true);
   pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting
   pad.tap("DpadDown"); // Bloom
   pad.tap("A");
   expect(fx().bloomEnabled).toBe(false);
@@ -72,4 +73,119 @@ test("graphics settings apply to the next scene and old saved settings still loa
   expect(fx().vignetteEnabled).toBe(false); // the player's own switch
   storage.set("settings", { volume: { music: 0.3 } });
   expect(settings.load().graphics.quality).toBe("high"); // a save of an older kit
+});
+
+const gi = () => world.find("gi_light").get("GlobalIllumination2D");
+
+test("graphics tab: 2D lighting shows the scene's own value, then writes enabled and quality and is saved", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "medium" } } });
+  settings.applyScene(); // nothing chosen yet: the scene keeps its own values
+  expect(gi().quality).toBe("medium");
+  expect(gi().enabled).toBe(true);
+  expect(settings.lightingShown()).toBe("medium");
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting: medium -> high
+  pad.tap("A");
+  expect(gi().quality).toBe("high");
+  expect(storage.get("settings").graphics.lighting2d).toBe("high");
+  pad.tap("A"); // high -> off
+  expect(gi().enabled).toBe(false);
+  expect(storage.get("settings").graphics.lighting2d).toBe("off");
+  pad.tap("A"); // off -> low: on again
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+});
+
+test("graphics settings: the 2D lighting choice reaches the next scene, and a player who never chose changes nothing", () => {
+  storage.set("settings", { graphics: { lighting2d: "low" } });
+  scene.load("scenes/menu.scene.json");
+  game.step(1);
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: false, quality: "high" } } });
+  settings.applyScene();
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+  storage.set("settings", { volume: { music: 0.3 } });
+  expect(settings.load().graphics.lighting2d).toBe(null);
+  gi().enabled = false;
+  gi().quality = "high";
+  settings.applyScene();
+  expect(gi().enabled).toBe(false); // the scene's own value stands
+  expect(gi().quality).toBe("high");
+  expect(settings.lightingShown()).toBe("off");
+});
+
+test("graphics settings: a phone or a browser offers Off, Low and Medium, and a saved High becomes Medium there", () => {
+  expect(settings.lightingChoices("windows")).toEqual(["off", "low", "medium", "high"]);
+  for (const p of ["ios", "android", "web"]) expect(settings.lightingChoices(p)).toEqual(["off", "low", "medium"]);
+  const s = settings.load();
+  s.graphics.lighting2d = "high";
+  expect(settings.lightingChoice(s, "android")).toBe("medium");
+  expect(settings.lightingChoice(s, "macos")).toBe("high");
+  s.graphics.lighting2d = "low";
+  expect(settings.lightingChoice(s, "ios")).toBe("low");
+  s.graphics.lighting2d = null;
+  expect(settings.lightingChoice(s, "ios")).toBe(null);
+});
+
+test("graphics tab: the cycle starts from what the scene shows (disabled shows Off, the next is Low)", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: false, quality: "medium" } } });
+  expect(settings.lightingShown()).toBe("off");
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("DpadDown"); // 2D lighting
+  pad.tap("A");
+  expect(gi().enabled).toBe(true);
+  expect(gi().quality).toBe("low");
+});
+
+test("graphics tab: a scene without a GlobalIllumination2D says the lighting button has no effect there", () => {
+  const pad = openGraphics();
+  world.spawn({ id: "a_sprite", components: { Sprite: {} } }); // a 2D scene
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A"); // a graphics change refreshes the tab
+  const note = world.find("graphics_note");
+  expect(note.active).toBe(true);
+  expect(note.get("Text").text).toContain(i18n.t("options.gfx.lightNote"));
+});
+
+test("graphics tab: a scene with no sprites and no saved lighting choice (a 3D scene) shows no lighting note", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  const pad = openGraphics();
+  expect(settings.lightingRelevant()).toBe(false);
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A");
+  expect(world.find("graphics_note").get("Text").text).not.toContain(i18n.t("options.gfx.lightNote"));
+});
+
+test("graphics tab: the three notes show together when none of them is avoided (2D scene, no PostProcess, no GI, no HDR)", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  settings.overrideRenderSupports(() => false);
+  try {
+    const pad = openGraphics();
+    world.find("screen_fx").destroy(); // no PostProcess
+    world.spawn({ id: "a_sprite", components: { Sprite: {} } });
+    pad.tap("DpadDown"); // Effects quality
+    pad.tap("A");
+    const text = world.find("graphics_note").get("Text").text;
+    for (const key of ["note", "lightNote", "hdrNote"]) expect(text).toContain(i18n.t(`options.gfx.${key}`));
+  } finally {
+    settings.overrideRenderSupports(null);
+  }
+});
+
+test("graphics tab: no Sprite but a saved lighting choice still shows the lighting note", () => {
+  storage.set("settings", { graphics: { lighting2d: "low" } });
+  const pad = openGraphics();
+  expect(settings.lightingRelevant()).toBe(true);
+  pad.tap("DpadDown"); // Effects quality
+  pad.tap("A");
+  expect(world.find("graphics_note").get("Text").text).toContain(i18n.t("options.gfx.lightNote"));
+});
+
+test("graphics settings: a scene's own High shows as Medium where High is not offered", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "high" } } });
+  for (const p of ["ios", "android", "web"]) expect(settings.lightingShown(settings.load(), p)).toBe("medium");
+  for (const p of ["windows", "macos", "linux"]) expect(settings.lightingShown(settings.load(), p)).toBe("high");
 });

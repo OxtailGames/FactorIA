@@ -47,6 +47,7 @@ Json RenderStats::to_json() const {
                 {"lights2d", lights2d},
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
+                {"sceneCopies", sceneCopies},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
                 {"materialResolves", materialResolves},
@@ -288,6 +289,15 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         im.warmGroups.push_back([gpu] {
             if (gpu->scene_format() != SG_PIXELFORMAT_RGBA8) gpu->blit_keep_pipeline();
         });
+        // The shaders and pipelines of Water2D and DistortionZone2D (a sprite material that calls fa_scene_color() makes them on its first
+        // draw): only where the scene has one of them, so a scene without pays no compile.
+        if (world.any<Water2D>() || world.any<DistortionZone2D>()) {
+            Impl* impl = &im;
+            im.warmGroups.push_back([impl] {
+                if (impl->game_targets_valid())
+                    impl->waterFx.warm(impl->gpu, pass_into(impl->gameTarget, "warm").format);
+            });
+        }
         bool meshes = false;
         world.each<MeshRenderer>([&](Entity, MeshRenderer&) { meshes = true; });
         if (meshes) {
@@ -419,11 +429,13 @@ void Renderer::shutdown() {
         im.fonts.reset();
         im.ssr.release();
         im.xmit.release();
+        im.waterFx.release();
         im.skyEnv.release();
         im.probes_release();
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
+        im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
         im.sssFx.release();
@@ -930,7 +942,9 @@ bool RendererTestAccess::read_floats(Renderer& r, bool present, std::vector<floa
 
 render::ShadowRowsStats RendererTestAccess::shadow_rows_stats(Renderer& r) {
     render::ShadowRowsStats out;
-    if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
+    if (r.impl_)
+        out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads),
+               int(r.impl_->shadowCache.contours.contoursMade)};
     return out;
 }
 
@@ -1049,7 +1063,6 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.renderScale = renderScale;
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
-    fr.warnedShadows2d = &warnedShadows2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
     fr.warnedGradientStops = &warnedGradientStops;
     fr.shadowCache = &shadowCache;
@@ -1102,7 +1115,11 @@ void Renderer::Impl::render(World& world, float dt) {
     if (world.scene_path() != lights2dScene) {
         lights2dScene = world.scene_path();
         warnedLights2d = false;
-        warnedShadows2d = false;
+        warnedCookies2d = false;
+        warnedLightBuffers2d = false;
+        sceneCapWarned = false;  // the picture-copy warnings (water2d.h) may show again in the new scene
+        sceneCopyWarned = false;
+        reset_warnings(shadowCache.contours);  // the 2D shadow warnings may show again in the new scene
         warnedSpriteMesh = false;
         warnedGradientStops = false;
         warnedCameras = false;

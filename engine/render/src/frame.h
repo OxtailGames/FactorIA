@@ -13,6 +13,7 @@
 #include "fa/scene/text_fit.h"
 #include "gradient_ramp.h"
 #include "render_internal.h"
+#include "shadow2d.h"
 
 namespace fa {
 class Compute;
@@ -30,6 +31,7 @@ struct ShadowCache {
     };
     std::unordered_map<std::uint64_t, Entry> rows;
     std::uint64_t tick = 0;  // one per drawn frame (the renderer counts it): a row not used this frame may be dropped
+    ContourCache contours;   // the outlines of the sprites with a ShadowCaster2D (shadow2d.cpp)
 };
 
 // A CameraView the UI gather met: the camera it shows rendered into an image of pxW x pxH pixels, drawn in `size` design pixels.
@@ -85,8 +87,6 @@ struct Frame {
     Color ambient2d{0.25f, 0.25f, 0.3f, 1.0f};
     bool* warnedLights2d =
         nullptr;  // set once gather_2d warned that more than kMaxLights2D lights are in view (per scene)
-    bool* warnedShadows2d =
-        nullptr;  // set once gather_2d warned that more than kMaxShadowLights2D lights cast shadows (per scene)
     // The shadow rows of the point lights with castShadows (light2d.cpp): shadowRows rows of kShadowAngles RGBA8 texels,
     // row r for the light whose Light2DData::extra[0] is r. Empty when no light casts a shadow this frame.
     std::vector<std::uint8_t> shadowData;

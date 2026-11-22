@@ -1,12 +1,18 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/image_tools.h"
 #include "fa/core/screenshot_files.h"
+#include "fa_test_paths.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -221,4 +227,88 @@ TEST_CASE(
     CHECK_FALSE(discard_temporary_image(Json::object({{"base64", "AAAA"}, {"temporary", true}}), dir));
     std::error_code ec;
     stdfs::remove_all(dir, ec);
+}
+
+// ---- Normal maps made from a height field (M74) ----------------------------------------------------------------------
+
+namespace {
+
+// The input of the frozen maps in tests/data/normal_map_from_height.png: a fixed function of the pixel (never change it).
+std::vector<double> bumpy_field(int w, int h) {
+    std::vector<double> v(std::size_t(w) * std::size_t(h));
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            v[std::size_t(y) * std::size_t(w) + std::size_t(x)] =
+                0.5 + 0.35 * std::sin(double(x) * 0.31) * std::cos(double(y) * 0.23) +
+                0.1 * double((x * 7 + y * 13) % 5) / 5.0;
+    return v;
+}
+
+}  // namespace
+
+TEST_CASE("normal_map_from_height: the shared kernel keeps the bytes of the frozen fixture, clamped and tiled") {
+    // tests/data/normal_map_from_height.png holds six 48 x 32 maps of bumpy_field one under the other, made once by the kernel as
+    // tools/common wrote it before M74 (clamped then tiled; strength 0, 1, 3.5 in each). It is a copy of what the kernel gave
+    // then, not a second implementation: a change of the kernel that moves a byte fails here, and the fixture is replaced
+    // only on purpose.
+    const int w = 48, h = 32;
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/core/tests/data/normal_map_from_height.png",
+                     std::ios::binary);
+    REQUIRE(in.good());
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto frozen = decode_image(bytes.data(), bytes.size());
+    REQUIRE(frozen);
+    REQUIRE(frozen->width == w);
+    REQUIRE(frozen->height == h * 6);
+    const std::vector<double> field = bumpy_field(w, h);
+    int part = 0;
+    for (bool tile : {false, true})
+        for (double strength : {0.0, 1.0, 3.5}) {
+            CAPTURE(tile);
+            CAPTURE(strength);
+            const Image got = normal_map_from_height(field, w, h, tile, strength);
+            REQUIRE(got.width == w);
+            REQUIRE(got.height == h);
+            const auto first = frozen->rgba.begin() + std::ptrdiff_t(part) * w * h * 4;
+            CHECK(std::equal(got.rgba.begin(), got.rgba.end(), first));
+            ++part;
+        }
+    // a flat map is (0.5, 0.5, 1) everywhere
+    const Image flat = normal_map_from_height(std::vector<double>(16, 0.3), 4, 4, false, 2.0);
+    CHECK(int(flat.rgba[0]) == 128);
+    CHECK(int(flat.rgba[1]) == 128);
+    CHECK(int(flat.rgba[2]) == 255);
+    // bad sizes give an empty image, never a read past the field
+    CHECK(normal_map_from_height(field, 0, 5, false, 1.0).empty());
+    CHECK(normal_map_from_height(std::vector<double>(3, 0.0), 4, 4, false, 1.0).empty());
+}
+
+TEST_CASE("normal_map_from_sprite: the silhouette is a bevel that faces outwards, an empty or opaque flat sprite stays "
+          "flat inside") {
+    // a 32x32 opaque square on a transparent 48x48 picture
+    Image sprite = solid(48, 48, 200, 200, 200);
+    for (int y = 0; y < 48; ++y)
+        for (int x = 0; x < 48; ++x)
+            if (x < 8 || x >= 40 || y < 8 || y >= 40) sprite.rgba[(std::size_t(y) * 48 + std::size_t(x)) * 4 + 3] = 0;
+    const Image n = normal_map_from_sprite(sprite, 8.0);
+    REQUIRE(n.width == 48);
+    auto px = [&](int x, int y) { return &n.rgba[(std::size_t(y) * 48 + std::size_t(x)) * 4]; };
+    CHECK(int(px(8, 24)[0]) < 124);   // the left edge faces left (-x)
+    CHECK(int(px(39, 24)[0]) > 132);  // the right edge faces right
+    CHECK(int(px(24, 8)[1]) > 132);   // the top edge faces up the picture (+y)
+    CHECK(int(px(24, 39)[1]) < 124);  // the bottom edge faces down
+    CHECK(int(px(0, 0)[2]) == 255);   // far outside: flat
+    // the same picture twice gives the same bytes
+    CHECK(normal_map_from_sprite(sprite, 8.0).rgba == n.rgba);
+    // a grey image as a height field: a ramp rising to the right tilts the normals to the left
+    Image ramp = solid(64, 64, 0, 0, 0);
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x) {
+            const auto v = std::uint8_t(x * 4);
+            std::uint8_t* o = &ramp.rgba[(std::size_t(y) * 64 + std::size_t(x)) * 4];
+            o[0] = o[1] = o[2] = v;
+        }
+    const Image rn = normal_map_from_height_image(ramp, 40.0);
+    CHECK(int(rn.rgba[(32 * 64 + 32) * 4]) < 120);
+    CHECK(int(rn.rgba[(32 * 64 + 32) * 4 + 1]) == 128);
 }
