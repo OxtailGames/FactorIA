@@ -95,17 +95,17 @@ Json thermal_params_schema();  // a JSON Schema with a description on every fiel
 // Cell updates erode_thermal makes (cells x iterations), in 64 bits and saturating; 0 for a non-positive size.
 std::uint64_t thermal_work(int width, int height, const ThermalErosionParams& params);
 
-// Thermal erosion in place. Each pass, a cell whose drop to a neighbour (8 directions; the drop is divided by the distance
-// to the neighbour) is steeper than tan(talusAngle) offers `strength / 2` of its largest excess to its lower neighbours
-// in proportion to their excess. A receiver takes at most half the way up to its lowest donor (when its donors offer more,
-// each gives proportionally less, and loses only what was taken), so no cell ever ends higher than the donors that fed it
-// or lower than its own lowest neighbour: no height leaves the range of its 3 x 3 neighbourhood, a pit or a spike never
-// overshoots, and the steepest slope never rises above the steepest one the grid started with (tests: pit, spike and
-// checkerboard; between two passes it may wobble a little while it falls). Nothing leaves the grid and the
-// sum of the heights is kept. `strength` is how much of the excess a cell offers per pass: 1 is the fastest, lower smooths
-// more slowly. Errors, before any change: a grid that is not 2 x 2 to kMaxHeightfieldSide, a `heights` size that is not
-// width * height, a cellSize that is not finite and > 0, a height that is not finite (with its position), invalid params, a work or
-// memory cap (kMaxThermalWork, kMaxErosionScratchBytes).
+// Thermal erosion in place. Each pass, a cell whose drop to a neighbour (8 directions; the drop is divided by the
+// distance to the neighbour) is steeper than tan(talusAngle) offers `strength / 2` of its largest excess to its lower
+// neighbours in proportion to their excess. A receiver takes at most half the way up to its lowest donor (when its
+// donors offer more, each gives proportionally less, and donors lose only what was taken). What holds: the sum of the
+// heights is kept (up to float rounding; nothing leaves the grid), and every cell ends a pass within the range of its 3
+// x 3 neighbourhood of the previous pass, so a 1-cell pit or spike does not overshoot (tested). Slopes tend to fall,
+// but there is no bound per pass and none on the steepest slope. `strength` is how much of the excess a cell offers per
+// pass: 1 is the fastest, lower smooths more slowly. Errors, before any change: a grid that is not 2 x 2 to
+// kMaxHeightfieldSide, a `heights` size that is not width * height, a cellSize that is not finite and > 0, a height
+// that is not finite (with its position), invalid params, a work or memory cap (kMaxThermalWork,
+// kMaxErosionScratchBytes).
 Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalErosionParams& params);
 
 // --------------------------------------------------------------------------------------------------------- hydraulic
