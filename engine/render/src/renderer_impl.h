@@ -180,8 +180,22 @@ struct Renderer::Impl {
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
-    bool sceneCopyWarned = false;  // one warning per scene when the image of a scene copy could not be made
+    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS.md "Floating origin"). The renderer watches the world it was last
+    // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
+    // moves what it keeps in world space across frames by the same offset: the cameras the motion vectors reproject from, the 2D GI
+    // field's geometry and history, the realtime GI's anchors, the occlusion debug boxes. Everything else is rebuilt from the world each
+    // frame (the cameras, the occluders, the terrain selection, the shadow rows) or snaps in absolute space (the cascades, the 2D GI
+    // field). The callback runs on the main thread between frames, when no render job exists.
+    World* originWorld = nullptr;  // the world the observer is registered in (null: none)
+    std::weak_ptr<const void>
+        originWorldAlive;            // expires when that world is destroyed: then the observer is gone with it
+    int originObserver = 0;          // World::on_origin_shifted's id
+    std::uint64_t originShifts = 0;  // rebases followed since the renderer was made (RendererTestAccess)
+    void watch_world(World& world);
+    void unwatch_world();
+    void origin_shifted(World& world, const DVec3& offset);
+    bool fogMissingWarned = false;  // one warning when a planned fog could not be drawn
+    bool sceneCopyWarned = false;   // one warning per scene when the image of a scene copy could not be made
     bool sceneCapWarned =
         false;  // one warning per scene when a camera has more runs of scene-reading draws than kMaxSceneCopies
     bool prepassWarned = false;   // one warning when the prepass cannot be made

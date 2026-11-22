@@ -811,6 +811,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         PostPlan& pp = ctx.postPlan;
         pp.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
+        // fogHeightBase is an absolute height: in local coordinates it moves down as the floating origin moves up (M75.4b).
+        pp.fogFx.heightBase -= float(world.origin().y);
         const std::uint32_t shaftsBit = 1u << int(PostEffect::SunShafts);
         if ((pp.readMask & shaftsBit) != 0 && !pp.fogFx.shafts && debugView != DebugView::Ao) {
             pp.readMask &= ~shaftsBit;  // no sun in view: the shafts draw nothing, so they need no depth
@@ -828,6 +830,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         const SceneSettings& vss = world.settings();
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
+        ctx.postPlan.vol.heightBase -= float(world.origin().y);  // an absolute height, like the fog's (M75.4b)
         // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
         if (ctx.postPlan.vol.on) {
             if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
@@ -1563,9 +1566,9 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         const render::CameraFrustum cf =
             render::camera_frustum(fr.cam.invViewProj, ctx.z01, fr.cam.position, normalize(fr.cam.forward));
         const float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
-        const render::CascadePlan plan =
-            render::plan_cascades(cf, bmin, bmax, normalize(ctx.lightDirForShadow), shadowDist,
-                                  settings.shadowCascadeSplit, settings.shadowCascadeBlend, tileSizes, ctx.z01);
+        const render::CascadePlan plan = render::plan_cascades(
+            cf, bmin, bmax, normalize(ctx.lightDirForShadow), shadowDist, settings.shadowCascadeSplit,
+            settings.shadowCascadeBlend, tileSizes, ctx.z01, ctx.world.origin());
         if (plan.ok) {
             ctx.splits = plan.splits;
             ctx.fits = plan.fits;
@@ -2722,7 +2725,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     }
     const Rect& vis = fr.cam.visible;
     const float ppu = vis.w > 0.0f ? float(double(ctx.camPx.w) / double(vis.w)) : 0.0f;
-    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
+    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s, ctx.world.origin().x, ctx.world.origin().y);
     if (!geom.valid) return;
     // The cascades' counts for the quality, against the platform's budget (a phone or a browser has the smaller one): over it, no field at all.
     const sg_backend gfxBackend = sg_query_backend();

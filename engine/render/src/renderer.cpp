@@ -425,6 +425,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
 void Renderer::shutdown() {
     if (!impl_) return;
     Impl& im = *impl_;
+    im.unwatch_world();
     if (im.initialized) {
         compute_->detach();  // its storage buffers and views, while the context is open
         // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever
@@ -981,6 +982,18 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
     if (!r.impl_) return {};
     return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
 }
+std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
+bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {
+    return r.impl_ && r.impl_->originWorld == world && r.impl_->originObserver != 0;
+}
+std::uint64_t RendererTestAccess::gi2d_shifts(Renderer& r) { return r.impl_ ? r.impl_->gi2d.shifts() : 0; }
+bool RendererTestAccess::prev_view_proj(Renderer& r, Entity camera, Mat4& out) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->prevViewProj.find(camera.bits());
+    if (it == r.impl_->prevViewProj.end()) return false;
+    out = it->second.viewProj;
+    return true;
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
@@ -1006,6 +1019,7 @@ int RendererTestAccess::ldr_cut_format(Renderer& r) {
 void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;
+    im.watch_world(world);  // before the cameras: a rebase between two frames has already moved them
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing: a frame the runtime
     // does not draw (OnDemand, a test that steps without drawing) still refreshes the cameras here.
     im.lastCams = im.collect_cameras(world);
@@ -1055,6 +1069,7 @@ void Renderer::set_text_scale(float scale) {
 
 void Renderer::render_world(World& world, float dt) {
     if (!initialized()) return;
+    impl_->watch_world(world);
     if (!impl_->inFrame) begin_frame();
     if (!impl_->updated) update(world);  // backward compatible: callers that only use render_world
     impl_->updated = false;
