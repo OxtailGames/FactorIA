@@ -97,6 +97,7 @@ struct Renderer::Impl::DrawContext {
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
+    std::deque<TerrainDraw> terrainDraws;  // gather_meshes: what the MeshItems of the terrains' nodes point at
     std::vector<LightData> lights;
     // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
     std::vector<DecalItem> decals;
@@ -999,6 +1000,22 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     for (const auto& entry : special) {  // what the camera changed is ranked again; a value the table lacks: comparator
         MeshItem& mi = meshes[entry.first];
         mi.keyed = mi.keyed && renderScene.sort_table().key_of(fields_of(mi), mi.sortKey);
+    }
+    // The Terrains: one MeshItem per node of the quadtree the camera selects (renderer_terrain.h), opaque, ahead of the frustum job
+    // like every other item.
+    {
+        TerrainRenderer::View tv;
+        tv.world = &world;
+        tv.scopeRoot = fr.scopeRoot;
+        if (masked) tv.drawn = [&](Entity e) { return fr.mask.draws(world, e); };
+        tv.assets = assets.get();
+        tv.viewProj = fr.cam.viewProj;
+        tv.z01 = z01;
+        tv.camera = fr.cam.position;
+        tv.linear = fr.linear;
+        tv.serial = frameSerial;
+        terrains.gather(tv, ctx.terrainDraws, meshes);
+        meshBlended.resize(meshes.size(), 0);
     }
     const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
     rjobs::run("render.mesh_frustum", meshSplit, [&](const jobs::Chunk& c) {
@@ -2435,6 +2452,11 @@ MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
 }
 
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
+    if (mi.terrain) {  // a node of a terrain: the draw's block and textures (renderer_terrain.h)
+        std::memcpy(in.params, mi.terrain->params, sizeof(mi.terrain->params));
+        for (int i = 0; i < 3; ++i) in.textures[i] = mi.terrain->textures[i];
+        return;
+    }
     pack_material_params(*mat, mi.mr->materialParams, in.params);
     for (std::size_t i = 0; i < mat->textures.size(); ++i)
         in.textures[i] = material_texture(*mat, int(i), mi.mr->materialParams, *assets);
@@ -3596,7 +3618,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
-                    count_material(mi.material);
+                    if (!mi.terrain) count_material(mi.material);
                 } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(),
                                                     mi.material->path) == stats.materialFallbacks.end()) {
                     stats.materialFallbacks.push_back(mi.material->path);
@@ -3676,7 +3698,11 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                     }
                 }
-                if (anyDrawn || !mbu.active) {
+                if (mi.terrain) {  // its nodes are tiles, not meshes
+                    stats.terrainTiles += int(batch.mainCount);
+                    stats.terrainTriangles += kTerrainTrianglesPerNode * int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (anyDrawn || !mbu.active) {
                     stats.meshes += int(batch.mainCount);
                     ++stats.meshBatches;
                 }
