@@ -177,7 +177,7 @@ struct Engine::Impl {
     // pool started (whether its IO thread runs depends on the pool), stopped before the engine waits for its jobs.
     std::unique_ptr<BackgroundLoader> loader;
     std::unique_ptr<WorldStreamer>
-        streamer;                        // made with the loader, destroyed before it (docs/BIG_WORLDS_STREAMING.md, "Streaming")
+        streamer;  // made with the loader, destroyed before it (docs/BIG_WORLDS_STREAMING.md, "Streaming")
     std::optional<int> replayLoadUnits;  // a replay entry's "loadUnits": the units of the coming frame
     bool replaying = false;              // a windowed replay runs: frames without "loadUnits" take the fixed budget
     // Starts a background load (scene.preload, assets.preload, an async scene.load) for a script or a command. An async
