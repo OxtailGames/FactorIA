@@ -20,7 +20,10 @@
 //   baselines, stays, and restore() brings the cells back at Stop.
 //
 //   ROOT DELETED. Deleting the root entity of a cell with unsaved changes keeps the cell as unsaved and empty: Save writes the
-//   cell with no entities, Undo brings it back. A cell without unsaved changes is just closed (its file is unchanged).
+//   cell with no entities, Undo brings it back. A cell without unsaved changes is just closed (its file is unchanged), and so is one
+//   whose file already holds no entity. A cell an edit may have changed since it was last checked (the edit named another cell, and
+//   this one waits for its turn in the sweep) cannot be judged clean: its root being gone counts as an unsaved change. Deleting the
+//   root of a cell that was checked since its last edit, by the Hierarchy, the AI, the Console or MCP, just closes it.
 //
 // Main thread only. No exceptions leave this class.
 #pragma once
@@ -141,6 +144,9 @@ private:
         std::uint64_t baseline = 0, current = 0;
         bool isNew = false;     // not in the index yet
         bool rootGone = false;  // the root entity was deleted while the cell had unsaved changes: Save writes it empty
+        // An edit may have changed the cell since its `current` was read (note_edit(world, entity) marks the cells whose root is alive
+        // then; every fingerprint clears it). A root that is gone from an unchecked cell cannot be judged clean by `current`.
+        bool unchecked = false;
         std::string scene;
         Json top = Json::object();  // the file's top-level keys but "entities"
     };

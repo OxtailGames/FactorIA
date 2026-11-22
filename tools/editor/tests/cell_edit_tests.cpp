@@ -389,6 +389,106 @@ TEST_CASE("cells: deleting the root of a cell with unsaved changes keeps it unsa
     CHECK_FALSE(cells.any_dirty());
 }
 
+TEST_CASE(
+    "cells: a root deleted before its cell was checked counts as an unsaved change, not as the clean state last seen") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    p.move("b", 160, 2, 20);  // an edit of cell 1,0 that no check has seen yet
+    p.move("a", 15, 1, 10);
+    cells.note_edit(p.world(), p.world().find_by_id("a"));  // names cell 0,0 only: 1,0 waits for its turn in the sweep
+    CHECK_FALSE(cells.is_dirty(1, 0));                      // (its `current` is still the clean state of the load)
+    p.world().destroy(cells.root_of(1, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_loaded(1, 0));  // not closed on the strength of a stale mark: the edit is not dropped silently
+    CHECK(cells.is_dirty(1, 0));
+    bool gone = false;
+    for (const CellRow& r : cells.rows(p.world(), 150, 50, 10))
+        if (r.i == 1 && r.j == 0) gone = r.rootGone && r.dirty && r.entities == 0;
+    CHECK(gone);
+    CHECK(cells.warnings().find("1,0") != std::string::npos);
+}
+
+TEST_CASE("cells: a clean, checked cell whose root is deleted closes without touching its file, whatever is selected") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    REQUIRE_FALSE(cells.any_dirty());
+    const std::string file = p.read("worlds/w_cells/1_0.scene.json");
+    // The AI, the Console or MCP deletes the root while an entity of the other cell is selected: the editor names the live
+    // selection and, for the id that is gone, asks for a check of every cell (Editor::note_cells_edit).
+    p.world().destroy(cells.root_of(1, 0));
+    p.world().flush();
+    cells.note_edit(p.world(), p.world().find_by_id("a"));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK(cells.is_loaded(0, 0));
+    CHECK_FALSE(cells.any_dirty());
+    const CellSaveReport rep = cells.save(p.world());
+    CHECK(rep.ok);
+    CHECK(rep.written.empty());
+    CHECK(p.read("worlds/w_cells/1_0.scene.json") == file);
+}
+
+TEST_CASE("cells: deleting a clean cell's root through the Hierarchy closes it, an unchecked edit in a deleted cell "
+          "does not") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    // the Hierarchy names the root while it is alive, then deletes it before the next check
+    cells.note_edit(p.world(), cells.root_of(1, 0));
+    p.world().destroy(cells.root_of(1, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK_FALSE(cells.any_dirty());
+    // an edit in a cell that no check has seen, then its root deleted: that one is an unsaved change
+    p.move("a", 15, 1, 10);
+    cells.note_edit(p.world(), p.world().find_by_id("a"));
+    p.world().destroy(cells.root_of(0, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_loaded(0, 0));
+    CHECK(cells.is_dirty(0, 0));
+}
+
+TEST_CASE("cells: a cell whose file is empty is closed when its root is deleted, never kept as an unsaved empty slot") {
+    CellProject p;
+    p.write("worlds/w_cells/1_0.scene.json", R"({"format":"factoria.scene/1","entities":[]})");
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    CHECK_FALSE(cells.is_dirty(1, 0));
+    const Entity added = p.world().create("added", "added1");
+    p.world().set_parent(added, cells.root_of(1, 0));
+    cells.note_edit();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_dirty(1, 0));
+    p.world().destroy(cells.root_of(1, 0));  // the cell is empty again, which is what its file holds
+    p.world().flush();
+    cells.note_edit();
+    cells.update(p.world(), false);
+    CHECK_FALSE(cells.is_loaded(1, 0));
+    CHECK_FALSE(cells.any_dirty());
+    CHECK(cells.warnings().find("1,0") != std::string::npos);
+    CHECK(cells.warnings().find("unchanged") != std::string::npos);
+    const CellSaveReport rep = cells.save(p.world());  // nothing left to write
+    CHECK(rep.ok);
+    CHECK(rep.written.empty());
+}
+
 TEST_CASE("cells: the write rules refuse a cell file in a managed folder and nothing is written") {
     CellProject p;
     p.write("worlds/w.world.json",

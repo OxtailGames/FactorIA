@@ -229,8 +229,10 @@ cell:
   the cells: the editor only writes what is under a cell root.
 - A reference from an entity to one in a cell that is not loaded is empty, as in the game (the load warns about it). Deleting the
   root entity of a cell closes it without changing its file; when the cell had unsaved changes it stays loaded as unsaved and
-  empty instead (the Cells list says "root deleted"): Save writes the cell with no entities and closes it, Undo brings the entities
-  back, and "Discard changes and unload" gives the edits up. Nothing is dropped without being asked.
+  empty instead (the Cells list says "root deleted"; its Select button is off, there is no entity to select): Save writes the cell
+  with no entities and closes it, Undo brings the entities back, and "Discard changes and unload" gives the edits up. When the
+  editor has not checked the cell since the last edit it cannot tell the cell was clean, so it keeps it as unsaved too. A cell whose
+  file already holds no entity is just closed. Nothing is dropped without being asked.
 - **Play** streams the world as the game does and **Stop** brings back the cells you had loaded, with their unsaved changes;
   nothing you do while playing reaches a cell file.
 - The floating origin does not change any of this: cell contents are absolute, the root sits at the origin's negative and the

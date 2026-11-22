@@ -62,29 +62,52 @@ std::string write_path(const std::string& raw, const char* what, bool dryRun, co
     return fs::project_spelling(judged.value());
 }
 
+// What same_file needs to know about one project path, found once: the path resolved against the project folder, whether the file
+// exists and its normalized spelling. A caller that compares one path with many (the `out` of a merge against every cell) builds
+// the id of the one path a single time.
+//
+// The paths go to the file system through fs::os_path, so a long Windows path (248 characters or more) is judged by the file
+// system, not by a refusal of the ANSI-limit calls (which would read as "does not exist"). os_path / weakly_canonical may give the
+// \\?\ form for such a path: the spelling compared is always the plain one (prefix removed), so one file never has two keys.
+struct FileId {
+    std::filesystem::path path;
+    bool exists = false;
+    std::string key;
+};
+
+FileId file_id(const std::string& name) {
+    FileId id;
+    id.path = fs::resolve(name);
+    std::error_code ec;
+    id.exists = std::filesystem::exists(fs::os_path(id.path), ec);
+    std::filesystem::path canon = std::filesystem::weakly_canonical(fs::os_path(id.path), ec);
+    std::string text = fs::path_to_utf8(ec ? id.path.lexically_normal() : canon);
+    if (text.rfind("//?/UNC/", 0) == 0)
+        text = "//" + text.substr(8);
+    else if (text.rfind("//?/", 0) == 0 && text.size() > 6 && text[5] == ':')
+        text = text.substr(4);
+#if defined(_WIN32) || defined(__APPLE__)
+    for (char& c : text)
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+#endif
+    id.key = std::move(text);
+    return id;
+}
+
 // True when two project paths name the same file. Both are resolved against the project folder first. When both files exist the
 // file system decides (std::filesystem::equivalent: a symlink, "a/../b" and, on a case-insensitive volume, "Town.world.json" and
 // "town.world.json" are one file). A file that does not exist yet (the `out` of a merge) is compared by its normalized path, with
 // ASCII case folded on Windows and macOS, whose default volumes ignore case (as fs::resolve_for_write does), never on Linux.
-bool same_file(const std::string& a, const std::string& b) {
-    std::error_code ec;
-    const std::filesystem::path pa = fs::resolve(a), pb = fs::resolve(b);
-    if (std::filesystem::exists(pa, ec) && std::filesystem::exists(pb, ec)) {
-        const bool same = std::filesystem::equivalent(pa, pb, ec);
+bool same_file(const FileId& a, const FileId& b) {
+    if (a.exists && b.exists) {
+        std::error_code ec;
+        const bool same = std::filesystem::equivalent(fs::os_path(a.path), fs::os_path(b.path), ec);
         if (!ec) return same;
     }
-    auto key = [](const std::filesystem::path& p) {
-        std::error_code e;
-        std::filesystem::path canon = std::filesystem::weakly_canonical(p, e);
-        std::string text = fs::path_to_utf8(e ? p.lexically_normal() : canon);
-#if defined(_WIN32) || defined(__APPLE__)
-        for (char& c : text)
-            if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
-#endif
-        return text;
-    };
-    return key(pa) == key(pb);
+    return a.key == b.key;
 }
+
+bool same_file(const std::string& a, const std::string& b) { return same_file(file_id(a), file_id(b)); }
 
 Json read_json_file(const std::string& path, const char* what) {
     auto text = fs::read_text(path);
@@ -515,13 +538,15 @@ Json merge_cells(Engine::Impl&, const Json& args) {
     if (!loaded.ok()) fail("Cannot merge '" + worldPath + "': " + loaded.error().message, loaded.error().hint);
     const WorldIndex index = loaded.value();
 
+    const FileId outId = file_id(outPath);  // once: the cells below are each compared with it
+    const bool outIsPersistent = same_file(outId, file_id(index.persistent));
     for (const WorldCell& c : index.cells)
-        if (same_file(outPath, c.scene) || same_file(outPath, index.persistent))
+        if (outIsPersistent || same_file(outId, file_id(c.scene)))
             fail("out '" + outPath + "' is a file of the world being merged ('" +
-                     (same_file(outPath, index.persistent) ? index.persistent : c.scene) +
-                     "'): the merge never changes them.",
+                     (outIsPersistent ? index.persistent : c.scene) + "'): the merge never changes them.",
                  "Pass another \"out\" for the merged scene.");
-    if (same_file(outPath, worldPath)) fail("out '" + outPath + "' is the index itself.", "Pass another \"out\".");
+    if (same_file(outId, file_id(worldPath)))
+        fail("out '" + outPath + "' is the index itself.", "Pass another \"out\".");
     if (!overwrite && fs::exists(outPath))
         fail("'" + outPath + "' already exists.",
              "Pass \"overwrite\": true to replace it, or another \"out\". Nothing was written.", "exists");
