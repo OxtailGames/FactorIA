@@ -210,6 +210,114 @@ bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, st
 #endif
 }
 
+struct AsyncBufferRead::Impl {
+#if !defined(SOKOL_GLES3)
+    enum class State { Free, Pending, Discard };
+    struct Slot {
+        GLuint staging = 0;
+        GLsync fence = nullptr;
+        std::size_t bytes = 0, capacity = 0;
+        State state = State::Free;
+    };
+    Slot slots[kSlots];
+    // Done: the copy's fence has been signalled (a bounded wait of `timeoutNs`, 0 = only look).
+    static bool signalled(Slot& s, GLuint64 timeoutNs) {
+        const GLenum r = glClientWaitSync(s.fence, timeoutNs ? GL_SYNC_FLUSH_COMMANDS_BIT : 0, timeoutNs);
+        return r == GL_ALREADY_SIGNALED || r == GL_CONDITION_SATISFIED;
+    }
+    static void free_fence(Slot& s) {
+        if (s.fence) glDeleteSync(s.fence);
+        s.fence = nullptr;
+        s.state = State::Free;
+    }
+#endif
+};
+
+AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::~AsyncBufferRead() {
+#if !defined(SOKOL_GLES3)
+    for (Impl::Slot& s : impl_->slots) {
+        if (s.fence) glDeleteSync(s.fence);
+        if (s.staging) glDeleteBuffers(1, &s.staging);
+    }
+#endif
+}
+
+#if defined(SOKOL_GLES3)
+bool AsyncBufferRead::supported() { return false; }
+int AsyncBufferRead::request(sg_buffer, std::size_t, std::string* error) {
+    if (error) *error = "readback: GLES3 has no storage buffers (compute shaders need desktop OpenGL 4.3)";
+    return -1;
+}
+bool AsyncBufferRead::poll(int, std::vector<std::uint8_t>&, bool) { return false; }
+void AsyncBufferRead::release(int) {}
+#else
+bool AsyncBufferRead::supported() { return true; }
+
+int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+    for (Impl::Slot& s : impl_->slots)
+        if (s.state == Impl::State::Discard && Impl::signalled(s, 0)) Impl::free_fence(s);
+    int slot = -1;
+    for (int i = 0; i < kSlots && slot < 0; ++i)
+        if (impl_->slots[i].state == Impl::State::Free) slot = i;
+    if (slot < 0) return -1;
+    const sg_gl_buffer_info info = sg_gl_query_buffer_info(buffer);
+    const GLuint src = info.buf[info.active_slot];
+    if (!src || bytes == 0) {
+        if (error) *error = "readback: the storage buffer has no GL buffer";
+        return -1;
+    }
+    Impl::Slot& s = impl_->slots[slot];
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {  // a bounded clear of the errors of earlier calls
+    }
+    if (!s.staging) glGenBuffers(1, &s.staging);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT |
+                    GL_SHADER_STORAGE_BARRIER_BIT);  // the shaders' writes are visible to the copy
+    glBindBuffer(GL_COPY_WRITE_BUFFER, s.staging);
+    if (s.capacity < bytes) {
+        glBufferData(GL_COPY_WRITE_BUFFER, GLsizeiptr(bytes), nullptr, GL_STREAM_READ);
+        s.capacity = bytes;
+    }
+    glBindBuffer(GL_COPY_READ_BUFFER, src);
+    glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, GLsizeiptr(bytes));
+    s.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+    glBindBuffer(GL_COPY_READ_BUFFER, 0);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+    sg_reset_state_cache();
+    if (glGetError() != GL_NO_ERROR || !s.fence) {
+        if (s.fence) glDeleteSync(s.fence);
+        s.fence = nullptr;
+        if (error) *error = "readback: the GL driver refused to copy the storage buffer";
+        return -1;
+    }
+    s.bytes = bytes;
+    s.state = Impl::State::Pending;
+    return slot;
+}
+
+bool AsyncBufferRead::poll(int slot, std::vector<std::uint8_t>& out, bool wait) {
+    if (slot < 0 || slot >= kSlots || impl_->slots[slot].state != Impl::State::Pending) return false;
+    Impl::Slot& s = impl_->slots[slot];
+    // A wait is a safety net far above a copy's time (2 s), never a pacing device.
+    if (!Impl::signalled(s, wait ? GLuint64(2000000000) : 0)) return false;
+    out.resize(s.bytes);
+    glBindBuffer(GL_COPY_READ_BUFFER, s.staging);
+    glGetBufferSubData(GL_COPY_READ_BUFFER, 0, GLsizeiptr(s.bytes), out.data());
+    const bool ok = glGetError() == GL_NO_ERROR;
+    glBindBuffer(GL_COPY_READ_BUFFER, 0);
+    sg_reset_state_cache();
+    Impl::free_fence(s);
+    return ok;
+}
+
+void AsyncBufferRead::release(int slot) {
+    if (slot < 0 || slot >= kSlots) return;
+    Impl::Slot& s = impl_->slots[slot];
+    if (s.state == Impl::State::Pending) s.state = Impl::State::Discard;
+}
+#endif
+
 }  // namespace fa::render
 
 #endif

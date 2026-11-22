@@ -503,17 +503,18 @@ Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` whe
 
 Not released yet (on main after 0.34.0).
 
-The occlusion culling of the last frame: how many Occluders were rasterised, how many meshes were tested and hidden; optionally the depth buffer as a PNG.
+The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG.
 
 Capabilities: read, state
 
-Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that had an enabled Occluder (docs/BIG_WORLDS_LOD.md, "Occlusion"): the size of its depth buffer, the Occluders and triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view {"view":"occlusion"} draws the boxes over the game picture. Errors: `unavailable` without graphics; `invalid_argument` for a `save` that is not a string or does not end in .png. Example: render.occlusion {"save": ".factoria/tmp/occlusion.png"}
+Draws a frame when none is current and reports what the CPU occlusion culling did for the last camera that had an enabled Occluder (docs/BIG_WORLDS_LOD.md, "Occlusion"), and in `gpu` what the depth pyramid did (SceneSettings.occlusionMode "gpu" or "auto" on a backend with compute shaders): the size of its depth buffer, the Occluders and triangles rasterised, the meshes tested against it and the ones it proved hidden (they are in renderStats.meshesOccluded too). With `save` it also writes the depth buffer as a grey PNG (black = no occluder, the nearer an occluder the brighter) so you can see what hides what; render.debug_view {"view":"occlusion"} draws the boxes over the game picture. Errors: `unavailable` without graphics; `invalid_argument` for a `save` that is not a string or does not end in .png. Example: render.occlusion {"save": ".factoria/tmp/occlusion.png"}
 
-Result: {supported, debugView, active, limits: {width, trianglesPerOccluder, trianglesPerCamera}, camera, width, height, occluders, triangles, coveredCells, tests, hidden, file?, error?}. `active` is false when no camera of the last frame had an enabled Occluder (then only `message` and `limits` follow). `width` x `height` is the buffer without its one-cell guard ring (256 across; 256 / aspect down). `save` needs the writeProject capability.
+Result: {supported, debugView, active, limits: {width, trianglesPerOccluder, trianglesPerCamera}, camera, width, height, occluders, triangles, coveredCells, tests, hidden, file?, error?, gpu: {mode, supported, why?, active, limits, camera?, cameras?, usableCameras?, width?, height?, levels?, coveredCells?, ageFrames?, tests?, hidden?, testResults?: {hidden, visible, noPyramid, cut, behindNear, outsideView, tooMuchMotion, noOccluder}, drewEverythingBecause?, reducePasses?, level?, file?, error?, message?}}. `active` is false when no camera of the last frame had an enabled Occluder (then only `message`, `limits` and `gpu` follow). In `gpu`, `ageFrames` is how old the depth picture was (1 is the frame before) and `testResults` counts the meshes tested by why they were or were not culled. With `save` and no Occluder buffer, the file is the pyramid's `level` (0 = 256 cells across). `width` x `height` is the buffer without its one-cell guard ring (256 across; 256 / aspect down). `save` needs the writeProject capability.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `save` | string | no | A .png path (inside the project; absolute paths need writeAnywhere) for the depth buffer as a grey picture. Omitted: nothing is written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `level` | integer | no | Which mip of the GPU depth pyramid `save` writes when no Occluder buffer exists (0 = the finest, 256 cells across; each level halves it). Default 0. |
 
 ## `render.output`
 
