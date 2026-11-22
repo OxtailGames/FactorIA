@@ -1136,6 +1136,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
+    lodFades.begin_frame(&world, world.scene_generation());
     materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
@@ -1505,6 +1506,7 @@ void Renderer::Impl::render(World& world, float dt) {
     stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
 
     renderScene.reset();  // it points into the world, which the game may change before the next frame
+    lodFades.end_frame();
     release_unused_views();
     assets->set_drawing(false);
     debug.clear();

@@ -1,4 +1,4 @@
-// M75-P4a: the floating origin in the scene module (fa/scene/floating_origin.h, World::rebase, docs/BIG_WORLDS.md "Floating origin"):
+// M75-P4a: the floating origin in the scene module (fa/scene/floating_origin.h, World::rebase, docs/BIG_WORLDS_STREAMING.md "Floating origin"):
 // what moves with a rebase, what does not, and that the origin is exact, reversible and saved.
 #include <doctest.h>
 

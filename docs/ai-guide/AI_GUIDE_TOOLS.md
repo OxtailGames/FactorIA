@@ -185,7 +185,7 @@ For a world too big to hold at once, write one scene file per cell and an index 
 
 - Give every entity id in every cell a name that is unique across the world (`floor_3_-2`): a repeated id is renamed with a warning. A reference to an entity of another cell stays empty with a warning; connect them in a `world.on("cellLoaded", ...)` handler instead. A reference to an entity of the main scene works.
 - A cell is not saved with the main scene (`scene_save` leaves it out): edit the cell's own file.
-- Check it with `world_stream_status {}` (step frames until `pending` is empty and `cellsQueued` is 0; `lastError` teaches when the index is wrong) and `world_cells {"state":"loaded"}`. Both commands answer without a StreamedWorld with `no_streamed_world` or an empty status. A test that waits checks that its scene is still the current one first. Details: docs/BIG_WORLDS.md, "Streaming".
+- Check it with `world_stream_status {}` (step frames until `pending` is empty and `cellsQueued` is 0; `lastError` teaches when the index is wrong) and `world_cells {"state":"loaded"}`. Both commands answer without a StreamedWorld with `no_streamed_world` or an empty status. A test that waits checks that its scene is still the current one first. Details: docs/BIG_WORLDS_STREAMING.md, "Streaming".
 
 ## 7. Component cheat-sheet
 

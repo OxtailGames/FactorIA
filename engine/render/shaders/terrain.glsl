@@ -1,4 +1,4 @@
-// The Terrain component's programs (M75-P5a, docs/BIG_WORLDS.md "Terrain"): the mesh template (mesh_common.glsl) with a vertex() that
+// The Terrain component's programs (M75-P5a, docs/BIG_WORLDS_TERRAIN.md "Terrain"): the mesh template (mesh_common.glsl) with a vertex() that
 // places each vertex of one shared 33 x 33 patch on the heightmap and morphs it toward the coarser level of detail (CDLOD), and a
 // surface() that lights it. It is the shape of a custom material's generated top file (tools/common/src/shaders_generate.cpp), so the lighting,
 // the shadows, the prepass, fog and the clustered lights are the ones of every MeshRenderer. engine/render/src/terrain_lod.cpp has the CPU twin
