@@ -454,7 +454,8 @@ TEST_CASE("terrain commands: results are pinned bit for bit (the same on every C
     p.ok("terrain.generate", R"({"entity":"a","seed":7,"octaves":4,"frequency":0.03,"erosion":500,"thermal":2})");
     CHECK(checksum(p.heights("a")->data) == 4190583852949114925ull);
     p.make("b");
-    p.ok("terrain.sculpt", R"({"entity":"b","tool":"raise","points":[[-20,-10],[-10,0],[0,10]],"radius":7,"amount":9})");
+    p.ok("terrain.sculpt",
+         R"({"entity":"b","tool":"raise","points":[[-20,-10],[-10,0],[0,10]],"radius":7,"amount":9})");
     p.ok("terrain.sculpt", R"({"entity":"b","tool":"smooth","center":[-10,0],"radius":9,"strength":0.8})");
     p.ok("terrain.sculpt", R"({"entity":"b","tool":"flatten","center":[0,10],"radius":6,"strength":0.7,"height":12})");
     CHECK(checksum(p.heights("b")->data) == 11291136079281194523ull);
@@ -475,8 +476,9 @@ TEST_CASE("terrain commands: every file is written inside the project") {
     CHECK_FALSE(p.e.world().find("y"));
     // 'path' with 'heightmap' contradict each other
     p.make("g");
-    CHECK(contains(p.refused("terrain.create", R"({"name":"z","heightmap":"assets/terrain/g.height.png","path":"a.png"})"),
-                   "/path"));
+    CHECK(contains(
+        p.refused("terrain.create", R"({"name":"z","heightmap":"assets/terrain/g.height.png","path":"a.png"})"),
+        "/path"));
     // a terrain whose files are named by an absolute or an escaping path is not written by a save either
     p.ok("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":5,"amount":3,"strength":1})");
     p.ok("scene.set_component", R"({"id":"g","component":"Terrain","fields":{"holes":")" + outside + R"("}})");
@@ -486,7 +488,8 @@ TEST_CASE("terrain commands: every file is written inside the project") {
     CHECK(contains(save, "inside the project"));
     CHECK_FALSE(fs::exists(outside));
     CHECK(p.heights("g")->any_unsaved());
-    p.ok("scene.set_component", R"({"id":"g","component":"Terrain","fields":{"holes":"../fa_terrain_outside.holes.png"}})");
+    p.ok("scene.set_component",
+         R"({"id":"g","component":"Terrain","fields":{"holes":"../fa_terrain_outside.holes.png"}})");
     p.ok("terrain.holes", R"({"entity":"g","center":[10,10],"radius":3})");
     CHECK(contains(p.refused("terrain.save", R"({})"), "Terrain.holes"));
     CHECK_FALSE(fs::exists("../fa_terrain_outside.holes.png"));
@@ -506,10 +509,13 @@ TEST_CASE("terrain commands: default names are unique, a paint that changes noth
     p.ok("terrain.create", R"({"name":"a/b","resolution":33})");
     Json clash = p.ok("terrain.create", R"({"name":"a_b","resolution":33})");
     CHECK(clash["heightmap"] == "assets/terrain/a_b_2.height.png");
-    CHECK(p.ok("terrain.create", R"({"name":"Rock","resolution":33})")["heightmap"] == "assets/terrain/Rock.height.png");
-    CHECK(p.ok("terrain.create", R"({"name":"rock","resolution":33})")["heightmap"] == "assets/terrain/rock_2.height.png");
+    CHECK(p.ok("terrain.create", R"({"name":"Rock","resolution":33})")["heightmap"] ==
+          "assets/terrain/Rock.height.png");
+    CHECK(p.ok("terrain.create", R"({"name":"rock","resolution":33})")["heightmap"] ==
+          "assets/terrain/rock_2.height.png");
     // holes get a unique file too
-    p.ok("scene.set_component", R"({"id":"a_b","component":"Terrain","fields":{"holes":"assets/terrain/terrain.holes.png"}})");
+    p.ok("scene.set_component",
+         R"({"id":"a_b","component":"Terrain","fields":{"holes":"assets/terrain/terrain.holes.png"}})");
     Json h = p.ok("terrain.holes", R"({"entity":"terrain","center":[0,0],"radius":30})");
     CHECK(h["holes"] == "assets/terrain/terrain_2.holes.png");
     // a paint with strength 0 changes nothing: no splat map, no scene change
