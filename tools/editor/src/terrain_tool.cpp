@@ -27,6 +27,14 @@ namespace {
 constexpr std::size_t kPiecePoints = 256;  // stamps of one command call
 constexpr int kPiecesPerFrame = 8;         // calls of one frame: a jump of the mouse is applied over a few frames
 
+// The side of the plane the mode edits in `h` (terrain_plane_side): the splat maps it has, else what terrain.paint would make.
+int edited_plane_side(TerrainMode mode, const TerrainHeights& h) {
+    int splatSide = 0;
+    for (const TerrainSplat& m : h.splat)
+        if (m.valid()) splatSide = m.size;
+    return terrain_plane_side(mode, h.cells(), splatSide);
+}
+
 double round4(double v) { return std::round(v * 1e4) / 1e4; }
 
 const char* sculpt_name(SculptTool t) {
@@ -70,7 +78,11 @@ struct ViewMap {
 };
 
 // The ground of the Terrain `e` under the mouse: the camera's ray walked through the box the terrain fills, in a number of steps
-// that depends on the terrain's own cells (never on the time), a quarter of a cell apart at most.
+// that depends on the terrain's own cells (never on the time), a quarter of a cell apart at most and never more than
+// kMaxRaySteps. The heights, the matrices and the terrain's fields are read ONCE here (the store's lock and a matrix inverse per
+// step were the cost of this function): a step is a bilinear sample of the grid.
+constexpr int kMaxRaySteps = 4096;
+
 bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mouse, Vec3& hit) {
     const Terrain3D* t = w.get<Terrain3D>(e);
     if (!t || !(t->size.x > 0.0f) || !(t->size.y > 0.0f)) return false;
@@ -82,6 +94,8 @@ bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mo
     if (!std::isfinite(origin.x + origin.y + origin.z + dir.x + dir.y + dir.z)) return false;
     // The box of the terrain in the world: its local box through the entity's matrix.
     const Mat4 m = w.world_matrix(e);
+    const Mat4 inv = m.inverse();
+    const float groundY = m.translation().y;
     const float y0 = std::min(t->heightOffset, t->heightOffset + t->heightScale);
     const float y1 = std::max(t->heightOffset, t->heightOffset + t->heightScale);
     Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
@@ -95,23 +109,37 @@ bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mo
     if (!brush_ray_box(origin, dir, lo - Vec3{0.01f}, hi + Vec3{0.01f}, t0, t1)) return false;
     const float dirLen = std::max(length(dir), 1e-6f);
     const float cell = std::min(t->size.x, t->size.y) / float(std::max(h->cells(), 1));
-    const int steps = int(std::clamp(std::ceil((t1 - t0) * dirLen / (cell * 0.25f)), 1.0f, 4096.0f));
-    // A hole has ground to aim at (Fill), so the ray ignores the cut cells.
+    const int steps = int(std::clamp(std::ceil((t1 - t0) * dirLen / (cell * 0.25f)), 1.0f, float(kMaxRaySteps)));
+    // The ground terrain_height_at answers (a hole has ground to aim at, so the ray ignores the cut cells), from the values read
+    // above.
     return brush_ray_ground(
-        origin, dir, t0, t1, steps, [&](float x, float z, float& y) { return terrain_height_at(w, e, x, z, y, true); },
+        origin, dir, t0, t1, steps,
+        [&](float x, float z, float& y) {
+            const Vec3 local = inv.transform_point({x, groundY, z});
+            float ly = 0.0f, dx = 0.0f, dz = 0.0f;
+            if (!terrain_local_sample(*h, *t, local.x, local.z, ly, dx, dz, true)) return false;
+            y = m.transform_point({local.x, ly, local.z}).y;
+            return true;
+        },
         hit);
 }
 
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------------------- pure parts --
-float terrain_max_radius(Vec2 size, int cells) {
+float terrain_max_radius(Vec2 size, int planeSide) {
     const float half = 0.5f * std::min(size.x, size.y);
-    // 900 samples, under the 1024 the commands accept, so a brush of the largest radius is never refused.
-    const float samples = cells > 0 ? 900.0f * std::min(size.x, size.y) / float(cells) : kBrushMaxRadius;
-    float r = std::min({half, samples, kBrushMaxRadius});
+    // 900 texels of the edited plane, under the 1024 the commands accept, so a brush of the largest radius is never refused.
+    const float texels = planeSide > 0 ? 900.0f * std::min(size.x, size.y) / float(planeSide) : kBrushMaxRadius;
+    float r = std::min({half, texels, kBrushMaxRadius});
     if (!(r >= kBrushMinRadius)) r = kBrushMinRadius;
     return r;
+}
+
+int terrain_plane_side(TerrainMode mode, int cells, int splatSide) {
+    if (mode != TerrainMode::Paint)
+        return cells;  // the heights have cells + 1 samples a side, the holes mask `cells` cells
+    return splatSide > 0 ? splatSide : std::min(cells, 1024);  // terrain.paint makes its maps that big
 }
 
 TerrainCall terrain_stroke_call(const TerrainUi& ui, const std::string& entityId, const std::vector<Vec2>& points,
@@ -198,15 +226,22 @@ void Editor::terrain_stroke_begin(Entity e, Vec2 at) {
     t.strokeHeight = t.flattenHeight;
     if (t.flattenAuto) t.strokeHeight = t.hasHit ? t.hit.y : t.flattenHeight;
     t.started = false;
+    t.failed = false;
     t.pieces = 0;
     t.error.clear();
+    t.dirtyBefore = dirty_;
+    t.unsavedBefore = {};
+    if (const std::shared_ptr<TerrainHeights> h = world().terrain().find(e))
+        t.unsavedBefore = {h->heightsUnsaved, h->holesUnsaved, h->splat[0].unsaved, h->splat[1].unsaved};
     t.stroke.begin(at, t.strokeBrush.radius);
 }
 
-// Sends what the stroke has not sent yet. Returns false when a command refused (the stroke is over then).
+// Sends what the stroke has not sent yet. Returns false when a command refused (the stroke is over then): the refusal is reported
+// once, and a stroke that failed sends nothing more, not even at its end.
 bool Editor::terrain_stroke_flush() {
     TerrainUi& t = terrain_;
     if (!t.stroke.active()) return true;
+    if (t.failed) return false;
     for (int piece = 0; piece < kPiecesPerFrame && t.stroke.pending() > 0; ++piece) {
         std::vector<Vec2> pts;
         t.stroke.take_pending(pts, kPiecePoints);
@@ -215,6 +250,7 @@ bool Editor::terrain_stroke_flush() {
         after_command(call.command, call.args, res);
         ++t.pieces;
         if (!res.ok) {
+            t.failed = true;
             const std::string text = call.command + ": " + command_error_text(res.error);
             if (text != t.error) notify(text, 2);
             t.error = text;
@@ -234,7 +270,7 @@ bool Editor::terrain_stroke_flush() {
 void Editor::terrain_stroke_end() {
     TerrainUi& t = terrain_;
     if (!t.stroke.active()) return;
-    terrain_stroke_flush();
+    terrain_stroke_flush();  // (a stroke that failed already reported it and sends nothing)
     const bool started = t.started;
     const std::string id = t.strokeEntity;
     t.stroke.end();
@@ -258,7 +294,20 @@ void Editor::terrain_stroke_cancel() {
     const Json args = Json::object({{"entity", id}});
     const CommandResult res = engine_->commands().call("terrain.undo", args);
     after_command("terrain.undo", args, res);
-    if (!res.ok) notify("terrain.undo: " + command_error_text(res.error), 2);
+    if (!res.ok) {
+        notify("terrain.undo: " + command_error_text(res.error), 2);
+        return;
+    }
+    // The data is what it was before the press: so are the "unsaved" marks (the stroke set them), and the title no longer shows an
+    // edit nobody made.
+    dirty_ = t.dirtyBefore;
+    const Entity e = world().find_by_id(id);
+    if (const std::shared_ptr<TerrainHeights> h = e.is_null() ? nullptr : world().terrain().find(e)) {
+        h->heightsUnsaved = t.unsavedBefore[0];
+        h->holesUnsaved = t.unsavedBefore[1];
+        h->splat[0].unsaved = t.unsavedBefore[2];
+        h->splat[1].unsaved = t.unsavedBefore[3];
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------- viewport --
@@ -281,7 +330,7 @@ bool Editor::terrain_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool ho
     if (keys) {
         const Terrain3D* tc = w.get<Terrain3D>(e);
         const std::shared_ptr<TerrainHeights> known = w.terrain().find(e);
-        const float maxR = terrain_max_radius(tc->size, known ? known->cells() : 1);
+        const float maxR = terrain_max_radius(tc->size, known ? edited_plane_side(t.mode, *known) : 1);
         auto steps = [&](ImGuiKey k) { return ImGui::IsKeyPressed(k, true) ? 1 : 0; };
         const int up = steps(ImGuiKey_RightBracket), down = steps(ImGuiKey_LeftBracket);
         if (up || down) {
@@ -394,7 +443,7 @@ void Editor::draw_terrain_tool_panel() {
         ImGui::End();
         return;
     }
-    const float maxR = terrain_max_radius(tc->size, heights->cells());
+    const float maxR = terrain_max_radius(tc->size, edited_plane_side(t.mode, *heights));
     brush_clamp(t.brush, maxR);
 
     bool firstMode = true;

@@ -306,7 +306,7 @@ those commands, so a script or the AI can do the same.
 - **Paint.** The layers of `Terrain.layers` as a list with their albedo texture's thumbnail and file name; pick one and stroke. A
   terrain with no layers says to add them in the Inspector. The first stroke makes the splat map and sets `Terrain.splatMaps`.
 - **Holes.** Cut or Fill (Ctrl swaps them). The first cut sets `Terrain.holes`. A brush smaller than a cell can miss every cell. The brush aims at the surface as if no cell were cut, so a hole can be aimed at and filled again.
-- **Brush.** Radius in metres (never more than half the terrain or about 900 samples), strength 0 to 1 and falloff 0 to 1 (1 fades from
+- **Brush.** Radius in metres (never more than half the terrain or about 900 texels of the plane the mode edits: the heights and holes for Sculpt and Holes, the splat map for Paint, which can be finer), strength 0 to 1 and falloff 0 to 1 (1 fades from
   the middle to the edge, 0 is a hard edge). With the mouse over the viewport: `[` and `]` make the radius smaller and bigger, Shift+`[`
   and Shift+`]` change the strength, Esc takes the stroke you are drawing back.
 - **The cursor.** A ring of the brush's radius lies on the terrain under the mouse, following its relief (yellow for sculpt, blue for
@@ -320,10 +320,13 @@ those commands, so a script or the AI can do the same.
   cannot be written (a folder where the file goes, a file open in another program) a toast says which and why, nothing is marked as
   saved and every edit is still in memory. Closing the editor, reloading the scene and opening another one ask first when a terrain has
   edits not written yet, even if the scene itself is clean (a terrain changed by a command from the Console or the AI counts too).
-- **What an undo does not do.** Ctrl+Z of another edit (a moved entity), Play and Stop reload the scene from a snapshot; a terrain with
-  unsaved edits or history is kept across that, so those edits and their Ctrl+Z are not lost. The terrain's history keeps 64 steps: once
-  the 65th is made the oldest stroke can no longer be undone and its Ctrl+Z says so. The `Terrain.holes` and `Terrain.splatMaps` paths a
-  first stroke sets are not taken back by Undo (the data is).
+- **Undo, Play and Stop.** Ctrl+Z of another edit (a moved entity) reloads the scene from a snapshot; a terrain with unsaved
+  edits or history is kept across that. Play gives the game its own copy of those terrains: what the game does to the ground, holes and
+  splat maps is gone at Stop, which gives back exactly what the editor had, history included. A terrain edit from the Console, the AI or
+  MCP (`terrain.sculpt`, `paint`, `holes`, `generate`) is one undo entry too, like a stroke. The terrain keeps 64 steps: once the 65th is
+  made, the editor removes the oldest terrain entries from the undo list and a toast says how many. Undo of the first holes or paint
+  stroke also takes the `Terrain.holes` or `Terrain.splatMaps` path it set back (a file already written stays on disk, unused). Esc gives
+  back the unsaved state the stroke found. A click that misses the terrain keeps it selected and the tool on.
 
 The brush itself (settings, stamps along the mouse path, the ring, the ray to the ground) is the editor's shared `brush.h`, which the
 other viewport brush tools use too.

@@ -236,6 +236,7 @@ bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
         if (!patch_fits(*this, p, problem)) return false;
     TerrainStep& last = undo_.back();
     // One patch per plane in a step: the new patch of a plane joins the one the step has, over the rectangle that holds both.
+    // A piece inside the rectangle the step already covers (the common case of a stroke) copies only its own rectangle.
     struct Joined {
         std::size_t index;  // into last.patches, or npos: the plane is new to the step
         TerrainPatch patch;
@@ -252,11 +253,23 @@ bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
             joined.push_back({at, np});
             continue;
         }
-        const TerrainPatch& op = last.patches[at];
+        TerrainPatch& op = last.patches[at];
         int width = 0, rows = 0;
         std::size_t elem = 0;
         std::uint8_t* base = nullptr;
         plane_layout(*this, np.plane, width, rows, elem, base);
+        const bool inside =
+            np.x0 >= op.x0 && np.y0 >= op.y0 && np.x0 + np.w <= op.x0 + op.w && np.y0 + np.h <= op.y0 + op.h;
+        if (inside) {
+            // `before` of the step already holds what the plane had before its first piece everywhere in its rectangle (a cell no
+            // piece changed still holds it), so only `after` takes the new piece.
+            for (int r = 0; r < np.h; ++r)
+                std::memcpy(op.after.data() +
+                                (std::size_t(np.y0 - op.y0 + r) * std::size_t(op.w) + std::size_t(np.x0 - op.x0)) *
+                                    elem,
+                            np.after.data() + std::size_t(r) * std::size_t(np.w) * elem, std::size_t(np.w) * elem);
+            continue;
+        }
         TerrainPatch m;
         m.plane = np.plane;
         m.x0 = std::min(op.x0, np.x0);
@@ -264,11 +277,11 @@ bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
         m.w = std::max(op.x0 + op.w, np.x0 + np.w) - m.x0;
         m.h = std::max(op.y0 + op.h, np.y0 + np.h) - m.y0;
         const std::size_t rowBytes = std::size_t(m.w) * elem;
-        m.before.resize(rowBytes * std::size_t(m.h));
+        m.after.resize(rowBytes * std::size_t(m.h));
         for (int r = 0; r < m.h; ++r)  // cells neither piece touched keep what they hold now
-            std::memcpy(m.before.data() + std::size_t(r) * rowBytes,
+            std::memcpy(m.after.data() + std::size_t(r) * rowBytes,
                         base + (std::size_t(m.y0 + r) * std::size_t(width) + std::size_t(m.x0)) * elem, rowBytes);
-        m.after = m.before;
+        m.before = m.after;
         auto copy_in = [&](std::vector<std::uint8_t>& dst, const TerrainPatch& from,
                            const std::vector<std::uint8_t>& src) {
             for (int r = 0; r < from.h; ++r)
@@ -277,8 +290,8 @@ bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
                                     elem,
                             src.data() + std::size_t(r) * std::size_t(from.w) * elem, std::size_t(from.w) * elem);
         };
-        copy_in(m.before, np,
-                np.before);  // what the new piece found, then what the step found first (it wins where they overlap)
+        // Where the new piece reaches beyond the step the plane still holds what the piece found, so `before` takes only the
+        // step's own rectangle and `after` only the new piece's.
         copy_in(m.before, op, op.before);
         copy_in(m.after, op, op.after);  // what the step left, then what the new piece leaves
         copy_in(m.after, np, np.after);
@@ -292,30 +305,109 @@ bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
         else
             last.patches[j.index] = std::move(j.patch);
     }
+    TerrainCreated& made = last.created;  // a piece may be the one that makes a plane the step did not make
+    const TerrainCreated& add = step.created;
+    if (add.holes && !made.holes) {
+        made.holes = true;
+        made.holesPath = add.holesPath;
+        made.holesBefore = add.holesBefore;
+    }
+    if (add.splat[0] || add.splat[1]) {
+        if (!made.splat[0] && !made.splat[1]) {
+            made.splatMapsBefore = add.splatMapsBefore;
+            made.splatSize = add.splatSize;
+        }
+        for (std::size_t k = 0; k < add.splat.size(); ++k)
+            if (add.splat[k] && !made.splat[k]) {
+                made.splat[k] = true;
+                made.splatPath[k] = add.splatPath[k];
+            }
+    }
     historyBytes_ += last.bytes();
     trim_history();
     return true;
 }
 
-bool TerrainHeights::undo(std::string* label) {
+namespace {
+
+// The path Terrain.splatMaps[k] had in `maps` (a JSON array, or anything else: no path).
+std::string splat_path_in(const Json& maps, std::size_t k) {
+    return maps.is_array() && k < maps.size() && maps[k].is_string() ? maps[k].get<std::string>() : std::string();
+}
+
+}  // namespace
+
+bool TerrainHeights::undo(std::string* label, TerrainCreated* created) {
     if (undo_.empty()) return false;
     TerrainStep step = std::move(undo_.back());
     undo_.pop_back();
     for (auto it = step.patches.rbegin(); it != step.patches.rend(); ++it) write_patch(*it, false);
+    // The planes the step made go away with it, and so do the paths it gave them (the caller puts the Terrain fields back).
+    if (step.created.holes) {
+        holes.clear();
+        holesSource = step.created.holesBefore;
+        holesUnsaved = false;
+        ++holesVersion;
+    }
+    for (std::size_t k = 0; k < step.created.splat.size(); ++k)
+        if (step.created.splat[k]) {
+            const std::uint64_t next = splat[k].version + 1;
+            splat[k] = TerrainSplat{};
+            splat[k].source = splat_path_in(step.created.splatMapsBefore, k);
+            splat[k].version = next;
+        }
     if (label) *label = step.label;
+    if (created) *created = step.created;
     redo_.push_back(std::move(step));  // (its bytes stay counted)
     return true;
 }
 
-bool TerrainHeights::redo(std::string* label) {
+bool TerrainHeights::redo(std::string* label, TerrainCreated* created) {
     if (redo_.empty()) return false;
     TerrainStep step = std::move(redo_.back());
     redo_.pop_back();
+    if (step.created.holes) {
+        holes.assign(std::size_t(cells()) * std::size_t(cells()), 0);
+        holesSource = step.created.holesPath;
+        ++holesVersion;
+    }
+    for (std::size_t k = 0; k < step.created.splat.size(); ++k) {
+        if (!step.created.splat[k] || splat[k].valid()) continue;
+        const std::uint64_t next = splat[k].version + 1;
+        TerrainSplat m;
+        m.size = step.created.splatSize;
+        m.rgba.assign(std::size_t(m.size) * std::size_t(m.size) * 4, 0);
+        if (k == 0)
+            for (std::size_t p = 0; p < m.rgba.size(); p += 4) m.rgba[p] = 255;  // map 0 starts as all layer 0
+        m.source = step.created.splatPath[k];
+        m.version = next;
+        splat[k] = std::move(m);
+    }
     for (const TerrainPatch& p : step.patches) write_patch(p, true);
     if (label) *label = step.label;
+    if (created) *created = step.created;
     undo_.push_back(std::move(step));
     trim_history();
     return true;
+}
+
+std::shared_ptr<TerrainHeights> TerrainHeights::clone() const {
+    auto c = std::make_shared<TerrainHeights>();
+    c->samples = samples;
+    c->data = data;
+    c->eightBit = eightBit;
+    c->source = source;
+    c->id = g_nextId.fetch_add(1);
+    c->version = version;
+    c->oldestKept_ = version;  // no dirty rectangles: a reader that saw the original takes everything
+    c->holes = holes;
+    c->holesSource = holesSource;
+    c->holesVersion = holesVersion;
+    c->splat = splat;
+    c->heightsUnsaved = heightsUnsaved;
+    c->holesUnsaved = holesUnsaved;
+    c->planesProblem = planesProblem;
+    return c;
 }
 
 Result<int> terrain_grid_samples(int width, int height, std::string_view what) {

@@ -691,3 +691,83 @@ TEST_CASE(
     std::error_code ec;
     fs::remove_tree(dir, ec);
 }
+
+TEST_CASE("TerrainHeights: extend_step copies only the new piece, in place when it lies inside the step's rectangle") {
+    auto h = TerrainHeights::flat(33, 1000);
+    const std::vector<std::uint16_t> start = h->data;
+    TerrainStep a;
+    a.label = "terrain.sculpt";
+    a.patches.push_back(height_patch(*h, 2, 2, 12, 12, 2000));
+    REQUIRE(h->apply_step(a));
+    TerrainStep inside;
+    inside.label = "terrain.sculpt";
+    inside.patches.push_back(height_patch(*h, 5, 5, 3, 3, 3000));
+    std::string problem;
+    REQUIRE_MESSAGE(h->extend_step(inside, &problem), problem);
+    CHECK(h->at(6, 6) == 3000);
+    CHECK(h->at(3, 3) == 2000);
+    CHECK(h->undo_depth() == 1);
+    TerrainStep outside;
+    outside.label = "terrain.sculpt";
+    outside.patches.push_back(height_patch(*h, 20, 20, 3, 3, 4000));
+    REQUIRE_MESSAGE(h->extend_step(outside, &problem), problem);
+    CHECK(h->at(21, 21) == 4000);
+    const std::vector<std::uint16_t> end = h->data;
+    REQUIRE(h->undo());  // one undo gives back every sample the three pieces changed, the untouched gap included
+    CHECK(h->data == start);
+    REQUIRE(h->redo());
+    CHECK(h->data == end);
+}
+
+TEST_CASE("TerrainHeights: undo and redo of a step that created the holes mask give the mask back and take it again") {
+    auto h = TerrainHeights::flat(33, 1000);
+    TerrainStep s;
+    s.label = "terrain.holes";
+    TerrainPatch holes;
+    holes.plane = TerrainPlane::Holes;
+    holes.x0 = 1;
+    holes.y0 = 1;
+    holes.w = 2;
+    holes.h = 2;
+    holes.before.assign(4, 0);
+    holes.after.assign(4, 1);
+    s.patches.push_back(holes);
+    s.created.holes = true;
+    s.created.holesPath = "assets/terrain/x.holes.png";
+    h->holes.assign(std::size_t(h->cells()) * std::size_t(h->cells()), 0);  // the command made the mask before the step
+    h->holesSource = "assets/terrain/x.holes.png";
+    std::string problem;
+    REQUIRE_MESSAGE(h->apply_step(s, &problem), problem);
+    TerrainCreated c;
+    REQUIRE(h->undo(nullptr, &c));
+    CHECK(c.holes);
+    CHECK(c.holesPath == "assets/terrain/x.holes.png");
+    CHECK(h->holes.empty());
+    CHECK(h->holesSource.empty());
+    c = TerrainCreated{};
+    REQUIRE(h->redo(nullptr, &c));
+    CHECK(c.holes);
+    CHECK(h->holes.size() == std::size_t(h->cells()) * std::size_t(h->cells()));
+    CHECK(h->holesSource == "assets/terrain/x.holes.png");
+    CHECK(h->holes[std::size_t(1) * std::size_t(h->cells()) + 1] == 1);
+}
+
+TEST_CASE("TerrainHeights: clone copies the planes with a new id and no history") {
+    auto h = TerrainHeights::flat(33, 1000);
+    TerrainStep a;
+    a.label = "terrain.sculpt";
+    a.patches.push_back(height_patch(*h, 2, 2, 4, 4, 2000));
+    REQUIRE(h->apply_step(a));
+    auto c = h->clone();
+    REQUIRE(c);
+    CHECK(c->id != h->id);
+    CHECK(c->data == h->data);
+    CHECK(c->undo_depth() == 0);
+    CHECK(c->redo_depth() == 0);
+    TerrainStep b;
+    b.label = "terrain.sculpt";
+    b.patches.push_back(height_patch(*c, 8, 8, 2, 2, 5000));
+    REQUIRE(c->apply_step(b));
+    CHECK(h->at(8, 8) == 1000);  // the original is untouched
+    CHECK(h->undo_depth() == 1);
+}

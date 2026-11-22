@@ -456,7 +456,7 @@ void Editor::start_level_seeds_sheet() {
     if (!engine_ || reviewSeedsJob_.running()) return;
     std::string scene;
     if (levelGenOpt_.sampleFile.empty()) {
-        if (dirty()) {
+        if (has_unsaved_work()) {
             levelGenMessage_ = "Save the scene first: the sheet of seeds is made from the project as saved on disk, "
                                "and the sample entity is in this scene.";
             levelGenMessageBad_ = true;
