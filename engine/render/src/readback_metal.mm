@@ -162,7 +162,8 @@ struct AsyncBufferRead::Impl {
     struct Slot {
         id<MTLBuffer> dst = nil;  // shared memory: the CPU reads it directly
         id<MTLCommandBuffer> cmd = nil;
-        std::size_t bytes = 0;
+        std::size_t bytes = 0;     // what the last request asked for (what poll returns)
+        std::size_t capacity = 0;  // the size of `dst`
         State state = State::Free;
     };
     Slot slots[kSlots];
@@ -203,14 +204,15 @@ int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* e
         return -1;
     }
     Impl::Slot& s = impl_->slots[slot];
-    if (!s.dst || s.bytes < bytes) {
+    if (!s.dst || s.capacity < bytes) {
         s.dst = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-        s.bytes = s.dst ? bytes : 0;
+        s.capacity = s.dst ? bytes : 0;
         if (!s.dst) {
             if (error) *error = "readback: Metal could not allocate " + std::to_string(bytes) + " bytes to read into";
             return -1;
         }
     }
+    s.bytes = bytes;
     // After the sokol command buffer that wrote `src` (one queue, in order; the caller committed it).
     id<MTLCommandBuffer> cmd = [queue commandBuffer];
     id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];

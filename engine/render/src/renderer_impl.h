@@ -332,6 +332,7 @@ struct Renderer::Impl {
     };
     HizShown hizShown, hizPrev;
     bool warnedHizRead = false;
+    bool warnedHizPipeline = false;
     int hizReduces = 0;  // reduce passes run since the renderer was made (tests)
     // The mode of the world's SceneSettings against what this GPU can do; one warning when `gpu` was asked for and cannot be had.
     bool hiz_resolve(World& world);
