@@ -21,7 +21,8 @@ namespace fa {
 
 namespace {
 
-constexpr int kBoxEdgesHiz[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+constexpr int kBoxEdgesHiz[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3},
+                                     {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
 // A game that draws every frame with the same few cameras keeps their pictures; a camera that was not drawn for this many frames loses its buffers.
 constexpr std::uint64_t kHizForgetFrames = 120;
@@ -63,8 +64,10 @@ bool Renderer::Impl::hiz_resolve(World& world) {
     if (mode == OcclusionMode::Gpu && !warnedHizMode) {
         warnedHizMode = true;
         FA_WARN("render",
-                "SceneSettings.occlusionMode is \"gpu\" but this GPU cannot cull with the depth pyramid ({}). The CPU culling of the Occluders "
-                "is used instead. Hint: set occlusionMode to \"auto\" (the pyramid where the GPU can make it, the Occluders elsewhere) or "
+                "SceneSettings.occlusionMode is \"gpu\" but this GPU cannot cull with the depth pyramid ({}). The CPU "
+                "culling of the Occluders "
+                "is used instead. Hint: set occlusionMode to \"auto\" (the pyramid where the GPU can make it, the "
+                "Occluders elsewhere) or "
                 "\"cpu\".",
                 hizWhy);
     }
@@ -99,7 +102,8 @@ void Renderer::Impl::hiz_shift(const Vec3& off) {
 // frame is committed here, as a read-back does).
 void Renderer::Impl::hiz_submit() {
     if (hizCams.empty()) return;
-    const bool wait = desc.headless;  // a headless frame's result must not depend on the GPU's speed: one frame of latency, always
+    const bool wait =
+        desc.headless;  // a headless frame's result must not depend on the GPU's speed: one frame of latency, always
     bool pending = false;
     for (auto& [key, hc] : hizCams) pending = pending || hc->reduced;
     if (pending && !gpu.committed()) {
@@ -120,7 +124,9 @@ void Renderer::Impl::hiz_submit() {
                 hc.flights.push_back(f);
             } else if (!error.empty() && !warnedHizRead) {
                 warnedHizRead = true;
-                FA_WARN("render", "The depth pyramid of '{}' could not be read back from the GPU: {} The camera is drawn without the GPU occlusion culling.",
+                FA_WARN("render",
+                        "The depth pyramid of '{}' could not be read back from the GPU: {} The camera is drawn without "
+                        "the GPU occlusion culling.",
                         hc.name, error);
             }
         }
@@ -181,9 +187,12 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
         if (int(hizCams.size()) >= render::kHizMaxCameras) {
             if (!warnedHizCameras) {
                 warnedHizCameras = true;
-                FA_WARN("render", "More than {} cameras draw the world with the GPU occlusion culling: the others are culled by the Occluders only. "
-                                  "Hint: keep the pyramid for the cameras of the player's view (split screen has a few) and set occlusionMode to \"cpu\" "
-                                  "if the scene draws more.",
+                FA_WARN("render",
+                        "More than {} cameras draw the world with the GPU occlusion culling: the others are culled by "
+                        "the Occluders only. "
+                        "Hint: keep the pyramid for the cameras of the player's view (split screen has a few) and set "
+                        "occlusionMode to \"cpu\" "
+                        "if the scene draws more.",
                         render::kHizMaxCameras);
             }
             return nullptr;
@@ -247,9 +256,9 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
             OcclusionShown::Box b;
             b.culled = true;
             for (int k = 0; k < 8; ++k)
-                b.corners[std::size_t(k)] = meshes[i].model.transform_point(Vec3{(k & 1) ? meshes[i].bmax.x : meshes[i].bmin.x,
-                                                                                 (k & 2) ? meshes[i].bmax.y : meshes[i].bmin.y,
-                                                                                 (k & 4) ? meshes[i].bmax.z : meshes[i].bmin.z});
+                b.corners[std::size_t(k)] = meshes[i].model.transform_point(
+                    Vec3{(k & 1) ? meshes[i].bmax.x : meshes[i].bmin.x, (k & 2) ? meshes[i].bmax.y : meshes[i].bmin.y,
+                         (k & 4) ? meshes[i].bmax.z : meshes[i].bmin.z});
             hizShown.boxes.push_back(b);
         }
     }
@@ -272,7 +281,8 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
     return &hc;
 }
 
-void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame) {
+void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose,
+                                     std::uint64_t worldFrame) {
     if (hizShaderState <= 0 || !prepass.texView.id || prepass.w < 1 || prepass.h < 1) return;
     int w = 0, h = 0;
     render::hiz_size_for(float(prepass.w) / float(prepass.h), w, h);
@@ -286,7 +296,8 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
         sg_buffer_desc bd{};
         bd.size = std::size_t(w) * std::size_t(h) * 8;
         bd.usage.storage_buffer = true;
-        bd.usage.copy_dst = true;  // sokol: a storage buffer with no initial data is made with copy_dst (the shader fills it)
+        bd.usage.copy_dst =
+            true;  // sokol: a storage buffer with no initial data is made with copy_dst (the shader fills it)
         bd.label = "hiz cells";
         hc.cells = sg_make_buffer(&bd);
         if (sg_query_buffer_state(hc.cells) != SG_RESOURCESTATE_VALID) {
@@ -351,13 +362,15 @@ void Renderer::Impl::hiz_overlay() {
         const float cell = 3.0f, x0 = 8.0f, y0 = 56.0f;
         for (int y = 0; y < hizPrev.greyH; ++y)
             for (int x = 0; x < hizPrev.greyW; ++x) {
-                const float g = float(hizPrev.grey[std::size_t(y) * std::size_t(hizPrev.greyW) + std::size_t(x)]) / 255.0f;
+                const float g =
+                    float(hizPrev.grey[std::size_t(y) * std::size_t(hizPrev.greyW) + std::size_t(x)]) / 255.0f;
                 debug.rect(Rect{x0 + float(x) * cell, y0 + float(y) * cell, cell, cell}, Color{g, g, g, 1.0f}, true);
             }
     }
     debug.text({8.0f, 28.0f},
-               std::format("depth pyramid: {} camera(s), {} tests, {} hidden (red), {}x{} cells, level {} below", hizPrev.cameras,
-                           hizPrev.tests, hizPrev.hidden, hizPrev.cells, hizPrev.cellsDown, hizPrev.greyLevel),
+               std::format("depth pyramid: {} camera(s), {} tests, {} hidden (red), {}x{} cells, level {} below",
+                           hizPrev.cameras, hizPrev.tests, hizPrev.hidden, hizPrev.cells, hizPrev.cellsDown,
+                           hizPrev.greyLevel),
                Color::white(), 16.0f);
 }
 
@@ -373,12 +386,16 @@ Json Renderer::Impl::hiz_report(std::string_view savePath, int level) {
                                 {"maxCameras", render::kHizMaxCameras}});
     const HizShown& s = hizShown;
     if (!hizOn || !s.valid) {
-        g["message"] = hizModeName == "cpu"
-                           ? "SceneSettings.occlusionMode is \"cpu\": the depth pyramid is off. Hint: set it to \"auto\" (or \"gpu\") to cull "
-                             "with the GPU where the backend has compute shaders, then draw a frame (game.step) and call this again."
-                           : (hizSupport < 0 ? "This GPU cannot cull with the depth pyramid (see why); the Occluders cull instead."
-                                             : "No camera of the last frame was culled with the depth pyramid. Hint: draw a frame (game.step) "
-                                               "and call this again.");
+        g["message"] =
+            hizModeName == "cpu"
+                ? "SceneSettings.occlusionMode is \"cpu\": the depth pyramid is off. Hint: set it to \"auto\" (or "
+                  "\"gpu\") to cull "
+                  "with the GPU where the backend has compute shaders, then draw a frame (game.step) and call this "
+                  "again."
+                : (hizSupport < 0 ? "This GPU cannot cull with the depth pyramid (see why); the Occluders cull instead."
+                                  : "No camera of the last frame was culled with the depth pyramid. Hint: draw a frame "
+                                    "(game.step) "
+                                    "and call this again.");
         return g;
     }
     g["camera"] = s.camera;
@@ -391,7 +408,7 @@ Json Renderer::Impl::hiz_report(std::string_view savePath, int level) {
     g["ageFrames"] = s.ageFrames;
     g["tests"] = s.tests;
     g["hidden"] = s.hidden;
-    static const char* const kWhy[8] = {"hidden",     "visible",      "noPyramid",     "cut",
+    static const char* const kWhy[8] = {"hidden",     "visible",     "noPyramid",     "cut",
                                         "behindNear", "outsideView", "tooMuchMotion", "noOccluder"};
     Json why = Json::object();
     for (std::size_t i = 0; i < 8; ++i) why[kWhy[i]] = s.reasons[i];
@@ -403,7 +420,8 @@ Json Renderer::Impl::hiz_report(std::string_view savePath, int level) {
         for (const auto& [key, hc] : hizCams)
             if (hc->pyramid.ready() && (!found || hc->name == s.camera)) found = hc.get();
         if (!found) {
-            g["error"] = "no depth picture has come back from the GPU yet, so there is nothing to save. Hint: draw a few frames (game.step) first.";
+            g["error"] = "no depth picture has come back from the GPU yet, so there is nothing to save. Hint: draw a "
+                         "few frames (game.step) first.";
         } else {
             const int lv = std::clamp(level, 0, found->pyramid.levels() - 1);
             Image img;
@@ -417,7 +435,8 @@ Json Renderer::Impl::hiz_report(std::string_view savePath, int level) {
             }
             const Result<void> saved = save_png(img, savePath);
             if (!saved)
-                g["error"] = std::format("could not write {}: {} {}", savePath, saved.error().message, saved.error().hint);
+                g["error"] =
+                    std::format("could not write {}: {} {}", savePath, saved.error().message, saved.error().hint);
             else
                 g["file"] = std::string(savePath);
             g["level"] = lv;

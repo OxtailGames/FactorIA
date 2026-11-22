@@ -177,7 +177,8 @@ TEST_CASE("hi-z on a GPU: the camera's tags decide what hides what, and a remove
     CHECK(g.renderer.stats().meshesOccluded == 0);
 }
 
-TEST_CASE("hi-z on a GPU: a culled mesh still casts its shadow, and the Occluders do not cull a camera that uses the pyramid") {
+TEST_CASE("hi-z on a GPU: a culled mesh still casts its shadow, and the Occluders do not cull a camera that uses the "
+          "pyramid") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!has_hiz()) return;

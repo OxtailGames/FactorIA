@@ -63,8 +63,7 @@ std::vector<std::uint8_t> HizPyramid::grey(int level) const {
     out.resize(std::size_t(l.w) * std::size_t(l.h));
     for (std::size_t i = 0; i < out.size(); ++i) {
         const float far = l.data[i * 2 + 1];
-        out[i] = far >= kHizNoDepth * 0.5f ? 0
-                                           : std::uint8_t(55.0f + 200.0f * (10.0f / (10.0f + std::max(far, 0.0f))));
+        out[i] = far >= kHizNoDepth * 0.5f ? 0 : std::uint8_t(55.0f + 200.0f * (10.0f / (10.0f + std::max(far, 0.0f))));
     }
     return out;
 }
@@ -73,7 +72,8 @@ std::size_t HizPyramid::covered_cells() const {
     std::size_t n = 0;
     if (!ready()) return n;
     const Level& l = levels_.front();
-    for (std::size_t i = 0; i < std::size_t(l.w) * std::size_t(l.h); ++i) n += l.data[i * 2 + 1] < kHizNoDepth * 0.5f ? 1 : 0;
+    for (std::size_t i = 0; i < std::size_t(l.w) * std::size_t(l.h); ++i)
+        n += l.data[i * 2 + 1] < kHizNoDepth * 0.5f ? 1 : 0;
     return n;
 }
 
@@ -88,8 +88,8 @@ HizPose hiz_pose(const Mat4& proj, const Mat4& viewProj, Vec3 position) {
     return p;
 }
 
-bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& now, Vec3 bmin, Vec3 bmax, const Mat4& model,
-                HizTestInfo* info) {
+bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& now, Vec3 bmin, Vec3 bmax,
+                const Mat4& model, HizTestInfo* info) {
     using Why = HizTestInfo::Why;
     HizTestInfo local;
     HizTestInfo& out = info ? *info : local;
@@ -128,7 +128,8 @@ bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& n
     constexpr float kPad = 0.002f;  // a hair of a cell: the matrices are floats
     const int fx0 = int(std::floor(minX - kPad)), fx1 = int(std::ceil(maxX + kPad)) - 1;
     const int fy0 = int(std::floor(minY - kPad)), fy1 = int(std::ceil(maxY + kPad)) - 1;
-    if (fx1 < fx0 || fy1 < fy0 || fx0 < -cw || fy0 < -ch || fx1 > 2 * cw || fy1 > 2 * ch) return verdict(Why::OutsideView);
+    if (fx1 < fx0 || fy1 < fy0 || fx0 < -cw || fy0 < -ch || fx1 > 2 * cw || fy1 > 2 * ch)
+        return verdict(Why::OutsideView);
 
     int dilate = 0;
     float farthest = 0, nearestOccluder = kHizNoDepth;
@@ -150,8 +151,8 @@ bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& n
         nearestOccluder = kHizNoDepth;
         for (int y = y0 >> level; y <= (y1 >> level); ++y)
             for (int x = x0 >> level; x <= (x1 >> level); ++x) {
-                const HizCell c = pyramid.cell(level, std::min(x, pyramid.width(level) - 1),
-                                               std::min(y, pyramid.height(level) - 1));
+                const HizCell c =
+                    pyramid.cell(level, std::min(x, pyramid.width(level) - 1), std::min(y, pyramid.height(level) - 1));
                 farthest = std::max(farthest, c.farthest);
                 nearestOccluder = std::min(nearestOccluder, c.nearest);
             }
@@ -161,8 +162,10 @@ bool hiz_hidden(const HizPyramid& pyramid, const HizPose& hist, const HizPose& n
         const float shift = s > 0.0f ? k * s * std::max(0.0f, 1.0f / zOcc - 1.0f / zBox) : 0.0f;
         const int need = s > 0.0f ? int(std::ceil(std::min(shift, 1.0e6f))) : 0;
         if (need > kHizMaxDilate) return verdict(Why::TooMuchMotion);
-        if (need <= dilate) settled = true;
-        else dilate = need;
+        if (need <= dilate)
+            settled = true;
+        else
+            dilate = need;
     }
     out.occluderFar = farthest;
     if (!settled) return verdict(Why::TooMuchMotion);
