@@ -207,3 +207,18 @@ TEST_CASE("terrain tool: the largest radius keeps a brush under the commands' 10
     CHECK(terrain_max_radius({64, 64}, 64) == doctest::Approx(32.0f));
     CHECK(terrain_max_radius({64, 64}, 0) >= kBrushMinRadius);
 }
+
+TEST_CASE("terrain tool: the radius limit is measured in the plane the brush edits") {
+    // A 4096 m terrain with 1024 cells: 4 m per height sample, but a splat map of 4096 texels is 1 m per texel.
+    CHECK(terrain_plane_side(TerrainMode::Sculpt, 1024, 4096) == 1024);
+    CHECK(terrain_plane_side(TerrainMode::Holes, 1024, 4096) == 1024);
+    CHECK(terrain_plane_side(TerrainMode::Paint, 1024, 4096) == 4096);
+    // no splat map yet: terrain.paint makes one min(cells, 1024) wide
+    CHECK(terrain_plane_side(TerrainMode::Paint, 4096, 0) == 1024);
+    CHECK(terrain_plane_side(TerrainMode::Paint, 256, 0) == 256);
+    // 900 texels of the plane, so a finer plane allows a smaller radius in metres
+    CHECK(terrain_max_radius({4096, 4096}, terrain_plane_side(TerrainMode::Sculpt, 1024, 4096)) >
+          terrain_max_radius({4096, 4096}, terrain_plane_side(TerrainMode::Paint, 1024, 4096)));
+    CHECK(terrain_max_radius({4096, 4096}, terrain_plane_side(TerrainMode::Paint, 1024, 4096)) ==
+          doctest::Approx(900.0f));
+}
