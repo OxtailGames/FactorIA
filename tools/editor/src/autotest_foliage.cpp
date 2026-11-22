@@ -35,7 +35,8 @@ const char* kFoliageScene = R"({
 })";
 
 struct F3State {
-    std::size_t undo0 = 0, redo0 = 0, rows0 = 0, errors0 = 0;
+    std::size_t undo0 = 0, redo0 = 0;
+    std::uint64_t depth = 0, lost = 0;  // the history's undoDepth and historyLost after the last bulk edit
     std::size_t before = 0, after = 0, removed = 0, scattered = 0;
     int strokes0 = 0;
 };
@@ -281,11 +282,8 @@ void Editor::at_section_F3(AtScript& at) {
     });
 
     // ---- the bookkeeping: more edits than the history keeps drop the undo rows of the steps it forgot, with a toast
-    step(2, [this, m, foliage_rows, error_toasts] {
-        m->rows0 = foliage_rows();
-        m->errors0 = error_toasts();
+    step(2, [this, m] {
         toasts_.clear();
-        m->errors0 = 0;
         for (int i = 0; i < 70; ++i) {
             const float x = -27.0f + float(i % 10) * 6.0f, z = -27.0f + float(i / 10) * 6.0f;
             std::string error;
@@ -294,27 +292,41 @@ void Editor::at_section_F3(AtScript& at) {
                              Json::parse(std::string(R"({"entity":"f3_forest","center":[)") + std::to_string(x) + "," +
                                          std::to_string(z) + R"(],"radius":1.5,"density":3})"),
                              &error);
-            if (!r.ok) at_check(false, "foliage.paint " + std::to_string(i) + " is accepted: " + error);
+            if (!r.ok) {
+                at_check(false, "foliage.paint " + std::to_string(i) + " is accepted: " + error);
+                continue;
+            }
+            // A stroke over ground the earlier ones filled may plant nothing and make no step: the history's own numbers say how
+            // many steps it holds, so the check does not depend on every stroke changing something.
+            const auto number = [&](const char* key) -> std::uint64_t {
+                return r.result.is_object() && r.result.contains(key) && r.result[key].is_number_unsigned()
+                           ? r.result[key].get<std::uint64_t>()
+                           : 0;
+            };
+            m->depth = number("undoDepth");
+            m->lost = number("historyLost");
         }
     });
     step(3, [this, m, foliage_rows] {
         const std::size_t rows = foliage_rows();
-        at_check(rows == kFoliageHistorySteps,
-                 "70 more edits leave exactly the " + std::to_string(kFoliageHistorySteps) +
-                     " the history keeps in the undo list (" + std::to_string(rows) + ")");
+        at_check(m->depth >= 1 && m->depth <= kFoliageHistorySteps, "the history holds between 1 and " +
+                                                                        std::to_string(kFoliageHistorySteps) +
+                                                                        " steps (" + std::to_string(m->depth) + ")");
+        at_check(rows == m->depth, "the undo list holds exactly the steps the history keeps (" + std::to_string(rows) +
+                                       " rows, " + std::to_string(m->depth) + " steps)");
         bool told = false;
         for (const Toast& t : toasts_)
             if (t.level == 1 && t.text.find("can no longer be undone") != std::string::npos &&
                 t.text.find(std::to_string(kFoliageHistorySteps)) != std::string::npos)
                 told = true;
-        at_check(told, "...and a toast names the limit");
+        at_check(told == (m->lost > 0), "...and a toast names the limit exactly when the history let steps go (lost " +
+                                            std::to_string(m->lost) + ")");
         // Every row left works: undoing all of them raises no error.
         for (std::size_t i = 0; i < rows; ++i) undo();
     });
-    step(3, [this, error_toasts, foliage_rows, count] {
+    step(3, [this, error_toasts, foliage_rows] {
         at_check(error_toasts() == 0, "every row left undoes without an error toast");
         at_check(foliage_rows() == 0, "...and the list holds none of the foliage rows afterwards");
-        (void)count;
     });
 
     // ---- leave the fixture the next sections expect

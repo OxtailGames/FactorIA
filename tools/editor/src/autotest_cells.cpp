@@ -239,6 +239,27 @@ void Editor::at_section_W2(AtScript& at) {
                  "the far cell's file was never written");
     });
 
+    // The streamer's HLOD proxy ("hlod i,j", EntityInfo::streamedProxy) is not listed in the Hierarchy, next to an ordinary entity.
+    step(2, [this] {
+        showHierarchy_ = true;
+        const Entity proxy = world().create("hlod 9,9", "w2_hlod_proxy");
+        world().info(proxy).streamedProxy = true;
+        const Entity plain = world().create("w2 plain", "w2_plain");
+        (void)plain;
+    });
+    step(3, [this] {
+        bool proxyRow = false, plainRow = false;
+        for (const std::string& id : hierRows_) {
+            proxyRow = proxyRow || id == "w2_hlod_proxy";
+            plainRow = plainRow || id == "w2_plain";
+        }
+        at_check(plainRow, "an ordinary new entity is listed in the Hierarchy");
+        at_check(!proxyRow, "...and the streamer's HLOD proxy is not");
+        world().destroy(world().find_by_id("w2_hlod_proxy"));
+        world().destroy(world().find_by_id("w2_plain"));
+        world().flush();
+    });
+
     // Play streams by distance; Stop brings the loaded cells back.
     step(3, [this] { play(); });
     step(1, [this] {

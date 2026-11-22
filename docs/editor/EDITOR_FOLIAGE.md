@@ -11,7 +11,8 @@ the Foliage's `ScatterRule.terrain`, else the entity itself when it has a `Terra
 Foliage with none says what to set. Edit mode only. Only one brush tool is on at a time (turning on a mode here turns the terrain tool off).
 
 - **Add / Remove.** Add plants instances by the rules of the ScatterRule (slope, height, layers, spacing); Remove erases the ones inside the
-  brush. Hold Ctrl while you stroke to do the other one.
+  brush. Hold Ctrl (Cmd on a Mac) while you stroke to do the other one: the same key as the terrain
+  tool's (ImGui swaps Cmd and Ctrl on a Mac, and Ctrl+click is a right click there, which a stroke never sees).
 - **Brush.** Radius in metres (`[` and `]` over the viewport), the density (the ScatterRule's, or its own slider in instances per square
   metre; an add stroke never puts two instances closer than half the average gap, so painting a spot twice does not stack them) and the mesh
   (every mesh of `Foliage.meshes`, or one: add plants only it, remove erases only it). A ring on the ground follows the relief: green for add,
@@ -23,7 +24,12 @@ Foliage with none says what to set. Edit mode only. Only one brush tool is on at
   stroke takes it back and records nothing. A click that misses the terrain (the sky, another object) keeps the Foliage selected and the tool on.
 - **What it costs.** Every piece rewrites the WHOLE instances file (52 MB at 2,000,000 instances), so the pieces are rate-limited: one every
   0.2 s, or every twice the time the last one took when that is longer, with what the mouse drew meanwhile going in the next one (up to 512
-  stamps). A big Foliage paints in jumps a few times a second; the release sends what is left.
+  stamps). A big Foliage paints in jumps a few times a second; the release sends what is left. `foliage.paint` also refuses a call whose
+  stamps visit more than 16.7 million grid cells ((2 r sqrt(density) + 2)^2 each): an add piece therefore carries fewer stamps when the
+  radius and the density are big (at least one), the density slider stops where one stamp of the brush's radius stops fitting (the panel
+  says where), and a ScatterRule whose density is too high for the radius shows a warning and the radius it allows.
 - **The history is bounded.** A Foliage keeps its last 64 edits / 128 MB, and all of them together 512 MB (the one edited longest ago clears
   first). When a step goes, the editor takes the undo rows of it out of the list and a toast says how many and names those limits. Editing the
-  instances file or the Foliage's meshes outside the commands clears that Foliage's history the same way.
+  instances file or the Foliage's meshes outside the commands clears that Foliage's history the same way. A Foliage that was deleted
+  loses its history at the next foliage command (the result lists it in `historiesPruned`): the editor takes its undo rows out of the
+  lists quietly, with no toast, so Undo of the delete brings back the entity and no row that would fail.

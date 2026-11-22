@@ -301,11 +301,11 @@ those commands, so a script or the AI can do the same.
 
 - **Sculpt.** Raise, Lower, Smooth, Flatten. Raise and Lower take an `amount` in metres (the change at the middle of the brush for
   one stamp at full strength; the stamps are a quarter of the radius apart, so the ground under the brush gets several). Hold Ctrl
-  while you stroke to do the other one (Raise lowers, Lower raises). Flatten levels to the height under your first click (the
+  (Cmd on a Mac) while you stroke to do the other one (Raise lowers, Lower raises). Flatten levels to the height under your first click (the
   default) or to a height you type; **Pick from the terrain** (or Alt+click) takes that height from the ground under the next click.
 - **Paint.** The layers of `Terrain.layers` as a list with their albedo texture's thumbnail and file name; pick one and stroke. A
   terrain with no layers says to add them in the Inspector. The first stroke makes the splat map and sets `Terrain.splatMaps`.
-- **Holes.** Cut or Fill (Ctrl swaps them). The first cut sets `Terrain.holes`. A brush smaller than a cell can miss every cell. The brush aims at the surface as if no cell were cut, so a hole can be aimed at and filled again.
+- **Holes.** Cut or Fill (Ctrl, Cmd on a Mac, swaps them). The first cut sets `Terrain.holes`. A brush smaller than a cell can miss every cell. The brush aims at the surface as if no cell were cut, so a hole can be aimed at and filled again.
 - **Brush.** Radius in metres (never more than half the terrain or about 900 texels of the plane the mode edits: the heights and holes for Sculpt and Holes, the splat map for Paint, which can be finer), strength 0 to 1 and falloff 0 to 1 (1 fades from
   the middle to the edge, 0 is a hard edge). With the mouse over the viewport: `[` and `]` make the radius smaller and bigger, Shift+`[`
   and Shift+`]` change the strength, Esc takes the stroke you are drawing back.
