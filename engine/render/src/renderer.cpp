@@ -571,6 +571,16 @@ void Renderer::clear_asset_cache() {
     impl_->lightAtlas.invalidate_all();  // the project changed: cookies and profiles are read again
     impl_->assets->clear();
 }
+Renderer::TerrainUploads Renderer::terrain_uploads() const {
+    TerrainUploads out;
+    if (impl_) {
+        out.whole = impl_->terrains.uploads();
+        out.rects = impl_->terrains.rect_uploads();
+        out.arrays = impl_->terrains.layer_builds();
+    }
+    return out;
+}
+
 std::uint64_t Renderer::texture_bytes() const {
     return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() +
                                         impl_->decalAtlas.bytes

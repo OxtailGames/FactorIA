@@ -40,6 +40,11 @@ struct FeatureEnv {
     // without them answers "the display has not been asked yet".
     bool hdrOutput = false;
     std::string hdrWhy;
+    // The sizes the GPU reports (sg_query_limits; 0 = not asked, a FeatureEnv made by hand): the largest 2D texture side, the most layers of
+    // a texture array and the largest side of a texture array. The Terrain needs them (a heightmap must fit the first, its layers the others).
+    int maxTextureSize = 0;
+    int maxArrayLayers = 0;
+    int maxArrayTextureSize = 0;
 };
 
 // The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
