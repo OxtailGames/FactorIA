@@ -449,6 +449,7 @@ void Renderer::shutdown() {
         im.volFx.release();
         im.sssFx.release();
         im.ramps.destroy();
+        im.terrains.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
@@ -569,7 +570,7 @@ void Renderer::clear_asset_cache() {
     impl_->assets->clear();
 }
 std::uint64_t Renderer::texture_bytes() const {
-    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->decalAtlas.bytes : 0;
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() + impl_->decalAtlas.bytes : 0;
 }
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {

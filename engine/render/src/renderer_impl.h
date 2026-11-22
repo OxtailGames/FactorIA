@@ -31,6 +31,7 @@
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "renderer_env.h"
+#include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
 #include "renderer_xmit.h"
@@ -93,6 +94,7 @@ struct Renderer::Impl {
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
+    TerrainRenderer terrains;  // the Terrain components' height textures, patch and program (renderer_terrain.h)
     GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
     float textScale = 1.0f;  // Renderer::set_text_scale
     float uiScale = 1.0f;    // Renderer::set_ui_scale

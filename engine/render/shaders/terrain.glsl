@@ -12,7 +12,7 @@
 //   fa_t_m0..m3  the entity's model matrix (the patch has no place of its own: vertex() puts the vertex in the world itself)
 //   fa_t_cam     xyz the camera in the terrain's local space, w = cells (samples - 1)
 //   fa_t_grid    x, y = the metres of one cell along x and z, z = metres per raw height step (heightScale / 65535), w = heightOffset
-//   fa_t_tex     x, y = 1 / tileSize along x and z, z = 1 when layer 0 has an albedo texture, w = 1 when it has a normal texture
+//   fa_t_tex     x, y = 1 / tileSize along x and z, z = 0 without an albedo texture, else 1 + its fix (fa_tex_fix of mesh_common.glsl: 0 as sampled, 1 sRGB to linear, 2 linear to sRGB), w the same for the normal texture
 //   fa_t_nrm     x = the normal map's scale
 // The heights are in an RG8 texture (r = high byte, g = low byte), read with texelFetch: views 6 (fragment) and 10 (vertex), through a nearest sampler (samplers 2 and 6).
 @module terrain
@@ -87,6 +87,14 @@ float fa_t_raw(ivec2 cr) {
     vec2 t = texelFetch(sampler2D(fa_t_height, fa_t_height_smp), cr, 0).rg;
     return floor(t.x * 255.0 + 0.5) * 256.0 + floor(t.y * 255.0 + 0.5);
 }
+// The fix of one texture sample (as fa_tex_fix of mesh_common.glsl, which is declared after this block): 0 as sampled, 1 sRGB-encoded
+// values to linear, 2 linear to sRGB-encoded.
+vec3 fa_t_fix(vec3 c, float mode) {
+    c = max(c, vec3(0.0));
+    if (mode > 1.5) return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, step(c, vec3(0.0031308)));
+    if (mode > 0.5) return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
+    return c;
+}
 // The slope (metres per metre along x, z) at sample `cr`: central differences.
 vec2 fa_t_slope(ivec2 cr) {
     float dx = fa_t_raw(cr + ivec2(1, 0)) - fa_t_raw(cr - ivec2(1, 0));
@@ -107,9 +115,9 @@ void surface(in SurfaceInput i, inout Surface s) {
     // To the tangent frame of the patch (tangent = local +x, normal = +y, bitangent = -z): fa_tangent_normal makes it world space.
     vec3 n = fa_tangent_normal(i, vec3(nl.x, -nl.z, nl.y));
     vec2 uv = i.uv * fa_t_tex.xy;
-    if (fa_t_tex.z > 0.5) s.albedo = texture(sampler2D(fa_t_albedo, fa_t_albedo_smp), uv).rgb;
+    if (fa_t_tex.z > 0.5) s.albedo = fa_t_fix(texture(sampler2D(fa_t_albedo, fa_t_albedo_smp), uv).rgb, fa_t_tex.z - 1.0);
     if (fa_t_tex.w > 0.5) {
-        vec3 d = texture(sampler2D(fa_t_normal, fa_t_normal_smp), uv).xyz * 2.0 - 1.0;
+        vec3 d = fa_t_fix(texture(sampler2D(fa_t_normal, fa_t_normal_smp), uv).xyz, fa_t_tex.w - 1.0) * 2.0 - 1.0;
         d.xy *= fa_t_nrm.x;
         vec3 t0 = normalize(i.world_tangent.xyz - n * dot(n, i.world_tangent.xyz));
         vec3 b0 = cross(n, t0);
