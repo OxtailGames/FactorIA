@@ -323,10 +323,11 @@ std::vector<FeatureDef> build_table() {
          "(M75.1).",
          "M75"},
         {"occlusionCpu", "",
-         "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer and the "
-         "objects it proves hidden are not drawn; OcclusionArea and OcclusionPortal cull interiors. Needs no GPU "
-         "feature, so every backend draws it (M75.2).",
-         "M75"},
+         "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer "
+         "(256 cells across) and the meshes it proves hidden are not drawn in the camera's pictures (they still cast "
+         "shadows). Needs no GPU feature, so every backend draws it (M75.2). OcclusionArea and OcclusionPortal come "
+         "with a later package.",
+         nullptr},
         {"occlusionGpu", "compute",
          "Occlusion culling on the GPU: a hierarchical depth image of the last frame culls the objects of a scene "
          "with many thousands of meshes in a compute pass. Needs compute shaders (computeShaders: D3D11, Metal, "

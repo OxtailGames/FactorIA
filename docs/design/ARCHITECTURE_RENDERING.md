@@ -361,6 +361,18 @@ SheenBidi reordering, line breaking), so tests can look at glyph ids and positio
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
 game makers: [TEXT.md](../TEXT.md).
 
+## Occlusion culling on the CPU (M75.2)
+`render/src/occlusion.h` is the GPU-free half (`OcclusionBuffer`: a 256-cell-wide depth buffer, the rasterizer, the conservative test of a
+box) and `renderer_occlusion.cpp` the renderer's half (`Renderer::Impl::occlude_meshes`, called by `gather_meshes` once per main-view camera,
+after the frustum test and only when `world.any<Occluder>()`). It sets `MeshItem::visible = false` on the meshes it proves hidden, which the
+main pass skips and `stats.meshesCulled` counts; the shadow passes read the same items and are not culled by it (`meshesOccluded` is the
+subset). Probe and GI captures (`fr.noProbes`, `fr.giCapture`) skip it. Conservative by construction: centre-sample coverage with integer edge
+functions, the farthest depth a triangle can have inside a cell, the touched cells dilated by a ring, a near-plane crossing or a camera inside
+the occluder means visible. Every result is independent of the thread count: the triangles are set up per occluder (one slot each) and
+rasterised per band of rows, the cell being the maximum over the triangles. Caps count triangles (4096 per Occluder, 65536 per camera).
+`Renderer::occlusion_report` backs `render.occlusion` and `DebugView::Occlusion` draws the boxes with `DebugDraw`. Tests:
+`engine/render/tests/occlusion_tests.cpp` (CPU, in `render_postprocess_core`) and `occlusion_render_tests.cpp` (a GPU scene).
+
 
 
 ## Terrain (M75-P5a)

@@ -1024,6 +1024,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mi.visible = mi.noCull || box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
         }
     });
+    // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
+    // are not culled (they show the scene from a point the Occluders were not placed for).
+    if (!fr.noProbes && !fr.giCapture && world.any<Occluder>()) occlude_meshes(world, fr, z01, meshes);
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
@@ -2832,7 +2835,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
     if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
-          (debugView != DebugView::None && debugView != DebugView::Cascades)))
+          (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
