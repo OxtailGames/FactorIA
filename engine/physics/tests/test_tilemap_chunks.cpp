@@ -594,3 +594,57 @@ TEST_CASE("2d floor: the same after edits that split the floor and close it agai
     s.run(30);
     CHECK(slowest_on_floor(s, box, 4.0f * kTile, 96.0f * kTile, 120.0f) > 119.0f);
 }
+
+namespace {
+
+// Two Tilemap entities side by side, as the chunks of a streamed world are (tilemap.split_cells): A at x = 0, B at x = 50 tiles.
+// B has a wall at its column 20 (rows 0 to 2 above its floor) that A has nothing like.
+void add_two_chunks(Sim& s) {
+    std::vector<int> a(50 * 4, -1), b(50 * 4, -1);
+    for (int c = 0; c < 50; ++c) a[std::size_t(3 * 50 + c)] = b[std::size_t(3 * 50 + c)] = 1;
+    for (int r = 0; r < 3; ++r) b[std::size_t(r * 50 + 20)] = 1;
+    add_map(s, 50, 4, a);
+    Entity second = add_map(s, 50, 4, b);
+    s.world.get<Transform>(second)->position = {50.0f * kTile, 0, 0};
+}
+
+}  // namespace
+
+TEST_CASE(
+    "2d chunks: a body crosses the border of two abutting tilemaps without catching, and a real wall still stops it") {
+    for (ColliderShape shape : {ColliderShape::Box, ColliderShape::Circle, ColliderShape::Capsule}) {
+        INFO("shape " << int(shape));
+        Sim s;
+        add_two_chunks(s);
+        const Entity box = add_runner(s, shape, 3.0f * kTile, 120.0f);
+        s.run(30);
+        // the seam at x = 400: nothing slows the body down on the way to the wall at x = 560
+        CHECK(slowest_on_floor(s, box, 4.0f * kTile, 54.0f * kTile, 120.0f) > 119.0f);
+        s.run(120);
+        const float x = s.world.world_position(box).x;
+        CHECK(x < 560.0f);  // the wall's left face is real: the body is stopped by it
+        CHECK(x > 540.0f);
+        CHECK(std::fabs(s.world.get<RigidBody2D>(box)->velocity.x) < 5.0f);
+    }
+}
+
+TEST_CASE("2d chunks: a seam is only dropped where the neighbour is solid across the whole side") {
+    // B's floor is one row lower than A's: A's right face is a real step of one tile, and a body running into it stops.
+    Sim s;
+    std::vector<int> a(10 * 4, -1), b(10 * 4, -1);
+    for (int c = 0; c < 10; ++c) a[std::size_t(2 * 10 + c)] = a[std::size_t(3 * 10 + c)] = 1;
+    for (int c = 0; c < 10; ++c) b[std::size_t(3 * 10 + c)] = 1;
+    add_map(s, 10, 4, a);
+    Entity second = add_map(s, 10, 4, b);
+    s.world.get<Transform>(second)->position = {-10.0f * kTile, 0, 0};  // B is the LEFT neighbour, with the lower floor
+    Entity box = s.world.create("runner", "runner");
+    s.world.get<Transform>(box)->position = {-5.0f * kTile, -3.0f * kTile + 3.5f, 0};
+    Collider2D& col = s.world.add<Collider2D>(box);
+    col.size = {6, 6};
+    col.friction = 0.0f;
+    RigidBody2D& rb = s.world.add<RigidBody2D>(box);
+    rb.fixedRotation = true;
+    rb.velocity = {120.0f, 0};
+    s.run(240);
+    CHECK(s.world.world_position(box).x < 0.0f);  // stopped by the step at x = 0 (its face is not a seam)
+}
