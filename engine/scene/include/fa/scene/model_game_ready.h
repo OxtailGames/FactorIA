@@ -38,7 +38,26 @@ struct ModelLodSpec {
         0;  // the most any collapse may move the surface, metres (0 = no limit); with no target it alone decides
     double distance =
         0;  // camera distance in metres from which the game draws this LOD (0 = automatic, see model_lod_distance)
+    bool lockBorder = true;   // open edges of a submesh and the borders between parts do not move
+    double normalWeight = 1;  // how much a collapse that bends the normals costs (the simplifier's attribute weights)
+    double uvWeight = 0.5;    // the same for texture coordinates: a collapse that smears a UV seam costs more
 };
+// An automatic chain of LODs (the `lodChain` object of gameReady): `levels` copies, each keeping a share of the one above, drawn by the
+// MeshRenderer in lodMode screenSize at the given screen sizes. Defaults documented in docs/BIG_WORLDS.md, "Automatic LOD chain".
+inline constexpr int kLodChainMaxLevels = 7;  // kMaxLodThresholds - 1: the levels besides the full mesh
+struct ModelLodChain {
+    bool enabled = false;
+    int levels = 3;
+    std::vector<double> ratios;       // per level: the share of the level above's triangles it keeps (empty: 0.5 each)
+    std::vector<double> errors;       // per level: the most the surface may move, metres (empty: no limit)
+    std::vector<double> screenSizes;  // per level: it is drawn below this screen size (empty: 0.5, 0.25, 0.12, 0.06, ...)
+    std::size_t minTriangles = 32;    // a level that would have fewer triangles (and the ones after it) is not made
+    bool lockBorder = true;
+    double normalWeight = 1;
+    double uvWeight = 0.5;
+};
+// The screen size of level `index` (1-based) when the chain gives none.
+double model_lod_chain_default_screen_size(std::size_t index);
 struct ModelColliderSpec {
     std::string shape = "none";  // none, box, sphere, capsule, convex, decomposed
     int maxHulls = 8;            // decomposed: at most this many convex pieces
@@ -52,6 +71,7 @@ struct ModelGameReady {
     std::string origin = "keep";  // keep, center, bottom, bottom_center
     bool merge = false;
     std::vector<ModelLodSpec> lods;
+    ModelLodChain lodChain;  // alternative to `lods`: both given is an error
     ModelColliderSpec collider;
     std::vector<std::string> platforms = {"desktop", "mobile", "web"};  // the budgets the report checks
     bool is_default() const;                                            // nothing asked for: no files besides the .glb
@@ -95,6 +115,7 @@ struct ModelLodInfo {
     std::size_t triangles = 0, vertices = 0, submeshes = 0;
     double error = 0;     // metres: the largest deviation from the full mesh the simplifier measured (an upper bound)
     double distance = 0;  // metres from which the game draws it (0 for the full mesh)
+    double screenSize = 0;  // lodChain: the screen size below which the game draws it (0 = not a chain level)
     bool reachedTarget = true;
 };
 // A copy of `mesh` with fewer triangles per `spec`. Each submesh is simplified on its own and keeps its material and part; a submesh that
@@ -147,6 +168,8 @@ struct ModelGameReadyResult {
     ModelCollider collider;             // shape "none" when not asked for
     std::vector<ModelBudgetRow> budget;
     std::vector<std::string> warnings;
+    std::vector<std::string> notes;  // what the lodChain left out and why (levels skipped below minTriangles)
+    bool lodScreenSize = false;      // the LODs come from a lodChain: the MeshRenderer takes lodMode screenSize
 };
 // origin, merge, LODs, collider and the budget report for `mesh` per `settings`.
 Result<ModelGameReadyResult> make_game_ready(const MeshData& mesh, const ModelGameReady& settings);
