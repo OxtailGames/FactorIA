@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/core/image.h"
 #include "fa/core/math.h"
 #include "fa/core/types.h"
 #include "fa/scene/components_world.h"
@@ -40,6 +41,10 @@ inline constexpr float kTerrainRawMax = 65535.0f;  // a white sample
 inline constexpr int kTerrainSplatMaps = 2;        // RGBA splat maps of a terrain: 4 layers each, 8 layers in all
 inline constexpr int kTerrainMaxSplatSide = 4096;  // texels per side of a splat map (64 MB of RGBA8 each)
 inline constexpr int kTerrainHoleThreshold = 128;  // a holes-image pixel of 128 (of 255) or more is a hole
+inline constexpr int kTerrainMaxLayerSide = 4096;  // pixels per side of a layer texture
+// The most GPU memory (with mips) the albedo textures of all layers may take, and the same for the normal maps: a limit checked from
+// the file headers before any pixel is decoded (8 layers of 2048 x 2048 are 179 MB).
+inline constexpr std::uint64_t kTerrainMaxLayerBytes = std::uint64_t(256) << 20;
 // The undo history of one terrain keeps at most this many steps and this many bytes of before/after samples (the oldest go first;
 // the newest step is always kept).
 inline constexpr std::size_t kTerrainHistorySteps = 64;
@@ -90,6 +95,10 @@ struct TerrainHeights {
 
     bool valid() const { return samples >= 2 && data.size() == std::size_t(samples) * std::size_t(samples); }
     int cells() const { return samples - 1; }
+    // Is cell (c, r) (the square between samples c .. c + 1 and r .. r + 1) a hole.
+    bool hole(int c, int r) const {
+        return !holes.empty() && holes[std::size_t(r) * std::size_t(samples - 1) + std::size_t(c)] != 0;
+    }
     std::uint16_t at(int c, int r) const { return data[std::size_t(r) * std::size_t(samples) + std::size_t(c)]; }
     // Writes one sample (clamped to the grid; does not mark anything dirty: call mark_dirty once for the whole edit).
     void set(int c, int r, std::uint16_t v);
@@ -171,6 +180,36 @@ Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<
 // The same for every Terrain of the world that has edits (what save_scene_file does after it writes the scene).
 Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written = nullptr);
 
+// ---- the splat weights ----
+
+// The weight of each of the first `layerCount` layers at (u, v) in 0..1 across the terrain (u along x from the -X edge, v along z from the
+// -Z edge), read from the splat planes of `h` (null: none) bilinearly as the GPU samples them, and normalised to add up to 1. Without a
+// splat map, or where every channel of the layers is 0, layer 0 gets all of it. Writes `layerCount` numbers (at most kMaxTerrainLayers).
+void terrain_splat_weights(const TerrainHeights* h, int layerCount, float u, float v, float* out);
+// The same where the terrain is at world (x, z): the number of layers (`Terrain.layers`, at most 8) and their weights; false when the
+// entity has no Terrain or the point is outside it (a hole is still painted: the layers under it are answered).
+struct TerrainLayerWeights {
+    int count = 0;
+    float weight[kMaxTerrainLayers]{};
+};
+bool terrain_layer_weights(const World& world, Entity terrain, float worldX, float worldZ, TerrainLayerWeights& out);
+
+// ---- the layer textures (Terrain.layers[i].albedo / .normal) ----
+
+// The pictures of one kind of texture of every layer. They become one texture array on the GPU, so they must all have the same size.
+struct TerrainLayerImages {
+    int width = 0, height = 0;  // of every picture present
+    std::vector<Image>
+        images;  // one per layer; empty (Image::empty()) where the layer names none or the file cannot be read
+    std::vector<std::string>
+        problems;     // a file that could not be read (that layer is neutral), each with its JSON pointer
+    int present = 0;  // how many pictures there are
+};
+// Decodes the `kind` ("albedo" or "normal") of every layer of `t`. An error (the pointer /layers/3/albedo, both sizes, the limits, what to
+// do) when two pictures differ in size or the textures would take more than kTerrainMaxLayerBytes of GPU memory; a file that is missing
+// or cannot be decoded is listed in `problems` and leaves its layer neutral.
+Result<TerrainLayerImages> load_terrain_layer_images(const Terrain3D& t, std::string_view kind);
+
 // ---- sampling ----
 
 // What terrain_sample() answers at one world (x, z).
@@ -180,13 +219,14 @@ struct TerrainSample {
 };
 
 // Height in the terrain's local metres (before Transform) at local (x, z), and the slope of the triangle there in metres per
-// metre: false when the point is outside the grid.
+// metre: false when the point is outside the grid or in a hole (TerrainHeights::hole: no ground there).
 bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float localX, float localZ, float& height,
                           float& dhdx, float& dhdz);
 
 // The surface of the Terrain on `terrain` at world (x, z), through the entity's transform (a terrain that is turned about Y and
 // scaled is handled; one tilted about X or Z is sampled as if upright). False when the entity has no Terrain, its heightmap does
-// not load, or the point is outside it. Exactly the height of the drawn surface at its finest level of detail and of the collider.
+// not load, the point is outside it or in a hole (no ground there, so a ray, a foliage scatter and a script see through it; before holes
+// existed this was true everywhere inside the grid). Exactly the height of the drawn surface at its finest level of detail and of the collider.
 bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out);
 // The height only (world y); false as terrain_sample.
 bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height);

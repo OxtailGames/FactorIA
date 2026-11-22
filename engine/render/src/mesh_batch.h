@@ -18,6 +18,11 @@ namespace fa::render {
 
 struct TerrainDraw;
 
+// The sort key of every node of a Terrain (renderer_terrain.cpp): after any key a scene's items get, so they follow the scene's own
+// batches and, the sort being stable, stay in the order they were gathered (one terrain after the other). Without it one terrain made
+// the whole frame's items "unkeyed" and sorted with the slow comparator.
+inline constexpr std::uint64_t kTerrainSortKey = ~std::uint64_t(0);
+
 // One MeshRenderer entity, gathered for this frame.
 struct MeshItem {
     MeshAsset* mesh = nullptr;

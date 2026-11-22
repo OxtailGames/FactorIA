@@ -458,3 +458,158 @@ TEST_CASE("encode_terrain_heightmap and save_terrain_files: the files hold the p
     std::error_code ec;
     fs::remove_tree(dir, ec);
 }
+
+// ---- M75-P5d: holes in the answers, the splat weights, the layer pictures ----
+
+TEST_CASE("terrain_local_sample, terrain_sample and terrain_height_at: no ground in a hole") {
+    ensure_builtin_components();
+    World w;
+    Entity e = w.create("ground");
+    w.add<Transform>(e);
+    Terrain3D t;
+    t.size = {32.0f, 32.0f};  // 33 flat samples, 1 m cells
+    t.heightOffset = 3.0f;
+    w.add<Terrain3D>(e) = t;
+    auto h = w.terrain().heights(w, e);
+    REQUIRE(h);
+    REQUIRE(h->samples == 33);
+    h->holes.assign(32 * 32, 0);
+    h->holes[10 * 32 + 5] = 1;  // the cell between samples (5, 10) and (6, 11): x in -11..-10, z in -6..-5
+
+    float y, dx, dz;
+    CHECK_FALSE(terrain_local_sample(*h, t, -10.5f, -5.5f, y, dx, dz));  // inside the hole
+    CHECK(terrain_local_sample(*h, t, -9.5f, -5.5f, y, dx, dz));         // the next cell
+    CHECK(y == doctest::Approx(3.0f));
+    CHECK(terrain_local_sample(*h, t, -10.5f, -4.5f, y, dx, dz));  // the cell below it
+
+    TerrainSample s;
+    float height = 0.0f;
+    CHECK_FALSE(terrain_sample(w, e, -10.5f, -5.5f, s));
+    CHECK_FALSE(terrain_height_at(w, e, -10.5f, -5.5f, height));
+    CHECK(terrain_sample(w, e, 0.0f, 0.0f, s));
+    CHECK(terrain_height_at(w, e, -9.5f, -5.5f, height));
+    CHECK(height == doctest::Approx(3.0f));
+    // without a mask nothing changes
+    h->holes.clear();
+    CHECK(terrain_height_at(w, e, -10.5f, -5.5f, height));
+}
+
+TEST_CASE("terrain_splat_weights: bilinear, normalised, layer 0 where nothing is painted") {
+    float wgt[kMaxTerrainLayers];
+    // no splat map at all: layer 0 everywhere
+    terrain_splat_weights(nullptr, 3, 0.5f, 0.5f, wgt);
+    CHECK(wgt[0] == 1.0f);
+    CHECK(wgt[1] == 0.0f);
+    CHECK(wgt[2] == 0.0f);
+    TerrainHeights h;
+    h.samples = 33;
+    h.data.assign(33 * 33, 0);
+    terrain_splat_weights(&h, 3, 0.5f, 0.5f, wgt);  // the plane is not there
+    CHECK(wgt[0] == 1.0f);
+
+    // a 2 x 2 map: the left column is layer 1 (g = 200), the right column is layer 2 (b = 100) and layer 3 (a = 100)
+    h.splat[0].size = 2;
+    h.splat[0].rgba = {0, 200, 0, 0, 0, 0, 100, 100, 0, 200, 0, 0, 0, 0, 100, 100};
+    terrain_splat_weights(&h, 4, 0.0f, 0.5f, wgt);  // the centre of the left texel column (clamped edge)
+    CHECK(wgt[0] == doctest::Approx(0.0f));
+    CHECK(wgt[1] == doctest::Approx(1.0f));
+    CHECK(wgt[2] == doctest::Approx(0.0f));
+    terrain_splat_weights(&h, 4, 1.0f, 0.5f, wgt);
+    CHECK(wgt[1] == doctest::Approx(0.0f));
+    CHECK(wgt[2] == doctest::Approx(0.5f));
+    CHECK(wgt[3] == doctest::Approx(0.5f));
+    // halfway between the columns: raw weights g = 100, b = 50, a = 50: they add up to 1
+    terrain_splat_weights(&h, 4, 0.5f, 0.5f, wgt);
+    CHECK(wgt[1] == doctest::Approx(0.5f));
+    CHECK(wgt[2] == doctest::Approx(0.25f));
+    CHECK(wgt[3] == doctest::Approx(0.25f));
+    float sum = 0.0f;
+    for (int i = 0; i < 4; ++i) sum += wgt[i];
+    CHECK(sum == doctest::Approx(1.0f));
+    // only 2 layers are asked for: the others do not take a share
+    terrain_splat_weights(&h, 2, 0.5f, 0.5f, wgt);
+    CHECK(wgt[0] == doctest::Approx(0.0f));
+    CHECK(wgt[1] == doctest::Approx(1.0f));
+    // a map whose pixel is all 0 for the layers asked: layer 0
+    terrain_splat_weights(&h, 1, 0.5f, 0.5f, wgt);
+    CHECK(wgt[0] == 1.0f);
+    // a second map weights layers 4..7
+    h.splat[1].size = 1;
+    h.splat[1].rgba = {0, 0, 0, 255};
+    terrain_splat_weights(&h, 8, 0.5f, 0.5f, wgt);
+    CHECK(wgt[7] == doctest::Approx(255.0f / (255.0f + 100.0f + 50.0f + 50.0f)).epsilon(1e-4));
+}
+
+TEST_CASE("terrain_layer_weights: through the transform of the entity, nothing outside the terrain") {
+    ensure_builtin_components();
+    World w;
+    Entity e = w.create("ground");
+    Transform tr;
+    tr.position = {100.0f, 0.0f, 0.0f};
+    w.add<Transform>(e) = tr;
+    Terrain3D t;
+    t.size = {32.0f, 32.0f};
+    t.layers = Json::array({Json::object({{"albedo", "a.png"}}), Json::object({{"albedo", "b.png"}})});
+    w.add<Terrain3D>(e) = t;
+    auto h = w.terrain().heights(w, e);
+    REQUIRE(h);
+    h->splat[0].size = 2;
+    h->splat[0].rgba = {255, 0, 0, 0, 0, 255, 0, 0,
+                        255, 0, 0, 0, 0, 255, 0, 0};  // the -X half layer 0, the +X half layer 1
+    TerrainLayerWeights lw;
+    REQUIRE(terrain_layer_weights(w, e, 100.0f - 14.0f, 0.0f, lw));
+    CHECK(lw.count == 2);
+    CHECK(lw.weight[0] == doctest::Approx(1.0f));
+    REQUIRE(terrain_layer_weights(w, e, 100.0f + 14.0f, 0.0f, lw));
+    CHECK(lw.weight[1] == doctest::Approx(1.0f));
+    CHECK_FALSE(terrain_layer_weights(w, e, 100.0f + 20.0f, 0.0f, lw));
+}
+
+TEST_CASE(
+    "load_terrain_layer_images: a size that differs is a teaching error naming both sizes, a missing file is neutral") {
+    const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_layers").value();
+    auto write = [&](const char* name, int side) {
+        Image img;
+        img.width = img.height = side;
+        img.rgba.assign(std::size_t(side) * std::size_t(side) * 4, 200);
+        const auto png = encode_png(img);
+        const std::string path = fs::path_to_utf8(dir / name);
+        REQUIRE(fs::write_bytes(path, png.data(), png.size()).ok());
+        return path;
+    };
+    const std::string a = write("a.png", 8), b = write("b.png", 8), c = write("c.png", 16);
+    auto layer = [](const std::string& albedo) { return Json::object({{"albedo", albedo}}); };
+
+    Terrain3D t;
+    t.layers = Json::array({layer(a), layer(b)});
+    auto ok = load_terrain_layer_images(t, "albedo");
+    REQUIRE(ok.ok());
+    CHECK(ok->width == 8);
+    CHECK(ok->present == 2);
+    CHECK(ok->problems.empty());
+
+    t.layers = Json::array({layer(a), layer(b), layer(c)});
+    auto bad = load_terrain_layer_images(t, "albedo");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(contains(bad.error().message, "/layers/2/albedo"));
+    CHECK(contains(bad.error().message, "16 x 16"));
+    CHECK(contains(bad.error().message, "8 x 8"));
+    CHECK(contains(bad.error().message, "/layers/0/albedo"));
+    CHECK(contains(bad.error().hint, "same size"));
+
+    // a file that is not there leaves its layer neutral and is reported with its pointer
+    t.layers = Json::array({layer(a), layer(fs::path_to_utf8(dir / "gone.png")), Json::object()});
+    auto gone = load_terrain_layer_images(t, "albedo");
+    REQUIRE(gone.ok());
+    CHECK(gone->present == 1);
+    REQUIRE(gone->problems.size() == 1u);
+    CHECK(contains(gone->problems[0], "/layers/1/albedo"));
+    CHECK(gone->images[1].empty());
+    CHECK_FALSE(gone->images[0].empty());
+    // the normal textures are checked on their own
+    auto normals = load_terrain_layer_images(t, "normal");
+    REQUIRE(normals.ok());
+    CHECK(normals->present == 0);
+    std::error_code ec;
+    fs::remove_tree(dir, ec);
+}
