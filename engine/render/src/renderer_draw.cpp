@@ -3098,10 +3098,10 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
-            sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
-                                                   skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}, backFaces,
-                                                   mi.lodFade != 0.0f));  // the engine's program of a fading draw: with the dither
+            sg_apply_pipeline(gpu.prepass_pipeline(
+                pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided), skinned,
+                custom ? custom->shader : sg_shader{}, custom ? mat->extras() : MeshExtras{}, backFaces,
+                mi.lodFade != 0.0f));  // the engine's program of a fading draw: with the dither
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;

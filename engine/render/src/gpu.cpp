@@ -898,9 +898,9 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     if (shader.id)
         d.shader = shader;
     else if (lod)
-        d.shader = skinned ? builtin_shader(prepassSkinLodShader_, mesh_prepass_skin_lod_shader_desc,
-                                            "mesh_prepass_skin_lod")
-                           : builtin_shader(prepassLodShader_, mesh_prepass_lod_shader_desc, "mesh_prepass_lod");
+        d.shader =
+            skinned ? builtin_shader(prepassSkinLodShader_, mesh_prepass_skin_lod_shader_desc, "mesh_prepass_skin_lod")
+                    : builtin_shader(prepassLodShader_, mesh_prepass_lod_shader_desc, "mesh_prepass_lod");
     else
         d.shader = skinned ? prepassSkinShader_ : prepassShader_;
     d.layout.attrs[ATTR_mesh_prepass_fa_position].format = SG_VERTEXFORMAT_FLOAT3;

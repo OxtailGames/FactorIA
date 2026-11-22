@@ -123,7 +123,8 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
                 std::uint32_t index;
             };
             std::vector<Entry> order(items.size());
-            for (std::size_t i = 0; i < items.size(); ++i) order[i] = {items[i].sortKey, items[i].lodFade, std::uint32_t(i)};
+            for (std::size_t i = 0; i < items.size(); ++i)
+                order[i] = {items[i].sortKey, items[i].lodFade, std::uint32_t(i)};
             rjobs::stable_sort(
                 "render.sort_meshes", order,
                 [](const Entry& a, const Entry& b) { return a.key != b.key ? a.key < b.key : a.fade < b.fade; },

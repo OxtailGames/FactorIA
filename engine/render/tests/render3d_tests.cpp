@@ -2638,7 +2638,8 @@ TEST_CASE("full shaders: hot reload swaps the shader, keeps the last good one on
 
 // M75.1: only the engine's own program (its mesh_lod variant) and a clip material (the discard it has) dither; any other custom
 // material switches its levels at once.
-TEST_CASE("materials: a LOD cross-fade dithers a clip material and the engine's program, and a custom material that is not clip switches at once") {
+TEST_CASE("materials: a LOD cross-fade dithers a clip material and the engine's program, and a custom material that is "
+          "not clip switches at once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -2658,8 +2659,9 @@ TEST_CASE("materials: a LOD cross-fade dithers a clip material and the engine's 
         return std::make_pair(st.lodCrossFades, st.meshes);
     };
     ErrorLog log;
-    CHECK(fading_draws("") == std::make_pair(2, 2));  // the engine's mesh_lod program
+    CHECK(fading_draws("") == std::make_pair(2, 2));                                // the engine's mesh_lod program
     CHECK(fading_draws("materials/cutout.material.json") == std::make_pair(2, 2));  // the clip program's own discard
-    CHECK(fading_draws("materials/glow.material.json") == std::make_pair(0, 1));  // no dither in its program: a hard switch
+    CHECK(fading_draws("materials/glow.material.json") ==
+          std::make_pair(0, 1));  // no dither in its program: a hard switch
     CHECK(log.messages().empty());
 }
