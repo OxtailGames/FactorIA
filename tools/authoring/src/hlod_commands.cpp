@@ -447,7 +447,8 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         const LodMode mode = existing ? existing->mode : LodMode::Distance;
         float threshold = existing ? existing->hlodThreshold : 0.0f;
         if (!(threshold > 0.0f)) {
-            float last = 0.0f;  // the farthest threshold (Distance), the smallest above 0 (ScreenSize); 0 = the group has none
+            float last =
+                0.0f;  // the farthest threshold (Distance), the smallest above 0 (ScreenSize); 0 = the group has none
             if (existing)
                 for (std::size_t k = 0; k < existing->thresholds.size() && k < std::size_t(kMaxLodThresholds); ++k) {
                     const float t = existing->thresholds[k];
@@ -777,7 +778,8 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
          "A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) "
          "before `apply`; "
          "`levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: "
-         "8 times the proxy's size in Distance mode (at least 1.5 times the group's farthest `thresholds` entry), 0.03 in "
+         "8 times the proxy's size in Distance mode (at least 1.5 times the group's farthest `thresholds` entry), 0.03 "
+         "in "
          "ScreenSize mode (at most the smallest entry divided by 1.5), so the proxy never takes over before a child "
          "level; "
          "an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed "

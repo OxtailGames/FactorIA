@@ -323,6 +323,7 @@ TerrainRenderer::Entry::~Entry() {
     free_texture(holesTex);
     if (stage.id) sg_destroy_buffer(stage);
     if (controlStage.id) sg_destroy_buffer(controlStage);
+    if (holesStage.id) sg_destroy_buffer(holesStage);
 }
 
 void TerrainRenderer::destroy() {
@@ -349,7 +350,7 @@ std::size_t TerrainRenderer::bytes() const {
     std::size_t total = 0;
     for (const auto& [key, en] : entries_)
         total += en->tex.bytes + en->albedoArr.bytes + en->normalArr.bytes + en->controlArr.bytes + en->holesTex.bytes +
-                 en->stageCap + en->controlStageCap;
+                 en->stageCap + en->controlStageCap + en->holesStageCap;
     return total + dummy_.bytes + dummyHoles_.bytes;
 }
 
@@ -590,6 +591,100 @@ bool TerrainRenderer::copy_rect(Entry& en, const View& v, const TerrainRect& rec
     return true;
 }
 
+// The holes texture takes the cells of `rect` (cell coordinates, inclusive) from the CPU mask: one byte per cell through a staging buffer, as
+// copy_rect does for the heights. The first one makes the texture one that takes copies (the whole of it once). False (nothing changed)
+// where a copy cannot run (inside a pass, a second write in the same frame, no Gpu, the GPU said no): the caller makes it again whole.
+bool TerrainRenderer::copy_holes(Entry& en, const View& v, const TerrainRect& rect) {
+    const fa::TerrainHeights& h = *en.heights;
+    const int cells = std::max(1, h.samples - 1);
+    if (!v.gpu || !en.holesTex.image.id || en.holesTex.width != cells || sg_query_pass_state() != SG_PASSSTATE_NONE)
+        return false;
+    const std::uint64_t frameTag = v.gpu->frame() + 1;
+    if (en.holesStagedFrame == frameTag) return false;
+    if (h.holes.size() != std::size_t(cells) * std::size_t(cells)) return false;
+    TerrainRect whole;
+    whole.c0 = whole.r0 = 0;
+    whole.c1 = whole.r1 = cells - 1;
+    const bool convert = !en.holesCopyable;
+    const TerrainRect& r = convert ? whole : rect;
+    const int w = r.c1 - r.c0 + 1, rows = r.r1 - r.r0 + 1;
+    std::vector<std::uint8_t> px(std::size_t(w) * std::size_t(rows));
+    for (int y = 0; y < rows; ++y)
+        for (int x = 0; x < w; ++x)
+            px[std::size_t(y) * std::size_t(w) + std::size_t(x)] =
+                h.holes[std::size_t(r.r0 + y) * std::size_t(cells) + std::size_t(r.c0 + x)] ? 255 : 0;
+    v.gpu->begin_transient_writes();  // before the first write of the frame (render_internal.h)
+    sg_image target = en.holesTex.image;
+    if (convert) {
+        sg_image_desc d{};
+        d.width = d.height = cells;
+        d.pixel_format = SG_PIXELFORMAT_R8;
+        d.usage.copy_dst = true;
+        d.label = "terrain-holes";
+        target = make_image(d);
+        if (!target.id || sg_query_image_state(target) != SG_RESOURCESTATE_VALID) {
+            if (target.id) sg_destroy_image(target);
+            return false;
+        }
+    }
+    const std::size_t need = px.size();
+    if (!en.holesStage.id || en.holesStageCap < need) {
+        const std::size_t newCap = convert ? need : std::min(std::size_t(cells) * std::size_t(cells), need + need / 2);
+        sg_buffer_desc bd{};
+        bd.size = newCap;
+        bd.usage.vertex_buffer = false;
+        bd.usage.staging_buffer = true;
+        bd.usage.write_transient = true;
+        bd.usage.copy_src = true;
+        bd.label = "terrain-holes-staging";
+        sg_buffer fresh = sg_make_buffer(&bd);
+        if (!fresh.id || sg_query_buffer_state(fresh) != SG_RESOURCESTATE_VALID) {
+            if (fresh.id) sg_destroy_buffer(fresh);
+            if (convert) sg_destroy_image(target);
+            return false;
+        }
+        if (en.holesStage.id) sg_destroy_buffer(en.holesStage);
+        en.holesStage = fresh;
+        en.holesStageCap = newCap;
+    }
+    sg_write_buffer_desc wd{};
+    wd.src.data = {px.data(), px.size()};
+    wd.dst.buffer = en.holesStage;
+    sg_write_buffer_transient(&wd);
+    sg_copy_buffer_to_image_desc c{};
+    c.src.buffer = en.holesStage;
+    c.src.bytes_per_row = w;
+    c.src.bytes_per_slice = w * rows;
+    c.dst.image = target;
+    c.dst.x = r.c0;
+    c.dst.y = r.r0;
+    c.size.width = w;
+    c.size.height = rows;
+    c.size.num_slices = 1;
+    sg_copy_buffer_to_image(&c);
+    en.holesStagedFrame = frameTag;
+    if (convert) {
+        sg_view_desc vd{};
+        vd.texture.image = target;
+        vd.label = "terrain-holes";
+        sg_view fresh = sg_make_view(&vd);
+        if (en.holesTex.view.id) sg_destroy_view(en.holesTex.view);
+        sg_destroy_image(en.holesTex.image);
+        en.holesTex.image = target;
+        en.holesTex.view = fresh;
+        en.holesCopyable = true;
+        // The staging buffer of the whole mask is not kept: the later copies are rectangles.
+        sg_destroy_buffer(en.holesStage);
+        en.holesStage = {};
+        en.holesStageCap = 0;
+        en.holesStagedFrame = 0;
+        ++holesUploads_;
+    } else {
+        ++holesRects_;
+    }
+    return true;
+}
+
 // Makes the RG8 height texture of `en` from its CPU heights: the whole texture (2 bytes per sample, 33.5 MB for 4097 x 4097), or, when
 // `rect` says which part a sculpt changed, only that part (copy_rect).
 bool TerrainRenderer::upload(Entry& en, const View& v, const TerrainRect* rect) {
@@ -665,7 +760,8 @@ TextureAsset* TerrainRenderer::dummy_array() {
 }
 
 // The 1 x 1 holes texture of a terrain without holes: the vertex stage declares the texture, so something has to be bound.
-TextureAsset* TerrainRenderer::dummy_holes() {
+// `fallback` (a 2D texture of the terrain) is returned when the 1 x 1 one cannot be made.
+TextureAsset* TerrainRenderer::dummy_holes(TextureAsset* fallback) {
     if (dummyHoles_.image.id) return &dummyHoles_;
     const std::uint8_t zero = 0;
     sg_image_desc d{};
@@ -674,7 +770,9 @@ TextureAsset* TerrainRenderer::dummy_holes() {
     d.data.mip_levels[0] = {&zero, 1};
     d.label = "terrain-dummy-holes";
     sg_image image = make_image(d);
-    if (!image.id) return &dummyHoles_;
+    // Not made (the GPU is out of memory): the terrain's own height texture is also a 2D texture the vertex stage can sample, and
+    // the draw does not read the holes of a terrain without any, so the slot is never bound to nothing.
+    if (!image.id) return fallback;
     sg_view_desc vd{};
     vd.texture.image = image;
     vd.label = "terrain-dummy-holes";
@@ -706,21 +804,45 @@ void TerrainRenderer::update_layers(Entry& en, const View& v, Entity e, const Te
     const fa::TerrainHeights& th = *en.heights;
     const int cells = std::max(1, th.samples - 1);
     const bool holes = !th.holes.empty() && th.holes.size() == std::size_t(cells) * std::size_t(cells);
+    // The texture is made again whole when its shape changed (the heights object, holes or none); a paint of the mask sends only the
+    // cells it changed (copy_holes), and a holesVersion bumped with no rectangle makes the texture again.
     const std::uint64_t hkey =
-        holes ? mix(mix(0x7f4a7c159e3779b9ull, th.holesVersion), reinterpret_cast<std::uintptr_t>(en.heights.get()))
-              : 0;
-    if (en.holesKey != hkey) {
-        en.holesKey = hkey;
+        holes ? mix(0x7f4a7c159e3779b9ull, reinterpret_cast<std::uintptr_t>(en.heights.get())) : 0;
+    auto rebuild = [&] {
         free_texture(en.holesTex);
+        if (en.holesStage.id) sg_destroy_buffer(en.holesStage);
+        en.holesStage = {};
+        en.holesStageCap = 0;
+        en.holesCopyable = false;
         en.holesOn = false;
         en.holesNote.clear();
+        en.holesSeen = th.holesVersion;
         if (holes) {
             Error why;
-            if (make_holes_texture(en.holesTex, th, why))
+            if (make_holes_texture(en.holesTex, th, why)) {
                 en.holesOn = true;
-            else
+                ++holesUploads_;
+            } else {
                 en.holesNote = std::format("Terrain on entity {}: the holes cannot be used: {}. Hint: {} ", e.bits(),
                                            why.message, why.hint);
+            }
+        }
+    };
+    if (en.holesKey != hkey) {
+        en.holesKey = hkey;
+        rebuild();
+    } else if (holes && th.holesVersion != en.holesSeen) {
+        TerrainRect rect;
+        const bool known = en.holesOn && th.holes_dirty_since(en.holesSeen, rect);
+        if (known && rect.empty()) {
+            en.holesSeen = th.holesVersion;
+        } else if (known &&
+                   2 * std::int64_t(rect.c1 - rect.c0 + 1) * std::int64_t(rect.r1 - rect.r0 + 1) <=
+                       std::int64_t(cells) * cells &&
+                   copy_holes(en, v, rect)) {
+            en.holesSeen = th.holesVersion;
+        } else {
+            rebuild();
         }
     }
     std::string notes = en.layerNote[0] + en.layerNote[1] + en.controlNote + en.holesNote;
@@ -1021,15 +1143,26 @@ TerrainRenderer::Entry* TerrainRenderer::prepare(const View& v, Entity e) {
     // once per rewrite). A new entry has nothing to compare with: it starts at the current generation.
     auto found = entries_.find(e.bits());
     const std::uint64_t generation = v.assets ? v.assets->reload_generation() : 0;
-    if (found != entries_.end() && v.assets && found->second->heightsReloadSeen != generation) {
+    // A heightmap that failed to read has no entry here (nothing to draw): failedSeen_ keeps the generation it was last looked at, so
+    // the file rewritten afterwards gets its second try (TerrainStore::reload reads a terrain that never loaded too).
+    std::uint64_t* seenGeneration = nullptr;
+    if (found != entries_.end())
+        seenGeneration = &found->second->heightsReloadSeen;
+    else if (auto f = failedSeen_.find(e.bits()); f != failedSeen_.end())
+        seenGeneration = &f->second;
+    if (seenGeneration && v.assets && *seenGeneration != generation) {
         const Terrain3D* t = v.world->get<Terrain3D>(e);
-        const std::uint64_t since = found->second->heightsReloadSeen;
-        found->second->heightsReloadSeen = generation;
+        const std::uint64_t since = *seenGeneration;
+        *seenGeneration = generation;
         if (t && !t->heightmap.empty() && v.assets->reloaded_any_of(since, {fs::normalize(t->heightmap)}))
             v.world->terrain().reload(*v.world, e);
     }
     std::shared_ptr<fa::TerrainHeights> h = v.world->terrain().heights(*v.world, e, &problem);
-    if (!h || !h->valid()) return nullptr;
+    if (!h || !h->valid()) {
+        if (found == entries_.end()) failedSeen_.emplace(e.bits(), generation);
+        return nullptr;
+    }
+    failedSeen_.erase(e.bits());
     std::unique_ptr<Entry>& slot = entries_[e.bits()];
     if (!slot) {
         slot = std::make_unique<Entry>();
@@ -1064,6 +1197,12 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
         for (auto it = entries_.begin(); it != entries_.end();) {
             if (it->second->seen + 120 < v.serial)
                 it = entries_.erase(it);
+            else
+                ++it;
+        }
+        for (auto it = failedSeen_.begin(); it != failedSeen_.end();) {
+            if (!world.alive(Entity::from_bits(it->first)))
+                it = failedSeen_.erase(it);
             else
                 ++it;
         }
@@ -1134,7 +1273,7 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
         d.textures[1] = en->albedoArr.image.id ? &en->albedoArr : dummy;
         d.textures[2] = en->normalArr.image.id ? &en->normalArr : dummy;
         d.textures[3] = en->controlArr.image.id ? &en->controlArr : dummy;
-        d.holes = en->holesOn ? &en->holesTex : dummy_holes();
+        d.holes = en->holesOn ? &en->holesTex : dummy_holes(&en->tex);
         std::uint64_t hash = mix(0x9e3779b97f4a7c15ull, e.bits());
         for (const auto& row : d.params)
             for (float f : row) {

@@ -93,10 +93,12 @@ private:
         std::uint64_t texSerial = ~std::uint64_t(0);  // the frame the textures were fetched in
         TextureAsset* albedo = nullptr;
         TextureAsset* normal = nullptr;
-        std::string note;  // the last problem said (said once)
-        std::set<std::string> watch;      // normalised paths whose reload re-reads the entry: the file and its two pictures
-        std::uint64_t settleUntil = 0;    // a reload was seen: until this frame a problem may be the files changing one by one
-        bool settlePending = false;       // a problem was held back while the files settled; the first frame after it re-reads
+        std::string note;             // the last problem said (said once)
+        std::set<std::string> watch;  // normalised paths whose reload re-reads the entry: the file and its two pictures
+        std::uint64_t settleUntil =
+            0;  // a reload was seen: until this frame a problem may be the files changing one by one
+        bool settlePending =
+            false;  // a problem was held back while the files settled; the first frame after it re-reads
     };
     MeshAsset* quad();
     MaterialAsset* material();

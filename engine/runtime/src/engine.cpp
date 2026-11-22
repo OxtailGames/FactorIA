@@ -1367,6 +1367,14 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
     else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0))
         I.draw(0.0);
+    // The terrain's layer pictures and the foliage's meshes are built by jobs and adopted by the next draw: a capture right after
+    // a load waits for them and draws again, so the picture is the finished one (not the neutral layers). Three rounds at most:
+    // a reload that keeps arriving does not hold a screenshot.
+    for (int round = 0; round < 3 && (I.renderer->terrain_loading() || I.renderer->foliage_loading()); ++round) {
+        I.renderer->wait_terrain_loaded();
+        I.renderer->wait_foliage_loaded();
+        I.draw(0.0);
+    }
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
     return true;

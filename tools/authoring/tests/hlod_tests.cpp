@@ -237,8 +237,7 @@ TEST_CASE("world.bake_hlod: the default threshold of a ScreenSize group stays un
     REQUIRE(e.world().alive(group));
     e.world().get<LodGroup>(group)->mode = LodMode::ScreenSize;
     e.world().get<LodGroup>(group)->thresholds = {0.3f, 0.02f};  // the last level starts below 2% of the screen
-    call(e, "world.bake_hlod",
-         Json::object({{"entity", "group"}, {"out", "assets/hlod/group3.glb"}, {"apply", true}}));
+    call(e, "world.bake_hlod", Json::object({{"entity", "group"}, {"out", "assets/hlod/group3.glb"}, {"apply", true}}));
     CHECK(e.world().get<LodGroup>(group)->hlodThreshold == doctest::Approx(0.02f / 1.5f).epsilon(0.001));
 }
 
@@ -249,8 +248,7 @@ TEST_CASE("world.bake_hlod: what apply sets is a scene change, so restoring the 
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
     // The editor's Console takes this snapshot before the command and loads it back on Undo (the .glb stays on disk).
     const Json before = snapshot_scene(e.world());
-    call(e, "world.bake_hlod",
-         Json::object({{"entity", "cell"}, {"out", "assets/hlod/undo.glb"}, {"apply", true}}));
+    call(e, "world.bake_hlod", Json::object({{"entity", "cell"}, {"out", "assets/hlod/undo.glb"}, {"apply", true}}));
     REQUIRE(e.world().get<LodGroup>(e.world().find_by_id("cell")) != nullptr);
     e.world().clear();
     load_scene(e.world(), before, "undo");

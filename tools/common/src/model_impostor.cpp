@@ -485,8 +485,9 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
         for (int i = 0; i < views; ++i) {
             // A long bake tells its caller where it is (the MCP progress notification) and stops, writing nothing, when the request is cancelled.
             if (command_cancelled())
-                fail("cancelled", "The bake of '" + meshPath + "' was cancelled after " + std::to_string(j * views + i) +
-                                      " of " + std::to_string(views * views) + " frames; no file was written.",
+                fail("cancelled",
+                     "The bake of '" + meshPath + "' was cancelled after " + std::to_string(j * views + i) + " of " +
+                         std::to_string(views * views) + " frames; no file was written.",
                      "Call model.bake_impostor again when you want the atlas.");
             if (i == 0)
                 report_command_progress("impostor bake: row " + std::to_string(j + 1) + " of " + std::to_string(views));
@@ -564,7 +565,8 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
         "Frames cover a sphere around the model, so one frame size fits every direction. `mode` octahedral (default) "
         "covers every direction; hemiOctahedral only the upper half (y >= 0), with twice the angular resolution: for "
         "trees, rocks and buildings that are seen from above. Each frame gets resolution / views pixels, at least 8. "
-        "Same model and arguments give the same files on one build (the bytes can differ between platforms and compilers). "
+        "Same model and arguments give the same files on one build (the bytes can differ between platforms and "
+        "compilers). "
         "Transparent materials are cut out at alpha 0.5. A model of "
         "more than 4 million triangles, or whose triangles x views x views is above 400 million, is refused: bake from "
         "a lower LOD (model.generate_lods). Existing files of an earlier bake are replaced; others need `overwrite`. "
@@ -572,7 +574,8 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
         "the .model.json given (one scene.get_entity per MeshRenderer of the scene, one scene.set_component per "
         "entity; the scene file is not saved: set the field in the scene to keep it). The editor's undo reverts "
         "those scene changes but never the three files written (delete them, or bake again). A long bake reports "
-        "its progress by row of frames and stops, writing nothing, when the request is cancelled. Result: {file, albedo, normal, mode, views, "
+        "its progress by row of frames and stops, writing nothing, when the request is cancelled. Result: {file, "
+        "albedo, normal, mode, views, "
         "frameSize, resolution, radius, triangles, applied?, warnings?}.";
     info.inputSchema = Json::object(
         {{"type", "object"},

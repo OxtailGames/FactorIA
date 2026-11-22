@@ -587,6 +587,8 @@ Renderer::TerrainUploads Renderer::terrain_uploads() const {
         out.arrays = impl_->terrains.layer_builds();
         out.splatRects = impl_->terrains.splat_rect_uploads();
         out.layerLoads = impl_->terrains.layer_loads();
+        out.holesWhole = impl_->terrains.holes_uploads();
+        out.holesRects = impl_->terrains.holes_rect_uploads();
     }
     return out;
 }

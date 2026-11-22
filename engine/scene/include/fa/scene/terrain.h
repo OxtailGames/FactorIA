@@ -153,6 +153,13 @@ struct TerrainHeights {
     std::vector<std::uint8_t> holes;
     std::string holesSource;         // the Terrain.holes path loaded from or written to ("" = none)
     std::uint64_t holesVersion = 0;  // grows with every holes edit
+    // Says that the cells of `rect` (cell coordinates, inclusive, clamped to the cells x cells mask) were written: bumps
+    // `holesVersion` and remembers the rectangle, so the GPU texture takes only that part (as mark_dirty does for the heights).
+    // A bump of `holesVersion` made any other way (the mask replaced, an undo that creates the mask) has no rectangle.
+    void mark_holes_dirty(TerrainRect rect);
+    // The cells written since `sinceVersion` (a `holesVersion` a reader saw): false when it is not known (history too short, or a
+    // bump with no rectangle in between: take the whole mask); true with `out` empty when nothing changed.
+    bool holes_dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const;
     std::array<TerrainSplat, kTerrainSplatMaps> splat;
     bool heightsUnsaved = false;  // edited since loaded or written (the files are written by save_terrain_files)
     bool holesUnsaved = false;
@@ -193,6 +200,8 @@ private:
     std::vector<Edit> edits_;       // the last kEditHistory edits, oldest first
     std::uint64_t oldestKept_ = 0;  // the version before the oldest edit kept: readers at or after it can be answered
     static constexpr std::size_t kEditHistory = 64;
+    std::vector<Edit> holesEdits_;  // the last kEditHistory holes rectangles (cells), oldest first
+    std::uint64_t holesOldestKept_ = 0;
     std::vector<TerrainStep> undo_, redo_;  // oldest first
     std::size_t historyBytes_ = 0;
     std::size_t historyLost_ = 0;
