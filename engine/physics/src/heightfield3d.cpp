@@ -267,7 +267,9 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, cons
     const int n = th.samples;
     const float cells = float(std::max(n - 1, 1));
     const float dx = std::max(t.size.x, 0.001f) / cells, dz = std::max(t.size.y, 0.001f) / cells;
-    const HeightfieldShape::Source now{n, n, dx, dz, t.heightScale, t.heightOffset, th.id, th.version, 0, 0};
+    // (oId / oVer: the holes mask of the terrain follows its own version)
+    const HeightfieldShape::Source now{
+        n, n, dx, dz, t.heightScale, t.heightOffset, th.id, th.version, th.id, th.holesVersion};
     if (f.attempted && now == f.tried) return f.problem;
     f.attempted = true;
     f.tried = now;
@@ -299,6 +301,7 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, cons
         f.h.resize(samples);
         for (std::size_t i = 0; i < samples; ++i) f.h[i] = height_of(th.data[i]);
         f.holes.clear();
+        if (th.holes.size() == std::size_t(n - 1) * std::size_t(n - 1)) f.holes = th.holes;  // (0 or 1 per cell)
         f.brows = f.bcols = (n - 1 + HeightfieldShape::kBlock - 1) / HeightfieldShape::kBlock;
         f.bmin.assign(std::size_t(f.brows) * std::size_t(f.bcols), 0.0f);
         f.bmax = f.bmin;
@@ -369,6 +372,33 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, cons
             edit.yLo = std::fmin(oldLo, newLo);
             edit.yHi = std::fmax(oldHi, newHi);
         }
+    }
+    // The holes mask: the cells whose value differs from the copy (a hole edit says nothing about where, so the rows are compared).
+    if (sameShape && f.built.oVer != now.oVer) {
+        const std::size_t ccols = std::size_t(n - 1), ncell = ccols * ccols;
+        const bool holesNow = th.holes.size() == ncell;
+        if (holesNow && f.holes.empty()) f.holes.assign(ncell, 0);
+        bool any = false;
+        if (!f.holes.empty()) {
+            for (int r = 0; r < n - 1; ++r) {
+                const std::size_t row = std::size_t(r) * ccols;
+                if (holesNow && std::memcmp(f.holes.data() + row, th.holes.data() + row, ccols) == 0) continue;
+                for (int c = 0; c < n - 1; ++c) {
+                    const std::size_t i = row + std::size_t(c);
+                    const std::uint8_t before = f.holes[i], after = holesNow && th.holes[i] != 0 ? 1 : 0;
+                    if (before == after) continue;
+                    float lo, hi;
+                    f.cell_range(r, c, lo, hi);
+                    edit.yLo = any || edit.changed ? std::fmin(edit.yLo, lo) : lo;
+                    edit.yHi = any || edit.changed ? std::fmax(edit.yHi, hi) : hi;
+                    note_cells(edit, r, r, c, c);
+                    any = true;
+                    f.holes[i] = after;
+                }
+            }
+        }
+        if (!holesNow) f.holes.clear();
+        if (any) edit.changed = true;
     }
     if (edit.changed) ++f.revision;
     f.built = now;

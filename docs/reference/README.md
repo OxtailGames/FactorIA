@@ -671,11 +671,14 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`foliage.clear`](commands/world.md#foliageclear-modifies-state): Remove every instance of a Foliage, or those in a rectangle. _Not released yet._
 - [`foliage.paint`](commands/world.md#foliagepaint-modifies-state): Add or remove foliage instances by hand in a circle on the ground. _Not released yet._
 - [`foliage.scatter`](commands/world.md#foliagescatter-modifies-state): Fill a Foliage's instances by a ScatterRule over a terrain. _Not released yet._
-- [`terrain.create`](commands/world.md#terraincreate-modifies-state): Create a Terrain entity with a heightmap file. _Not released yet._
-- [`terrain.generate`](commands/world.md#terraingenerate-modifies-state): Fill a Terrain's heightmap with seeded procedural noise and optional erosion. _Not released yet._
-- [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain in a circle. _Not released yet._
-- [`terrain.paint`](commands/world.md#terrainpaint-modifies-state): Paint a material layer of a Terrain in a circle. _Not released yet._
-- [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heightmap of a Terrain in a circle. _Not released yet._
+- [`terrain.create`](commands/world.md#terraincreate-modifies-state): Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap. _Not released yet._
+- [`terrain.generate`](commands/world.md#terraingenerate-modifies-state): Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step). _Not released yet._
+- [`terrain.holes`](commands/world.md#terrainholes-modifies-state): Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one undo step). _Not released yet._
+- [`terrain.paint`](commands/world.md#terrainpaint-modifies-state): Paint a material layer of a Terrain with a brush (splat maps, live, one undo step). _Not released yet._
+- [`terrain.redo`](commands/world.md#terrainredo-modifies-state): Redo the terrain edit the last terrain.undo took back. _Not released yet._
+- [`terrain.save`](commands/world.md#terrainsave-modifies-state): Write the edited files of one Terrain, or of every Terrain, to the project. _Not released yet._
+- [`terrain.sculpt`](commands/world.md#terrainsculpt-modifies-state): Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step). _Not released yet._
+- [`terrain.undo`](commands/world.md#terrainundo-modifies-state): Undo the last terrain edit of a Terrain (one command's worth of heights, holes and splat maps). _Not released yet._
 - [`world.absolute_position`](commands/world.md#worldabsolute_position): Read an entity's position in double precision: the floating origin plus its local position. _Not released yet._
 - [`world.cells`](commands/world.md#worldcells): List the cells of the streamed world and which are loaded. _Not released yet._
 - [`world.merge_cells`](commands/world.md#worldmerge_cells-modifies-state): Merge the cells of a split scene back into one scene file. _Not released yet._
