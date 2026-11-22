@@ -870,6 +870,11 @@ TEST_CASE(
     const Json r = call("foliage.scatter", R"({"entity":"grass"})");
     REQUIRE(finish_undo_plan(s.world(), "foliage.scatter", *plan, r));
     CHECK_FALSE(plan->noop);
+    // both commands carry the history's id and the step's absolute number (steps lost + depth)
+    CHECK(plan->inverse[0].historyId == r["historyId"].get<std::uint64_t>());
+    CHECK(plan->inverse[0].step == r["historyLost"].get<std::uint64_t>() + r["undoDepth"].get<std::uint64_t>());
+    CHECK(plan->forward[0].historyId == plan->inverse[0].historyId);
+    CHECK(plan->forward[0].step == plan->inverse[0].step);
     const std::string file = r["file"].get<std::string>();
     REQUIRE(fs::exists(file));
     // undo and redo through the plan
@@ -897,6 +902,75 @@ TEST_CASE(
     // an entity with no Foliage has no plan
     CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"nobody"})")).has_value());
     CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"g"})")).has_value());
+}
+
+namespace {
+UndoEntry foliage_entry(const char* id, std::uint64_t history, std::uint64_t step) {
+    const Json args = Json::object({{"entity", id}});
+    UndoCommand redo{"foliage.redo", args, "", step, history}, undo{"foliage.undo", args, "", step, history};
+    return UndoEntry::command({redo}, {undo});
+}
+}  // namespace
+
+TEST_CASE("undo inverse: foliage rows numbered at or below the steps the history lost go, a trimmed list does not "
+          "confuse it") {
+    // The editor list holds 3 rows of a history that has made 10 steps and let go of the first 8 (steps 9 and 10 are what it still
+    // has); the list itself trimmed its oldest rows long ago, so counting lost steps against the oldest rows would drop live ones.
+    UndoStack st(3, size_t(1) << 20);
+    st.push_back(foliage_entry("grass", 7, 7));  // pushed first: trimmed below, together with 8
+    st.push_back(foliage_entry("grass", 7, 8));
+    st.push_back(UndoEntry::command({{"scene.destroy", Json::object({{"id", "x"}}), ""}}, {}));
+    st.push_back(foliage_entry("grass", 7, 9));
+    st.push_back(foliage_entry("grass", 7, 10));
+    REQUIRE(st.size() == 3);                                  // 8 and the destroy were trimmed too
+    CHECK(drop_foliage_steps(st, "grass", 7, 8).steps == 0);  // the rows left are 9 and 10: both still work
+    CHECK(st.size() == 3);
+    const FoliageDrop one = drop_foliage_steps(st, "grass", 7, 9);
+    CHECK(one.steps == 1);
+    CHECK(one.entries == 1);
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].step == 10);
+    // the numbers repeat in another history of the same entity (it was destroyed and came back): its rows are not touched by the
+    // old one's count, and the old one's rows go when the new history shows itself
+    st.push_back(foliage_entry("grass", 8, 1));
+    CHECK(drop_foliage_steps(st, "grass", 8, 0).steps == 0 + 1);  // history 7's step 10 is of another history: gone
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].historyId == 8);
+    // another entity is never touched
+    st.push_back(foliage_entry("trees", 9, 1));
+    CHECK(drop_foliage_steps(st, "grass", 8, 5).steps == 1);
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].args["entity"] == "trees");
+}
+
+TEST_CASE("undo inverse: a Chain entry that lost one foliage step keeps its other commands and its bytes are estimated "
+          "again") {
+    const Json g = Json::object({{"entity", "grass"}}), t = Json::object({{"entity", "g"}});
+    UndoStack st;
+    st.push_back(
+        UndoEntry::command({{"foliage.redo", g, "", 2, 3}, {"terrain.redo", t, ""}, {"foliage.redo", g, "", 3, 3}},
+                           {{"foliage.undo", g, "", 3, 3}, {"terrain.undo", t, ""}, {"foliage.undo", g, "", 2, 3}}));
+    const std::size_t before = st.bytes();
+    const FoliageDrop d = drop_foliage_steps(st, "grass", 3, 2);  // the history let go of steps 1 and 2
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 2);
+    CHECK(st[0].inverse[0].step == 3);  // number 3 still works
+    CHECK(st[0].inverse[1].cmd == "terrain.undo");
+    REQUIRE(st[0].forward.size() == 2);
+    CHECK(st[0].forward[1].cmd == "foliage.redo");
+    CHECK(st[0].forward[1].step == 3);
+    CHECK(st.bytes() < before);
+    CHECK(st.bytes() == st[0].bytes);
+    // a history that was cleared takes every foliage command of the entity, numbered or not
+    st.push_back(UndoEntry::command({{"foliage.redo", g, ""}}, {{"foliage.undo", g, ""}}));
+    const FoliageDrop all = drop_foliage_all(st, "grass");
+    CHECK(all.steps == 2);
+    CHECK(all.entries == 1);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].cmd == "terrain.undo");
 }
 
 TEST_CASE("undo inverse: a list that trimmed its own oldest entries and a terrain that lost a step drop nothing that "
