@@ -6376,10 +6376,62 @@ declare module "factoria" {
      */
     lit: boolean;
     /**
-     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (asset path: texture)
+     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true and normalFrom is file. (asset path: texture)
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space sprite (a screen-space sprite does not light the scene). Black (default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. Alpha of the colour is ignored.
+     * @since 0.34.0
+     */
+    get emissive(): Color;
+    set emissive(value: ColorLike);
+    /**
+     * HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
+     * @since 0.34.0
+     */
+    emissiveIntensity: number;
+    /**
+     * Texture laid out exactly like `texture` and `region` that says where the sprite glows: its RGB is multiplied with `emissive` per pixel, so only the windows or runes of a sprite shine. Empty (default) = the whole sprite emits `emissive`, shaped by its own alpha. (asset path: texture)
+     * @since 0.34.0
+     */
+    emissiveMap: string;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this sprite is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Colour of the rim light: a bright edge on the side of the sprite that faces a Light2D, as if light wrapped around it. Alpha is ignored. Only drawn when rimIntensity is above 0 and the sprite is lit.
+     * @since 0.34.0
+     */
+    get rimColor(): Color;
+    set rimColor(value: ColorLike);
+    /**
+     * Strength of the rim light. 0 (default) = off. 1 = a rim as bright as the light that makes it.
+     * @since 0.34.0
+     */
+    rimIntensity: number;
+    /**
+     * Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin edge, 0.5 a wide glow.
+     * @since 0.34.0
+     */
+    rimWidth: number;
+    /**
+     * Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` sets the relief of a generated map; `normalMap` is ignored with sprite and height.
+     * @since 0.34.0
+     */
+    normalFrom: "file" | "sprite" | "height";
+    /**
+     * Grey image laid out like `texture` (white = high, black = low) that the normals are generated from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none. (asset path: texture)
+     * @since 0.34.0
+     */
+    heightMap: string;
+    /**
+     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made.
+     * @since 0.34.0
+     */
+    normalStrength: number;
     /**
      * Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.
      * @since 0.4.0
@@ -6487,7 +6539,7 @@ declare module "factoria" {
     mode: "inherit" | "on" | "off";
   }
   /**
-   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the 256 lights a frame shades), soft with `size`. The light sits at the entity's position (Transform) and ignores sorting layers (Sprite.layer): it lights every layer of the draw order. `lightLayers` chooses which Sprite, Shape2D and Tilemap it lights and which ShadowCaster2D block it, `size` softens its shadows, and `cookie` shines it through a texture.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -6535,10 +6587,202 @@ declare module "factoria" {
      */
     elevation: number;
     /**
-     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen by lightLayers. Directional lights cast no shadows. Default false.
      * @since 0.3.0
      */
     castShadows: boolean;
+    /**
+     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
+     * @since 0.34.0
+     */
+    size: number;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a Sprite, Shape2D or Tilemap when their lightLayers share a bit with it, and a ShadowCaster2D blocks it only when their lightLayers share a bit. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default -1 (all layers).
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Texture the light shines through (a window, foliage, a gobo): its brightness multiplies the light across the light's disc, centred on the entity. Point lights only. Empty (default) = no cookie. (asset path: texture)
+     * @since 0.34.0
+     */
+    cookie: string;
+    /**
+     * Degrees the cookie is turned around the light, counter-clockwise. Default 0.
+     * @since 0.34.0
+     */
+    cookieRotationDeg: number;
+    /**
+     * Size of the cookie as a multiple of the light's diameter (2 x radius): 1 (default) fits the cookie to the whole disc, 0.5 makes it half as big, 2 shows its middle half.
+     * @since 0.34.0
+     */
+    cookieScale: number;
+  }
+  /**
+   * Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: docs/rendering/RENDERING_2D_SHADOWS.md.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface ShadowCaster2DComponent {
+    /**
+     * The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose alpha is above alphaThreshold (needs a Sprite). polygon: the outline in `points`. box: a rectangle of `size` centred on the entity.
+     * @since 0.34.0
+     */
+    shape: "spriteAlpha" | "polygon" | "box";
+    /**
+     * polygon only: the outline as a flat array of numbers [x0, y0, x1, y1, ...] in the entity's local space (world units before the Transform's scale and rotation, +y up), at least 3 points (6 numbers) in order around the shape. The shape may be convex or concave. Default [] (blocks nothing). Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.34.0
+     */
+    get points(): Float32Array;
+    set points(value: Float32Array | readonly number[]);
+    /**
+     * box only: [width, height] in world units, centred on the entity, before its scale. Both must be above 0. Default [32, 32].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * spriteAlpha only: pixels with alpha above this value block light, 0..1. Default 0.5; lower it to let soft edges and smoke cast a shadow.
+     * @since 0.34.0
+     */
+    alphaThreshold: number;
+    /**
+     * true: the caster is shadowed by its own silhouette, so the side facing away from a light is dark. false (default): the caster is lit as if it did not block light, which looks right for a character.
+     * @since 0.34.0
+     */
+    selfShadow: boolean;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the Light2D.lightLayers this caster blocks: a light whose lightLayers share no bit with it shines through. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1 ...). Default -1 (every light).
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * false switches the caster off without removing the component, so it casts no shadow. Default true.
+     * @since 0.34.0
+     */
+    enabled: boolean;
+  }
+  /**
+   * Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. Off unless an entity of the scene has this component and `enabled` is true (the first one counts), so a scene without it costs nothing and draws the same pixels. It needs render targets of 16-bit float colour and a memory budget: where the GPU has none, or `quality` and `range` ask for more than the platform budgets (render.supports 2dGlobalIllumination says which), the scene is drawn without it and the log tells why once. Only LIT visuals receive the light (albedo times the irradiance at their position, whatever their lightLayers); unlit visuals, 3D meshes, and pictures drawn into their own image (render targets, CameraView, editor views, camera captures) get none. Light comes from emitters and occluders inside the view plus `range`. Details, cost and limits: docs/rendering/RENDERING_2D_GI.md.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface GlobalIllumination2DComponent {
+    /**
+     * false switches the global illumination off without removing the component. Default true.
+     * @since 0.34.0
+     */
+    enabled: boolean;
+    /**
+     * How finely the cascades sample the light, as counts that are the same on every machine (rays are those of cascade 0): low = 3 cascades, a probe every 4 texels, 16 rays per probe, 20 steps per ray; medium (default) = 4 cascades, a probe every 2 texels, 4 rays per probe, 28 steps; high = 5 cascades, a probe every 2 texels, 4 rays, 40 steps. A small view uses fewer cascades than that. High needs 5 cascade passes: on a phone or a browser it is over the budget and the scene is drawn without GI (use medium there). It changes the cost, not the meaning of the other fields.
+     * @since 0.34.0
+     */
+    quality: "low" | "medium" | "high";
+    /**
+     * Multiplies the irradiance a lit visual receives (the light it adds is albedo times irradiance times this), 0..16. 1 = the light as the cascades computed it (default), 0 = no light added.
+     * @since 0.34.0
+     */
+    intensity: number;
+    /**
+     * 0..1: how much of the light that reached a surface (last frame's irradiance) it bounces back, times its colour: a red wall tints the floor next to it. 0 = only the light of emitters, no bounce; 1 = surfaces reflect all they receive times their colour. Only things that block light (ShadowCaster2D, solid Tilemap cells) bounce. Default 0.5.
+     * @since 0.34.0
+     */
+    bounce: number;
+    /**
+     * World units added around the camera's view on every side: the field of emitters and occluders covers the view plus this margin, so a lamp just off screen still lights it and a wall just off screen still shadows it; what is farther away does not exist for the GI. Larger costs more memory (the field grows with it) and over the platform's budget turns the GI off with a log line. 1..100000, default 512.
+     * @since 0.34.0
+     */
+    range: number;
+    /**
+     * Texels of the field per screen pixel, 0.1..1: 0.5 (default) computes the field at half the screen's resolution; lower is cheaper and softer, and a thin shadow caster narrower than a texel can be missed. The field's sides are rounded up to a multiple of 32 texels and its memory is about 64 bytes a texel.
+     * @since 0.34.0
+     */
+    resolutionScale: number;
+  }
+  /**
+   * A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/RENDERING_2D_WATER.md).
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface Water2DComponent {
+    /**
+     * [width, height] of the water area in world units, before the entity's scale; both above 0. The top edge is the surface. Default [256, 128].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Colour (and opacity, the alpha) of the water body: what is seen through it is mixed with this. Default [0.2, 0.5, 0.7, 0.5].
+     * @since 0.34.0
+     */
+    get tint(): Color;
+    set tint(value: ColorLike);
+    /**
+     * 0..1: how much of what is above the surface shows mirrored in the water. 0 = none, 1 = a mirror. Default 0.5.
+     * @since 0.34.0
+     */
+    reflection: number;
+    /**
+     * How far what is under the water is displaced by the waves, in pixels of the picture, 0..256. 0 = no distortion. Default 4.
+     * @since 0.34.0
+     */
+    refraction: number;
+    /**
+     * Height of the waves of the surface in world units, 0..1000. 0 = a still surface. Default 2.
+     * @since 0.34.0
+     */
+    waveAmplitude: number;
+    /**
+     * Distance between two wave crests in world units, 0.1..100000. Default 64.
+     * @since 0.34.0
+     */
+    waveLength: number;
+    /**
+     * How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). 0 = frozen. Default 1.
+     * @since 0.34.0
+     */
+    waveSpeed: number;
+    /**
+     * Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.
+     * @since 0.34.0
+     */
+    layer: number;
+    /**
+     * Optional sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that replaces the built-in water look; the area is its quad. Empty (default) = the built-in water. (asset path: material)
+     * @since 0.34.0
+     */
+    material: string;
+  }
+  /**
+   * A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. The entity's Transform places the centre of the area.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface DistortionZone2DComponent {
+    /**
+     * [width, height] of the zone in world units, before the entity's scale; both above 0. Default [128, 128].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled by the material when there is one). 0 = no distortion. Default 1.
+     * @since 0.34.0
+     */
+    strength: number;
+    /**
+     * Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a higher layer is not bent. Default 20.
+     * @since 0.34.0
+     */
+    layer: number;
+    /**
+     * Sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that makes the displacement. Empty (default) = the built-in ripple. (asset path: material)
+     * @since 0.34.0
+     */
+    material: string;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
@@ -6802,6 +7046,11 @@ declare module "factoria" {
      */
     lit: boolean;
     /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this shape is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
      * rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.
      * @since 0.4.0
      */
@@ -7063,6 +7312,22 @@ declare module "factoria" {
      * @since 0.3.0
      */
     occludesLight: boolean;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works with or without `lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.
+     * @since 0.34.0
+     */
+    get emissive(): Color;
+    set emissive(value: ColorLike);
+    /**
+     * HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
+     * @since 0.34.0
+     */
+    emissiveIntensity: number;
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of every tile (one material for the whole Tilemap: all its tiles draw as one batch; give another layer its own Tilemap to give it another material) (it receives the colour the Tilemap would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
      * @since 0.32.0
@@ -11914,6 +12179,10 @@ declare module "factoria" {
     Parallax: ParallaxComponent;
     Interpolation: InterpolationComponent;
     Light2D: Light2DComponent;
+    ShadowCaster2D: ShadowCaster2DComponent;
+    GlobalIllumination2D: GlobalIllumination2DComponent;
+    Water2D: Water2DComponent;
+    DistortionZone2D: DistortionZone2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Bone2D: Bone2DComponent;
     SpriteSkin: SpriteSkinComponent;
@@ -11967,18 +12236,22 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; emissive?: ColorLike; emissiveIntensity?: number; emissiveMap?: string; lightLayers?: number; rimColor?: ColorLike; rimIntensity?: number; rimWidth?: number; normalFrom?: "file" | "sprite" | "height"; heightMap?: string; normalStrength?: number; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Interpolation: { mode?: "inherit" | "on" | "off" };
-    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean; size?: number; lightLayers?: number; cookie?: string; cookieRotationDeg?: number; cookieScale?: number };
+    ShadowCaster2D: { shape?: "spriteAlpha" | "polygon" | "box"; points?: Float32Array; size?: Vec2Like; alphaThreshold?: number; selfShadow?: boolean; lightLayers?: number; enabled?: boolean };
+    GlobalIllumination2D: { enabled?: boolean; quality?: "low" | "medium" | "high"; intensity?: number; bounce?: number; range?: number; resolutionScale?: number };
+    Water2D: { size?: Vec2Like; tint?: ColorLike; reflection?: number; refraction?: number; waveAmplitude?: number; waveLength?: number; waveSpeed?: number; layer?: number; material?: string };
+    DistortionZone2D: { size?: Vec2Like; strength?: number; layer?: number; material?: string };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: Float32Array; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut"; material?: string; materialParams?: any };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; lightLayers?: number; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut"; material?: string; materialParams?: any };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; lightLayers?: number; emissive?: ColorLike; emissiveIntensity?: number; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
@@ -12617,10 +12890,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

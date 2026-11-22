@@ -70,7 +70,8 @@ so an empty `fragment()` draws exactly the engine's own pixels, and a snippet ch
 | 0 | the main texture times the tint |
 | 1, 2, 3 | the circle, the ring or the soft particle: tint colour, the alpha holding the coverage |
 | 4 | a glyph: the tint, the alpha holding the glyph's coverage |
-| 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights |
+| 5, 6 (and the `+16` modes of lit items) | the picture already shaded by the 2D lights (plus the rim light of a lit sprite) |
+| any mode | plus the item's emission (`Sprite.emissive`, `Tilemap.emissive`), added to the colour after the lighting |
 | 7 | the rounded rectangle, circle, outline or gradient of a `Shape2D` (its coverage, gradient and dithering included) |
 
 What `fragment()` leaves in `s.color` goes through the engine's last steps: the `flash` of [GAME_FEEL.md](../GAME_FEEL.md),
@@ -86,6 +87,32 @@ samplers (`tex`, `smp`, `normal_tex`, `light_tex`...), the uniform blocks and th
 one.) A snippet's own variables and functions must avoid them too: the compiler's hint then says the name is taken by
 the engine's 2D program.
 
+**The scene colour (M74.4).** `fa_scene_color(vec2 uv)` (fragment stage only) returns the picture the camera has drawn so far, straight RGBA in the
+scene's colour space, at the screen position `uv` (0..1 over the render target, y running down: the same space as `i.screen_uv`, so
+`fa_scene_color(i.screen_uv + vec2(0.01, 0.0))` is the picture a hundredth of the width to the right of the pixel). A `uv` outside the camera's rectangle
+reads the nearest edge pixel. `fa_world_to_uv(vec3 world)` turns a world position into that same `uv`, to read the picture somewhere else in the world (the
+mirror image of the pixel in water: `fa_world_to_uv(vec3(i.world_pos.x, 2.0 * surfaceY - i.world_pos.y, 0.0))`). Two things to know:
+
+- The picture is what was drawn **before** the item: lower layers and earlier items, never the item itself or what draws after it. Put the material on a
+  layer above what it should show.
+- Nothing is copied unless a material of the frame calls `fa_scene_color` (the compiled program says so). When one does, the renderer copies the camera's
+  rectangle before the first such draw and again only where something that does not read it was drawn in between: **items that read the picture and
+  follow each other share one copy and do not see each other**, and at most 8 copies are made per camera and frame (the later items read the last
+  copy; the log says so once). `render.stats` has `sceneCopies`. A frame without such a material has no copy, no extra image and no extra pass. Where
+  no copy exists (a pass that is not the camera's main pass) `fa_scene_color` returns `vec4(0.0)`.
+
+```glsl
+// A frosted pane: the picture behind it, shifted a little by a wave, mixed with the pane's own colour.
+void fragment(in QuadInput i, inout QuadSurface s) {
+    vec2 wobble = vec2(sin(i.world_pos.y * 0.2 + i.time), 0.0) * 0.004;
+    vec3 behind = fa_scene_color(i.screen_uv + wobble).rgb;
+    s.color = vec4(mix(behind, s.color.rgb, 0.25), s.color.a);
+}
+```
+
+`Water2D.material` and `DistortionZone2D.material` are sprite materials of this kind that the renderer draws for those components, with their fields as
+params: [Rendering: 2D water](../rendering/RENDERING_2D_WATER.md).
+
 **The lean program.** The renderer draws a batch of plain textured quads (no lights, no multiply, nothing but mode 0)
 with a lean program, `quad_plain`; every other batch uses `quad`. Both compile from your snippet, so `fragment()` must
 not depend on anything the lean program has not: `i.mode` is 0 in it.
@@ -93,7 +120,13 @@ not depend on anything the lean program has not: `i.mode` is 0 in it.
 **Slots.** The engine's own bindings come first, so a material's textures start after them: sampler and texture views
 0 to 3 (`tex`, `normal_tex`, `light_tex`, `shadow_tex`) and samplers 0 to 2 are the engine's; your textures are views 4
 to 7 and samplers 3 to 6 (at most 4 textures, as for a mesh; the vertex stage reads them at views 8 to 11 and samplers 7
-to 10), the params block is binding 5 (4 in the vertex stage). A
+to 10), the params block is binding 5 (4 in the vertex stage). Views 12 to 15 are the engine's too (M74): the emissive map of an item,
+the atlas of the 2D light cookies, the irradiance of the 2D global illumination and the picture of `fa_scene_color` (`fx_emissive_tex`, `fx_cookie_tex`, `fx_gi_tex`, and view 15, `fa_scene_tex`, declared only by
+a program whose snippet calls it; it shares the sampler `light_smp`); a material never uses them, they sit after its eight. The
+fragment block `quad_fs_params` also holds the emission (`fx_emit`, `fx_emit_uv`), the rim light (`fx_rim`, `fx_rim_uv`) and the lights'
+cookies (`light_cookie`, `light_cookie_xf`), which are names of the engine's program like the rest (a param or a texture cannot take
+them). `s.color` on arrival already includes the item's emission (`Sprite.emissive`, in the scene's HDR range) and the rim light of a
+lit sprite: they are added before `fragment()` runs, so it can keep, tint or drop them. A
 mesh material starts at view 6 and sampler 2: the numbers are not interchangeable, but `kind` decides them and you never
 write them. The slots are listed in `engine/render/src/render_internal.h` (`kMaterialSpriteFirstView`).
 
@@ -163,3 +196,41 @@ void fragment(in QuadInput i, inout QuadSurface s) {
 A texture works as for a mesh material, sampled with `texture(sampler2D(mask, mask_smp), i.uv)`; name it anything but
 a name of the engine's program (`tex`, `smp`, `normal_tex`... are refused).
 
+
+## 11. A frosted pane and a magnifier (the scene colour)
+
+A sprite that shows the picture behind it: frosted when `frost` is above 0 (the picture is read through a small wobble and mixed with the pane's own
+colour), a lens when `zoom` is above 1 (the picture is read closer to the world point `focus`, which a script sets to the sprite's position). Put it on a layer above what it should show.
+
+File `materials/sprite-pane.material.json`:
+
+```json
+{
+  "format": "factoria.material/1",
+  "kind": "sprite",
+  "doc": "Shows the picture drawn behind the sprite: a frosted pane, or a magnifier.",
+  "shader": "shaders/sprite-pane.fragment.glsl",
+  "params": {
+    "frost": { "type": "float", "default": 0.3, "min": 0.0, "max": 1.0, "doc": "How much of the pane's own colour is mixed into the picture behind it." },
+    "wobble": { "type": "float", "default": 6.0, "min": 0.0, "max": 100.0, "doc": "How far, in pixels, the picture behind is pushed about." },
+    "zoom": { "type": "float", "default": 1.0, "min": 1.0, "max": 8.0, "doc": "1 = the picture as it is; above 1 = enlarged around `focus`." },
+    "focus": { "type": "vec2", "default": [0.0, 0.0], "doc": "World position the lens enlarges around (its middle: the sprite's own position)." }
+  }
+}
+```
+
+File `shaders/sprite-pane.fragment.glsl`:
+
+```glsl
+void fragment(in QuadInput i, inout QuadSurface s) {
+    // The lens looks at the screen position of the world point `focus` (fa_world_to_uv turns a world position into a screen uv).
+    vec2 centre = fa_world_to_uv(vec3(focus, 0.0));
+    vec2 uv = i.screen_uv;
+    uv = centre + (uv - centre) / zoom;
+    uv += vec2(sin(i.world_pos.y * 0.2 + i.time), cos(i.world_pos.x * 0.2 + i.time)) * wobble * fa_target.xy;
+    vec3 behind = fa_scene_color(uv).rgb;
+    s.color = vec4(mix(behind, s.color.rgb, frost), s.color.a);
+}
+```
+
+`fa_target.xy` is one pixel in `screen_uv` units. The pane draws only where the sprite has alpha, so a round `texture` makes a round lens. A camera that moves needs no care: `fa_world_to_uv` follows it.

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #include "fa/core/strings.h"
@@ -218,6 +219,96 @@ std::vector<ProfileStep> find_steps(const std::vector<float>& values, float thre
         }
     }
     return steps;
+}
+
+// ---- Normal maps made from a height field (M74) ----------------------------------------------------------------
+
+namespace {
+
+int clamp_or_wrap(int i, int n, bool tile) {
+    if (tile) return ((i % n) + n) % n;
+    return std::clamp(i, 0, n - 1);
+}
+
+std::uint8_t normal_byte(double v) { return std::uint8_t(std::clamp(std::floor(v * 255.0 + 0.5), 0.0, 255.0)); }
+
+double luminance01(const std::uint8_t* px) { return (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255.0; }
+
+}  // namespace
+
+Image normal_map_from_height(const std::vector<double>& height, int w, int h, bool tile, double strength) {
+    Image img;
+    if (w < 1 || h < 1 || height.size() < std::size_t(w) * std::size_t(h)) return img;
+    img.width = w;
+    img.height = h;
+    img.rgba.resize(std::size_t(w) * std::size_t(h) * 4);
+    const double k = std::min(w, h) / 512.0;
+    auto at = [&](int x, int y) {
+        return height[std::size_t(clamp_or_wrap(y, h, tile)) * std::size_t(w) + std::size_t(clamp_or_wrap(x, w, tile))];
+    };
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const double dx = (at(x + 1, y) - at(x - 1, y)) * 0.5 * k;
+            const double dy = (at(x, y + 1) - at(x, y - 1)) * 0.5 * k;
+            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0,
+                   nz = 1.0;  // up the picture is -y of the pixel grid
+            const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+            nx /= len;
+            ny /= len;
+            nz /= len;
+            std::uint8_t* o = &img.rgba[(std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4];
+            o[0] = normal_byte(nx * 0.5 + 0.5);
+            o[1] = normal_byte(ny * 0.5 + 0.5);
+            o[2] = normal_byte(nz * 0.5 + 0.5);
+            o[3] = 255;
+        }
+    }
+    return img;
+}
+
+std::vector<double> sprite_height_field(const Image& sprite, int bevel) {
+    std::vector<double> out;
+    if (sprite.empty() || sprite.rgba.size() < std::size_t(sprite.width) * std::size_t(sprite.height) * 4) return out;
+    const int w = sprite.width, h = sprite.height;
+    const std::size_t n = std::size_t(w) * std::size_t(h);
+    if (bevel <= 0) bevel = std::max(1, std::min(w, h) / 12);
+    // Distance to the nearest transparent pixel (the outside of the picture counts as transparent): the 3-4 chamfer, two
+    // passes over integers, in thirds of a pixel.
+    constexpr int kInf = 1 << 28;
+    std::vector<int> d(n, 0);
+    for (std::size_t i = 0; i < n; ++i) d[i] = sprite.rgba[i * 4 + 3] >= 128 ? kInf : 0;
+    auto get = [&](int x, int y) { return (x < 0 || y < 0 || x >= w || y >= h) ? 0 : d[std::size_t(y) * w + x]; };
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            int& v = d[std::size_t(y) * w + x];
+            if (v == 0) continue;
+            v = std::min({v, get(x - 1, y) + 3, get(x, y - 1) + 3, get(x - 1, y - 1) + 4, get(x + 1, y - 1) + 4});
+        }
+    for (int y = h - 1; y >= 0; --y)
+        for (int x = w - 1; x >= 0; --x) {
+            int& v = d[std::size_t(y) * w + x];
+            if (v == 0) continue;
+            v = std::min({v, get(x + 1, y) + 3, get(x, y + 1) + 3, get(x + 1, y + 1) + 4, get(x - 1, y + 1) + 4});
+        }
+    out.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double t = std::clamp(double(d[i]) / (3.0 * double(bevel)), 0.0, 1.0);
+        const double bevelH = t * t * (3.0 - 2.0 * t);
+        const double a = sprite.rgba[i * 4 + 3] / 255.0;
+        out[i] = std::clamp(0.65 * bevelH + 0.35 * luminance01(&sprite.rgba[i * 4]) * a, 0.0, 1.0);
+    }
+    return out;
+}
+
+Image normal_map_from_sprite(const Image& sprite, double strength) {
+    return normal_map_from_height(sprite_height_field(sprite), sprite.width, sprite.height, false, strength);
+}
+
+Image normal_map_from_height_image(const Image& grey, double strength) {
+    if (grey.empty() || grey.rgba.size() < std::size_t(grey.width) * std::size_t(grey.height) * 4) return Image{};
+    std::vector<double> hf(std::size_t(grey.width) * std::size_t(grey.height));
+    for (std::size_t i = 0; i < hf.size(); ++i) hf[i] = luminance01(&grey.rgba[i * 4]);
+    return normal_map_from_height(hf, grey.width, grey.height, false, strength);
 }
 
 }  // namespace fa

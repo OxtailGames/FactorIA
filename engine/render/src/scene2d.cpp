@@ -16,6 +16,7 @@
 #include "render_scene.h"
 #include "scene2d.h"
 #include "sprite_buffer_draw.h"
+#include "water2d.h"
 
 namespace fa::render {
 
@@ -256,6 +257,25 @@ Vec2 tile_source(int flags, float px, float py) {
 
 namespace {
 
+// What an item adds to the plain picture (M74, docs/rendering/RENDERING_2D_EMISSION.md): the emission (a colour picked as sRGB, times its
+// HDR intensity, in the scene's colour space) with its map, and for a lit item the light layers that reach it. The rim is set by the caller.
+QuadFx item_fx(const Frame& f, Assets& assets, const Color& emissive, float intensity, const std::string& emissiveMap,
+               bool lit, std::int32_t layers) {
+    QuadFx fx;
+    if (lit) fx.layers = layers;
+    const float k = std::isfinite(intensity) ? std::clamp(intensity, 0.0f, 1000.0f) : 0.0f;
+    const Color e = to_scene(emissive, f.linear);
+    fx.emissive[0] = std::max(e.r, 0.0f) * k;
+    fx.emissive[1] = std::max(e.g, 0.0f) * k;
+    fx.emissive[2] = std::max(e.b, 0.0f) * k;
+    if (fx.has_emissive() && !emissiveMap.empty()) {
+        TextureAsset* t =
+            assets.texture(emissiveMap);  // a missing file is logged once (with suggestions) and shows its checker
+        if (t) fx.emissiveMap = t;
+    }
+    return fx;
+}
+
 // Collects the Light2D entities of the frame into f.lights2d, at most kMaxLights2D: directional lights first, then the
 // point lights that light the view. A point light whose radius does not reach the camera's visible rectangle shades nothing
 // on screen: it is left out and counted as dropped. Among those in view the ones with more of their radius inside the
@@ -274,6 +294,8 @@ void gather_lights(World& world, Frame& f) {
         float inside = 1.0f;  // share of the light's bounding square (2 * radius) that is inside the view
         float intensity = 0.0f;
         float dist2 = 0.0f;  // squared distance to the camera
+        const std::string* cookie =
+            nullptr;  // Light2D.cookie of a point light that has one (the component outlives this function)
     };
     std::vector<Candidate> found;
     const Vec2 cam = f.cam.position.xy();
@@ -288,6 +310,7 @@ void gather_lights(World& world, Frame& f) {
         c.data.color[1] = lc.g * l.intensity;
         c.data.color[2] = lc.b * l.intensity;
         c.data.color[3] = std::max(l.falloff, 0.01f);
+        c.data.layers = l.lightLayers;
         if (l.type == Light2DType::Directional) {
             const float d = radians(l.direction), el = radians(std::clamp(l.elevation, 0.0f, 90.0f));
             c.data.pos[0] = -std::cos(d) * std::cos(el);  // towards the light = against its travel direction
@@ -303,6 +326,13 @@ void gather_lights(World& world, Frame& f) {
             c.data.pos[2] = std::max(l.height, 0.0f);
             c.data.pos[3] = l.radius;
             c.data.extra[1] = l.castShadows ? 1.0f : 0.0f;
+            c.data.shadowSize = std::isfinite(l.size) ? std::max(l.size, 0.0f) : 0.0f;
+            if (!l.cookie.empty()) {
+                // Loaded below, only for the lights that are kept (a light out of view or over the budget never loads its picture).
+                c.cookie = &l.cookie;
+                c.data.cookieRot = radians(l.cookieRotationDeg);
+                c.data.cookieScale = std::isfinite(l.cookieScale) ? std::clamp(l.cookieScale, 0.01f, 100.0f) : 1.0f;
+            }
             c.dist2 = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
             if (useView) {
                 // The light must reach the rectangle itself; "inside" is its bounding square against the view.
@@ -332,7 +362,14 @@ void gather_lights(World& world, Frame& f) {
     const int total = int(found.size());
     // The off-view lights come last and shade nothing on screen, so they never take a place.
     found.resize(std::size_t(std::min(inViewCount, kMaxLights2D)));
-    for (const Candidate& c : found) f.lights2d.push_back(c.data);
+    for (Candidate& c : found) {
+        if (c.cookie) {
+            // A cookie that cannot be loaded is logged by the assets (with suggestions); the light then shines without it.
+            TextureAsset* ct = f.assets->texture(*c.cookie);
+            if (ct && !ct->placeholder) c.data.cookieTex = ct;
+        }
+        f.lights2d.push_back(c.data);
+    }
     if (f.stats) {
         f.stats->lights2d += int(f.lights2d.size());
         f.stats->lights2dDropped += total - int(f.lights2d.size());
@@ -379,8 +416,9 @@ struct SpritePrep {
     Entity e;
     const Sprite* s = nullptr;
     TextureAsset* tex = nullptr;
-    TextureAsset* normal = nullptr;  // Sprite.normalMap when lit (null = flat)
-    Color color;                     // Sprite.color with the inherited Tint
+    TextureAsset* normal = nullptr;  // Sprite.normalMap when lit (null = flat), or the map normalFrom generated
+    QuadFx fx;    // M74: emission, light layers and the rim's colour (its width is made in emit_sprite)
+    Color color;  // Sprite.color with the inherited Tint
     Rect clip;
     Vec2 pivot{0.5f, 0.5f};
     MaterialRef
@@ -433,6 +471,19 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
+    {
+        QuadFx fx = prep.fx;
+        if (fx.has_rim() && lit && !s.texture.empty()) {
+            // The rim looks at the picture's alpha this far away: Sprite.rimWidth of the smaller side, in uv units of the region shown.
+            const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
+            const float rimWorld = std::clamp(s.rimWidth, 0.01f, 1.0f) * std::min(std::abs(size.x), std::abs(size.y));
+            fx.rimUv[0] = rimWorld / std::max(std::abs(size.x), 1e-4f) * std::abs(hi.x - lo.x);
+            fx.rimUv[1] = rimWorld / std::max(std::abs(size.y), 1e-4f) * std::abs(hi.y - lo.y);
+        } else {
+            std::fill(std::begin(fx.rim), std::end(fx.rim), 0.0f);
+        }
+        list.set_fx(fx);
+    }
     list.set_material(prep.material);
     // A draw from buffers (Sprite.instances, or a material with buffers): the sprite is its one plain quad, the
     // template the material's vertex() moves for each instance; the mesh grid, the skin, the 9-slice and a repeat do
@@ -662,7 +713,12 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
                         clip);
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
-    if (s.lit && !screen) list.set_lit(nullptr);
+    if (s.lit && !screen) {
+        list.set_lit(nullptr);
+        QuadFx fx;
+        fx.layers = s.lightLayers;
+        list.set_fx(fx);
+    }
     list.set_material(assets.sprite_material(s.material, s.materialParams));  // may load it: on this thread
     QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
     // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
@@ -766,6 +822,7 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
         if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
+        list.set_fx(item_fx(f, assets, tm.emissive, tm.emissiveIntensity, std::string(), tm.lit, tm.lightLayers));
         // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
         list.set_material(assets.sprite_material(tm.material, tm.materialParams));
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
@@ -1077,13 +1134,32 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         }
         p.mirrored = p.screen && ui_mirrored(world, e);
         p.lit = s.lit && !p.screen;
-        if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
+        if (p.lit) {
+            // Sprite.normalFrom: the file's normals, or the map made from the sprite's own picture or from the grey heightMap (once,
+            // cached per picture and strength: Assets::generated_normal).
+            if (s.normalFrom == SpriteNormalFrom::Sprite)
+                p.normal = assets.generated_normal(s.texture, false, s.normalStrength);
+            else if (s.normalFrom == SpriteNormalFrom::Height)
+                p.normal = assets.generated_normal(s.heightMap, true, s.normalStrength);
+            else if (!s.normalMap.empty())
+                p.normal = assets.texture(s.normalMap);
+        }
+        p.fx = item_fx(f, assets, s.emissive, s.emissiveIntensity, s.emissiveMap, p.lit, s.lightLayers);
+        if (p.lit && s.rimIntensity > 0.0f && std::isfinite(s.rimIntensity)) {
+            const Color rc = to_scene(s.rimColor, f.linear);
+            const float k = std::min(s.rimIntensity, 16.0f);
+            p.fx.rim[0] = std::max(rc.r, 0.0f) * k;
+            p.fx.rim[1] = std::max(rc.g, 0.0f) * k;
+            p.fx.rim[2] = std::max(rc.b, 0.0f) * k;
+        }
         p.pivot = s.pivot;
         if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e))
             p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
         p.slotIndex = e.index;
         if (sl.state == State::Todo) {
-            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string(), s.materialParams))
+            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string(),
+                                   s.materialParams) &&
+                !Assets::is_target_id(s.emissiveMap))
                 p.share = true;
             else
                 sl.state = State::Direct;
@@ -1253,6 +1329,7 @@ void Scene2D::gather(World& world, Frame& f) {
     gather_sprites(world, f);
     gather_shapes(world, f);
     gather_tilemaps_and_text(world, f);
+    gather_water_fx(world, f);
 }
 
 void gather_2d(World& world, Frame& f) {

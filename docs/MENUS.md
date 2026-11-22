@@ -89,13 +89,18 @@ What the command does, file by file; do it by hand when you want to see each fil
    The Graphics tab (the last one) lets the player pick the quality of the screen effects (`high` leaves the game's own look,
    `medium` turns off the costly ones: SSAO, SSR, depth of field, motion blur, sun shafts, radial blur; `low` also bloom, film grain,
    lens distortion and sharpen; `off` all the optional ones) and switch bloom, film grain, vignette, chromatic aberration and
-   outlines one by one, plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
+   outlines one by one, a "2D lighting" button (Off, Low, Medium, High: it sets `enabled` and `quality` of every `GlobalIllumination2D`
+   of the scene and of the scenes loaded later, saved as `settings.graphics.lighting2d`; until the player chooses it is `null`, the
+   scene keeps its own values and the button shows them; the cycle starts from what the scene shows, so a `GlobalIllumination2D` with `enabled: false` and `quality: "medium"` shows Off and the next click is Low; on `game.platform` `ios`, `android` and `web` the engine's cascade budget turns High off (docs/rendering/RENDERING_2D_GI.md), so the button cycles Off, Low and Medium there and a saved High is applied as Medium; a game with its own scenes calls `settings.applyScene()` when each starts, as for `PostProcess`, and a scene's own High shows as Medium there; a 2D scene (one with a `Sprite`, or once the player has chosen) without a `GlobalIllumination2D` shows the choice and the tab's note says it has no effect there, while a 3D scene shows no lighting note; the lighting and HDR notes show together when both apply; `settings.lightingShown(s, platform)` is what the button shows for settings `s` on a platform, and `settings.overrideRenderSupports(fn)` is a test hook that answers `renderSupports(feature)` with `fn(feature)`, null restores the renderer), plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
    otherwise). It writes the `PostProcess` fields of the scene's cameras and volumes (exposure, tonemap, grading, the colour filter
-   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr}`) in the same `settings` storage entry, and
+   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr, lighting2d}`) in the same `settings` storage entry, and
    `settings.applyScene()` puts it on every scene that starts. Choosing a quality clears the switches the player touched; a
    switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
    `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player
    changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
+   The Graphics tab is the tallest: in a game that also shows the analytics row (an `analytics` section in factoria.json),
+   the bottom few pixels of the options panel fall off a 720-high screen (the Back button stays visible) and the log warns
+   that the panel is larger than the screen; such a game lowers `spacing` of `graphics_section` or shortens its notes.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`: it loads the first level in the background
    (`scene.load` with `{ async: true }`) and shows the real progress.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:

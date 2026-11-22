@@ -111,10 +111,10 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-19):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+**What comes next (2026-11-22):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
 M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
-(0.32.0) and M73 (0.33.0) are done. Next M74-M89 in their own order (M75 on M94.4). M99 waits for the user's hardware and
-accounts.
+(0.32.0), M73 (0.33.0) and M74 (0.34.0) are done. Next M75-M89 in their own order (M75 on M94.4). M99 waits for the
+user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
 
@@ -801,16 +801,16 @@ SHADERS.md "Not available yet" becomes empty.
 - M73.6 (M) — DONE in 0.33.0 Materials catch up: clear coat, sheen, transmission, anisotropy, glTF extensions for them, and the
   material inspector showing which ones cost a pass.
 
-## M74. Ambitious 2D lighting and effects (M; 4 packages) — the user, 2026-11-06
+## M74. Ambitious 2D lighting and effects (M; 4 packages) — the user, 2026-11-06 — DONE in 0.34.0
 
-- M74.1 (M) Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
+- M74.1 (M) — DONE in 0.34.0 Soft 2D shadows (penumbra by light size), shadow casters on sprites and shapes (`ShadowCaster2D` from the
   sprite's alpha or a polygon), self-shadowing off/on, more than 32 shadowed lights with an atlas.
-- M74.2 (M) Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
+- M74.2 (M) — DONE in 0.34.0 Emission and masks: emissive maps on sprites (feeding HDR bloom), light masks per layer, light cookies, a
   normal map generated from height or from the sprite itself, rim light. The normal map is also an image layer the AI
   and the user can edit (paint, smooth, flip a channel) with the M52 tools, previewed under a moving light.
-- M74.3 (L) 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
+- M74.3 (L) — DONE in 0.34.0 2D global illumination: radiance-cascades-style GI (light bounces off coloured walls, emissive sprites
   light the scene), quality levels, off by default.
-- M74.4 (M) 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
+- M74.4 (M) — DONE in 0.34.0 2D water and refraction: reflective water planes, refraction and distortion zones through M72 materials,
   shown in an example scene.
 
 ## M75. Big worlds: LOD, occlusion, streaming, terrain (L; 6 packages) — the user, 2026-11-06
@@ -1152,7 +1152,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0) and M73 (done in 0.33.0). M74-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0), M73 (done in 0.33.0) and M74 (done in 0.34.0). M75-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):

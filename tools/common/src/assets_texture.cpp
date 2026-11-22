@@ -15,6 +15,7 @@
 
 #include "assets_internal.h"
 #include "fa/core/asset_manifest.h"
+#include "fa/core/image_tools.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/asset_import.h"
 #include "util.h"
@@ -782,28 +783,7 @@ Image to_image(const Canvas& c, u32 seed, bool dither) {
 
 // Tangent-space normal map (+X right, +Y up the picture, like Sprite.normalMap and glTF) from the height field.
 Image normal_map(const Canvas& c, double strength) {
-    Image img;
-    img.width = c.w;
-    img.height = c.h;
-    img.rgba.resize(std::size_t(c.w) * c.h * 4);
-    for (int y = 0; y < c.h; ++y) {
-        for (int x = 0; x < c.w; ++x) {
-            double dx, dy;
-            slope(c, x, y, dx, dy);
-            double nx = -dx * strength * 4.0, ny = dy * strength * 4.0,
-                   nz = 1.0;  // up the picture is -y of the pixel grid
-            const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
-            nx /= len;
-            ny /= len;
-            nz /= len;
-            std::uint8_t* o = &img.rgba[c.at(x, y) * 4];
-            o[0] = to_byte(nx * 0.5 + 0.5, 0);
-            o[1] = to_byte(ny * 0.5 + 0.5, 0);
-            o[2] = to_byte(nz * 0.5 + 0.5, 0);
-            o[3] = 255;
-        }
-    }
-    return img;
+    return normal_map_from_height(c.height, c.w, c.h, c.tile, strength);
 }
 
 // ---- the command ----------------------------------------------------------------------------------------------------

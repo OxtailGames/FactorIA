@@ -2,6 +2,7 @@
 // render.inspect (luminance profile along a line and the hard steps in it) and render.pick (what draws a pixel).
 #include <optional>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -754,6 +755,100 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.gi2d_field",
+         "The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills "
+         "it and its cascades; optionally the images as PNGs.",
+         "Draws a frame when none is current and reports the field that a GlobalIllumination2D makes for each 2D "
+         "camera job "
+         "(docs/design/ARCHITECTURE_RENDERING_GI2D.md, \"2D GI field: what P3b reads\"): an emission image, an "
+         "occluder/albedo "
+         "image (alpha = occupancy) and a jump-flooding distance field, RGBA16F, covering the view plus `range` on "
+         "every "
+         "side at `resolutionScale`, and the radiance cascades that turn it into the irradiance the lit 2D visuals "
+         "receive (docs/rendering/RENDERING_2D_GI.md). With `save` it also writes the images as PNGs. Errors: "
+         "`unavailable` "
+         "without graphics. Example: render.gi2d_field {\"save\": \".factoria/tmp/gi\"}. See "
+         "docs/design/ARCHITECTURE_RENDERING_GI2D.md, \"2D GI field: what P3b reads\"." FA_COMMAND_DETAILS
+         "Result: {enabled, supported, message? (why not supported: the backend and "
+         "render.supports \"2dGlobalIllumination\"), fieldLimit, maxSize, format, settings: {quality, intensity, "
+         "bounce, range, "
+         "resolutionScale}, bytes, fields: [{slot, job, ready, width, height, texelSize, worldRect: {x, y, width, "
+         "height}, capped, "
+         "bytes, passes, cascades: {cascades, probeSpacing, raysPerProbe, steps, reachTexels, irradianceWidth, "
+         "irradianceHeight, primed}, emitters: {sprites, tiles, lights}, occluders: {solidTiles, boxes, polygons, "
+         "spriteAlpha, "
+         "skipped}, "
+         "dropped}]}. `fields` is empty without an enabled GlobalIllumination2D, on a 3D camera, or where the GPU has "
+         "no "
+         "RGBA16F render targets (then `supported` is false and `message` says what to do). With `save` (a path "
+         "without "
+         "extension) the images of the field of `job` (default: the first) are written as <save>-emission.png, "
+         "<save>-occluders.png and <save>-distance.png and, once a frame of cascades has run, <save>-irradiance.png "
+         "(one pixel a probe of cascade 0, rgb the light that reaches the probe, alpha 1 where the probe is free and 0 "
+         "inside an occluder or an emitter); row 0 of a file is the largest world y; they are listed in `files`; "
+         "a "
+         "failure is in `error`. `cascades.primed` is true when the last frame had no history of the bounce and ran "
+         "the priming chain (the first frame, a new size, a camera that moved by more than the field). Errors: "
+         "`unavailable` without graphics; `invalid_argument` for a `save` or `job` that "
+         "is "
+         "not a string, and for a `save` that ends in .png or in a folder separator (it is a prefix: the command adds "
+         "the names).\n"
+         "The distance image holds the nearest occluder texel's coordinates in r and g (exact), the distance to it in "
+         "field texels in b (a half float: about 3 significant digits) and 1 in a where an occluder exists (b is 65504 "
+         "and "
+         "a is 0 for a field without occluders; a texel with a = 0 holds -1 in r and g). The `save` PNG of the "
+         "distance is grey: black at an occluder, white "
+         "at "
+         "the farthest distance of the field (white everywhere without occluders). `save` reads the GPU back: look, do "
+         "not "
+         "call it every frame. `save` needs the writeProject capability.",
+         parse_schema(R"({"type":"object","properties":{
+               "save":{"type":"string","x-fa-path":"write","description":"Path prefix without extension (inside the project; absolute paths need writeAnywhere): the images are written as <save>-emission.png, <save>-occluders.png, <save>-distance.png and <save>-irradiance.png (never end it in .png or in a folder separator). Omitted: nothing is written."},
+               "job":{"type":"string","description":"The camera job whose field `save` writes (the \"job\" of fields[], e.g. \"camera:0\"). Default: the first field that is ready."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"save", "job"}, "render.gi2d_field");
+            for (const char* key : {"save", "job"})
+                if (a.is_object() && a.contains(key) && !a[key].is_null() && !a[key].is_string())
+                    throw CommandError("invalid_argument",
+                                       std::string("render.gi2d_field: `") + key + "` is a string, got " +
+                                           a[key].type_name() + ".",
+                                       std::string("Pass \"") + key + "\": \"...\" or leave it out.");
+            // The path is judged first: a bad one is refused whether or not there is a renderer.
+            std::string save = a.is_object() && a.contains("save") && a["save"].is_string()
+                                   ? a["save"].get<std::string>()
+                                   : std::string();
+            if (!save.empty()) {
+                // `save` is a prefix: the command adds "-emission.png" and the rest. A file name or a folder would give "x.png-emission.png"
+                // or "dir/-emission.png", which is never what the caller meant.
+                std::string lower = save;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char c) { return char(std::tolower(c)); });
+                const bool png = lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".png") == 0;
+                const bool folder = save.back() == '/' || save.back() == '\\';
+                if (png || folder)
+                    throw CommandError(
+                        "invalid_argument",
+                        std::string("render.gi2d_field: `save` is a path PREFIX without extension, but it is \"") +
+                            save + (png ? "\" (a .png file name)." : "\" (it ends in a folder separator)."),
+                        std::string(
+                            "The command writes <save>-emission.png, <save>-occluders.png, <save>-distance.png and "
+                            "<save>-irradiance.png: pass \"") +
+                            (png ? save.substr(0, save.size() - 4) : save + "gi") + "\".");
+                save = resolve_caller_write_path(save, "render.gi2d_field");
+            }
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no 2D GI field is drawn.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            const std::string job = a.is_object() && a.contains("job") && a["job"].is_string()
+                                        ? a["job"].get<std::string>()
+                                        : std::string();
+            engine.render_now();
+            return I.renderer->gi2d_field(save, job);
+        });
+
+    I.commands.add(
         {"render.probe_refresh",
          "Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows.",
          "Queues one more capture of the ReflectionProbe `entity` (or of every realtime probe when `entity` is left "
@@ -847,7 +942,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "iesProfiles, "
          "cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, "
          "lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, "
-         "transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
+         "transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, "
+         "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor) or effect "
+         "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
          "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
@@ -1173,6 +1270,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.material_cost", capability_sets::reads()},
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},
+                                                 {"render.gi2d_field", capability_sets::changes_state()},
                                                  {"render.probe_refresh", capability_sets::changes_state()},
                                                  {"render.light_probes", capability_sets::reads()},
                                                  {"render.debug_view", capability_sets::changes_state()},

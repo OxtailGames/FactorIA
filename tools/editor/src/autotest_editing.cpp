@@ -472,6 +472,81 @@ void Editor::at_section_L(AtScript& at) {
         });
         snap("editor_inspector_error.png");
 
+        // 3b. A light-layer mask is toggles, one per layer: a click flips one bit (one undo step) and keeps the others.
+        step(2, [this, he] {
+            he->undo = undo_depth();
+            inspScrollTo_ = "Shape2D.lightLayers";
+        });
+        step(3, [] {});
+        step(4, [this] {
+            // at_shown, not at_visible: the table clips a cell to its column, and a toggle the clip hides is submitted but
+            // cannot be seen or clicked (the first and last toggle bound the layout at any width).
+            at_check(
+                at_shown("insp:Shape2D.lightLayers.bit.0") && at_shown("insp:Shape2D.lightLayers.bit.7"),
+                "Shape2D.lightLayers shows the toggles of the layers 0 and 7 inside the Inspector window, whatever "
+                "its width");
+            at_check(at_shown("insp:Shape2D.lightLayers"), "...and the number next to them");
+        });
+        snap("editor_inspector_layer_mask.png");
+        click("insp:Shape2D.lightLayers.bit.2");
+        step(4, [this, he] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 5, "clicking the toggle of layer 2 adds it to the mask (1 -> 5)");
+            at_check(undo_depth() == he->undo + 1, "...as ONE undo step");
+        });
+        click("toolbar:undo");
+        step(4, [this, he] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 1 && undo_depth() == he->undo, "Undo takes the toggle back");
+        });
+        click("insp:Shape2D.lightLayers.bit.0");
+        step(4, [this] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 0, "clicking a lit toggle takes its layer out of the mask (1 -> 0)");
+        });
+        click("toolbar:undo");
+        step(4, [this] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 1, "...and Undo puts it back");
+        });
+        click("insp:Shape2D.lightLayers.bit.7");
+        step(4, [this] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 129, "the last toggle (layer 7) can be clicked too (1 -> 129)");
+        });
+        click("toolbar:undo");
+        step(4, [this, he] {
+            const Shape2D* sh = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(sh && sh->lightLayers == 1 && undo_depth() == he->undo, "...and Undo puts it back");
+        });
+        // With two entities selected a click flips that bit on each of them and keeps each one's other bits.
+        step(2, [this, he] {
+            run_console_line(
+                R"(scene.set_component {"id":"coin_1","component":"Shape2D","fields":{"lightLayers":10}})");
+            he->undo = undo_depth();
+            select_ids({"coin_1", "coin_2"}, "coin_2");  // the primary (coin_2) holds 1, coin_1 holds 10
+            inspScrollTo_ = "Shape2D.lightLayers";
+        });
+        step(4, [] {});
+        click("insp:Shape2D.lightLayers.bit.2");
+        step(4, [this, he] {
+            const Shape2D* a = world().get<Shape2D>(world().find_by_id("coin_1"));
+            const Shape2D* b = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(a && b && a->lightLayers == 14 && b->lightLayers == 5,
+                     "with two entities selected a toggle sets that layer on each and keeps the other layers of each "
+                     "(10 -> 14, 1 -> 5)");
+            at_check(undo_depth() == he->undo + 1, "...as ONE undo step");
+        });
+        click("toolbar:undo");
+        step(4, [this, he] {
+            const Shape2D* a = world().get<Shape2D>(world().find_by_id("coin_1"));
+            const Shape2D* b = world().get<Shape2D>(world().find_by_id("coin_2"));
+            at_check(a && b && a->lightLayers == 10 && b->lightLayers == 1 && undo_depth() == he->undo,
+                     "...and Undo restores both masks");
+            undo();  // the setup edit of coin_1
+            select_ids({"coin_2"}, "coin_2");
+        });
+
         // 4. Add and remove a component.
         click("insp:add");
         step(3, [this] {

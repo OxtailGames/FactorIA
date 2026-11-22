@@ -254,6 +254,61 @@ std::vector<FeatureDef> build_table() {
          "leak through walls), bouncing between captures; it fills the diffuse light where no lightmap and no baked "
          "light probe reaches. It needs RGBA16F render targets that blend; render.gi_grid says which grids the "
          "meshes read (docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\").",
+         nullptr},
+        // The 2D lighting and effects of M74: planned "M74" until each package draws its row.
+        {"2dSoftShadows", "",
+         "Soft 2D shadows: the shadows of Light2D with castShadows get a penumbra that widens with the distance from "
+         "the occluder, set by Light2D.size (0 = hard edges), and every shadow-casting light in view (up to the 256 a "
+         "frame shades) gets a row of the shadow atlas, an RGBA8 image that every backend has "
+         "(docs/rendering/RENDERING_2D_SHADOWS.md; M74.1).",
+         nullptr},
+        {"2dShadowCasters", "",
+         "ShadowCaster2D: sprites (the contour of their alpha), polygons and boxes block the light of Light2D with "
+         "castShadows like the solid tiles of a Tilemap with occludesLight, with self-shadowing on or off and "
+         "light layers; the CPU makes the rows, so every backend draws it (docs/rendering/RENDERING_2D_SHADOWS.md; "
+         "M74.1).",
+         nullptr},
+        {"2dEmission", "",
+         "Emission of 2D visuals: Sprite.emissive, emissiveMap and Tilemap.emissive glow after the lighting and feed "
+         "the HDR bloom, on lit and unlit visuals alike. Every backend; the bloom needs RGBA16F targets as usual.",
+         nullptr},
+        {"2dLightLayers", "",
+         "Light layers of 2D lighting: a Light2D lights only the Sprite, Shape2D and Tilemap whose lightLayers share a "
+         "bit with its own, in the light buffer and in the per-pixel path (one light buffer per distinct set of lights "
+         "in "
+         "view, at most 4). Every backend.",
+         nullptr},
+        {"2dLightCookies", "",
+         "Light2D.cookie: a texture the light shines through, turned by cookieRotationDeg and sized by cookieScale; "
+         "several lights have one at once, up to 16 distinct textures per frame. Every backend.",
+         nullptr},
+        {"2dRimLight", "",
+         "Sprite rim light (rimColor, rimIntensity, rimWidth): a bright edge on the side of a lit sprite that faces a "
+         "light. Every backend.",
+         nullptr},
+        {"2dGeneratedNormals", "",
+         "Normal maps generated for lit sprites: Sprite.normalFrom sprite (from the sprite's alpha and luminance) or "
+         "height (from Sprite.heightMap), with normalStrength, made once when the sprite loads. Every backend.",
+         nullptr},
+        {"2dGlobalIllumination", "half",
+         "2D global illumination by radiance cascades (GlobalIllumination2D): light bounces off coloured surfaces and "
+         "emissive visuals light the scene (M74). It needs RGBA16F render targets that blend and filter: GL, GLES3 "
+         "and WebGL2 without them draw the scene without it and log a message that says how to turn it off. The "
+         "quality "
+         "high needs more cascade passes than a phone or a browser budgets (4), and the field's memory has a smaller "
+         "budget there too (96 MiB): the defaults (range 512, resolutionScale 0.5) need about 103 MiB on a view of "
+         "1920 x 1080 pixels, so a landscape phone with them draws the scene without it, with a warning in the log. "
+         "On a phone or a browser set range 128 (or resolutionScale 0.25) and use quality medium or low.",
+         nullptr},
+        {"2dWater", "",
+         "Water2D and DistortionZone2D: a reflective, refractive water area with waves and a rectangle that distorts "
+         "what is behind it, drawn from the picture drawn so far in the camera (a copy of it, made only when one of "
+         "them is in view). Every backend.",
+         nullptr},
+        {"spriteSceneColor", "",
+         "fa_scene_color(uv) in a sprite material: the colour of the picture drawn so far in the camera (the "
+         "renderer copies the camera's rectangle before the first such draw and again only where needed, at most 8 "
+         "times per camera). Every backend.",
          nullptr}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)

@@ -425,6 +425,7 @@ void describe_image_texture(render::TextureAsset& t, const std::string& path, sg
     t.width = width;
     t.height = height;
     t.placeholder = false;
+    t.live = true;  // a shader writes it every dispatch: never a once-only copy
     t.format = format;
     t.bytes = std::size_t(bytes);
 }

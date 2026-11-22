@@ -325,8 +325,9 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
     static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
-                                          sprite = {"fa_time", "fa_target", "fa_sample_main", "fa_scene_rgb",
-                                                    "fa_instance_index"},
+                                          sprite = {"fa_time",       "fa_target",         "fa_sample_main",
+                                                    "fa_scene_rgb",  "fa_instance_index", "fa_scene_color",
+                                                    "fa_world_to_uv"},
                                           sky = {"fa_time", "fa_scene_rgb", "fa_sun", "fa_cspace"},
                                           post = {"fa_scene_color",   "fa_depth",     "fa_normal", "fa_history",
                                                   "fa_history_valid", "fa_scene_rgb", "fa_time"},
@@ -538,6 +539,21 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
                    "fragment(), not from vertex() or from a helper that vertex() calls (a helper of the snippet is "
                    "compiled into both stages). Its signature: vec4 fa_sample_main(vec2 p).";
         }
+        // The picture drawn so far is bound in the fragment stage only too (a texture view of the fragment program).
+        if (!ctx.material.full && is_sprite(ctx.material) && (token == "fa_scene_color" || token == "fa_world_to_uv")) {
+            const bool color = token == "fa_scene_color";
+            if (callFailed && in_fragment_entry(ctx, line))
+                return std::string("`") + token + "` exists, but this call does not match its signature: " +
+                       (color ? "vec4 fa_scene_color(vec2 uv) (the uv is a vec2, 0..1 over the camera's rectangle)."
+                              : "vec2 fa_world_to_uv(vec3 world) (world is a world position).");
+            return "`" + token +
+                   "` is available in the fragment stage only (it reads the picture drawn so far, which the vertex "
+                   "stage "
+                   "cannot see): call it from fragment(), not from vertex() or from a helper that vertex() calls (a "
+                   "helper "
+                   "of the snippet is compiled into both stages). Compute what the vertex stage needs from fa_time or "
+                   "the material's params, and read the picture in fragment().";
+        }
         const std::string best = closest_match(token, engine_names(ctx.material));
         return best.empty()
                    ? std::string("No engine value is called ") + token +
@@ -548,7 +564,8 @@ std::string undeclared_hint(const std::string& token, const MapContext& ctx, int
                               ? "; the ones a snippet may use are fa_scene_color(uv), fa_depth(uv), fa_normal(uv), "
                                 "fa_history(uv), fa_history_valid and fa_time."
                           : is_sprite(ctx.material)
-                              ? "; the ones a snippet may use are fa_time, fa_sample_main() and fa_scene_rgb()."
+                              ? "; the ones a snippet may use are fa_time, fa_sample_main(), fa_scene_rgb(), "
+                                "fa_scene_color(uv) and fa_world_to_uv(p)."
                           : is_sky(ctx.material)
                               ? "; the ones a snippet may use are fa_time and fa_scene_rgb()."
                               : "; the ones a snippet may read are fa_time, fa_camera_pos and fa_tangent_normal().")

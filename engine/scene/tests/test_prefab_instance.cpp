@@ -39,6 +39,27 @@ const char* kPanel = R"({
     ]
   }})";
 
+TEST_CASE("a prefab instance with a normal map on an unlit sprite is warned about once, naming the prefab") {
+    TempProject tp;
+    REQUIRE(
+        fs::write_text(
+            "prefabs/crate.prefab.json",
+            R"({"format":"factoria.prefab/1","entity":{"id":"crate","components":{"Sprite":{"normalMap":"n.png"}}}})")
+            .ok());
+    World w;
+    const Json scene =
+        Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"box","prefab":"prefabs/crate.prefab.json"}]})");
+    const LoadReport report = load_scene(w, scene, "scenes/p.scene.json");
+    REQUIRE(report.ok());
+    int n = 0;
+    for (const LoadMessage& m : report.messages)
+        if (m.severity == LoadMessage::Severity::Warning && m.pointer.find("Sprite/normalMap") != std::string::npos) {
+            ++n;
+            CHECK(m.hint.find("prefabs/crate.prefab.json") != std::string::npos);
+        }
+    CHECK(n == 1);
+}
+
 void write_panel() { REQUIRE(fs::write_text("prefabs/panel.prefab.json", kPanel).ok()); }
 
 // The scene as save_scene(Keep) writes it, in the canonical text of the files.

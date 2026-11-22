@@ -73,7 +73,17 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false. (since 0.2.0) |
 | `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice. (since 0.2.0) |
 | `lit` | bool | `false` | World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. How many lights shade a frame: see Light2D. (since 0.2.0) |
-| `normalMap` | asset (texture) | `""` | Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (since 0.2.0) |
+| `normalMap` | asset (texture) | `""` | Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true and normalFrom is file. (since 0.2.0) |
+| `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space sprite (a screen-space sprite does not light the scene). Black (default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. Alpha of the colour is ignored. (since 0.34.0) |
+| `emissiveIntensity` | float | `1.0` | HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1. Range 0.0..1000.0. (since 0.34.0) |
+| `emissiveMap` | asset (texture) | `""` | Texture laid out exactly like `texture` and `region` that says where the sprite glows: its RGB is multiplied with `emissive` per pixel, so only the windows or runes of a sprite shine. Empty (default) = the whole sprite emits `emissive`, shaped by its own alpha. (since 0.34.0) |
+| `lightLayers` | int | `1` | Bit mask (a whole number, -1 = every bit) of the light layers this sprite is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. (since 0.34.0) |
+| `rimColor` | color | `[1.0,1.0,1.0,1.0]` | Colour of the rim light: a bright edge on the side of the sprite that faces a Light2D, as if light wrapped around it. Alpha is ignored. Only drawn when rimIntensity is above 0 and the sprite is lit. (since 0.34.0) |
+| `rimIntensity` | float | `0.0` | Strength of the rim light. 0 (default) = off. 1 = a rim as bright as the light that makes it. Range 0.0..16.0. (since 0.34.0) |
+| `rimWidth` | float | `0.1` | Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin edge, 0.5 a wide glow. Range 0.01..1.0. (since 0.34.0) |
+| `normalFrom` | enum: file \| sprite \| height | `"file"` | Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` sets the relief of a generated map; `normalMap` is ignored with sprite and height. (since 0.34.0) |
+| `heightMap` | asset (texture) | `""` | Grey image laid out like `texture` (white = high, black = low) that the normals are generated from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none. (since 0.34.0) |
+| `normalStrength` | float | `1.0` | Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made. Range 0.0..16.0. (since 0.34.0) |
 | `skew` | vec2 | `[0.0,0.0]` | Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds. (since 0.4.0) |
 | `meshColumns` | int | `0` | Makes the sprite deformable: it is drawn as a grid of meshColumns x meshRows cells (so (meshColumns + 1) x (meshRows + 1) vertices) that textures `region` evenly, and `vertexOffsets` moves the vertices. Needs meshRows > 0 too. 0 (default) = a plain quad. A side above 128 is clamped to 128; a grid of more than 4096 cells (columns x rows) is drawn as a plain quad and a warning is logged once per scene. A bent page, a flag or cloth is ONE entity with e.g. 16 columns x 1 row or 8 x 8. A deformable sprite ignores `slice` (9-slice). It costs one quad per cell, still in the sprite's batch: draw calls do not grow. Range 0..128. (since 0.4.0) |
 | `meshRows` | int | `0` | Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad. Range 0..128. (since 0.4.0) |
@@ -125,7 +135,7 @@ Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 
 
 Since 0.2.0.
 
-A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
+A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the 256 lights a frame shades), soft with `size`. The light sits at the entity's position (Transform) and ignores sorting layers (Sprite.layer): it lights every layer of the draw order. `lightLayers` chooses which Sprite, Shape2D and Tilemap it lights and which ShadowCaster2D block it, `size` softens its shadows, and `cookie` shines it through a texture.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -137,7 +147,74 @@ A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their 
 | `height` | float | `80.0` | Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly. Range 0.0..100000.0. |
 | `direction` | float | `270.0` | Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down). |
 | `elevation` | float | `45.0` | Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it). Range 0.0..90.0. |
-| `castShadows` | bool | `false` | Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false. (since 0.3.0) |
+| `castShadows` | bool | `false` | Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen by lightLayers. Directional lights cast no shadows. Default false. (since 0.3.0) |
+| `size` | float | `0.0` | Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights. Range 0.0..100000.0. (since 0.34.0) |
+| `lightLayers` | int | `-1` | Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a Sprite, Shape2D or Tilemap when their lightLayers share a bit with it, and a ShadowCaster2D blocks it only when their lightLayers share a bit. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default -1 (all layers). (since 0.34.0) |
+| `cookie` | asset (texture) | `""` | Texture the light shines through (a window, foliage, a gobo): its brightness multiplies the light across the light's disc, centred on the entity. Point lights only. Empty (default) = no cookie. (since 0.34.0) |
+| `cookieRotationDeg` | float | `0.0` | Degrees the cookie is turned around the light, counter-clockwise. Default 0. Range -360.0..360.0. (since 0.34.0) |
+| `cookieScale` | float | `1.0` | Size of the cookie as a multiple of the light's diameter (2 x radius): 1 (default) fits the cookie to the whole disc, 0.5 makes it half as big, 2 shows its middle half. Range 0.01..100.0. (since 0.34.0) |
+
+### ShadowCaster2D
+
+Since 0.34.0.
+
+Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: docs/rendering/RENDERING_2D_SHADOWS.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `shape` | enum: spriteAlpha \| polygon \| box | `"spriteAlpha"` | The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose alpha is above alphaThreshold (needs a Sprite). polygon: the outline in `points`. box: a rectangle of `size` centred on the entity. |
+| `points` | arrayF32 | `[]` | polygon only: the outline as a flat array of numbers [x0, y0, x1, y1, ...] in the entity's local space (world units before the Transform's scale and rotation, +y up), at least 3 points (6 numbers) in order around the shape. The shape may be convex or concave. Default [] (blocks nothing). |
+| `size` | vec2 | `[32.0,32.0]` | box only: [width, height] in world units, centred on the entity, before its scale. Both must be above 0. Default [32, 32]. |
+| `alphaThreshold` | float | `0.5` | spriteAlpha only: pixels with alpha above this value block light, 0..1. Default 0.5; lower it to let soft edges and smoke cast a shadow. Range 0.0..1.0. |
+| `selfShadow` | bool | `false` | true: the caster is shadowed by its own silhouette, so the side facing away from a light is dark. false (default): the caster is lit as if it did not block light, which looks right for a character. |
+| `lightLayers` | int | `-1` | Bit mask (a whole number, -1 = every bit) of the Light2D.lightLayers this caster blocks: a light whose lightLayers share no bit with it shines through. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1 ...). Default -1 (every light). |
+| `enabled` | bool | `true` | false switches the caster off without removing the component, so it casts no shadow. Default true. |
+
+### GlobalIllumination2D
+
+Since 0.34.0.
+
+Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. Off unless an entity of the scene has this component and `enabled` is true (the first one counts), so a scene without it costs nothing and draws the same pixels. It needs render targets of 16-bit float colour and a memory budget: where the GPU has none, or `quality` and `range` ask for more than the platform budgets (render.supports 2dGlobalIllumination says which), the scene is drawn without it and the log tells why once. Only LIT visuals receive the light (albedo times the irradiance at their position, whatever their lightLayers); unlit visuals, 3D meshes, and pictures drawn into their own image (render targets, CameraView, editor views, camera captures) get none. Light comes from emitters and occluders inside the view plus `range`. Details, cost and limits: docs/rendering/RENDERING_2D_GI.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | false switches the global illumination off without removing the component. Default true. |
+| `quality` | enum: low \| medium \| high | `"medium"` | How finely the cascades sample the light, as counts that are the same on every machine (rays are those of cascade 0): low = 3 cascades, a probe every 4 texels, 16 rays per probe, 20 steps per ray; medium (default) = 4 cascades, a probe every 2 texels, 4 rays per probe, 28 steps; high = 5 cascades, a probe every 2 texels, 4 rays, 40 steps. A small view uses fewer cascades than that. High needs 5 cascade passes: on a phone or a browser it is over the budget and the scene is drawn without GI (use medium there). It changes the cost, not the meaning of the other fields. |
+| `intensity` | float | `1.0` | Multiplies the irradiance a lit visual receives (the light it adds is albedo times irradiance times this), 0..16. 1 = the light as the cascades computed it (default), 0 = no light added. Range 0.0..16.0. |
+| `bounce` | float | `0.5` | 0..1: how much of the light that reached a surface (last frame's irradiance) it bounces back, times its colour: a red wall tints the floor next to it. 0 = only the light of emitters, no bounce; 1 = surfaces reflect all they receive times their colour. Only things that block light (ShadowCaster2D, solid Tilemap cells) bounce. Default 0.5. Range 0.0..1.0. |
+| `range` | float | `512.0` | World units added around the camera's view on every side: the field of emitters and occluders covers the view plus this margin, so a lamp just off screen still lights it and a wall just off screen still shadows it; what is farther away does not exist for the GI. Larger costs more memory (the field grows with it) and over the platform's budget turns the GI off with a log line. 1..100000, default 512. Range 1.0..100000.0. |
+| `resolutionScale` | float | `0.5` | Texels of the field per screen pixel, 0.1..1: 0.5 (default) computes the field at half the screen's resolution; lower is cheaper and softer, and a thin shadow caster narrower than a texel can be missed. The field's sides are rounded up to a multiple of 32 texels and its memory is about 64 bytes a texel. Range 0.1..1.0. |
+
+### Water2D
+
+Since 0.34.0.
+
+A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/RENDERING_2D_WATER.md).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[256.0,128.0]` | [width, height] of the water area in world units, before the entity's scale; both above 0. The top edge is the surface. Default [256, 128]. |
+| `tint` | color | `[0.2,0.5,0.7,0.5]` | Colour (and opacity, the alpha) of the water body: what is seen through it is mixed with this. Default [0.2, 0.5, 0.7, 0.5]. |
+| `reflection` | float | `0.5` | 0..1: how much of what is above the surface shows mirrored in the water. 0 = none, 1 = a mirror. Default 0.5. Range 0.0..1.0. |
+| `refraction` | float | `4.0` | How far what is under the water is displaced by the waves, in pixels of the picture, 0..256. 0 = no distortion. Default 4. Range 0.0..256.0. |
+| `waveAmplitude` | float | `2.0` | Height of the waves of the surface in world units, 0..1000. 0 = a still surface. Default 2. Range 0.0..1000.0. |
+| `waveLength` | float | `64.0` | Distance between two wave crests in world units, 0.1..100000. Default 64. Range 0.1..100000.0. |
+| `waveSpeed` | float | `1.0` | How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). 0 = frozen. Default 1. Range -100.0..100.0. |
+| `layer` | int | `10` | Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10. |
+| `material` | asset (material) | `""` | Optional sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that replaces the built-in water look; the area is its quad. Empty (default) = the built-in water. |
+
+### DistortionZone2D
+
+Since 0.34.0.
+
+A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. The entity's Transform places the centre of the area.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[128.0,128.0]` | [width, height] of the zone in world units, before the entity's scale; both above 0. Default [128, 128]. |
+| `strength` | float | `1.0` | How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled by the material when there is one). 0 = no distortion. Default 1. Range 0.0..100.0. |
+| `layer` | int | `20` | Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a higher layer is not bent. Default 20. |
+| `material` | asset (material) | `""` | Sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that makes the displacement. Empty (default) = the built-in ripple. |
 
 ### SpriteAnimator
 
@@ -227,6 +304,7 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 | `points` | int | `5` | star only: number of tips (5 = the classic star). Range 3..64. |
 | `innerRadius` | float | `0.5` | star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles. Range 0.0..1.0. |
 | `lit` | bool | `false` | World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. How many lights shade a frame: see Light2D. (since 0.2.0) |
+| `lightLayers` | int | `1` | Bit mask (a whole number, -1 = every bit) of the light layers this shape is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. (since 0.34.0) |
 | `cornerRadius` | float | `0.0` | rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it. Range 0.0..100000.0. (since 0.4.0) |
 | `softness` | float | `0.0` | rectangle and circle only: width in world units of a blurred edge, centred on the shape's outline (half of it fades in inside the outline, half outside, so the shape's footprint grows by softness / 2 on every side). Turns a shape into a soft drop shadow (a dark translucent rounded rectangle, a little offset, softness 12-30), a vignette or a light pool (a circle with softness near its diameter and an additive blend). Follows cornerRadius; works with filled = false (a blurred ring) and with a gradient. 0 (default) = a crisp, antialiased edge, as before. Triangles, diamonds, polygons, stars and lines ignore it (draw a circle or rectangle for a soft shape). Range 0.0..100000.0. (since 0.4.0) |
 | `gradient` | enum: none \| linear \| radial | `"none"` | rectangle and circle fill only (filled = true): none (default) = flat `color`. linear = `color` blends to `color2` along the direction gradientAngle, from the box edge to the opposite edge (paper shading, a gutter, a sky). radial = `color` at the centre blends to `color2` at the edge of the shape's box (a vignette, a light pool, a glow); outside the box's inscribed ellipse it stays color2. The blend is computed per pixel (and dithered), so it is smooth with no banding, in one entity. Alpha is blended too (premultiplied, so a transparent color2 fades color out without greying it): make color2 transparent to fade out. A gradient whose `color` is transparent still draws when `color2` is not (the vignette); the shape is skipped only when every colour it uses is fully transparent. Ignored by outlines and by the other shapes. (since 0.4.0) |
@@ -293,6 +371,9 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `lit` | bool | `false` | true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false. (since 0.2.0) |
 | `normalMap` | asset (texture) | `""` | Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. (since 0.2.0) |
 | `occludesLight` | bool | `false` | true: the tiles whose index is in solidTiles block the light of every Light2D with castShadows, so a wall hides what is behind it from the lamp (a cave, a dungeon, fog of war). The collision and the shadow use the same solidTiles. Editing a tile at run time (set_tile) moves the shadows on the next frame. The tilemap needs no `lit` itself to cast. Default false. (since 0.3.0) |
+| `lightLayers` | int | `1` | Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers. (since 0.34.0) |
+| `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works with or without `lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored. (since 0.34.0) |
+| `emissiveIntensity` | float | `1.0` | HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1. Range 0.0..1000.0. (since 0.34.0) |
 | `material` | asset (material) | `""` | Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of every tile (one material for the whole Tilemap: all its tiles draw as one batch; give another layer its own Tilemap to give it another material) (it receives the colour the Tilemap would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (since 0.32.0) |
 | `materialParams` | json | `{}` | Per-entity overrides of the material's params and textures, an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. Same meaning as MeshRenderer.materialParams. Entities that share the same material and the same params are still drawn in one batch. A param the material declares with "instanced": true is sent with each quad, so entities that differ only in it stay in one batch; any other param that differs draws in a separate batch.  (since 0.32.0) |
 
@@ -4542,9 +4623,9 @@ What the renderer drew in the picture now: draw calls, triangles, lights, shadow
 
 Capabilities: read
 
-Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
+Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, sceneCopies, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
 
-lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 32). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 256); sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -5172,6 +5253,26 @@ Merges `set` into the layer: a field you give replaces the old one (objects such
 | `set` | object | yes | The fields to change, e.g. {"opacity":0.5,"visible":false}. null removes a field. |
 | `bake` | boolean | no | Also draw the PNG (default true). False only writes the document. Default true. |
 
+### `image.normal.generate` (modifies state)
+
+Since 0.34.0.
+
+Make a tangent-space normal map from a layer or the whole picture as a new hidden pixels layer, ready to paint, smooth, flip and export.
+
+Capabilities: read, writeProject
+
+Adds a pixels layer (hidden: a normal map is data, shown it would cover the sprite) the size of the canvas that holds a normal map of `layer` (by name or index path; without it, of the picture as it is now). `from` "sprite" (default) bevels the outline and the brightness of the picture, as Sprite.normalFrom = sprite does at run time; "height" reads the picture as a grey height map, white = high, as normalFrom = height. `strength` 0..32 (default 1) is the relief, Sprite.normalStrength; `tile` wraps the border for a seamless texture (the renderer clamps it, so leave it off for a sprite). With the same picture and strength the bytes are the ones the renderer makes. The layer is an ordinary PNG layer: image.paint with a `normal` {azimuth, tilt} stroke paints slopes, the normalSmooth, normalFlip, normalStrength and normalize operations (added to the layer, or to an adjustment layer above it) keep it a valid map, image.export with `layer` writes the PNG a Sprite.normalMap uses. Red = +X right, green = +Y UP the picture, blue = +Z towards the viewer; flat = (128,128,255). One undo step. Example: {"path":"assets/art/hero.image.json","layer":"hero","strength":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | The image document, project-relative, ending in .image.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `layer` | any | no | The layer to make the normal map from, by name or index path ("1/0"). Its masks, adjustments and effects count. Default: the whole picture as it is now (hidden layers do not count). |
+| `from` | string ["sprite","height"] | no | sprite: a bevel from the distance to the transparent edge plus brightness times alpha (Sprite.normalFrom = sprite). height: the picture is a grey height map, white = high, alpha ignored (Sprite.normalFrom = height). Default "sprite". |
+| `strength` | number | no | Relief: 0 is flat, 1 the default, larger is steeper (Sprite.normalStrength). Default 1. |
+| `tile` | boolean | no | Wrap the border so a tiling texture has no seam. Off matches the renderer, which clamps the border. Default false. |
+| `name` | string | no | Name of the new layer; a number is added when the name is taken. Default "normal". |
+| `bake` | boolean | no | Also draw the PNG (default true). The picture does not change: the new layer is hidden. Default true. |
+
 ### `image.paint` (modifies state)
 
 Since 0.16.0.
@@ -5182,7 +5283,7 @@ Capabilities: read, writeProject
 
 Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a round brush of diameter `size` along the polyline: one stamp at the first point, then one every `spacing` pixels (default a fifth of the size, at least 1) of arc length, and one at the last point. A pixel gets the largest coverage any stamp of the stroke gives it, so a stroke does not darken where it crosses itself; `opacity` then scales the whole stroke, `hardness` 1 is a hard edge (half a pixel anti-aliased) and lower values fade from hardness*radius to the edge. `erase: true` lowers the alpha instead of painting. Strokes apply in order and the same input always gives the same pixels (no randomness, no pressure). `layer` is a name or an index path; an unknown name with `create: true` makes a new empty pixels layer at the top of the document. A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, `stamps` and the picture as `$image`.
 
-Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to paint on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
+`normal` {azimuth, tilt} replaces `color` to paint a slope on a normal-map layer (docs/images/IMAGES_EFFECTS_COMMANDS.md, "Normal maps"). Example: {"path":"assets/art/hero.image.json","layer":"paint","create":true,"strokes":[{"points":[[4,4],[40,20]],"size":3,"color":"#ff0000"}]} Frames: in an animated document (docs.read IMAGES, "Frames and tags") `frame` (default 0) is the frame to paint on: the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -7853,6 +7954,24 @@ Returns the frame graph of the last frame the renderer drew and what each of its
 |---|---|---|---|
 | `profileFrames` | integer | no | GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on). Default 8. |
 
+### `render.gi2d_field` (modifies state)
+
+Since 0.34.0.
+
+The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs.
+
+Capabilities: read, state
+
+Draws a frame when none is current and reports the field that a GlobalIllumination2D makes for each 2D camera job (docs/design/ARCHITECTURE_RENDERING_GI2D.md, "2D GI field: what P3b reads"): an emission image, an occluder/albedo image (alpha = occupancy) and a jump-flooding distance field, RGBA16F, covering the view plus `range` on every side at `resolutionScale`, and the radiance cascades that turn it into the irradiance the lit 2D visuals receive (docs/rendering/RENDERING_2D_GI.md). With `save` it also writes the images as PNGs. Errors: `unavailable` without graphics. Example: render.gi2d_field {"save": ".factoria/tmp/gi"}. See docs/design/ARCHITECTURE_RENDERING_GI2D.md, "2D GI field: what P3b reads".
+
+Result: {enabled, supported, message? (why not supported: the backend and render.supports "2dGlobalIllumination"), fieldLimit, maxSize, format, settings: {quality, intensity, bounce, range, resolutionScale}, bytes, fields: [{slot, job, ready, width, height, texelSize, worldRect: {x, y, width, height}, capped, bytes, passes, cascades: {cascades, probeSpacing, raysPerProbe, steps, reachTexels, irradianceWidth, irradianceHeight, primed}, emitters: {sprites, tiles, lights}, occluders: {solidTiles, boxes, polygons, spriteAlpha, skipped}, dropped}]}. `fields` is empty without an enabled GlobalIllumination2D, on a 3D camera, or where the GPU has no RGBA16F render targets (then `supported` is false and `message` says what to do). With `save` (a path without extension) the images of the field of `job` (default: the first) are written as <save>-emission.png, <save>-occluders.png and <save>-distance.png and, once a frame of cascades has run, <save>-irradiance.png (one pixel a probe of cascade 0, rgb the light that reaches the probe, alpha 1 where the probe is free and 0 inside an occluder or an emitter); row 0 of a file is the largest world y; they are listed in `files`; a failure is in `error`. `cascades.primed` is true when the last frame had no history of the bounce and ran the priming chain (the first frame, a new size, a camera that moved by more than the field). Errors: `unavailable` without graphics; `invalid_argument` for a `save` or `job` that is not a string, and for a `save` that ends in .png or in a folder separator (it is a prefix: the command adds the names).
+The distance image holds the nearest occluder texel's coordinates in r and g (exact), the distance to it in field texels in b (a half float: about 3 significant digits) and 1 in a where an occluder exists (b is 65504 and a is 0 for a field without occluders; a texel with a = 0 holds -1 in r and g). The `save` PNG of the distance is grey: black at an occluder, white at the farthest distance of the field (white everywhere without occluders). `save` reads the GPU back: look, do not call it every frame. `save` needs the writeProject capability.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `save` | string | no | Path prefix without extension (inside the project; absolute paths need writeAnywhere): the images are written as <save>-emission.png, <save>-occluders.png, <save>-distance.png and <save>-irradiance.png (never end it in .png or in a folder separator). Omitted: nothing is written. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `job` | string | no | The camera job whose field `save` writes (the "job" of fields[], e.g. "camera:0"). Default: the first field that is ready. |
+
 ### `render.gi_grid`
 
 Since 0.33.0.
@@ -8005,7 +8124,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, 2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -16982,10 +17101,62 @@ declare module "factoria" {
      */
     lit: boolean;
     /**
-     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (asset path: texture)
+     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true and normalFrom is file. (asset path: texture)
      * @since 0.2.0
      */
     normalMap: string;
+    /**
+     * Light the sprite gives out, added after the lighting so it shows in a dark scene whatever the lights say. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom of the PostProcess and, with an enabled GlobalIllumination2D, lights the lit visuals around a world-space sprite (a screen-space sprite does not light the scene). Black (default) = no emission. Works on lit and unlit sprites alike; it is shaped by the sprite's own alpha. Alpha of the colour is ignored.
+     * @since 0.34.0
+     */
+    get emissive(): Color;
+    set emissive(value: ColorLike);
+    /**
+     * HDR strength of the emission: multiplies `emissive` (and the emissiveMap), 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
+     * @since 0.34.0
+     */
+    emissiveIntensity: number;
+    /**
+     * Texture laid out exactly like `texture` and `region` that says where the sprite glows: its RGB is multiplied with `emissive` per pixel, so only the windows or runes of a sprite shine. Empty (default) = the whole sprite emits `emissive`, shaped by its own alpha. (asset path: texture)
+     * @since 0.34.0
+     */
+    emissiveMap: string;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this sprite is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Colour of the rim light: a bright edge on the side of the sprite that faces a Light2D, as if light wrapped around it. Alpha is ignored. Only drawn when rimIntensity is above 0 and the sprite is lit.
+     * @since 0.34.0
+     */
+    get rimColor(): Color;
+    set rimColor(value: ColorLike);
+    /**
+     * Strength of the rim light. 0 (default) = off. 1 = a rim as bright as the light that makes it.
+     * @since 0.34.0
+     */
+    rimIntensity: number;
+    /**
+     * Width of the rim light as a fraction of the sprite's smaller side, 0.01..1: 0.1 (default) is a thin edge, 0.5 a wide glow.
+     * @since 0.34.0
+     */
+    rimWidth: number;
+    /**
+     * Where the normals of a lit sprite come from. file (default): the `normalMap` image, as before. sprite: generated from the sprite's own alpha and luminance (brighter and more opaque reads as higher), no file needed. height: generated from the grey image `heightMap`. `normalStrength` sets the relief of a generated map; `normalMap` is ignored with sprite and height.
+     * @since 0.34.0
+     */
+    normalFrom: "file" | "sprite" | "height";
+    /**
+     * Grey image laid out like `texture` (white = high, black = low) that the normals are generated from when normalFrom is height. Ignored with another normalFrom. Empty (default) = none. (asset path: texture)
+     * @since 0.34.0
+     */
+    heightMap: string;
+    /**
+     * Relief of a generated normal map (normalFrom sprite or height): 0 = flat, 1 (default) = as the image says, above 1 exaggerates it. A map is made once per image and strength; past 8 strengths of one image (an animated strength) a sprite gets the closest one already made.
+     * @since 0.34.0
+     */
+    normalStrength: number;
     /**
      * Shear in degrees [x, y] about the pivot, applied before the entity's rotation and scale: x = 20 leans the top edge to the right (an italic slant, a sign swinging in wind, a page seen at an angle), x = -20 to the left; y = 20 tilts the right edge up (a flag in a gust). Each angle is clamped to -80..80. [0, 0] (default) = no shear. Works with a deformable sprite (the shear is applied after the vertex offsets), a lit sprite and a screen-space sprite; it also shears the picking box of the editor and the entity's bounds.
      * @since 0.4.0
@@ -17093,7 +17264,7 @@ declare module "factoria" {
     mode: "inherit" | "on" | "off";
   }
   /**
-   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
+   * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight and every ShadowCaster2D cast shadows (each shadow-casting light in view gets one, up to the 256 lights a frame shades), soft with `size`. The light sits at the entity's position (Transform) and ignores sorting layers (Sprite.layer): it lights every layer of the draw order. `lightLayers` chooses which Sprite, Shape2D and Tilemap it lights and which ShadowCaster2D block it, `size` softens its shadows, and `cookie` shines it through a texture.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -17141,10 +17312,202 @@ declare module "factoria" {
      */
     elevation: number;
     /**
-     * Point lights: true = the solid tiles of every Tilemap with occludesLight block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; at most 32 shadow-casting lights are shaded per frame (the ones ranked first), the others shine through walls. Directional lights cast no shadows. Default false.
+     * Point lights: true = the solid tiles of every Tilemap with occludesLight and every ShadowCaster2D block this light, so the far side of a wall stays dark. The first solid tile the light reaches is lit (its face); the tiles and floor behind it are in shadow. A light placed inside a solid tile shines out of it. Shadows follow tile edits (set_tile) on the next frame. Costs more than a plain light: see PERFORMANCE.md; every shadow-casting light in view gets a shadow (up to the 256 lights a frame shades), and the tiles and ShadowCaster2D that block it are chosen by lightLayers. Directional lights cast no shadows. Default false.
      * @since 0.3.0
      */
     castShadows: boolean;
+    /**
+     * Point lights: radius of the light source in world units. 0 (default) = a point: shadows have hard edges. Larger = an area light: shadows get a penumbra that widens with the distance from the occluder (Tilemap occludesLight tiles and ShadowCaster2D), like a lamp bulb against a candle: about 2 x size x (d - b) / b world units wide, where b is the distance from the light to the far face of the occluder (where the shadow starts) and d to the shaded point. Only matters with castShadows. Costs up to 44 shadow-row reads per pixel the light reaches instead of 2 (12 where nothing blocks it): PERFORMANCE.md, 2D lights.
+     * @since 0.34.0
+     */
+    size: number;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this light shines on: it lights a Sprite, Shape2D or Tilemap when their lightLayers share a bit with it, and a ShadowCaster2D blocks it only when their lightLayers share a bit. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default -1 (all layers).
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Texture the light shines through (a window, foliage, a gobo): its brightness multiplies the light across the light's disc, centred on the entity. Point lights only. Empty (default) = no cookie. (asset path: texture)
+     * @since 0.34.0
+     */
+    cookie: string;
+    /**
+     * Degrees the cookie is turned around the light, counter-clockwise. Default 0.
+     * @since 0.34.0
+     */
+    cookieRotationDeg: number;
+    /**
+     * Size of the cookie as a multiple of the light's diameter (2 x radius): 1 (default) fits the cookie to the whole disc, 0.5 makes it half as big, 2 shows its middle half.
+     * @since 0.34.0
+     */
+    cookieScale: number;
+  }
+  /**
+   * Makes this entity block the light of Light2D entities with castShadows, like a solid tile of a Tilemap with occludesLight does, but for a sprite, a moving character, a prop or any shape. The silhouette comes from `shape`: the sprite's own alpha, a polygon or a box, placed by the entity's Transform (position, rotation and scale). The caster does not darken itself unless selfShadow is true, and a light inside its outline is not blocked by it. Which lights it blocks is set by lightLayers. Details and costs: docs/rendering/RENDERING_2D_SHADOWS.md.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface ShadowCaster2DComponent {
+    /**
+     * The silhouette that blocks light. spriteAlpha (default): the pixels of the entity's Sprite whose alpha is above alphaThreshold (needs a Sprite). polygon: the outline in `points`. box: a rectangle of `size` centred on the entity.
+     * @since 0.34.0
+     */
+    shape: "spriteAlpha" | "polygon" | "box";
+    /**
+     * polygon only: the outline as a flat array of numbers [x0, y0, x1, y1, ...] in the entity's local space (world units before the Transform's scale and rotation, +y up), at least 3 points (6 numbers) in order around the shape. The shape may be convex or concave. Default [] (blocks nothing). Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.34.0
+     */
+    get points(): Float32Array;
+    set points(value: Float32Array | readonly number[]);
+    /**
+     * box only: [width, height] in world units, centred on the entity, before its scale. Both must be above 0. Default [32, 32].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * spriteAlpha only: pixels with alpha above this value block light, 0..1. Default 0.5; lower it to let soft edges and smoke cast a shadow.
+     * @since 0.34.0
+     */
+    alphaThreshold: number;
+    /**
+     * true: the caster is shadowed by its own silhouette, so the side facing away from a light is dark. false (default): the caster is lit as if it did not block light, which looks right for a character.
+     * @since 0.34.0
+     */
+    selfShadow: boolean;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the Light2D.lightLayers this caster blocks: a light whose lightLayers share no bit with it shines through. Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1 ...). Default -1 (every light).
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * false switches the caster off without removing the component, so it casts no shadow. Default true.
+     * @since 0.34.0
+     */
+    enabled: boolean;
+  }
+  /**
+   * Scene-wide 2D global illumination with radiance cascades: light bounces off coloured sprites, shapes and tiles, and emissive visuals (Sprite.emissive, Tilemap.emissive, Light2D discs) light the scene around them, with no baking. Off unless an entity of the scene has this component and `enabled` is true (the first one counts), so a scene without it costs nothing and draws the same pixels. It needs render targets of 16-bit float colour and a memory budget: where the GPU has none, or `quality` and `range` ask for more than the platform budgets (render.supports 2dGlobalIllumination says which), the scene is drawn without it and the log tells why once. Only LIT visuals receive the light (albedo times the irradiance at their position, whatever their lightLayers); unlit visuals, 3D meshes, and pictures drawn into their own image (render targets, CameraView, editor views, camera captures) get none. Light comes from emitters and occluders inside the view plus `range`. Details, cost and limits: docs/rendering/RENDERING_2D_GI.md.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface GlobalIllumination2DComponent {
+    /**
+     * false switches the global illumination off without removing the component. Default true.
+     * @since 0.34.0
+     */
+    enabled: boolean;
+    /**
+     * How finely the cascades sample the light, as counts that are the same on every machine (rays are those of cascade 0): low = 3 cascades, a probe every 4 texels, 16 rays per probe, 20 steps per ray; medium (default) = 4 cascades, a probe every 2 texels, 4 rays per probe, 28 steps; high = 5 cascades, a probe every 2 texels, 4 rays, 40 steps. A small view uses fewer cascades than that. High needs 5 cascade passes: on a phone or a browser it is over the budget and the scene is drawn without GI (use medium there). It changes the cost, not the meaning of the other fields.
+     * @since 0.34.0
+     */
+    quality: "low" | "medium" | "high";
+    /**
+     * Multiplies the irradiance a lit visual receives (the light it adds is albedo times irradiance times this), 0..16. 1 = the light as the cascades computed it (default), 0 = no light added.
+     * @since 0.34.0
+     */
+    intensity: number;
+    /**
+     * 0..1: how much of the light that reached a surface (last frame's irradiance) it bounces back, times its colour: a red wall tints the floor next to it. 0 = only the light of emitters, no bounce; 1 = surfaces reflect all they receive times their colour. Only things that block light (ShadowCaster2D, solid Tilemap cells) bounce. Default 0.5.
+     * @since 0.34.0
+     */
+    bounce: number;
+    /**
+     * World units added around the camera's view on every side: the field of emitters and occluders covers the view plus this margin, so a lamp just off screen still lights it and a wall just off screen still shadows it; what is farther away does not exist for the GI. Larger costs more memory (the field grows with it) and over the platform's budget turns the GI off with a log line. 1..100000, default 512.
+     * @since 0.34.0
+     */
+    range: number;
+    /**
+     * Texels of the field per screen pixel, 0.1..1: 0.5 (default) computes the field at half the screen's resolution; lower is cheaper and softer, and a thin shadow caster narrower than a texel can be missed. The field's sides are rounded up to a multiple of 32 texels and its memory is about 64 bytes a texel.
+     * @since 0.34.0
+     */
+    resolutionScale: number;
+  }
+  /**
+   * A rectangle of water: it reflects what is above its surface, refracts what is below it and waves along its top edge. The entity's Transform places the area (its centre) and the top edge of `size` is the surface (turn the entity to tilt it). The water shows the picture drawn so far in the camera: what is on lower layers shows refracted below the surface and mirrored in the reflection; what is on higher layers is drawn over it untouched. Give `material` a sprite material to replace the built-in look (docs/rendering/RENDERING_2D_WATER.md).
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface Water2DComponent {
+    /**
+     * [width, height] of the water area in world units, before the entity's scale; both above 0. The top edge is the surface. Default [256, 128].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Colour (and opacity, the alpha) of the water body: what is seen through it is mixed with this. Default [0.2, 0.5, 0.7, 0.5].
+     * @since 0.34.0
+     */
+    get tint(): Color;
+    set tint(value: ColorLike);
+    /**
+     * 0..1: how much of what is above the surface shows mirrored in the water. 0 = none, 1 = a mirror. Default 0.5.
+     * @since 0.34.0
+     */
+    reflection: number;
+    /**
+     * How far what is under the water is displaced by the waves, in pixels of the picture, 0..256. 0 = no distortion. Default 4.
+     * @since 0.34.0
+     */
+    refraction: number;
+    /**
+     * Height of the waves of the surface in world units, 0..1000. 0 = a still surface. Default 2.
+     * @since 0.34.0
+     */
+    waveAmplitude: number;
+    /**
+     * Distance between two wave crests in world units, 0.1..100000. Default 64.
+     * @since 0.34.0
+     */
+    waveLength: number;
+    /**
+     * How fast the waves travel, in wave lengths per second, -100..100 (negative = they travel left). 0 = frozen. Default 1.
+     * @since 0.34.0
+     */
+    waveSpeed: number;
+    /**
+     * Draw order, like Sprite.layer. The water shows (refracts and reflects) what is drawn BEFORE it, so what must be seen through it goes on a lower layer and what floats on it on a higher one. Default 10.
+     * @since 0.34.0
+     */
+    layer: number;
+    /**
+     * Optional sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that replaces the built-in water look; the area is its quad. Empty (default) = the built-in water. (asset path: material)
+     * @since 0.34.0
+     */
+    material: string;
+  }
+  /**
+   * A rectangle that bends what is drawn behind it (heat haze, a shockwave, a force field, a lens): the picture under the area is displaced by a ripple, or by the pattern of a sprite material. The entity's Transform places the centre of the area.
+   * 
+   * Category: 2D
+   * @since 0.34.0
+   */
+  export interface DistortionZone2DComponent {
+    /**
+     * [width, height] of the zone in world units, before the entity's scale; both above 0. Default [128, 128].
+     * @since 0.34.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * How far the picture is displaced, 0..100 (about that many pixels at 1 for the built-in ripple, scaled by the material when there is one). 0 = no distortion. Default 1.
+     * @since 0.34.0
+     */
+    strength: number;
+    /**
+     * Draw order, like Sprite.layer. The zone bends what is drawn BEFORE it (lower layers); what is on a higher layer is not bent. Default 20.
+     * @since 0.34.0
+     */
+    layer: number;
+    /**
+     * Sprite material (*.material.json of kind "sprite", docs/SHADERS.md) that makes the displacement. Empty (default) = the built-in ripple. (asset path: material)
+     * @since 0.34.0
+     */
+    material: string;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every simulation step (so it advances in a run with no graphics, a replay and `factoria test`). Frames are numbered row-major from the top-left. Set `clip` to play a named clip of the texture's `sheet` entry in assets.json (grid, frames, fps, loop and pivot come from there; `assets.animate_svg`, `assets.bake_sheet`, `assets.slice_sheet` and the Aseprite import write it): a scene then names only the texture and the clip. The numeric fields override the clip when they differ from their default (columns 1, rows 1, firstFrame 0, lastFrame 0, fps 10, loop true). From a script: entity.spriteAnimator.play(name). A non-looping clip that reaches its end sends the game event `clipEnded` {id, clip}. `events` makes a frame send a game event and run game feel actions (hit-stop, shake, flash, push, spawn, sound).
@@ -17408,6 +17771,11 @@ declare module "factoria" {
      */
     lit: boolean;
     /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this shape is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
      * rectangle only: radius of the rounded corners in world units, antialiased (a button, a card, a page). Clamped to half the shorter side, so a large value makes a pill. 0 (default) = square corners, drawn as before. Other shapes ignore it.
      * @since 0.4.0
      */
@@ -17669,6 +18037,22 @@ declare module "factoria" {
      * @since 0.3.0
      */
     occludesLight: boolean;
+    /**
+     * Bit mask (a whole number, -1 = every bit) of the light layers this tilemap is lit by: it receives a Light2D when the two masks share a bit (Light2D.lightLayers). Layers 0..31 are the bits of the number (1 = layer 0, 2 = layer 1, 4 = layer 2 ...). Default 1 (layer 0 only): lights default to every layer, so a scene that sets no layers is lit as before. Use it to keep a light from reaching a foreground, an interior or a UI. With occludesLight it also selects which lights the solid tiles block: a tile blocks a Light2D with castShadows only when the two masks share a bit, the same rule as ShadowCaster2D.lightLayers.
+     * @since 0.34.0
+     */
+    lightLayers: number;
+    /**
+     * Light the tiles give out, added after the lighting so they show in a dark scene. Colour components are 0..1 (HDR strength comes from emissiveIntensity); the glow feeds the bloom and, with an enabled GlobalIllumination2D, lights the lit visuals around the tiles. Black (default) = none. Works with or without `lit`; it is shaped by the tiles' own alpha. Alpha of the colour is ignored.
+     * @since 0.34.0
+     */
+    get emissive(): Color;
+    set emissive(value: ColorLike);
+    /**
+     * HDR strength of the emission: multiplies `emissive`, 0..1000. 1 = the colour as written; above 1 goes past white and feeds the bloom. Default 1.
+     * @since 0.34.0
+     */
+    emissiveIntensity: number;
     /**
      * Project-relative path of a custom material, a *.material.json file of kind "sprite" (e.g. "materials/wave.material.json"), or "" (default) for the built-in look. The material's fragment() snippet replaces the fragment colour of every tile (one material for the whole Tilemap: all its tiles draw as one batch; give another layer its own Tilemap to give it another material) (it receives the colour the Tilemap would have drawn, texture times `color`, so it can tint, dissolve, outline or distort it) and its optional vertex() snippet moves the vertices. The material declares its params, textures and blend. `material.info` lists them and `shader.compile` compiles the snippets and reports errors with file:line; a material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
      * @since 0.32.0
@@ -22520,6 +22904,10 @@ declare module "factoria" {
     Parallax: ParallaxComponent;
     Interpolation: InterpolationComponent;
     Light2D: Light2DComponent;
+    ShadowCaster2D: ShadowCaster2DComponent;
+    GlobalIllumination2D: GlobalIllumination2DComponent;
+    Water2D: Water2DComponent;
+    DistortionZone2D: DistortionZone2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Bone2D: Bone2DComponent;
     SpriteSkin: SpriteSkinComponent;
@@ -22573,18 +22961,22 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; emissive?: ColorLike; emissiveIntensity?: number; emissiveMap?: string; lightLayers?: number; rimColor?: ColorLike; rimIntensity?: number; rimWidth?: number; normalFrom?: "file" | "sprite" | "height"; heightMap?: string; normalStrength?: number; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Interpolation: { mode?: "inherit" | "on" | "off" };
-    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean; size?: number; lightLayers?: number; cookie?: string; cookieRotationDeg?: number; cookieScale?: number };
+    ShadowCaster2D: { shape?: "spriteAlpha" | "polygon" | "box"; points?: Float32Array; size?: Vec2Like; alphaThreshold?: number; selfShadow?: boolean; lightLayers?: number; enabled?: boolean };
+    GlobalIllumination2D: { enabled?: boolean; quality?: "low" | "medium" | "high"; intensity?: number; bounce?: number; range?: number; resolutionScale?: number };
+    Water2D: { size?: Vec2Like; tint?: ColorLike; reflection?: number; refraction?: number; waveAmplitude?: number; waveLength?: number; waveSpeed?: number; layer?: number; material?: string };
+    DistortionZone2D: { size?: Vec2Like; strength?: number; layer?: number; material?: string };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
     SpriteSkin: { bones?: any; weights?: any; bindPose?: Float32Array; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut"; material?: string; materialParams?: any };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; lightLayers?: number; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut"; material?: string; materialParams?: any };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; material?: string; materialParams?: any };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; lightLayers?: number; emissive?: ColorLike; emissiveIntensity?: number; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
@@ -23223,10 +23615,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

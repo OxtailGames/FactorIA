@@ -68,7 +68,7 @@ vec3 sky_extinction(float h) {
 }
 
 // 1 - exp(-x) without the cancellation: for a small x (a short step in thin air) 1 - exp(-x) loses its digits in fp32, so the series
-// x - x^2 / 2 + x^3 / 6 takes over below 0.02 (its next term is 1e-9 of x there).
+// x - x^2 / 2 + x^3 / 6 takes over below 0.02 (the first term left out is x^4 / 24: 6.7e-9 absolute, 3e-7 relative to x, there).
 vec3 sky_one_minus_exp(vec3 x) {
     vec3 series = x * (1.0 - x * (0.5 - x * (1.0 / 6.0)));
     return mix(vec3(1.0) - exp(-x), series, vec3(lessThan(x, vec3(0.02))));

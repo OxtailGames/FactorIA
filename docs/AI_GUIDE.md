@@ -11,7 +11,7 @@ Pages of this guide (the page name for `docs_read` is `ai-guide-<name>`; a headi
 - [tools](ai-guide/AI_GUIDE_TOOLS.md): sections 4 to 7. Tools and CLI, skills, coordinates and units, scene and prefab files, component cheat-sheet.
 - [scripts](ai-guide/AI_GUIDE_SCRIPTS.md): sections 8, 9.1 to 9.7. The JavaScript API, then platformer, top-down, spawning, HUD, collisions, camera, sounds and music.
 - [tilemaps](ai-guide/AI_GUIDE_TILEMAPS.md): section 9.8. Tilemap levels, objects and tile collision.
-- [recipes-world](ai-guide/AI_GUIDE_RECIPES_WORLD.md): sections 9.9 to 9.21. 3D scene, save data, levels, particles, patrol AI, 3D cameras and physics, glow, sweeps.
+- [recipes-world](ai-guide/AI_GUIDE_RECIPES_WORLD.md): sections 9.9 to 9.21.1. 3D scene, save data, levels, particles, patrol AI, 3D cameras and physics, glow, sweeps, 2D water and glass.
 - [recipes-ui-assets](ai-guide/AI_GUIDE_RECIPES_UI_ASSETS.md): sections 9.22 to 9.25. Menus, art/sound/model pipeline, game menus, animated characters, analytics.
 - [recipes-production](ai-guide/AI_GUIDE_RECIPES_PRODUCTION.md): sections 9.26 to 9.32. 2D production, enemy AI, multiplayer, split screen, render targets, game feel, choices.
 - [checks](ai-guide/AI_GUIDE_CHECKS.md): sections 10 to 14. Tests, debugging and replays, common mistakes, performance, where to read more.
@@ -52,6 +52,7 @@ Read one section with `docs_read {"name":"ai-guide","heading":"<title>"}` (CLI: 
 - 9.20 Neon glow, exposure and tonemap: additive blend and the PostProcess stack [recipes-world]
 - 9.20.1 Colour-blind players: the colour filter and the colour-blind check [recipes-world]
 - 9.21 Sweep a shape instead of a ray: will it fit, how far can it go [recipes-world]
+- 9.21.1 Water, heat haze and glass in 2D: the picture drawn so far [recipes-world]
 - 9.22 A menu: buttons, sliders, focus and the gamepad [recipes-ui-assets]
 - 9.23 Art, sounds and models: generate, import, ship [recipes-ui-assets]
 - 9.24 Game menus: main menu, options, credits, loading screen, pause [recipes-ui-assets]

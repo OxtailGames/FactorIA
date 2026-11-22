@@ -569,6 +569,43 @@ TEST_CASE("physical sky: where the tables cannot be made the gradient is drawn a
     CHECK(diff_images(a, b, 1.0f / 255.0f).meanError < 0.0005);
 }
 
+TEST_CASE("physical sky: without a directional light there is no sun disc at the zenith") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!physical_sky_supported(g)) {
+        MESSAGE("physicalSky is not supported on this GPU: not run");
+        return;
+    }
+    // The camera looks straight up. With a sun standing overhead the middle of the picture is its (white) disc; without a light the
+    // sky keeps its glow there.
+    // The disc is under two pixels wide (0.53 degrees at 180 px for 60 degrees): the brightest of the 3 x 3 pixels round the middle is
+    // measured, so where on the pixel grid the disc falls does not matter.
+    auto brightest_r = [](const Image& img) {
+        float best = 0.0f;
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx)
+                best = std::max(best, img.pixel(img.width / 2 + dx, img.height / 2 + dy).r);
+        return best;
+    };
+    SkyScene withSun(90.0f, 180.0f, 90.0f);
+    withSun.w.settings().cloudCoverage = 0.0f;
+    const float disc = brightest_r(g.render(withSun.w));
+    CHECK(disc > 0.95f);
+    SkyScene none(90.0f, 180.0f, 90.0f);
+    none.w.settings().cloudCoverage = 0.0f;
+    none.w.remove<Light>(none.sun);
+    const float zenith = brightest_r(g.render(none.w));
+    // The air's own glow round the sun's direction is left (a pale sky), the disc is not: it is clearly darker than the disc.
+    CHECK(zenith < disc - 0.1f);
+    // A point light is no sun: only a directional light makes the disc, so the same light as a point light leaves the sky as it is without one.
+    SkyScene point(90.0f, 180.0f, 90.0f);
+    point.w.settings().cloudCoverage = 0.0f;
+    point.w.get<Light>(point.sun)->type = LightType::Point;
+    const float lamp = brightest_r(g.render(point.w));
+    CHECK(lamp < disc - 0.1f);
+    CHECK(std::abs(lamp - zenith) < 0.02f);
+}
+
 TEST_CASE("physical sky: the pictures: noon, sunset, overcast and a metal sphere that reflects the sky") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

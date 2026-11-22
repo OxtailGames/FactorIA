@@ -65,4 +65,25 @@ struct ProfileStep {
 std::vector<ProfileStep> find_steps(const std::vector<float>& values, float threshold, int window = 2,
                                     std::size_t maxSteps = 200);
 
+// ---- Normal maps made from a height field (M74) ----------------------------------------------------------------
+
+// A tangent-space normal map (+X right, +Y up the picture, like Sprite.normalMap and glTF; a flat area is (0.5, 0.5, 1))
+// from a height field of w x h values in 0..1 (row 0 = top). The slope of a pixel is the central difference of its
+// neighbours (clamped at the border, or wrapped when `tile`), scaled so one `strength` looks the same at every
+// resolution (512 px is the reference). `strength` 0 = a flat map. The same kernel `assets.generate_texture` writes its
+// normal maps with. An empty image when w or h is below 1 or `height` holds fewer than w * h values.
+Image normal_map_from_height(const std::vector<double>& height, int w, int h, bool tile, double strength);
+
+// The height of a sprite for its generated normal map (Sprite.normalFrom sprite): a bevel from the distance to the
+// transparent edge (a pixel `bevel` pixels inside the silhouette is at full height; bevel 0 picks a twelfth of the
+// shorter side) plus the luminance of the picture times its alpha, so brighter and more opaque reads as higher.
+// One value per pixel, 0..1. Deterministic: integer distances, no random numbers.
+std::vector<double> sprite_height_field(const Image& sprite, int bevel = 0);
+
+// The normal map of a sprite (sprite_height_field, then normal_map_from_height with clamped borders).
+Image normal_map_from_sprite(const Image& sprite, double strength);
+
+// The normal map of a grey image used as a height field (white = high; the luminance of the pixels, alpha ignored).
+Image normal_map_from_height_image(const Image& grey, double strength);
+
 }  // namespace fa

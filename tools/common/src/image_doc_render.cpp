@@ -3,7 +3,7 @@
 //
 // Each layer goes through the same pipeline, bottom layer first:
 //   content (the layer's own pixels, at its own coordinates)
-//     -> adjustments (colour only)  -> masks (alpha)  -> effects (may grow the raster)
+//     -> adjustments (colour only; normalMap also makes the pixels opaque)  -> masks (alpha)  -> effects (may grow the raster)
 //     -> clipping to the layer below  -> opacity  -> blend onto the canvas at the layer's offset
 // A group renders its children onto a transparent canvas of its own (groups are always isolated: a child's blend mode acts
 // inside the group), then goes through the same pipeline as a layer of pixels. An adjustment layer instead applies its
@@ -408,7 +408,8 @@ void composite_layers(Ctx& ctx, const std::vector<ImageLayer>& layers, Raster& c
                 if (c <= 0.0f) continue;
                 float* d = &canvas.px[i * 4];
                 const float* a = &adjusted.px[i * 4];
-                for (int k = 0; k < 3; ++k) d[k] += (a[k] - d[k]) * c;
+                // alpha too: only normalMap changes it (a normal map is opaque); every other adjustment keeps it, so a - d is 0
+                for (int k = 0; k < 4; ++k) d[k] += (a[k] - d[k]) * c;
             }
             continue;
         }

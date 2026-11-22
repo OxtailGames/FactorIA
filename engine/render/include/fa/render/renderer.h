@@ -153,6 +153,9 @@ struct RenderStats {
     int transmissiveMeshes = 0;
     int transmissionCopies = 0;
     int transmissionPlain = 0;
+    // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
+    // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
+    int sceneCopies = 0;
     // Subsurface scattering (M73.5), summed over the cameras of the frame.
     int subsurfaceCameras =
         0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
@@ -563,6 +566,12 @@ public:
     // the `render.gi_grid` command: {frame, captures, capturesPerFrame, atlas, grids: [{entity, state, probes, progress, bytes, invalidProbes,
     // ...}]}. It reads the probes' meta texels back from the GPU (a command, never the frame). Empty object before init() and while no grid exists.
     Json gi_report();
+    // The 2D global illumination field of the last frame (GlobalIllumination2D; docs/design/ARCHITECTURE_RENDERING_GI2D.md): the report of the
+    // `render.gi2d_field` command {enabled, supported, settings, fields: [{slot, job, ready, width, height, texelSize, worldRect, ...}]}. With a
+    // `savePrefix` (a UTF-8 path without extension) the three images of the field of `job` (empty: the first one that is ready) are also written
+    // as <prefix>-emission.png, <prefix>-occluders.png and <prefix>-distance.png and the report lists them in "files"; a failure is in "error".
+    // Reads the GPU back (a command, never the frame). Empty object before init().
+    Json gi2d_field(std::string_view savePrefix = {}, std::string_view job = {});
     // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
     // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
     // below `captured` have a picture (exact unless a capture failed and is being retried).
