@@ -1,7 +1,6 @@
 // The components of the big worlds of M75 (docs/BIG_WORLDS.md): LOD groups, occlusion, streaming anchors, terrain and foliage.
-// P0 of M75 lands the data: every field is reflected (components_world.cpp), saved, loaded and validated today, and does nothing
-// until the package named in its doc string draws or simulates it. Every default leaves an existing scene as it was (none of
-// these components exists in one). Included by components.h.
+// Every field is reflected (components_world.cpp), saved, loaded and validated; its doc string says what it does. Every default
+// leaves an existing scene as it was (none of these components exists in one). Included by components.h.
 #pragma once
 
 #include <cstdint>
@@ -110,8 +109,9 @@ struct Terrain3D {
     Json splatMaps = Json::array();  // RGBA PNG paths, 4 layers each: channel c of map m weights layers[4 * m + c]
     Json layers =
         Json::array();  // [{"albedo", "normal", "tileSize", "roughness", "metallic", "normalScale"}], at most 8; the
-                        // textures of all layers share one size and format (they become texture arrays)
-    std::string holes;  // greyscale PNG that cuts holes where its pixel is 128 or more ("" = none)
+                        // textures of all layers share one size (they become texture arrays)
+    std::string
+        holes;  // greyscale PNG that cuts holes (surface, shadow, collider) where its pixel is 128 or more ("" = none)
     float lodQuality = 1.0f;  // multiplier of the mesh density and of the distances at which the terrain coarsens
     bool castShadows = true;
     bool collision = true;  // an automatic Heightfield3D collider on this entity (static, holes included)

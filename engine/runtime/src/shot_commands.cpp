@@ -1034,7 +1034,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 "
          "backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a "
          "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
-         "in C++.",
+         "in C++. The whole list also has `limits` {maxTextureSize, maxArrayLayers, maxArrayTextureSize}: the sizes "
+         "this "
+         "GPU reports (the Terrain's heightmap, layers, splat maps and holes must fit them).",
          parse_schema(R"({"type":"object","properties":{
                "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
          true, "game"},
