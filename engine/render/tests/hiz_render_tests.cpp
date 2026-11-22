@@ -276,7 +276,8 @@ TEST_CASE("async read-back: a slot asked for a smaller size, then a bigger one, 
     const sg_buffer buf = sg_make_buffer(&bd);
     REQUIRE(sg_query_buffer_state(buf) == SG_RESOURCESTATE_VALID);
     render::AsyncBufferRead ring;
-    for (const std::size_t bytes : {std::size_t(4096), std::size_t(512), std::size_t(8192), std::size_t(64), std::size_t(2048)}) {
+    for (const std::size_t bytes :
+         {std::size_t(4096), std::size_t(512), std::size_t(8192), std::size_t(64), std::size_t(2048)}) {
         std::string error;
         const int slot = ring.request(buf, bytes, &error);
         INFO("bytes " << bytes << " error " << error);
