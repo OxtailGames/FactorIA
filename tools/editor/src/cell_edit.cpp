@@ -278,6 +278,9 @@ void CellEdit::update(World& world, bool busy) {
     for (auto& [k, s] : slots_) {
         if (s.rootGone) {
             s.current = emptyHash;  // nothing to read: the cell is empty until Undo brings its entities back
+            // A cell whose file is empty too has nothing a save would change: it is closed like any clean cell (a slot kept for it
+            // would never be dirty, never be closed, and Save would say it wrote it empty).
+            if (!s.isNew && s.baseline == emptyHash) gone.push_back(k);
             continue;
         }
         if (s.root.is_null() || !world.alive(s.root)) {
@@ -286,9 +289,13 @@ void CellEdit::update(World& world, bool busy) {
         }
         if (all) s.current = fingerprint(world, s.root);
     }
+    // Without a full check (`all`) a cell's `current` may be older than the edit that deleted its root: it cannot say the cell was
+    // clean, so the cell counts as having unsaved changes (it can be closed later, when Undo and Save agree with its file).
+    const bool stale = !all;
     for (const Key& k : gone) {
         Slot& s = slots_[k];
-        if (s.isNew || s.current != s.baseline) {
+        const bool emptyFile = !s.isNew && s.baseline == emptyHash;  // its file already holds no entity
+        if (s.isNew || (!emptyFile && (stale || s.current != s.baseline))) {
             // Unsaved changes of a cell whose root was deleted: keep the cell, empty, as unsaved. Save writes it empty, Undo
             // brings the entities back; nothing is dropped silently.
             s.root = Entity{};
@@ -299,7 +306,8 @@ void CellEdit::update(World& world, bool busy) {
                         "now empty and unsaved. Save writes it empty; Undo brings it back.";
         } else {
             warnings_ = "The root entity of cell " + key_text(k) +
-                        " was deleted: the cell is closed and its file is unchanged.";
+                        " was deleted: the cell is closed and its file is unchanged" +
+                        (emptyFile ? " (it holds no entity either)." : ".");
             slots_.erase(k);
         }
     }

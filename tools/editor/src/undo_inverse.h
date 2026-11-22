@@ -46,10 +46,16 @@ bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& pla
 
 // How many terrain.undo calls of `entityId` the inverse list of `entry` holds (0 for any entry that is not a Command one).
 std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entityId);
-// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): an entry of the undo list whose step it let go could only
-// answer "nothing to undo", and would stand in front of older entries that still work. Removes, oldest first, the entries of
-// `entityId` until the stack holds no more terrain.undo calls for it than `historyDepth` (the terrain's undo_depth()). Returns how
-// many entries it removed.
-std::size_t drop_terrain_entries_beyond(UndoStack& stack, const std::string& entityId, std::size_t historyDepth);
+// What drop_terrain_steps removed.
+struct TerrainDrop {
+    std::size_t steps = 0;    // terrain.undo calls of the entity taken out of the list
+    std::size_t entries = 0;  // entries that held nothing else to undo and left the list
+};
+// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): a step it let go can only answer "nothing to undo", and
+// its entry would stand in front of older entries that still work. Takes out, oldest entry first, the terrain.undo calls of
+// `entityId` (and the terrain.redo calls of it in the entry's forward list) until `steps` of them are gone (the number the terrain's
+// history_lost() grew by). Only the terrain calls go: an entry that holds anything else to undo (a Chain of several edits) stays with
+// that, and one left with no inverse at all leaves the list.
+TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::size_t steps);
 
 }  // namespace fa::editor

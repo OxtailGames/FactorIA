@@ -110,7 +110,10 @@ std::string path_to_utf8(const std::filesystem::path& p);
 // The form of a host path to hand to the OS. On Windows a path of 248 characters or more (MAX_PATH, 260, minus room for
 // an 8.3 file name: the folder limit) comes back absolute, with backslashes and the \\?\ prefix, which lifts the limit
 // whether or not long paths are enabled on the machine; elsewhere, and for shorter paths, `p` as it is. For file system
-// calls only: show users the path itself.
+// calls only: show users the path itself. The result and the path it was made from name the same file but are different text
+// (`\\?\C:\a` against `C:\a`, `\\?\UNC\server\share` against `\\server\share`): compare, store and print the plain form,
+// and note that std::filesystem::weakly_canonical of an os_path result keeps the prefix. A path in the prefixed form is taken
+// literally by Windows (no `/`, no `.` or `..` collapsing), which is why os_path makes it absolute and normalized first.
 std::filesystem::path os_path(const std::filesystem::path& p);
 // std::filesystem::remove_all that also deletes files deeper than MAX_PATH: on Windows it always goes through the
 // \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child, and a read-only file in it
