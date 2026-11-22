@@ -22,6 +22,9 @@ struct TerrainDraw;
 // batches and, the sort being stable, stay in the order they were gathered (one terrain after the other). Without it one terrain made
 // the whole frame's items "unkeyed" and sorted with the slow comparator.
 inline constexpr std::uint64_t kTerrainSortKey = ~std::uint64_t(0);
+// The sort key of every instance of a Foliage (renderer_foliage.cpp), just before the terrain's for the same reason: the renderer hands
+// them over grouped by mesh, so the stable sort by (key, lod fade) leaves each mesh and fade step together as one draw.
+inline constexpr std::uint64_t kFoliageSortKey = ~std::uint64_t(0) - 1;
 
 // One MeshRenderer entity, gathered for this frame.
 struct MeshItem {
@@ -64,6 +67,9 @@ struct MeshItem {
     // instance data the terrain program reads (first column, first row, step, level, morph start and end).
     const TerrainDraw* terrain = nullptr;
     std::array<float, 8> terrainNode{};
+    // An instance of a Foliage (renderer_foliage.h): its `lodFade` is the distance fade (a share of the screen pattern that stays, not a
+    // cross-fade), so the pass counts it as foliage, not as a LOD cross-fade, and it never shares a batch with a mesh that is not one.
+    bool foliage = false;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else

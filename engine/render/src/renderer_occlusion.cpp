@@ -21,7 +21,7 @@ constexpr int kBoxEdges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}
 
 }  // namespace
 
-void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes) {
+bool Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes) {
     // The occluders of this camera's scope, nearest first so that the caps keep the ones that matter most (a deterministic order: the
     // distance of the origin, then the entity).
     struct Pending {
@@ -79,7 +79,7 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
         pending.push_back(std::move(p));
         occluderEntities.push_back(e.bits());
     });
-    if (pending.empty()) return;  // every Occluder is off or unreadable: nothing is culled, nothing is counted
+    if (pending.empty()) return false;  // every Occluder is off or unreadable: nothing is culled, nothing is counted
     std::stable_sort(pending.begin(), pending.end(), [](const Pending& a, const Pending& b) {
         const float da = rjobs::order_float(a.dist), db = rjobs::order_float(b.dist);
         return da != db ? da < db : a.src.entity < b.src.entity;
@@ -177,6 +177,7 @@ void Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
                 if (hiddenFlag[i]) addBox(meshes[i].model, meshes[i].bmin, meshes[i].bmax, true);
         }
     }
+    return true;
 }
 
 void Renderer::Impl::occlusion_overlay() {
