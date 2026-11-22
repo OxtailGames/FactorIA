@@ -88,8 +88,10 @@ struct Gi2dGeometry {
     bool valid = false;
     int width = 0, height = 0;  // field texels
     double texel = 1.0;         // world units per texel (a float's value)
-    double originX = 0.0;       // world x of the left edge of texel column 0 (a multiple of `texel`)
-    double originY = 0.0;       // world y of the lower edge of texel row 0 (a multiple of `texel`)
+    double originX =
+        0.0;  // world x of the left edge of texel column 0 (a multiple of `texel`, once the floating origin is added)
+    double originY =
+        0.0;  // world y of the lower edge of texel row 0 (a multiple of `texel`, once the floating origin is added)
     bool capped =
         false;  // the area asked for was over kGi2dMaxSize texels a side: the texels are larger than resolutionScale says
     std::uint64_t bytes =
@@ -102,7 +104,11 @@ struct Gi2dGeometry {
 // ceil((visible + 2 * range) / texel) + 2 texels a side, rounded UP to a multiple of kGi2dSizeStep, and the origin is the lower-left corner snapped DOWN to a multiple of the texel, so a
 // camera that moves by less than a texel moves the field by 0 or by whole texels and nothing in it swims. The size depends on the view's
 // size and the settings only, never on where the camera is. valid == false for a view without a size.
-Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dSettings& s);
+// `originX/originY` (M75.4b, World::origin(): the floating origin in world units, 0 without one): the texel grid is fixed in ABSOLUTE
+// space, so the origin of the field (local) is a multiple of the texel once the floating origin is added, and a rebase (every local position and
+// the origin move by the same exact amount) moves the field by a whole number of texels, whatever the texel size.
+Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dSettings& s, double originX = 0.0,
+                           double originY = 0.0);
 
 // What a GI quality means, as counts (M74-P3b; docs/rendering/RENDERING_2D_GI.md): the same on every machine, never a time.
 //   spacing0   the probe spacing of cascade 0 in field texels; cascade i has spacing0 * 2^i and spacing^2 rays a probe, so each cascade has
@@ -236,6 +242,12 @@ public:
     void release();
     // Destroys the images only (the render targets were resized).
     void free_images();
+    // M75.4b, a rebase of the floating origin: every local world position moved by -(dx, dy), so the geometry and the history origin of
+    // every field do too. The images are kept (the bounce keeps its history); the geometry of the next frame is snapped in absolute space
+    // (gi2d_geometry), so the history shift it finds is the one of the camera alone.
+    void shift(double dx, double dy);
+    // How many rebases shift() has followed (a test reads it).
+    std::uint64_t shifts() const { return shifts_; }
 
     // One field's passes, declared in `graph` in the order they run: emission, occluders, seed, then the jump-flooding steps, the last of
     // which writes the distance image; then the same chain over the emission, the cascades from the top down (a priming chain first when
@@ -299,6 +311,7 @@ private:
         sg_pipeline pipeline;
     };
     std::array<std::unique_ptr<Gi2dField>, kGi2dMaxFields> slots_;
+    std::uint64_t shifts_ = 0;
     sg_shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)

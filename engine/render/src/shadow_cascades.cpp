@@ -194,7 +194,8 @@ SliceSphere slice_sphere(const CameraFrustum& f, float d0, float d1) {
     return s;
 }
 
-CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float casterMin, bool zeroToOne) {
+CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float casterMin, bool zeroToOne,
+                       const DVec3& origin) {
     CascadeFit out;
     const Vec3 f = normalize(lightDir);
     const Vec3 upRef = std::fabs(f.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
@@ -204,8 +205,16 @@ CascadeFit fit_cascade(Vec3 centre, float radius, Vec3 lightDir, int tile, float
     const float cz = dot(centre, f);
     // The centre moves in whole texels of the map along the light's x and y: the texel grid is fixed in the world, so a still shadow
     // lands on the same texels whatever the camera does between two steps.
-    const float cx = std::floor(dot(centre, s) / texel + 0.5f) * texel;
-    const float cy = std::floor(dot(centre, u) / texel + 0.5f) * texel;
+    // With a floating origin the grid is fixed in absolute space: the same snap on origin + centre, in double.
+    const bool shifted = origin.x != 0.0 || origin.y != 0.0 || origin.z != 0.0;
+    auto snap = [&](Vec3 axis) {
+        const float c = dot(centre, axis);
+        if (!shifted) return std::floor(c / texel + 0.5f) * texel;
+        const double a = origin.x * double(axis.x) + origin.y * double(axis.y) + origin.z * double(axis.z);
+        return float(std::floor((a + double(c)) / double(texel) + 0.5) * double(texel) - a);
+    };
+    const float cx = snap(s);
+    const float cy = snap(u);
     const float margin = std::max(radius * 0.05f, 0.25f);
     const float front = std::min(cz - radius, casterMin) - margin;
     const float back = cz + radius;
@@ -259,7 +268,8 @@ float auto_shadow_far(Vec3 cameraPosition, Vec3 casterMin, Vec3 casterMax) {
 }
 
 CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMax, Vec3 lightDir, float shadowDistance,
-                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne) {
+                          float lambda, float blend, const std::vector<int>& tileSizes, bool zeroToOne,
+                          const DVec3& origin) {
     CascadePlan out;
     const int count = std::min(int(tileSizes.size()), kMaxShadowCascades);
     if (count < 1) return out;
@@ -291,7 +301,7 @@ CascadePlan plan_cascades(const CameraFrustum& cf, Vec3 casterMin, Vec3 casterMa
         // Rounded up to 6 bits so float noise in the camera does not change the map's size, and two texels of margin for the snapping.
         const float radius = std::max(0.5f, quantize_up(sp.radius, 6)) * float(px) / float(px - 4);
         const Vec3 centre = cf.position + cf.forward * sp.centreDist;
-        out.fits[std::size_t(c)] = fit_cascade(centre, radius, ld, px, nearestCaster, zeroToOne);
+        out.fits[std::size_t(c)] = fit_cascade(centre, radius, ld, px, nearestCaster, zeroToOne, origin);
     }
     out.ok = true;
     return out;
