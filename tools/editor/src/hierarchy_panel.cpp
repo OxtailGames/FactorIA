@@ -50,11 +50,14 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
             r = engine_->commands().call(name, args);
             after_command(name, args, r);
             if (r.ok) {
-                // plan->noop: the call left the scene as it was: no step, nothing to save
+                // plan->noop (set by the builder or by the finisher, which knows the result): the call left the scene as it was:
+                // no step, nothing to save
                 if (!plan->noop) {
-                    if (finish_undo_plan(world(), name, *plan, r.result)) {
-                        push_command_entry(key, std::move(plan->forward), std::move(plan->inverse),
-                                           CoalesceMode::Merge);
+                    const bool finished = finish_undo_plan(world(), name, *plan, r.result);
+                    if (finished) {
+                        if (!plan->noop)
+                            push_command_entry(key, std::move(plan->forward), std::move(plan->inverse),
+                                               CoalesceMode::Merge);
                     } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
                         dirty_ = true;
                         redo_.clear();  // the edit happened: a redo list from before it no longer applies

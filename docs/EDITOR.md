@@ -159,7 +159,7 @@ in all (the oldest steps go first). A step is one of three kinds:
   active box in the Hierarchy, a Transform gizmo drag (one entity or a group), adding a component and removing one from the
   Inspector, and the structural edits: creating an entity (`scene.spawn`, also from the Project panel's drops), deleting one or
   a multi-selection, Duplicate, Cut and Paste (`scene.paste_entities`), dragging an entity onto another parent
-  (`scene.set_parent`) and creating a bone chain (`bones.create`). Undo of a set sets the old value of exactly the fields the edit
+  (`scene.set_parent`) creating a bone chain (`bones.create`), and a terrain edit (a brush stroke or `terrain.sculpt|paint|holes|generate` from the Console, the AI or MCP: `terrain.undo` / `terrain.redo`, [Terrain tool](editor/EDITOR_PANELS.md#terrain-tool)). Undo of a set sets the old value of exactly the fields the edit
   named (a component the entity did not have is removed again), and Undo of a removed component adds it back with every field it
   had. Undo of a destroy pastes the entity back with its components and its whole subtree under the SAME ids, in the same parent
   and at the same sibling index, with the references that pointed at it from outside the subtree (a Joint, a UI target) set

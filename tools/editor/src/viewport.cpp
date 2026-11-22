@@ -323,6 +323,9 @@ void Editor::draw_viewport() {
             const Entity hit = pick_at(design_of(io.MousePos));
             if (!hit.is_null()) {
                 click_in_space(selection_, w.id_of(hit), mods);
+            } else if (terrain_tool_active()) {
+                // A press that misses the terrain (the sky, off the edge) and every other entity keeps the terrain selected and its
+                // tool on: the empty-space click would clear the selection, and the tool with it.
             } else {
                 marquee_.pending = true;
                 marquee_.active = false;

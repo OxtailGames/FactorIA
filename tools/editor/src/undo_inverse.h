@@ -44,4 +44,12 @@ bool has_undo_builder(const std::string& name);
 // unusable (the command ran, and nothing can undo it).
 bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& plan, const Json& result);
 
+// How many terrain.undo calls of `entityId` the inverse list of `entry` holds (0 for any entry that is not a Command one).
+std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entityId);
+// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): an entry of the undo list whose step it let go could only
+// answer "nothing to undo", and would stand in front of older entries that still work. Removes, oldest first, the entries of
+// `entityId` until the stack holds no more terrain.undo calls for it than `historyDepth` (the terrain's undo_depth()). Returns how
+// many entries it removed.
+std::size_t drop_terrain_entries_beyond(UndoStack& stack, const std::string& entityId, std::size_t historyDepth);
+
 }  // namespace fa::editor

@@ -102,7 +102,7 @@ void Editor::draw_phone_window() {
                         projectName_.c_str());
     ImGui::Spacing();
 
-    if (dirty()) {
+    if (has_unsaved_work()) {
         ImGui::TextColored(kStatusWarn, "The scene has unsaved changes: the phone gets the version on disk.");
         ImGui::SameLine();
         ImGui::BeginDisabled(play_ != PlayState::Edit);
