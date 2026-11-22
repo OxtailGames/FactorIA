@@ -416,6 +416,121 @@ Result<TerrainLoad> load_terrain_heightmap(std::string_view path) {
     return decode_terrain_heightmap(bytes->data(), bytes->size(), path);
 }
 
+// ---- the splat weights ----
+
+void terrain_splat_weights(const TerrainHeights* h, int layerCount, float u, float v, float* out) {
+    const int n = std::clamp(layerCount, 0, int(kMaxTerrainLayers));
+    for (int i = 0; i < n; ++i) out[i] = i == 0 ? 1.0f : 0.0f;
+    if (!h || n <= 1) return;
+    float raw[kMaxTerrainLayers]{};
+    float sum = 0.0f;
+    for (int i = 0; i < n; ++i) {
+        const TerrainSplat& map = h->splat[std::size_t(i / 4)];
+        if (!map.valid()) continue;  // a layer no map paints: weight 0
+        // Bilinear between the four pixels around the point, texel centres at half pixels, the edge repeated (a clamped GPU sampler).
+        const float px = std::clamp(u, 0.0f, 1.0f) * float(map.size) - 0.5f;
+        const float py = std::clamp(v, 0.0f, 1.0f) * float(map.size) - 0.5f;
+        const float fx0 = std::floor(px), fy0 = std::floor(py);
+        const float fx = px - fx0, fy = py - fy0;
+        auto clampi = [&](float f) { return std::clamp(int(f), 0, map.size - 1); };
+        const int x0 = clampi(fx0), x1 = clampi(fx0 + 1.0f), y0 = clampi(fy0), y1 = clampi(fy0 + 1.0f);
+        auto at = [&](int x, int y) {
+            return float(map.rgba[(std::size_t(y) * std::size_t(map.size) + std::size_t(x)) * 4 + std::size_t(i % 4)]);
+        };
+        const float top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+        const float bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+        raw[i] = (top + (bottom - top) * fy) / 255.0f;
+        sum += raw[i];
+    }
+    if (!(sum > 1e-6f)) return;  // nothing painted: layer 0
+    for (int i = 0; i < n; ++i) out[i] = raw[i] / sum;
+}
+
+bool terrain_layer_weights(const World& world, Entity terrain, float worldX, float worldZ, TerrainLayerWeights& out) {
+    const Terrain3D* t = world.get<Terrain3D>(terrain);
+    if (!t || !(t->size.x > 0.0f) || !(t->size.y > 0.0f)) return false;
+    const Mat4 m = world.world_matrix(terrain);
+    const Vec3 local = m.inverse().transform_point({worldX, m.translation().y, worldZ});
+    const float u = local.x / t->size.x + 0.5f, v = local.z / t->size.y + 0.5f;
+    if (!(u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f)) return false;
+    out = TerrainLayerWeights{};
+    out.count = t->layers.is_array() ? int(std::min<std::size_t>(t->layers.size(), std::size_t(kMaxTerrainLayers))) : 0;
+    terrain_splat_weights(world.terrain().heights(world, terrain).get(), out.count, u, v, out.weight);
+    return true;
+}
+
+// ---- the layer textures ----
+
+Result<TerrainLayerImages> load_terrain_layer_images(const Terrain3D& t, std::string_view kind) {
+    TerrainLayerImages out;
+    const std::size_t count =
+        t.layers.is_array() ? std::min<std::size_t>(t.layers.size(), std::size_t(kMaxTerrainLayers)) : 0;
+    out.images.resize(count);
+    int firstLayer = -1;
+    std::string firstPath;
+    for (std::size_t i = 0; i < count; ++i) {
+        const Json& l = t.layers[i];
+        if (!l.is_object()) continue;
+        auto it = l.find(std::string(kind));
+        if (it == l.end() || !it->is_string() || it->get<std::string>().empty()) continue;
+        const std::string path = it->get<std::string>();
+        const std::string at = "/layers/" + std::to_string(i) + "/" + std::string(kind);
+        auto bytes = fs::read_bytes(path);
+        if (!bytes) {
+            out.problems.push_back(
+                std::format("Terrain.layers[{}].{} ({}): '{}' cannot be read ({}), so layer {} uses a neutral {}", i,
+                            kind, at, path, bytes.error().message, i, kind));
+            continue;
+        }
+        auto sz = image_size(bytes->data(), bytes->size());
+        if (!sz) {
+            out.problems.push_back(
+                std::format("Terrain.layers[{}].{} ({}): '{}' is not a picture the engine reads ({}), so layer {} "
+                            "uses a neutral {}",
+                            i, kind, at, path, sz.error().message, i, kind));
+            continue;
+        }
+        if (sz->width > kTerrainMaxLayerSide || sz->height > kTerrainMaxLayerSide)
+            return make_error(std::format("Terrain.layers[{}].{} ({}): '{}' is {} x {} pixels, more than the {} x {} a "
+                                          "layer texture can have",
+                                          i, kind, at, path, sz->width, sz->height, kTerrainMaxLayerSide,
+                                          kTerrainMaxLayerSide),
+                              "Scale the texture down (1024 or 2048 pixels cover 4 to 8 metres of ground well).");
+        if (firstLayer >= 0 && (sz->width != out.width || sz->height != out.height))
+            return make_error(std::format("Terrain.layers[{}].{} ({}): '{}' is {} x {} pixels, but layer {}'s {} '{}' "
+                                          "(/layers/{}/{}) is {} x {}",
+                                          i, kind, at, path, sz->width, sz->height, firstLayer, kind, firstPath,
+                                          firstLayer, kind, out.width, out.height),
+                              std::format("The {} textures of all layers are packed into one texture array, so they "
+                                          "must all have the same size: resize "
+                                          "one of them to {} x {} (or the other to {} x {}).",
+                                          kind, out.width, out.height, sz->width, sz->height));
+        // The GPU memory of every picture present so far (RGBA8 with a full mip chain, about 4/3 of the base level), before any decode.
+        const std::uint64_t each = std::uint64_t(sz->width) * std::uint64_t(sz->height) * 4 / 3 * 4 + 64;
+        if (each * std::uint64_t(out.present + 1) > kTerrainMaxLayerBytes)
+            return make_error(std::format("Terrain.layers[{}].{} ({}): the {} textures of the layers would take more "
+                                          "than {} MB of GPU memory ({} x {} "
+                                          "pixels each)",
+                                          i, kind, at, kind, kTerrainMaxLayerBytes >> 20, sz->width, sz->height),
+                              "Use smaller layer textures (1024 x 1024 for 8 layers is 45 MB), or fewer layers.");
+        auto img = decode_image(bytes->data(), bytes->size());
+        if (!img) {
+            out.problems.push_back(std::format("Terrain.layers[{}].{} ({}): '{}': {}, so layer {} uses a neutral {}", i,
+                                               kind, at, path, img.error().message, i, kind));
+            continue;
+        }
+        if (firstLayer < 0) {
+            firstLayer = int(i);
+            firstPath = path;
+            out.width = img->width;
+            out.height = img->height;
+        }
+        out.images[i] = std::move(*img);
+        ++out.present;
+    }
+    return out;
+}
+
 // ---- sampling ----
 
 bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float localX, float localZ, float& height,
@@ -425,6 +540,7 @@ bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float loc
     const float u = (localX / t.size.x + 0.5f) * cells, v = (localZ / t.size.y + 0.5f) * cells;
     if (!(u >= 0.0f && u <= cells && v >= 0.0f && v <= cells)) return false;  // also NaN
     const int c = std::min(int(u), h.samples - 2), r = std::min(int(v), h.samples - 2);
+    if (h.hole(c, r)) return false;  // a hole has no ground
     const float fu = u - float(c), fv = v - float(r);
     const float k = t.heightScale / kTerrainRawMax;
     const float h00 = float(h.at(c, r)) * k, h01 = float(h.at(c + 1, r)) * k, h10 = float(h.at(c, r + 1)) * k,

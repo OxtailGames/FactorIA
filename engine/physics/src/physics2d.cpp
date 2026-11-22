@@ -197,6 +197,8 @@ void Physics2D::shutdown() {
     order_.clear();
     lastWorld_ = nullptr;
     lastGravity_ = {1e30f, 1e30f};
+    seamSig_ = 0;
+    seamsInUse_ = false;
     inited_ = false;
 }
 
@@ -214,6 +216,8 @@ void Physics2D::reset() {
     order_.clear();
     lastWorld_ = nullptr;
     lastGravity_ = {1e30f, 1e30f};
+    seamSig_ = 0;
+    seamsInUse_ = false;
 }
 
 void Physics2D::ensure_world(World& world) {
@@ -471,6 +475,10 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
     sd.enableSensorEvents = false;
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
+    // pre_solve drops the contacts along a chunk border (update_tile_seams). Box2D reads this flag when a contact is
+    // CREATED, and a neighbouring chunk can stream in while a body already touches this box, so the flag is on for every
+    // tile box (one cheap callback per tile contact per step) instead of only once a second map exists.
+    sd.enablePreSolveEvents = true;
     TileBody::Box box;
     box.c0 = c0;
     box.c1 = c1;
@@ -730,6 +738,9 @@ void Physics2D::sync_tilemaps(World& world) {
             tb.solid = std::move(solid);
             tb.pos = pose.position;
             tb.rotZ = pose.rotZ;
+            tb.ortho = !tilemap_isometric(*tm);
+            tb.tw = tm->tileSize.x * pose.scale.x;
+            tb.th = tm->tileSize.y * pose.scale.y;
             b2BodyDef bd = b2DefaultBodyDef();
             bd.type = b2_staticBody;
             bd.position = {pose.position.x * inv, pose.position.y * inv};
@@ -755,7 +766,98 @@ void Physics2D::sync_tilemaps(World& world) {
             else
                 b2Body_Disable(tb.body);
         }
+        tb.active = active;
     }
+}
+
+// The seams between the chunks of a tilemap cut into pieces (tilemap.split_cells, a streamed 2D world): every chunk is its own
+// Tilemap and so its own boxes, and the corners where two boxes of a flat floor meet are ghost vertices: a box sliding along the
+// floor catches on the vertical face at the border, a circle or capsule is slowed by the speculative contact of the corner. A box
+// side whose every neighbouring cell is a solid cell of ANOTHER (loaded, active, axis-aligned, same tile size, on the same tile
+// grid) tilemap is not a surface: it is marked in ShapeInfo::seams, and pre_solve drops the contacts whose normal points out of
+// that side. The neighbour's own box makes the real contact there. A side that is only partly covered is a real face and is not
+// marked. Only recomputed when a tilemap was made, rebuilt, edited, moved or removed since the last time; with fewer than two
+// such tilemaps nothing is marked.
+void Physics2D::update_tile_seams() {
+    std::uint64_t sig = 0x9E3779B97F4A7C15ull;
+    auto mix = [&sig](std::uint64_t v) { sig ^= v + 0x9E3779B97F4A7C15ull + (sig << 6) + (sig >> 2); };
+    std::vector<TileBody*> maps;
+    for (auto& [key, tb] : tiles_) {
+        if (!tb.ortho || !tb.active || !(tb.tw > 0.0f) || !(tb.th > 0.0f) || std::fabs(wrap_deg(tb.rotZ)) > 1e-3f ||
+            B2_IS_NULL(tb.body))
+            continue;
+        maps.push_back(&tb);
+    }
+    std::sort(maps.begin(), maps.end(), [](const TileBody* a, const TileBody* b) { return a->e.bits() < b->e.bits(); });
+    for (const TileBody* tb : maps) {
+        mix(tb->e.bits());
+        mix(tb->hash);
+        mix(tb->stamp.arrayId);
+        mix(tb->stamp.version);
+        std::uint32_t px, py;
+        std::memcpy(&px, &tb->pos.x, 4);
+        std::memcpy(&py, &tb->pos.y, 4);
+        mix((std::uint64_t(px) << 32) | py);
+    }
+    mix(maps.size());
+    if (sig == seamSig_) return;
+    seamSig_ = sig;
+
+    auto set_seams = [this](TileBody::Box& box, std::uint8_t seams) {
+        if (box.seams == seams) return;
+        box.seams = seams;
+        auto it = shapes_.find(box.key);
+        if (it != shapes_.end()) it->second.seams = seams;
+    };
+    bool any = false;
+    const bool pairs = maps.size() >= 2;
+    for (auto& [key, tb] : tiles_) {
+        (void)key;
+        const bool eligible = pairs && std::find(maps.begin(), maps.end(), &tb) != maps.end();
+        for (TileBody::Box& box : tb.boxes) {
+            if (!box.alive) continue;
+            std::uint8_t seams = 0;
+            if (eligible) {
+                // is the cell (x, y) (world units) a solid cell of a tilemap other than tb?
+                auto solid_at = [&](double x, double y) {
+                    for (const TileBody* n : maps) {
+                        if (n == &tb || std::fabs(n->tw - tb.tw) > 1e-4f || std::fabs(n->th - tb.th) > 1e-4f) continue;
+                        const double gx = double(n->pos.x - tb.pos.x) / double(tb.tw),
+                                     gy = double(n->pos.y - tb.pos.y) / double(tb.th);
+                        if (std::fabs(gx - std::round(gx)) > 1e-3 || std::fabs(gy - std::round(gy)) > 1e-3) continue;
+                        const double fc = (x - double(n->pos.x)) / double(n->tw),
+                                     fr = (double(n->pos.y) - y) / double(n->th);
+                        if (!std::isfinite(fc) || !std::isfinite(fr) || fc < 0.0 || fr < 0.0 || fc >= double(n->cols) ||
+                            fr >= double(n->rows))
+                            continue;
+                        const int c = int(fc), r = int(fr);
+                        if (n->boxAt[std::size_t(r) * std::size_t(n->cols) + std::size_t(c)] != 0u) return true;
+                    }
+                    return false;
+                };
+                const double x0 = double(tb.pos.x) + double(box.c0) * double(tb.tw),
+                             x1 = double(tb.pos.x) + double(box.c1 + 1) * double(tb.tw);
+                const double yTop = double(tb.pos.y) - double(box.r0) * double(tb.th),
+                             yBot = double(tb.pos.y) - double(box.r1 + 1) * double(tb.th);
+                auto side_covered = [&](bool vertical, double fixedCoord, double from, double step, int count) {
+                    for (int i = 0; i < count; ++i) {
+                        const double mid = from + (double(i) + 0.5) * step;
+                        if (!(vertical ? solid_at(fixedCoord, mid) : solid_at(mid, fixedCoord))) return false;
+                    }
+                    return true;
+                };
+                const int nc = box.c1 - box.c0 + 1, nr = box.r1 - box.r0 + 1;
+                const double hw = 0.5 * double(tb.tw), hh = 0.5 * double(tb.th);
+                if (box.c0 == 0 && side_covered(true, x0 - hw, yBot, double(tb.th), nr)) seams |= 1u;
+                if (box.c1 == tb.cols - 1 && side_covered(true, x1 + hw, yBot, double(tb.th), nr)) seams |= 2u;
+                if (box.r0 == 0 && side_covered(false, yTop + hh, x0, double(tb.tw), nc)) seams |= 4u;
+                if (box.r1 == tb.rows - 1 && side_covered(false, yBot - hh, x0, double(tb.tw), nc)) seams |= 8u;
+            }
+            set_seams(box, seams);
+            if (seams != 0) any = true;
+        }
+    }
+    seamsInUse_ = any;
 }
 
 void Physics2D::writeback(World& world, Entity e, Body& b, RigidBody2D* rb) {
@@ -887,10 +989,20 @@ b2AABB tight_aabb(b2ShapeId id) {
 // only if the visitor's bottom was above the platform's top (previous-step AABBs, small speed-based slop for soft
 // contact penetration). Rising bodies are below the top until they clear it, so they pass through; at the apex
 // inside the platform they are still below the top, so they never get popped up.
-bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) {
+bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold* m, void* ctx) {
     const auto* self = static_cast<const Physics2D*>(ctx);
     auto fa = self->shapes_.find(shape_key(idA));
     auto fb = self->shapes_.find(shape_key(idB));
+    if (self->seamsInUse_) {
+        // A contact that pushes out of a tile box side that lies against another tilemap's solid cells is a ghost of the seam.
+        constexpr float k = 1e-3f;
+        auto ghost = [](std::uint8_t s, b2Vec2 d) {
+            return ((s & 1u) && d.x < -k) || ((s & 2u) && d.x > k) || ((s & 4u) && d.y > k) || ((s & 8u) && d.y < -k);
+        };
+        const b2Vec2 n = m->normal;  // from A to B
+        if (fa != self->shapes_.end() && fa->second.seams && ghost(fa->second.seams, n)) return false;
+        if (fb != self->shapes_.end() && fb->second.seams && ghost(fb->second.seams, {-n.x, -n.y})) return false;
+    }
     const bool aOne = fa != self->shapes_.end() && fa->second.oneWay;
     const bool bOne = fb != self->shapes_.end() && fb->second.oneWay;
     if (!aOne && !bOne) return true;
@@ -950,6 +1062,7 @@ void Physics2D::sync(World& world) {
             ++it;
         }
     }
+    update_tile_seams();
     sync_joints(world);  // after the bodies: a joint needs both of its bodies to exist
     apply_carry(world);
 }
