@@ -968,6 +968,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool masked = !fr.mask.empty();
     for (const SceneMesh& sm : shared) {
         if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
+        if (sm.hlodProxy && sm.hlodGroup == 0)
+            continue;  // a proxy no group claimed would draw all the time, whatever the distance
         if (sm.hasLods || sm.liveTextures || sm.chainCount != 0 || sm.hlodGroup != 0)
             special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
@@ -1005,7 +1007,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     // The main camera's picks are kept for the captures only where a capture will ask: a world with a ReflectionProbe or a RealtimeGI.
     const bool lodRemember = lodMainJob && lodsOn && (world.any<ReflectionProbe>() || world.any<RealtimeGI>());
     const LodView lodView{fr.cam.perspective, fr.cam.fov, fr.cam.halfH};
-    const auto lod_pick = [&](LodKind kind, std::uint64_t bits, int target, float crossFade) {
+    const auto lod_pick = [&](LodKind kind, std::uint64_t bits, int target, float crossFade, int farTarget) {
         if (lodFollow) {
             LodPick p;
             p.level = target;
@@ -1013,7 +1015,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
                 p.level = m->level;  // settled: a capture never fades
             return p;
         }
-        const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt);
+        const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt, farTarget);
         if (lodRemember && !lodFades.main_set()) lodFades.remember(bits, kind, p);
         return p;
     };
@@ -1030,10 +1032,14 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             const float value =
                 sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
             // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
-            const int level = sg.proxy && lod_hlod_reached(*sg.group, value)
-                                  ? kHlodLevel
-                                  : lod_group_level(*sg.group, sg.children, value);
-            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), level, sg.group->crossFade);
+            const auto level_at = [&](float v) {
+                return sg.proxy && lod_hlod_reached(*sg.group, v) ? kHlodLevel
+                                                                  : lod_group_level(*sg.group, sg.children, v);
+            };
+            const bool screenMode = sg.group->mode == LodMode::ScreenSize;
+            const int farLevel =
+                level_at(screenMode ? value * (1.0f - kLodHysteresis) : value * (1.0f + kLodHysteresis));
+            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), level_at(value), sg.group->crossFade, farLevel);
         }
     }
     std::vector<char> lodDropped;  // an item whose LodGroup child is not shown
@@ -1101,13 +1107,18 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const int lastLevel = hasImpostor ? lod_level_of(mr, 3.0e38f, 0.0f) : 0;
         ImpostorUse impostorUse;
         bool impostorReady = false;
-        int target = lod_level_of(mr, mi.dist, screen);
-        if (hasImpostor && impostor_active(mr, mi.dist, screen)) {
-            impostorReady = impostors.resolve(*assets, frameSerial, mr, mi.entity, impostorUse);
-            target = impostorReady ? kImpostorLevel : lastLevel;
-        }
-        const LodPick pick =
-            lod_pick(LodKind::Mesh, mi.entity.bits(), target, canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f);
+        const auto level_at = [&](float dist, float scr) {
+            if (hasImpostor && impostor_active(mr, dist, scr)) {
+                if (!impostorReady) impostorReady = impostors.resolve(*assets, frameSerial, mr, mi.entity, impostorUse);
+                return impostorReady ? kImpostorLevel : lastLevel;
+            }
+            return lod_level_of(mr, dist, scr);
+        };
+        const int target = level_at(mi.dist, screen);
+        // The hysteresis: the pick again with the metric pushed farther (the distance up, the screen size down).
+        const int farTarget = level_at(mi.dist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
+        const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), target,
+                                      canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f, farTarget);
         // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
         const auto set_level = [&](MeshItem& item, int level) {
             const std::string& name = lod_level_mesh(mr, level);

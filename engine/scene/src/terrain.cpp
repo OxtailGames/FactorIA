@@ -93,6 +93,39 @@ bool TerrainHeights::dirty_since(std::uint64_t sinceVersion, TerrainRect& out) c
     return true;
 }
 
+void TerrainHeights::mark_holes_dirty(TerrainRect rect) {
+    const int cells = std::max(samples - 1, 0);
+    rect.c0 = std::max(rect.c0, 0);
+    rect.r0 = std::max(rect.r0, 0);
+    rect.c1 = std::min(rect.c1, cells - 1);
+    rect.r1 = std::min(rect.r1, cells - 1);
+    ++holesVersion;
+    holesEdits_.push_back(
+        {holesVersion, rect});  // (an empty rectangle is kept: the version has an entry, so it is not "unknown")
+    if (holesEdits_.size() > kEditHistory) {
+        holesOldestKept_ = holesEdits_.front().version;
+        holesEdits_.erase(holesEdits_.begin());
+    }
+}
+
+bool TerrainHeights::holes_dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const {
+    out = TerrainRect{};
+    if (sinceVersion >= holesVersion) return true;
+    if (sinceVersion < holesOldestKept_) return false;
+    std::uint64_t seen = 0;
+    for (const Edit& e : holesEdits_)
+        if (e.version > sinceVersion) {
+            out.join(e.rect);
+            ++seen;
+        }
+    // A version bumped outside mark_holes_dirty has no entry: the count of entries is then short of the versions that passed.
+    if (seen != holesVersion - sinceVersion) {
+        out = TerrainRect{};
+        return false;
+    }
+    return true;
+}
+
 std::uint64_t TerrainSplat::next_serial() {
     static std::atomic<std::uint64_t> next{1};
     return next.fetch_add(1);
@@ -222,7 +255,7 @@ bool TerrainHeights::write_patch(const TerrainPatch& p, bool useAfter) {
             heightsUnsaved = true;
             break;
         case TerrainPlane::Holes:
-            ++holesVersion;
+            mark_holes_dirty({p.x0, p.y0, p.x0 + p.w - 1, p.y0 + p.h - 1});
             holesUnsaved = true;
             break;
         case TerrainPlane::Splat0:
@@ -882,24 +915,25 @@ bool TerrainStore::reload(const World& world, Entity e) const {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = entries_.find(e.bits());
-        if (it == entries_.end() || it->second.key != key || !it->second.heights) return false;
-        old = it->second.heights;
+        if (it == entries_.end() || it->second.key != key || !it->second.loaded) return false;
+        old = it->second.heights;  // null when the first read failed: the rewritten file gets its second try below
     }
-    if (old->any_unsaved()) return false;
+    if (old && old->any_unsaved()) return false;
     auto load = load_terrain_heightmap(key);  // outside the lock: a big file takes a while
     if (!load || !load->heights) {
         if (!load)
-            FA_WARN(
-                "terrain",
-                "entity '{}': Terrain.heightmap '{}' changed but cannot be read again, keeping the loaded heights: {}",
-                world.id_of(e), key, load.error().message);
+            FA_WARN("terrain", "entity '{}': Terrain.heightmap '{}' changed but cannot be read again, keeping {}: {}",
+                    world.id_of(e), key, old ? "the loaded heights" : "the terrain as it is (it never loaded)",
+                    load.error().message);
         return false;
     }
-    if (load->heights->samples == old->samples && load->heights->data == old->data) return false;
+    // The compare reads `old` with no lock: reload runs on the thread that draws and edits (the main thread), the only one that writes a
+    // terrain's samples, so nothing changes them under it; a write from another thread would be caught by the check under the lock.
+    if (old && load->heights->samples == old->samples && load->heights->data == old->data) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = entries_.find(e.bits());
     // Another thread replaced the heights, or an edit started while the file was read: keep what is there.
-    if (it == entries_.end() || it->second.heights != old || old->any_unsaved()) return false;
+    if (it == entries_.end() || it->second.heights != old || (old && old->any_unsaved())) return false;
     it->second.heights = load->heights;
     it->second.problem.clear();
     return true;

@@ -425,7 +425,8 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
                                        : saved.error().hint);
     }
 
-    // The default threshold: the proxy takes over at 8 times the group's size (Distance) or below 3% of the screen (ScreenSize).
+    // The default threshold: the proxy takes over at 8 times the group's size (Distance) or below 3% of the screen (ScreenSize), and never
+    // before the group's own last threshold: 1.5 times the farthest one in Distance mode, a third less than the smallest in ScreenSize mode.
     const float dx = proxy.bmax.x - proxy.bmin.x, dy = proxy.bmax.y - proxy.bmin.y, dz = proxy.bmax.z - proxy.bmin.z;
     const float diameter = std::sqrt(dx * dx + dy * dy + dz * dz);
     Json result = Json::object({{"saved", *saved},
@@ -445,7 +446,20 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         const LodGroup* existing = std::as_const(I.world).get<LodGroup>(root);
         const LodMode mode = existing ? existing->mode : LodMode::Distance;
         float threshold = existing ? existing->hlodThreshold : 0.0f;
-        if (!(threshold > 0.0f)) threshold = mode == LodMode::Distance ? std::max(8.0f * diameter, 1.0f) : 0.03f;
+        if (!(threshold > 0.0f)) {
+            float last =
+                0.0f;  // the farthest threshold (Distance), the smallest above 0 (ScreenSize); 0 = the group has none
+            if (existing)
+                for (std::size_t k = 0; k < existing->thresholds.size() && k < std::size_t(kMaxLodThresholds); ++k) {
+                    const float t = existing->thresholds[k];
+                    if (!(t > 0.0f) || !std::isfinite(t)) continue;
+                    last = last == 0.0f ? t : (mode == LodMode::Distance ? std::max(last, t) : std::min(last, t));
+                }
+            if (mode == LodMode::Distance)
+                threshold = std::max({8.0f * diameter, 1.0f, last * 1.5f});
+            else
+                threshold = last > 0.0f ? std::min(0.03f, last / 1.5f) : 0.03f;
+        }
         Json fields = Json::object({{"hlodProxy", *saved}, {"hlodThreshold", round4(threshold)}});
         set_component(I.world,
                       Json::object({{"id", rootId}, {"component", "LodGroup"}, {"fields", fields}, {"merge", true}}));
@@ -778,8 +792,10 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
          "A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) "
          "before `apply`; "
          "`levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: "
-         "8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
-         "mode; "
+         "8 times the proxy's size in Distance mode (at least 1.5 times the group's farthest `thresholds` entry), 0.03 "
+         "in "
+         "ScreenSize mode (at most the smallest entry divided by 1.5), so the proxy never takes over before a child "
+         "level; "
          "an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed "
          "in "
          "`skippedList`: inactive entities, MeshRenderers with GPU instances, meshes that cannot be read. Materials "

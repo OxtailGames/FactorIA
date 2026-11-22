@@ -1362,11 +1362,23 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
         }
     } guard{I, scale != I.heldScale};
     if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
-    if (I.renderStale) I.draw(I.lastRenderDt);                 // OnDemand: draw the state of the current frame
+    const bool canDraw = !I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0);
+    if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
-    else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0))
+    else if (canDraw)
         I.draw(0.0);
+    // The terrain's layer pictures and the foliage's meshes are built by jobs and adopted by the next draw: a capture right after
+    // a load waits for them and draws again, so the picture is the finished one (not the neutral layers). Three rounds at most:
+    // a reload that keeps arriving does not hold a screenshot.
+    // The same rule as the draw above: a game window presents its own frames (the next one adopts the jobs), and a capture asked from
+    // inside a frame never draws in the middle of it.
+    for (int round = 0; canDraw && round < 3 && (I.renderer->terrain_loading() || I.renderer->foliage_loading());
+         ++round) {
+        I.renderer->wait_terrain_loaded();
+        I.renderer->wait_foliage_loaded();
+        I.draw(0.0);
+    }
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
     return true;

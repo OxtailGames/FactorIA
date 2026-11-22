@@ -544,7 +544,7 @@ public:
     // textures sent whole, the rectangles of them a sculpt re-sent, the layer and control arrays built, the sub-rectangles of the splat maps
     // a repaint re-sent (`splatRects`) and the layer decoding jobs started (`layerLoads`).
     struct TerrainUploads {
-        std::uint64_t whole = 0, rects = 0, arrays = 0, splatRects = 0, layerLoads = 0;
+        std::uint64_t whole = 0, rects = 0, arrays = 0, splatRects = 0, layerLoads = 0, holesWhole = 0, holesRects = 0;
     };
     TerrainUploads terrain_uploads() const;
     // The Terrain layer pictures (albedo and normal arrays) are decoded off the main thread, like the Foliage files: a terrain draws its

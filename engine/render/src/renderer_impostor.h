@@ -9,6 +9,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <set>
 #include <unordered_map>
 
 #include "fa/scene/impostor.h"
@@ -92,12 +93,22 @@ private:
         std::uint64_t texSerial = ~std::uint64_t(0);  // the frame the textures were fetched in
         TextureAsset* albedo = nullptr;
         TextureAsset* normal = nullptr;
-        std::string note;  // the last problem said (said once)
+        std::string note;             // the last problem said (said once)
+        std::set<std::string> watch;  // normalised paths whose reload re-reads the entry: the file and its two pictures
+        std::uint64_t settleUntil =
+            0;  // a reload was seen: until this frame a problem may be the files changing one by one
+        bool settlePending =
+            false;  // a problem was held back while the files settled; the first frame after it re-reads
     };
     MeshAsset* quad();
     MaterialAsset* material();
 
     std::unordered_map<std::string, std::unique_ptr<Entry>> entries_;  // by normalised path
+    // The entry of each path as a MeshRenderer writes it, so the frame's per-entity call normalises nothing; the last one asked is
+    // remembered too (the cards of one tree are asked for in a row). Pointers into entries_ (stable: the entries are boxed).
+    std::unordered_map<std::string, Entry*> byRaw_;
+    std::string lastRaw_;
+    Entry* lastEntry_ = nullptr;
     std::unique_ptr<MeshAsset> quad_;
     std::unique_ptr<MaterialAsset> material_;
     sg_shader shaders_[3]{};  // impostor, shadow, prepass

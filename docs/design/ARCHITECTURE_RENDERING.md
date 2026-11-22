@@ -435,11 +435,14 @@ by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
   `Assets::reload_generation()` and each file's version through a key). The pictures are decoded and their mip chains packed by a job
   (`LayerJob`, `jobs::submit`, like the foliage files; `update_pictures` adopts the result with one image creation, keeps the old array
   while the same layers reload, and a newer layer set drops a finished job's result), so a terrain draws neutral layers until the frame
-  after the job; `Renderer::wait_terrain_loaded()` is for tests and captures. `control` is one RGBA8 array of 1 or 2 slices (splat map 0,
+  after the job; `Renderer::wait_terrain_loaded()` is for tests and captures (`terrain_loading()` stays true until a frame adopts a
+  finished job; `Engine::capture_scaled` waits and draws again, so `game.screenshot` shows the finished layers). `control` is one RGBA8 array of 1 or 2 slices (splat map 0,
   splat map 1 when there is one; the holes are NOT in it) made from the planes of `TerrainHeights`: the first repaint converts it into a
   `copy_dst` array (staging buffer, whole), later ones copy only the rectangle each `TerrainSplat::mark_dirty` named
   (`TerrainSplat::dirty_since`, `Renderer::terrain_uploads().splatRects`), and anything unknown (a version bump with no rectangle, a
-  resampled map, a second write in the frame, a backend that cannot copy) rebuilds the array whole; it takes ONE sampler because the
+  resampled map (maps of different sizes: every stroke), a second write in the frame, a backend that cannot copy) rebuilds the array
+  whole; the holes texture (R8, one byte a cell) copies the cells of each `TerrainHeights::mark_holes_dirty` the same way
+  (`holes_dirty_since`, `terrain_uploads().holesRects`) and a bare `holesVersion` bump makes it whole; it takes ONE sampler because the
   terrain's fragment program reads all 16 of the 16 units (the test "terrain: the fragment stage reads exactly the 16 texture units..."
   pins the count: a new texture replaces one, or moves to the vertex stage as the holes did). Where there
   is no array a 1 x 1 dummy array is bound (a stage must have every texture it declares). The per-layer values are in the 8 `fa_t_layer`

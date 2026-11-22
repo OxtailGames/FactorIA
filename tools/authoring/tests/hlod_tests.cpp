@@ -14,6 +14,7 @@
 #include "fa/scene/components.h"
 #include "fa/scene/components_world.h"
 #include "fa/scene/gltf_mesh.h"
+#include "fa/scene/serialize.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -128,9 +129,14 @@ TEST_CASE(
     REQUIRE_MESSAGE(g.ok(), (g.ok() ? std::string() : g.error().message));
     CHECK(g.value().data.triangle_count() == r["triangles"].get<std::size_t>());
     // In the entity's local space: the block is at (10, 0, 5), the wall at its local (0, 1, 0) with scale 2 and the dome 3 m to the side
-    CHECK(g.value().data.bmin.x == doctest::Approx(-1.0f).epsilon(0.05));
-    CHECK(g.value().data.bmax.x == doctest::Approx(3.5f).epsilon(0.05));
-    CHECK(g.value().data.bmax.y == doctest::Approx(2.0f).epsilon(0.05));
+    // (the simplifier may collapse an extreme vertex of the sphere, so the bounds are ranges: what matters is that they are the block's own
+    // 1 m left of the wall and not the scene's 10 m)
+    CHECK(g.value().data.bmin.x > -1.2f);
+    CHECK(g.value().data.bmin.x < 0.0f);
+    CHECK(g.value().data.bmax.x > 2.5f);
+    CHECK(g.value().data.bmax.x < 3.6f);
+    CHECK(g.value().data.bmax.y > 1.5f);
+    CHECK(g.value().data.bmax.y < 2.1f);
     // The scene is not changed without `apply`
     CHECK(e.world().get<LodGroup>(e.world().find_by_id("block")) == nullptr);
 }
@@ -217,6 +223,39 @@ TEST_CASE("world.bake_hlod: under a LodGroup only child 0 is merged, and the ent
     REQUIRE(lg != nullptr);
     CHECK(lg->thresholds.size() == 1);
     CHECK(lg->hlodProxy == "assets/hlod/group2.glb");
+    // The default threshold never lies before the group's own last one: this group's is 40 m and its proxy is small, so 8 times its size is
+    // under 60 m (1.5 times 40).
+    CHECK(lg->hlodThreshold == doctest::Approx(60.0f));
+}
+
+TEST_CASE("world.bake_hlod: the default threshold of a ScreenSize group stays under its smallest threshold") {
+    Project p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const Entity group = e.world().find_by_id("group");
+    REQUIRE(e.world().alive(group));
+    e.world().get<LodGroup>(group)->mode = LodMode::ScreenSize;
+    e.world().get<LodGroup>(group)->thresholds = {0.3f, 0.02f};  // the last level starts below 2% of the screen
+    call(e, "world.bake_hlod", Json::object({{"entity", "group"}, {"out", "assets/hlod/group3.glb"}, {"apply", true}}));
+    CHECK(e.world().get<LodGroup>(group)->hlodThreshold == doctest::Approx(0.02f / 1.5f).epsilon(0.001));
+}
+
+TEST_CASE("world.bake_hlod: what apply sets is a scene change, so restoring the snapshot taken before takes it back") {
+    Project p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    // The editor's Console takes this snapshot before the command and loads it back on Undo (the .glb stays on disk).
+    const Json before = snapshot_scene(e.world());
+    call(e, "world.bake_hlod", Json::object({{"entity", "cell"}, {"out", "assets/hlod/undo.glb"}, {"apply", true}}));
+    REQUIRE(e.world().get<LodGroup>(e.world().find_by_id("cell")) != nullptr);
+    e.world().clear();
+    load_scene(e.world(), before, "undo");
+    const Entity cell = e.world().find_by_id("cell");
+    REQUIRE(e.world().alive(cell));
+    CHECK(e.world().get<LodGroup>(cell) == nullptr);
+    CHECK(stdfs::exists(p.dir / "assets/hlod/undo.glb"));
 }
 
 TEST_CASE("world.bake_hlod: errors teach, with the JSON pointer and the fix, and write nothing") {

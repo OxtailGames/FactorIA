@@ -168,6 +168,9 @@ public:
     bool has_lods() const { return anyLods_ || !lodGroups_.empty(); }
     Entity scope() const { return scope_; }
     bool built() const { return built_; }
+    // How many times a proxy path was looked for on disk (a stat) since this scene was made: once per path until an asset reloads. A test
+    // looks at it.
+    std::uint64_t hlod_existence_checks() const { return hlodChecks_; }
     MaterialHashCache& hash_cache() { return hashes_; }
     // The ranks the meshes' sort keys were made with; valid() is false when a field had more values than its bits hold.
     const SortKeyTable& sort_table() const { return sortTable_; }
@@ -209,8 +212,11 @@ private:
         proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
     std::deque<MeshRenderer>
         hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
-    std::unordered_set<std::string> hlodWarned_;  // "<entity bits>|<path>" of a proxy already reported as unreadable
     bool anyLods_ = false;
+    std::unordered_set<std::string>
+        hlodChecked_;  // the .glb/.gltf proxy paths looked for on disk since the last asset reload
+    std::uint64_t hlodCheckedGen_ = ~std::uint64_t(0);  // Assets::reload_generation() the set was made at
+    std::uint64_t hlodChecks_ = 0;
     void add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot);
     void build_lod_groups(World& world, Entity scopeRoot);
     Entity scope_;

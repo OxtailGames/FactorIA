@@ -60,6 +60,12 @@ inline constexpr int kHlodLevel = kMaxLodThresholds + 1;
 // whether the proxy mesh could be read; this only compares.
 bool lod_hlod_reached(const LodGroup& g, float value);
 
+// The hysteresis of every level switch (M75 POL-RENDER-B): an entity that has moved to a FARTHER level stays on it until the metric has come back
+// past the threshold by this fraction (5%: 31.5 m for a threshold of 30 m, a screen size 5% above the threshold), so a camera that shakes at a
+// threshold does not flip the level every frame. Going to a farther level is at once at the threshold. The renderer evaluates the pick a second
+// time at the metric pushed 5% FARTHER (distance * (1 + h), screen size * (1 - h)) and holds the level it had unless that pick is nearer too.
+inline constexpr float kLodHysteresis = 0.05f;
+
 // A cross-fade between two levels, advanced one frame at a time (render-only state: never saved, never part of the simulation).
 struct LodFadeState {
     int level = 0;   // the level drawn (fading in, or settled)

@@ -101,6 +101,10 @@ public:
     // changes it. A test looks at them.
     std::uint64_t uploads() const { return uploads_; }
     std::uint64_t rect_uploads() const { return rectUploads_; }
+    // The same for the holes texture: made whole (the first stroke of a mask counts, it makes the texture take copies) and cells sent as a
+    // rectangle.
+    std::uint64_t holes_uploads() const { return holesUploads_; }
+    std::uint64_t holes_rect_uploads() const { return holesRects_; }
     // The layer arrays and control arrays made (a test looks at it: an unchanged terrain makes none).
     std::uint64_t layer_builds() const { return layerBuilds_; }
 
@@ -145,8 +149,14 @@ private:
         int splatMaps = 0, controlSide = 1;
         // The holes: an R8 texture of one pixel per cell (255 = hole), read by the vertex stage only.
         TextureAsset holesTex;
-        std::uint64_t holesKey = ~std::uint64_t(0);
+        std::uint64_t holesKey =
+            ~std::uint64_t(0);        // what the texture's shape was made from: the heights object, holes or none
+        std::uint64_t holesSeen = 0;  // the holesVersion the texture holds
         bool holesOn = false;
+        bool holesCopyable = false;  // holesTex was made to take copies (the first holes stroke makes it so)
+        sg_buffer holesStage{};
+        std::size_t holesStageCap = 0;
+        std::uint64_t holesStagedFrame = 0;
         sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;
         std::string layerNote[2], controlNote, holesNote;  // the last problem of each part (said once, with the others)
         std::string note;                                  // the last problem said about the layers (said once)
@@ -156,6 +166,7 @@ private:
     Entry* prepare(const View& view, Entity e);
     bool upload(Entry& en, const View& view, const TerrainRect* rect);
     bool copy_rect(Entry& en, const View& view, const TerrainRect& rect);
+    bool copy_holes(Entry& en, const View& view, const TerrainRect& cells);
     void update_layers(Entry& en, const View& view, Entity e, const Terrain3D& t,
                        const std::vector<TerrainLayerInfo>& layers);
     void update_pictures(Entry& en, const View& view, const Terrain3D& t, const std::vector<TerrainLayerInfo>& layers,
@@ -163,7 +174,7 @@ private:
     void update_control(Entry& en, const View& view, const std::vector<TerrainLayerInfo>& layers, Entity e);
     bool copy_splat(Entry& en, const View& view, int maps, int side);
     TextureAsset* dummy_array();
-    TextureAsset* dummy_holes();
+    TextureAsset* dummy_holes(TextureAsset* fallback);
     MeshAsset* patch(bool split);
     MaterialAsset* material();
 
@@ -175,6 +186,9 @@ private:
     sg_shader shaders_[3]{};   // terrain, shadow, prepass
     int matState_ = 0;         // 0 = not tried, 1 = built, -1 = failed (said once)
     std::uint64_t pruned_ = ~std::uint64_t(0);
+    std::unordered_map<std::uint64_t, std::uint64_t>
+        failedSeen_;                                   // entity -> reload generation of a heightmap that did not read
+    std::uint64_t holesUploads_ = 0, holesRects_ = 0;  // holes texture made whole / cells sent as a rectangle
     std::uint64_t uploads_ = 0, rectUploads_ = 0, layerBuilds_ = 0, layerLoads_ = 0, splatRects_ = 0;
 };
 
