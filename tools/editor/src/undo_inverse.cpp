@@ -533,6 +533,29 @@ bool finish_terrain_edit(const World&, UndoPlan& plan, const Json& result) {
     return true;
 }
 
+// foliage.scatter / foliage.paint / foliage.clear: the edit is one step of the Foliage's in-memory history (its instances file is
+// not in a scene snapshot), so the entry is the pair foliage.redo / foliage.undo, exactly like a terrain edit. A call that changed
+// nothing, or a dryRun, makes no step and so no entry (the finisher marks it a no-op: its result carries no `undo`); a continued
+// paint stroke (`continueStroke`) joins the newest step, which has its entry already.
+std::optional<UndoPlan> plan_foliage_edit(const World& w, const Json& a) {
+    if (!a.is_object() || !a.contains("entity")) return std::nullopt;
+    const Entity e = live_entity(w, a, "entity");
+    if (e.is_null() || !w.has<Foliage>(e)) return std::nullopt;
+    const Json args = Json::object({{"entity", w.id_of(e)}});
+    UndoPlan plan;
+    plan.forward.push_back({"foliage.redo", args, ""});
+    plan.inverse.push_back({"foliage.undo", args, ""});
+    const auto flag = [&](const char* key) { return a.contains(key) && a[key].is_boolean() && a[key].get<bool>(); };
+    plan.noop = flag("continueStroke") || flag("dryRun");
+    return plan;
+}
+
+bool finish_foliage_edit(const World&, UndoPlan& plan, const Json& result) {
+    if (!result.is_object()) return false;
+    if (!result.contains("undo")) plan.noop = true;  // nothing changed, or the history could not keep the step
+    return true;
+}
+
 // The table: one row per command that has an inverse.
 const BuilderRow kBuilders[] = {
     {"scene.set_component", &plan_set_component, nullptr},
@@ -548,6 +571,9 @@ const BuilderRow kBuilders[] = {
     {"terrain.paint", &plan_terrain_edit, &finish_terrain_edit},
     {"terrain.holes", &plan_terrain_edit, &finish_terrain_edit},
     {"terrain.generate", &plan_terrain_edit, &finish_terrain_edit},
+    {"foliage.scatter", &plan_foliage_edit, &finish_foliage_edit},
+    {"foliage.paint", &plan_foliage_edit, &finish_foliage_edit},
+    {"foliage.clear", &plan_foliage_edit, &finish_foliage_edit},
 };
 
 const BuilderRow* find_row(const std::string& name) {

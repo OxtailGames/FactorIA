@@ -262,6 +262,22 @@ bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float loc
 // `ignoreHoles`: the surface even where a cell is cut (see terrain_local_sample).
 bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out,
                     bool ignoreHoles = false);
+// terrain_sample() and terrain_layer_weights() for many points of one terrain: the entity's world matrix, its inverse and the heights
+// are fetched once, here, instead of on every call (a foliage scatter asks millions of times). Same answers as the free functions,
+// bit for bit. Valid while the terrain's Transform and heights are not edited and the World lives; `valid()` is false when the entity
+// has no Terrain or its heightmap does not load (sample() then answers false).
+class TerrainSampler {
+public:
+    TerrainSampler(const World& world, Entity terrain);
+    bool valid() const { return t_ != nullptr && heights_ != nullptr; }
+    bool sample(float worldX, float worldZ, TerrainSample& out, bool ignoreHoles = false) const;
+    bool layer_weights(float worldX, float worldZ, TerrainLayerWeights& out) const;
+
+private:
+    const Terrain3D* t_ = nullptr;
+    std::shared_ptr<TerrainHeights> heights_;
+    Mat4 m_, inv_;
+};
 // The height only (world y); false as terrain_sample.
 bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height,
                        bool ignoreHoles = false);

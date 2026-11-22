@@ -242,6 +242,23 @@ TEST_CASE("terrain_sample: through the transform of the entity, with the normal 
     CHECK(h == doctest::Approx(5.0f + 20.5f * 4.0f).epsilon(1e-4));
     CHECK_FALSE(terrain_height_at(w, e, 140.0f, -50.0f, h));  // beyond the +32 m edge
 
+    // TerrainSampler: the same answers, bit for bit, with the matrices fetched once
+    {
+        TerrainSampler sampler(w, e);
+        REQUIRE(sampler.valid());
+        TerrainSample a, b;
+        REQUIRE(sampler.sample(108.5f, -47.25f, a));
+        REQUIRE(terrain_sample(w, e, 108.5f, -47.25f, b));
+        CHECK(a.height == b.height);
+        CHECK(a.normal.x == b.normal.x);
+        CHECK(a.normal.y == b.normal.y);
+        CHECK(a.normal.z == b.normal.z);
+        CHECK_FALSE(sampler.sample(140.0f, -50.0f, a));
+        TerrainLayerWeights lw;
+        CHECK(sampler.layer_weights(100.0f, -50.0f, lw));
+        CHECK_FALSE(sampler.layer_weights(140.0f, -50.0f, lw));
+    }
+
     // a missing heightmap: no answer, a problem the store keeps
     w.get<Terrain3D>(e)->heightmap = "nope/missing.png";
     CHECK_FALSE(terrain_height_at(w, e, 100.0f, -50.0f, h));

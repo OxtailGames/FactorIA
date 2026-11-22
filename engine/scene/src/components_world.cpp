@@ -726,9 +726,8 @@ void register_world_components(TypeRegistry& r) {
          "instance picks one by index): use several entities for kinds that need different settings (wind, fade). The "
          "renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the "
          "format, the "
-         "culling and the limits: docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"). `foliage.restore` puts a previous file "
-         "back "
-         "(the undo of the three).",
+         "culling and the limits: docs/BIG_WORLDS_TERRAIN.md, \"Foliage\"). `foliage.undo` and `foliage.redo` step "
+         "back and forward through the last edits of the three (an in-memory history).",
          "3D")
         .field("meshes", &Foliage::meshes,
                "Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): "
