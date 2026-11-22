@@ -3,8 +3,9 @@
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
 kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (everything but what the renderer keeps,
 package M75.4b); the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
-do nothing yet), the project setting `world.floatingOrigin`, the counters in `renderStats`, the `render.supports` rows and the
-commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in. A game that adds them today loses nothing:
+do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
+commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
+`world.origin`, `world.rebase` and `world.absolute_position`, which work. A game that adds the rest today loses nothing:
 when a package lands, the scenes already written start to work. Nothing here changes a game that does not use it: every default
 is "off" or "as before".
 
@@ -120,20 +121,31 @@ A rebase subtracts the offset from every ROOT `Transform` (children follow: thei
 the world's origin, and in the same step:
 
 - 3D and 2D physics: bodies, the broad phase, the contacts and their caches, kinematic targets, joint anchors pinned to a world
-  point, the sleeping state (a sleeping body stays asleep, and nothing wakes) and character controllers.
+  point, the sleeping state (a sleeping body stays asleep, and nothing wakes) and character controllers. The 2D shift is exact in
+  metres only when `pixelsPerMeter` is a power of two; with any other value (the default 100) Box2D's metres and the Transform's
+  pixels convert with a rounding of about one ulp per rebase.
 - Navigation: baked meshes and grids (they are shifted, not baked again) and off-mesh links. A path a script got from
   `nav.findPath` is a list of local positions it keeps: after an `originShifted` event ask again (or keep absolute positions).
 - Audio: listener and source positions (velocities do not change, so there is no doppler spike).
 - World-space particles and their trails, queued game-feel spawns and effects aimed at a world point, the render interpolation
   records (no jump at the next frame), light-probe group points, tweens that hold a position (`tween.position` and the like
-  follow the shift; a tween on a screen-space entity does not).
+  follow the shift, from the next tween tick on even when the shift came from a command or a script between two steps, so no
+  tween ever writes the old position; a tween on a screen-space entity does not).
+- A root with `Parallax` moves by `offset * factor` on x and y (z by the whole offset), not by `offset`: it is drawn at its
+  position plus `camera * (1 - factor)`, so this keeps what the player sees (drawn minus camera) the same when the camera
+  moves by `-offset`. Factor 1 moves as any root, factor 0 (glued to the camera) does not move. The shift is exact in float for
+  a power-of-two factor (0.5, 0.25, 1); any other factor rounds the layer by about one ulp of its position per rebase.
 - Roots that are screen-space do NOT move: UI widgets (`Panel`, `Button`, ...) and `Sprite`, `Shape2D`, `Text` or
   `ParticleEmitter` with `space: "screen"`. Their position is an offset on the screen.
 
-An entity placed in a scene that is far from the origin and loaded after a rebase is placed where the scene says, in the origin's
-frame: the scene file's positions are LOCAL to the origin the scene was saved with (a scene saves `"origin": [x, y, z]` next to its
-entities, only when it is not zero, and loading it restores that origin; an additive load ignores the key and places entities in
-the current frame).
+A scene holds ABSOLUTE positions: it saves `"origin": [x, y, z]` next to its entities (only when it is not zero) and the
+positions are local to that origin. A normal (non-additive) load restores the origin, so everything is where it was. An
+ADDITIVE load keeps the origin of the world it joins and places what it loads at its absolute position: every loaded root
+Transform (and every world-anchored joint, `NavLink3D.end` and `LightProbeGroup` point among the loaded entities, the same set
+a rebase moves, a Parallax root by its factor) moves by `file origin - world origin`, computed in doubles. A file without an
+`origin` has origin 0, so a cell saved at origin 0 and loaded additively into a world at origin 4096 lands at `-4096` locally
+and its `absolute_position` is what the file says. Streaming relies on this. Roots loaded under a `parent` are relative to it
+and do not move.
 
 ### What scripts must do
 
@@ -151,8 +163,10 @@ doubles (metres), `offset` what was subtracted from every local position and `or
 
 `world.origin {}` reads the origin; it always returns one shape, `{enabled, origin, rebases, threshold, step, anchor}` plus
 `anchorPosition` (the anchor's local position, `null` when there is none); with the floating origin off `enabled` is false,
-`origin` `[0, 0, 0]` and `rebases` 0. `world.rebase {offset | entity}` moves the origin on demand (tests, cutscenes): `offset` is the
-NEW origin in world metres (rounded to a multiple of `step`), `entity` centres on that entity, neither centres on the anchor; it
+`origin` `[0, 0, 0]` and `rebases` 0. `world.rebase {origin | entity}` moves the origin on demand (tests, cutscenes): `origin` is the
+NEW origin in world metres (rounded to a multiple of `step`; not a delta, and not the `offset` of the `originShifted` event, which
+is what was subtracted), `entity` centres on that entity, neither centres on the anchor. `offset` is the deprecated old name of
+`origin`: it still works, and giving both is an error. It
 fails with `not_enabled` when the setting is off. `world.absolute_position {entity}` returns `{entity, position, origin, local}`:
 `position` is the origin plus the entity's world position, in doubles, and `local` the float position everything else reads. In C++:
 `World::origin()`, `absolute_position(Entity)`, `to_local(DVec3)`, `to_absolute(Vec3)`, `rebase(Vec3)`, `rebase_count()` and

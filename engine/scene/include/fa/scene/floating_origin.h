@@ -9,6 +9,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "fa/core/math.h"
 #include "fa/core/types.h"
@@ -20,6 +21,17 @@ class World;
 // True when the TRANSFORM of root entity `e` is a position of the world (it shifts with the origin): false for a root with a UI widget
 // (any UI widget: Panel, Button, ...) or with a screen-space Sprite, Shape2D, Text or ParticleEmitter, whose position is an offset on the screen.
 bool follows_floating_origin(const World& world, Entity e);
+
+// How far the TRANSFORM of root `root` moves (position -= result) when the origin shifts by `offset`: `offset` itself, except
+// for a Parallax layer, which is drawn at position + camera * (1 - factor) and so moves by offset * factor on x and y (z by
+// the whole offset) to keep (drawn - camera), what the player sees, unchanged when the camera moves by -offset.
+Vec3 root_shift(const World& world, Entity root, Vec3 offset);
+
+// Places entities that were just loaded ADDITIVELY at their absolute positions: every root among `entities` (and every
+// world-anchored Joint2D/Joint3D, NavLink3D.end and LightProbeGroup point among them) moves by `delta` = file origin - world
+// origin, the same things and the same arithmetic as World::rebase(-delta). `parented`: the load put the roots under an
+// entity, so their positions are relative to it and nothing moves.
+void place_loaded_entities(World& world, const std::vector<Entity>& entities, Vec3 delta, bool parented);
 
 // The largest |offset| / step a float can hold exactly (2^24): beyond it `offset` is not a whole number of steps in float.
 inline constexpr double kMaxRebaseSteps = 16777216.0;

@@ -77,7 +77,40 @@ void shift_points(Json& points, Vec3 offset) {
     }
 }
 
+void shift_joint2d(Joint2D& j, Vec3 offset) {
+    if (j.connected.is_null()) j.connectedAnchor -= Vec2{offset.x, offset.y};
+}
+void shift_joint3d(Joint3D& j, Vec3 offset) {
+    if (j.connected.is_null()) j.connectedAnchor -= offset;
+}
+
 }  // namespace
+
+Vec3 root_shift(const World& world, Entity root, Vec3 offset) {
+    // A Parallax layer is drawn at position + camera * (1 - factor): it must move by O * factor so that (drawn - camera),
+    // what the player sees, is the same after the camera moved by -O. z has no parallax.
+    if (const Parallax* p = world.get<Parallax>(root))
+        return {offset.x * p->factor.x, offset.y * p->factor.y, offset.z};
+    return offset;
+}
+
+void place_loaded_entities(World& world, const std::vector<Entity>& entities, Vec3 delta, bool parented) {
+    if (parented || (delta.x == 0.0f && delta.y == 0.0f && delta.z == 0.0f)) return;
+    const Vec3 offset = -delta;  // the same arithmetic as World::rebase(offset): positions -= offset
+    for (Entity e : entities) {
+        if (!world.alive(e)) continue;
+        if (world.parent(e).is_null() && follows_floating_origin(world, e)) {
+            const Vec3 d = root_shift(world, e, offset);
+            if (Transform* t = world.get<Transform>(e)) t->position -= d;
+            if (Parallax* p = world.get<Parallax>(e))
+                p->offset -= Vec2{offset.x * (1.0f - p->factor.x), offset.y * (1.0f - p->factor.y)};
+        }
+        if (Joint2D* j = world.get<Joint2D>(e)) shift_joint2d(*j, offset);
+        if (Joint3D* j = world.get<Joint3D>(e)) shift_joint3d(*j, offset);
+        if (NavLink3D* l = world.get<NavLink3D>(e)) l->end -= offset;
+        if (LightProbeGroup* g = world.get<LightProbeGroup>(e)) shift_points(g->points, offset);
+    }
+}
 
 void World::rebase(Vec3 offset) {
     if (offset.x == 0.0f && offset.y == 0.0f && offset.z == 0.0f) return;
@@ -85,23 +118,24 @@ void World::rebase(Vec3 offset) {
     InterpState& ip = interp_;
     for (Entity r : roots()) {
         if (!follows_floating_origin(*this, r)) continue;
-        if (Transform* t = get<Transform>(r)) t->position -= offset;
+        const Vec3 d = root_shift(*this, r, offset);
+        if (Transform* t = get<Transform>(r)) t->position -= d;
         if (r.index < ip.slots.size() && ip.slots[r.index] != 0) {
             InterpRecord& rec = ip.records[ip.slots[r.index] - 1];
             if (rec.bits == r.bits()) {  // the blend between the last two steps moves with the entity
-                rec.prev.position -= offset;
-                rec.last.position -= offset;
-                rec.pose.position -= offset;
+                rec.prev.position -= d;
+                rec.last.position -= d;
+                rec.pose.position -= d;
             }
         }
+        // The drawn shift of a parallax layer was computed for the old camera position: keep it consistent until the
+        // renderer writes the next one (camera - O, so offset - O * (1 - factor)).
+        if (Parallax* p = get<Parallax>(r))
+            p->offset -= Vec2{offset.x * (1.0f - p->factor.x), offset.y * (1.0f - p->factor.y)};
     }
     // 2. World-space points components hold (they are not relative to an entity).
-    each<Joint2D>([&](Entity, Joint2D& j) {
-        if (j.connected.is_null()) j.connectedAnchor -= Vec2{offset.x, offset.y};
-    });
-    each<Joint3D>([&](Entity, Joint3D& j) {
-        if (j.connected.is_null()) j.connectedAnchor -= offset;
-    });
+    each<Joint2D>([&](Entity, Joint2D& j) { shift_joint2d(j, offset); });
+    each<Joint3D>([&](Entity, Joint3D& j) { shift_joint3d(j, offset); });
     each<NavLink3D>([&](Entity, NavLink3D& l) { l.end -= offset; });
     each<LightProbeGroup>([&](Entity, LightProbeGroup& g) { shift_points(g.points, offset); });
     // 3. What the world keeps between frames: particles, queued feel actions.

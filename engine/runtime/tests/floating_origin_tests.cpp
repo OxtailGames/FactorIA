@@ -142,6 +142,19 @@ TEST_CASE("floating origin engine: a running tween of a root's position keeps it
     CHECK(later < abs + 11.0);
 }
 
+TEST_CASE("floating origin engine: a rebase by command between two steps never lets a tween write the old position") {
+    Session s;
+    s.frame(59);
+    const double before = s.e.world().absolute_position(s.e.world().find("mover")).x;
+    auto r = s.call("world.rebase", R"({"origin":[1024,0,0]})");  // between steps: the next tween tick comes first
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    s.frame(1);
+    // Wrong by a whole shift (1024 m) if the tween had written from its old local numbers; right: 1/60 s of 10 m/s more.
+    const double after = s.e.world().absolute_position(s.e.world().find("mover")).x;
+    CHECK(after == doctest::Approx(before + 10.0 / 60.0).epsilon(0.05));
+    CHECK(after - before < 1.0);
+}
+
 TEST_CASE("floating origin engine: world.origin, world.rebase and world.absolute_position") {
     Session s;
     auto o = s.call("world.origin", "{}");
@@ -154,7 +167,7 @@ TEST_CASE("floating origin engine: world.origin, world.rebase and world.absolute
     CHECK(o.result["anchor"] == "camera");
 
     s.move_camera_to(10.0f);
-    auto rebase = s.call("world.rebase", R"({"offset":[1000,0,0]})");  // 1000 is 15.6 steps: it rounds to 16 (1024)
+    auto rebase = s.call("world.rebase", R"({"origin":[1000,0,0]})");  // 1000 is 15.6 steps: it rounds to 16 (1024)
     REQUIRE_MESSAGE(rebase.ok, rebase.error.dump());
     CHECK(rebase.result["origin"] == Json::parse("[1024.0,0.0,0.0]"));
     CHECK(rebase.result["shift"] == Json::parse("[1024.0,0.0,0.0]"));
@@ -177,13 +190,22 @@ TEST_CASE("floating origin engine: world.origin, world.rebase and world.absolute
           0.0);  // the camera is at 10 (absolute): the nearest multiple of 64 is 0
     CHECK(centred.result["shift"][0].get<double>() == 0.0);  // already centred: nothing moved
 
-    auto both = s.call("world.rebase", R"({"offset":[0,0,0],"entity":"cam"})");
+    auto both = s.call("world.rebase", R"({"origin":[0,0,0],"entity":"cam"})");
     REQUIRE_FALSE(both.ok);
-    CHECK(both.error.dump().find("/offset") != std::string::npos);
-    auto bad = s.call("world.rebase", R"({"offset":[1,2]})");
+    CHECK(both.error.dump().find("/origin") != std::string::npos);
+    auto bothNames = s.call("world.rebase", R"({"origin":[0,0,0],"offset":[0,0,0]})");
+    REQUIRE_FALSE(bothNames.ok);
+    CHECK(bothNames.error.dump().find("same argument") != std::string::npos);
+    auto bad = s.call("world.rebase", R"({"origin":[1,2]})");
     REQUIRE_FALSE(bad.ok);
-    CHECK(bad.error.dump().find("/offset") != std::string::npos);
-    auto huge = s.call("world.rebase", R"({"offset":[1e15,0,0]})");
+    CHECK(bad.error.dump().find("/origin") != std::string::npos);
+    auto badOld = s.call("world.rebase", R"({"offset":[1,2]})");  // the deprecated name still works, and names itself
+    REQUIRE_FALSE(badOld.ok);
+    CHECK(badOld.error.dump().find("/offset") != std::string::npos);
+    auto old = s.call("world.rebase", R"({"offset":[64,0,0]})");
+    REQUIRE_MESSAGE(old.ok, old.error.dump());
+    CHECK(old.result["origin"] == Json::parse("[64.0,0.0,0.0]"));
+    auto huge = s.call("world.rebase", R"({"origin":[1e15,0,0]})");
     REQUIRE_FALSE(huge.ok);
     CHECK(huge.error.dump().find("precision") != std::string::npos);
     auto missing = s.call("world.absolute_position", R"({"entity":"nobody"})");
@@ -192,7 +214,7 @@ TEST_CASE("floating origin engine: world.origin, world.rebase and world.absolute
 
 TEST_CASE("floating origin engine: world.rebase fails with a hint when the project does not enable it") {
     Session s(false);
-    auto r = s.call("world.rebase", R"({"offset":[64,0,0]})");
+    auto r = s.call("world.rebase", R"({"origin":[64,0,0]})");
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "not_enabled");
     CHECK(r.error.dump().find("floatingOrigin") != std::string::npos);

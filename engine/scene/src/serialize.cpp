@@ -13,6 +13,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/floating_origin.h"
 #include "fa/scene/particles.h"
 #include "fa/scene/tilemap.h"
 #include "serialize_internal.h"
@@ -1043,9 +1044,11 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
 
     if (!opts.additive) world.clear();
 
-    // The floating origin the positions below are relative to (written only when a rebase moved it). An additive load adds entities
-    // at their local positions to the world it is in and keeps that world's origin.
-    if (scene.contains("origin") && !opts.additive) {
+    // The floating origin the positions below are relative to (written only when a rebase moved it). A normal load restores it. An
+    // additive load keeps the origin of the world it joins and instead places what it loads at its ABSOLUTE position: the roots
+    // move by (file origin - world origin) once everything is loaded (place_loaded_entities below).
+    DVec3 fileOrigin{};
+    if (scene.contains("origin")) {
         const Json& o = scene["origin"];
         if (!o.is_array() || o.size() != 3 || !o[0].is_number() || !o[1].is_number() || !o[2].is_number() ||
             !std::isfinite(o[0].get<double>()) || !std::isfinite(o[1].get<double>()) ||
@@ -1055,7 +1058,8 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
                 "It is the world position of the scene's local (0, 0, 0) in metres, for example [20480, 0, -4096]. "
                 "Leave it out (it is 0) unless the floating origin moved.");
         } else {
-            world.set_origin({o[0].get<double>(), o[1].get<double>(), o[2].get<double>()});
+            fileOrigin = {o[0].get<double>(), o[1].get<double>(), o[2].get<double>()};
+            if (!opts.additive) world.set_origin(fileOrigin);
         }
     }
 
@@ -1092,6 +1096,11 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
         }
     }
     loader.resolve_pending();
+    if (opts.additive) {
+        // fileOrigin - world origin in double, then to float: exact for every origin a rebase made (multiples of the step).
+        const DVec3 d = fileOrigin - world.origin();
+        place_loaded_entities(world, report.created, {float(d.x), float(d.y), float(d.z)}, !opts.parent.is_null());
+    }
     if (!opts.additive && !sourceName.empty() && sourceName.front() != '<')
         world.set_scene_path(std::string(sourceName));
     return report;

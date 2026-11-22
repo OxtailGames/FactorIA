@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fa/physics/physics.h"
+#include "fa/scene/tilemap.h"
 
 using namespace fa;
 
@@ -226,4 +227,122 @@ TEST_CASE(
     CHECK(info1[0]["boundsMin"][0].get<double>() == doctest::Approx(info0[0]["boundsMin"][0].get<double>() - 1024.0));
     CHECK(info1[0]["boundsMin"][2].get<double>() == doctest::Approx(info0[0]["boundsMin"][2].get<double>() + 512.0));
     CHECK(info1[0]["stats"]["cells"] == info0[0]["stats"]["cells"]);
+}
+
+TEST_CASE("floating origin 2d: a joint pinned to a world point keeps holding and swinging across rebases") {
+    Sim plain, moved;
+    auto build = [](Sim& s) {
+        const Vec2 pivot{30000, 0};
+        const float a = radians(60.0f);
+        const Vec2 p{pivot.x + 100.0f * std::sin(a), pivot.y - 100.0f * std::cos(a)};
+        Entity bob = s.world.create("bob", "bob");
+        s.world.get<Transform>(bob)->position = {p.x, p.y, 0};
+        Collider2D& c = s.world.add<Collider2D>(bob);
+        c.size = {8, 8};
+        c.mask = 0;
+        RigidBody2D& rb = s.world.add<RigidBody2D>(bob);
+        rb.type = BodyType::Dynamic;
+        rb.linearDamping = 0.0f;
+        Joint2D& j = s.world.add<Joint2D>(bob);
+        j.type = JointType2D::Revolute;
+        j.anchor = {pivot.x - p.x, pivot.y - p.y};
+        j.connectedAnchor = pivot;  // `connected` empty: a world position
+        return bob;
+    };
+    const Entity a = build(plain), b = build(moved);
+    const int rebaseAt[] = {10, 40};
+    const Vec3 offsets[] = {{29696, 0, 0}, {-256, 512, 0}};
+    int done = 0;
+    float lowest = 1e9f;
+    for (int step = 0; step < 180; ++step) {
+        plain.run(1);
+        moved.run(1);
+        lowest = std::min(lowest, plain.world.world_position(a).y);
+        if (done < 2 && step == rebaseAt[done]) moved.rebase(offsets[done++]);
+    }
+    REQUIRE(done == 2);
+    CHECK(lowest < -60.0f);  // it did swing down from 60 degrees
+    const Vec3 pa = plain.world.world_position(a);
+    const DVec3 pb = moved.world.absolute_position(b);
+    CHECK(std::fabs(pb.x - pa.x) < 0.05);
+    CHECK(std::fabs(pb.y - pa.y) < 0.05);
+    // The joint still holds the same point of the world, and the body is still the distance from it the joint keeps.
+    const Joint2D* j = moved.world.get<Joint2D>(b);
+    CHECK(double(j->connectedAnchor.x) + moved.world.origin().x == doctest::Approx(30000.0));
+    CHECK(double(j->connectedAnchor.y) + moved.world.origin().y == doctest::Approx(0.0));
+    CHECK(std::hypot(pb.x - 30000.0, pb.y) == doctest::Approx(100.0).epsilon(0.01));
+}
+
+TEST_CASE("floating origin 3d: a hinge pinned to a world point keeps holding and swinging across rebases") {
+    Sim plain, moved;
+    auto build = [](Sim& s) {
+        const Vec3 pivot{1000, 10, 0};
+        Entity bob = box3(s.world, "bob", pivot + Vec3{2, 0, 0}, {0.5f, 0.5f, 0.5f}, true);
+        Joint3D& j = s.world.add<Joint3D>(bob);
+        j.axis = {0, 0, 1};
+        j.anchor = {-2, 0, 0};
+        j.autoAnchor = false;
+        j.connectedAnchor = pivot;  // `connected` empty: a world position
+        return bob;
+    };
+    const Entity a = build(plain), b = build(moved);
+    const int rebaseAt[] = {20, 60};
+    const Vec3 offsets[] = {{768, 0, 0}, {0, -256, 256}};
+    int done = 0;
+    float lowest = 1e9f;
+    for (int step = 0; step < 150; ++step) {
+        plain.run(1);
+        moved.run(1);
+        lowest = std::min(lowest, plain.world.world_position(a).y);
+        if (done < 2 && step == rebaseAt[done]) moved.rebase(offsets[done++]);
+    }
+    REQUIRE(done == 2);
+    CHECK(lowest < 8.5f);  // it swung down from the horizontal
+    const Vec3 pa = plain.world.world_position(a);
+    const DVec3 pb = moved.world.absolute_position(b);
+    CHECK(std::fabs(pb.x - pa.x) < 5e-3);
+    CHECK(std::fabs(pb.y - pa.y) < 5e-3);
+    CHECK(std::fabs(pb.z - pa.z) < 5e-3);
+    const Joint3D* j = moved.world.get<Joint3D>(b);
+    CHECK(double(j->connectedAnchor.x) + moved.world.origin().x == doctest::Approx(1000.0));
+    CHECK(double(j->connectedAnchor.y) + moved.world.origin().y == doctest::Approx(10.0));
+    CHECK(std::hypot(pb.x - 1000.0, pb.y - 10.0) == doctest::Approx(2.0).epsilon(0.01));  // still on the rod
+}
+
+TEST_CASE("floating origin 2d: a Tilemap's colliders move with the world and a body still lands on them") {
+    Sim plain, moved;
+    auto build = [](Sim& s) {
+        Entity map = s.world.create("map", "map");
+        s.world.get<Transform>(map)->position = {29900, -200, 0};  // the top-left corner of the map
+        Tilemap& tm = s.world.add<Tilemap>(map);
+        tm.tileSize = {8, 8};
+        tm.solidTiles = Json::array({1});
+        set_tilemap_grid(tm, 40, 1, std::vector<int>(40, 1));
+        return box2(s.world, "box", {30000, 100}, {16, 16}, true);
+    };
+    const Entity a = build(plain), b = build(moved);
+    auto shapes = [](Sim& s) {
+        for (const Json& j : s.physics.debug_state(s.world))
+            if (j.value("kind", "") == "tilemap") return j["shapeCount"].get<int>();
+        return -1;
+    };
+    const int rebaseAt[] = {10, 40};
+    const Vec3 offsets[] = {{29696, 0, 0}, {-256, 512, 0}};
+    int done = 0;
+    for (int step = 0; step < 200; ++step) {
+        plain.run(1);
+        moved.run(1);
+        if (done < 2 && step == rebaseAt[done]) moved.rebase(offsets[done++]);
+    }
+    REQUIRE(done == 2);
+    REQUIRE(shapes(plain) > 0);
+    CHECK(shapes(moved) == shapes(plain));  // the colliders were moved, not rebuilt into something else
+    const Vec3 pa = plain.world.world_position(a);
+    const DVec3 pb = moved.world.absolute_position(b);
+    CHECK(std::fabs(pb.x - pa.x) < 0.05);
+    CHECK(std::fabs(pb.y - pa.y) < 0.05);
+    CHECK(pa.y ==
+          doctest::Approx(-192.0f).epsilon(0.03));  // it rests on the tiles' top edge (y = -200) by its half size
+    CHECK(moved.begins() == plain.begins());
+    CHECK(plain.begins() >= 1);
 }

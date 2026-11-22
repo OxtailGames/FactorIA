@@ -64,7 +64,9 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
         });
     I.commands.add(
         {"world.rebase", "Move the floating origin now, shifting every entity so the camera is near (0, 0, 0) again.",
-         "Moves the origin to `offset` (double metres, world space: the new origin) or to the position of `entity`, "
+         "Moves the origin to `origin` (double metres, world space: the NEW origin, not a delta; `offset` is the old "
+         "name of the "
+         "same argument and still works) or to the position of `entity`, "
          "shifting every "
          "root Transform, physics body, audio source, navigation grid and particle by the difference in one step, so "
          "nothing "
@@ -74,29 +76,41 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
          "multiple of "
          "the step, and `shift` says by how much it moved. It does what the engine does by itself when the anchor goes "
          "past "
-         "`world.floatingOrigin.threshold`, on demand, for tests and cutscenes. Without `offset` and `entity` it "
+         "`world.floatingOrigin.threshold`, on demand, for tests and cutscenes. Without `origin` and `entity` it "
          "centres on the "
          "project's anchor. Fails when floating origin is not enabled in the project (set world.floatingOrigin.enabled "
          "in "
-         "factoria.json), when `offset` and `entity` are both given, and when the shift is more than 16777216 steps (a "
+         "factoria.json), when `origin` (or `offset`) and `entity` are both given, and when the shift is more than "
+         "16777216 steps (a "
          "float "
          "cannot hold it exactly): shift in several rebases. Scripts hear one `originShifted` event. Result: {origin, "
          "shift (the "
-         "offset applied, [x, y, z]), shifted (root entities moved), rebases}. Example: world.rebase "
-         "{\"offset\":[5000,0,0]}",
+         "amount subtracted from every position, [x, y, z]: the `offset` of the `originShifted` event), shifted (root "
+         "entities moved), rebases}. Example: world.rebase "
+         "{\"origin\":[5000,0,0]}",
          parse_schema(R"({"type":"object","properties":{
-           "offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"The new origin: world metres [x, y, z] as doubles."},
+           "origin":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"The new origin (not a delta): world metres [x, y, z] as doubles, rounded to the step."},
+           "offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"Deprecated alias of `origin` (it is the new origin, not a delta, and not the `offset` of the originShifted event)."},
            "entity":{"type":"string","description":"Centre the origin on this entity's world position (an entity id)."}}})"),
          false, "world"},
         [&I](const Json& a) -> Json {
             const FloatingOriginSettings& fo = I.project.floatingOrigin;
-            const bool hasOffset = a.contains("offset") && !a["offset"].is_null();
+            const bool hasNew = a.contains("origin") && !a["origin"].is_null();
+            const bool hasOld = a.contains("offset") && !a["offset"].is_null();
+            const bool hasOffset = hasNew || hasOld;  // `offset` is the deprecated name of `origin`
+            const char* originKey = hasNew ? "origin" : "offset";
             const bool hasEntity = a.contains("entity") && !a["entity"].is_null();
+            if (hasNew && hasOld)
+                throw CommandError(
+                    "invalid_argument",
+                    "/origin and /offset are both given: they are the same argument (`offset` is the old name).",
+                    "Pass only `origin`.");
             if (hasOffset && hasEntity)
                 throw CommandError(
                     "invalid_argument",
-                    "/offset and /entity are both given: world.rebase moves the origin to one place.",
-                    "Pass either `offset` (the new origin as [x, y, z] metres) or `entity` (an entity id), or neither "
+                    std::string("/") + originKey +
+                        " and /entity are both given: world.rebase moves the origin to one place.",
+                    "Pass either `origin` (the new origin as [x, y, z] metres) or `entity` (an entity id), or neither "
                     "to centre on the project's anchor.");
             if (!fo.enabled)
                 throw CommandError(
@@ -109,10 +123,11 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
                                    "Use a power of two from 1 to 1048576 (docs.read BIG_WORLDS).");
             DVec3 target = I.world.origin();
             if (hasOffset) {
-                const Json& o = a["offset"];
+                const Json& o = a[originKey];
                 if (!o.is_array() || o.size() != 3 || !o[0].is_number() || !o[1].is_number() || !o[2].is_number())
                     throw CommandError("invalid_argument",
-                                       "/offset must be an array of three numbers, got " + o.dump() + ".",
+                                       std::string("/") + originKey + " must be an array of three numbers, got " +
+                                           o.dump() + ".",
                                        "Use the new origin in world metres, for example [5000, 0, 0].");
                 target = {o[0].get<double>(), o[1].get<double>(), o[2].get<double>()};
             } else if (hasEntity) {
@@ -133,7 +148,7 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
             const DVec3 shift{std::round(want.x / step) * step, std::round(want.y / step) * step,
                               std::round(want.z / step) * step};
             if (auto ok = check_rebase_offset(shift, step,
-                                              hasOffset   ? "/offset"
+                                              hasOffset   ? (hasNew ? "/origin" : "/offset")
                                               : hasEntity ? "/entity"
                                                           : "/anchor");
                 !ok)
@@ -192,7 +207,6 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
     declare_command_capabilities(I.commands, {{"world.origin", capability_sets::reads()},
                                               {"world.absolute_position", capability_sets::reads()},
                                               {"world.rebase", capability_sets::changes_state()},
-                                              {"world.absolute_position", capability_sets::reads()},
                                               {"world.cells", capability_sets::reads()},
                                               {"world.stream_status", capability_sets::reads()}});
 }
