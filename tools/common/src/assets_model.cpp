@@ -1322,9 +1322,6 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "triangles (at most that many), error (largest surface movement in metres), distance (metres "
             "from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; "
             "made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. "
-            "`lodChain`: {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, "
-            "uvWeight}, an automatic chain drawn by screen size instead of `lods` (not both; null removes it; "
-            "docs/BIG_WORLDS.md, \"Automatic LOD chain\"). "
             "`collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, "
             "maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 "
             "triangles / 16 "
@@ -1333,6 +1330,9 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "{\"path\":\"assets/models/"
             "tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],"
             "\"collider\":{\"shape\":\"convex\"}}" FA_COMMAND_DETAILS
+            "`lodChain`: an automatic chain by screen size instead of `lods` (not both; null removes it): {enabled, "
+            "levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, "
+            "uvWeight} (docs/BIG_WORLDS.md, \"Automatic LOD chain\"). "
             "`collider.part` fits the collider to the submeshes of that named part only (a pine's \"trunk\", so the "
             "canopy does not block; "
             "it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and "
@@ -1356,15 +1356,17 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                    {"merge", Json::object({{"type", "boolean"},
                                            {"description", "Join submeshes with the same material and weld identical "
                                                            "vertices (left out: unchanged)."}})},
-                   {"lods", Json::object({{"type", "array"},
+                   {"lods", Json::object({{"type", Json::array({"array", "null"})},
                                           {"maxItems", 4},
                                           {"items", Json::object({{"type", "object"}})},
                                           {"description",
                                            "LOD1.. as {ratio, triangles, error, distance}; replaces the list."}})},
-                   {"lodChain", object_arg("An automatic LOD chain drawn by screen size instead of `lods` (not both): "
-                                           "{enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, "
-                                           "normalWeight, uvWeight}; replaces the setting, null removes it "
-                                           "(model.generate_lods sets it with defaults).")},
+                   {"lodChain",
+                    Json::object({{"type", Json::array({"object", "null"})},
+                                  {"description", "An automatic LOD chain drawn by screen size instead of `lods` (not "
+                                                  "both): {enabled, levels, ratios, errors, screenSizes, minTriangles, "
+                                                  "lockBorder, normalWeight, uvWeight}; replaces the setting, null "
+                                                  "removes it (model.generate_lods sets it with defaults)."}})},
                    {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, "
                                            "resolution, part, radius, height}.")},
                    {"platforms", Json::object({{"type", "array"},
