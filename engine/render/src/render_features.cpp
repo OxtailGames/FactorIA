@@ -350,9 +350,9 @@ std::vector<FeatureDef> build_table() {
          "(the layers), and the log says which.",
          nullptr},
         {"foliage", "",
-         "Foliage: thousands of instances of a mesh drawn with GPU instancing from a data file, with wind, LODs and a "
+         "Foliage: thousands of instances of a mesh drawn with instancing from a data file, with wind, LODs and a "
          "fade-out distance (the Foliage component, M75.6). Every backend.",
-         "M75"}};
+         nullptr}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
