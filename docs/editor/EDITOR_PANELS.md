@@ -323,8 +323,12 @@ those commands, so a script or the AI can do the same.
 - **Undo, Play and Stop.** Ctrl+Z of another edit (a moved entity) reloads the scene from a snapshot; a terrain with unsaved
   edits or history is kept across that. Play gives the game its own copy of those terrains: what the game does to the ground, holes and
   splat maps is gone at Stop, which gives back exactly what the editor had, history included. A terrain edit from the Console, the AI or
-  MCP (`terrain.sculpt`, `paint`, `holes`, `generate`) is one undo entry too, like a stroke. The terrain keeps 64 steps: once the 65th is
-  made, the editor removes the oldest terrain entries from the undo list and a toast says how many. Undo of the first holes or paint
+  MCP (`terrain.sculpt`, `paint`, `holes`, `generate`) is one undo entry too, like a stroke. The terrain keeps 64 steps / 256 MB:
+  when it lets go of its oldest step, the editor takes that step out of the oldest terrain entries of the undo list (an entry
+  that also holds other edits keeps them) and a toast says how many. A `terrain.undo` run by hand (Console, MCP) takes the
+  terrain's own newest step without touching the undo list, so Ctrl+Z and the terrain can disagree afterwards: use one or the
+  other. The editor counts the steps the terrain let go, not the entries of its list, so such a call never makes it drop a step
+  that still works. Undo of the first holes or paint
   stroke also takes the `Terrain.holes` or `Terrain.splatMaps` path it set back (a file already written stays on disk, unused). Esc gives
   back the unsaved state the stroke found. A click that misses the terrain keeps it selected and the tool on.
 

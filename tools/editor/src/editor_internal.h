@@ -310,6 +310,8 @@ public:
                             CoalesceMode mode = CoalesceMode::Replace);
     // Removes the oldest undo entries of terrain `id` whose step the terrain's own history let go (editor_app.cpp).
     void drop_terrain_entries_past_history(const std::string& id);
+    std::map<std::string, std::size_t>
+        terrainLostSeen_;  // terrain id -> its history_lost() when the undo list last looked
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 

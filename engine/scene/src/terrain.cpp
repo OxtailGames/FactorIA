@@ -203,6 +203,7 @@ void TerrainHeights::trim_history() {
            (undo_.size() > kTerrainHistorySteps || (historyBytes_ > kTerrainHistoryBytes && undo_.size() > 1))) {
         historyBytes_ -= std::min(historyBytes_, undo_.front().bytes());
         undo_.erase(undo_.begin());
+        ++historyLost_;
     }
 }
 

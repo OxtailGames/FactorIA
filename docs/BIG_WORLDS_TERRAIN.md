@@ -110,13 +110,15 @@ absolute path or one that leaves the folder with `..` is refused with the field 
 `terrain`, `terrain_2`... the first free id; `path` together with `heightmap` is refused. `terrain.paint` makes the splat maps only
 when the brush changes a texel.
 
-**One command is one undo step, per terrain.** `terrain.undo` and `terrain.redo` put the samples of the newest sculpt, paint, holes
-or generate back, bit for bit, in every plane the command touched. The history keeps 64 steps and 256 MB per terrain, is not
-saved with the scene, and is cleared when the scene loads. A first `terrain.holes` or `terrain.paint` that made the mask or the
-splat maps also sets `Terrain.holes` or `Terrain.splatMaps`: `terrain.undo` takes those paths back (the mask or maps are gone again,
-or the ones the scene had come back) and `terrain.redo` makes them again, with the same paths; a file a save already wrote stays on
-disk, unused. A `heightmap` a `terrain.generate` chose is not undone: the path stays and the data is what goes back. A command that fails changes nothing and adds no step. The result of an edit has `undoDepth`, `unsaved` (files with
-edits not written yet) and `undo` (the command that takes it back).
+**One command is one undo step, per terrain.** `terrain.undo` and `terrain.redo` put the samples of the newest sculpt,
+paint, holes or generate back, bit for bit, in every plane the command touched. The history keeps 64 steps and 256 MB
+per terrain, is not saved with the scene, and is cleared when the scene loads. A first `terrain.holes` or
+`terrain.paint` that made the mask or the splat maps also sets `Terrain.holes` or `Terrain.splatMaps`: `terrain.undo`
+takes those paths back (the mask or maps are gone again, or the ones the scene had come back) and `terrain.redo` makes
+them again, with the same paths; a file a save already wrote stays on disk, unused. A `heightmap` a `terrain.generate`
+chose is not undone: the path stays and the data is what goes back. A command that fails changes nothing and adds no
+step. The result of an edit has `undoDepth`, `unsaved` (files with edits not written yet) and `undo` (the command that
+takes it back).
 
 **A stroke in pieces: `continueStroke`.** A command that edits (sculpt, paint, holes) takes `continueStroke: true` to add its changes
 to the newest undo step instead of making one: a tool that applies a stroke live, a few stamps per frame, makes the first call without it
@@ -133,10 +135,12 @@ the fix: a `resolution` that is not 2^k + 1 lists the ones that work, an unknown
 
 View > Terrain tool ([docs/editor/EDITOR_PANELS.md](editor/EDITOR_PANELS.md#terrain-tool)) is a brush on the selected `Terrain`: sculpt
 (raise, lower, smooth, flatten), paint a layer, cut or fill holes, with radius, strength and falloff, a cursor ring on the ground under the
-mouse and `[` `]` for the radius. It sends the commands above (`terrain.sculpt`, `terrain.paint`, `terrain.holes`) a few stamps at a time
-while the mouse moves, with `continueStroke`, and records ONE editor undo entry at the release (`terrain.undo` / `terrain.redo`), so
-Ctrl+Z takes a whole stroke back. A terrain command from the Console, the AI or MCP is an undo entry too (one per call), and Play
-edits a copy of the terrain that Stop throws away, so a game never changes what the editor holds. A scene save writes the terrain files; a write error names the file and keeps every edit in memory.
+mouse and `[` `]` for the radius. It sends the commands above (`terrain.sculpt`, `terrain.paint`, `terrain.holes`) a
+few stamps at a time while the mouse moves, with `continueStroke`, and records ONE editor undo entry at the release
+(`terrain.undo` / `terrain.redo`), so Ctrl+Z takes a whole stroke back. A terrain command from the Console, the AI or
+MCP is an undo entry too (one per call), and Play edits a copy of the terrain that Stop throws away, so a game never
+changes what the editor holds. A scene save writes the terrain files; a write error names the file and keeps every
+edit in memory.
 
 ### Terrain data formats
 

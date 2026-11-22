@@ -20,7 +20,9 @@
 //   baselines, stays, and restore() brings the cells back at Stop.
 //
 //   ROOT DELETED. Deleting the root entity of a cell with unsaved changes keeps the cell as unsaved and empty: Save writes the
-//   cell with no entities, Undo brings it back. A cell without unsaved changes is just closed (its file is unchanged).
+//   cell with no entities, Undo brings it back. A cell without unsaved changes is just closed (its file is unchanged), and so is one
+//   whose file already holds no entity. A cell the last check did not cover (an edit named another cell, and this one waits for its
+//   turn in the sweep) cannot be judged clean: its root being gone counts as an unsaved change.
 //
 // Main thread only. No exceptions leave this class.
 #pragma once

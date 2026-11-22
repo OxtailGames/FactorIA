@@ -289,6 +289,21 @@ void Editor::at_section_T3(AtScript& at) {
     });
     step(3, [this, heights, m] { at_check(checksum(*heights()) == m->after, "Redo cuts them again exactly"); });
 
+    // ---- a terrain.undo run by hand leaves an entry whose step is gone: the next entry must not make the editor drop a valid one
+    step(3, [this, heights, m] {
+        const Json args = Json::parse(R"({"entity":"t3_ground"})");
+        m->undo0 = undo_depth();
+        const CommandResult u = engine_->commands().call("terrain.undo", args);
+        const CommandResult r = engine_->commands().call("terrain.redo", args);
+        at_check(u.ok && r.ok && checksum(*heights()) == m->after, "a terrain.undo and redo by hand change nothing");
+        const bool pushed =
+            push_command_entry("at:t3:orphan", {{"terrain.redo", args, ""}}, {{"terrain.undo", args, ""}});
+        at_check(pushed && undo_depth() == m->undo0 + 1,
+                 "the terrain lost no step, so no entry of the undo list is dropped (" + std::to_string(undo_depth()) +
+                     " entries, " + std::to_string(m->undo0 + 1) + " expected)");
+        if (pushed) undo_.pop_back();  // the pair stands for nothing the terrain holds
+    });
+
     // ---- Save: a write error is told and keeps every edit; then the files are written
     step(2, [this, heights, m] {
         const Entity e = world().find_by_id("t3_ground");
@@ -360,13 +375,11 @@ void Editor::at_section_T3(AtScript& at) {
     // ---- a click that misses the terrain keeps the selection and the tool
     step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3}); });
     step(3, [this] {
-        if (terrain_.hasHit) return;  // this camera sees the ground in that corner: nothing to check
+        at_check(!terrain_.hasHit,
+                 "the corner of the viewport is off the terrain (the camera of this test sees no ground there)");
         inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3});
     });
-    step(2, [this] {
-        if (terrain_.hasHit) return;
-        inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3});
-    });
+    step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, Vec2{vpImageMin_.x + 3, vpImageMin_.y + 3}); });
     step(4, [this] {
         at_check(selected_id() == "t3_ground" && terrain_tool_active(),
                  "a click that misses the terrain keeps it selected and the tool on");
