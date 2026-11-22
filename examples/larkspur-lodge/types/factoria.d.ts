@@ -12167,7 +12167,7 @@ declare module "factoria" {
     cameraUnloadRadius: number;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. The renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer: each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the holes are cut out of the surface, its shadow and its collider, and a ray passes through them. `render.supports` lists the limits of the GPU ("limits"). docs/BIG_WORLDS.md, "Terrain (M75.5)".
    * 
    * Category: 3D
    * @since unreleased
@@ -12195,17 +12195,17 @@ declare module "factoria" {
      */
     heightOffset: number;
     /**
-     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Not drawn yet (planned): only layer 0 is. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 2 project-relative RGBA PNG paths (each its own size, 16 to 4096 a side): channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Drawn: the weights of the 8 channels are normalised to add up to 1 at every pixel and blended bilinearly. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     splatMaps: any;
     /**
-     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the plain terrain. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size (at most 4096 x 4096), and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). A size that differs from the first layer's is an error naming both sizes ("/layers/3/albedo"); a texture that is missing or unreadable is said once and that layer stays a neutral grey (albedo) or flat (normal). Mipmaps are made. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     layers: any;
     /**
-     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. Not cut yet (planned): the terrain is drawn and collides without holes. (asset path: texture)
+     * Project-relative greyscale PNG, `cells x cells` pixels: where a pixel is 128 or more the terrain is cut open (no surface, no shadow, no collider; a ray passes through; `terrain_sample` and `terrain_height_at` report no ground there): a cave mouth, a well. At a coarse level of detail a hole is decided per quad of cells, so a far hole can be a little larger or smaller. "" (default) = no holes. (asset path: texture)
      * @since unreleased
      */
     holes: string;
