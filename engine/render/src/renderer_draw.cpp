@@ -2582,8 +2582,8 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
     if (!geom.valid) return;
     // The cascades' counts for the quality, against the platform's budget (a phone or a browser has the smaller one): over it, no field at all.
-    const sg_backend backend = sg_query_backend();
-    const bool mobile = backend == SG_BACKEND_GLES3 || backend == SG_BACKEND_METAL_IOS;
+    const sg_backend gfxBackend = sg_query_backend();
+    const bool mobile = gfxBackend == SG_BACKEND_GLES3 || gfxBackend == SG_BACKEND_METAL_IOS;
     const Gi2dCascadePlan cascadePlan = gi2d_cascade_plan(s.quality, geom, mobile);
     // The fields the earlier jobs of this frame already planned, in slots and in bytes (the whole frame has one budget).
     int slot = 0;

@@ -57,9 +57,9 @@ struct Own {
     // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say so.
     bool gi_ready() {
         const bool ok = Gi2dSystem::float_targets_ok();
-        const sg_backend b = sg_query_backend();
-        if (b == SG_BACKEND_GLCORE || b == SG_BACKEND_D3D11 || b == SG_BACKEND_METAL_MACOS ||
-            b == SG_BACKEND_METAL_IOS) {
+        const sg_backend api = sg_query_backend();
+        if (api == SG_BACKEND_GLCORE || api == SG_BACKEND_D3D11 || api == SG_BACKEND_METAL_MACOS ||
+            api == SG_BACKEND_METAL_IOS) {
             INFO("this backend must have RGBA16F render targets that blend and filter");
             REQUIRE(ok);
         }

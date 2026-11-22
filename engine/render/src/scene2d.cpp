@@ -476,9 +476,9 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
         if (fx.has_rim() && lit && !s.texture.empty()) {
             // The rim looks at the picture's alpha this far away: Sprite.rimWidth of the smaller side, in uv units of the region shown.
             const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);
-            const float world = std::clamp(s.rimWidth, 0.01f, 1.0f) * std::min(std::abs(size.x), std::abs(size.y));
-            fx.rimUv[0] = world / std::max(std::abs(size.x), 1e-4f) * std::abs(hi.x - lo.x);
-            fx.rimUv[1] = world / std::max(std::abs(size.y), 1e-4f) * std::abs(hi.y - lo.y);
+            const float rimWorld = std::clamp(s.rimWidth, 0.01f, 1.0f) * std::min(std::abs(size.x), std::abs(size.y));
+            fx.rimUv[0] = rimWorld / std::max(std::abs(size.x), 1e-4f) * std::abs(hi.x - lo.x);
+            fx.rimUv[1] = rimWorld / std::max(std::abs(size.y), 1e-4f) * std::abs(hi.y - lo.y);
         } else {
             std::fill(std::begin(fx.rim), std::end(fx.rim), 0.0f);
         }
