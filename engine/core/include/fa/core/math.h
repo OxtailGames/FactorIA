@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <type_traits>
 
 #include "fa/core/det_math.h"
 
@@ -205,6 +206,62 @@ inline Vec3 move_towards(Vec3 cur, Vec3 target, float maxDelta) {
 inline constexpr Vec3 kUp{0, 1, 0};
 inline constexpr Vec3 kRight{1, 0, 0};
 inline constexpr Vec3 kForward{0, 0, -1};  // default camera/object forward
+
+// ---------------------------------------------------------------------------
+// DVec3
+// ---------------------------------------------------------------------------
+// A position in double precision (M75.4, floating origin; docs/BIG_WORLDS.md): the world's origin offset and the absolute
+// position of an entity (origin + local) are DVec3 because a float holds 7 digits, about 1 mm at 8 km from the origin and 1 m
+// at 8000 km. Transform stays Vec3 (float): the engine shifts the local positions instead. DVec3 never converts to or from
+// Vec3 by itself: to_vec3 (rounds to float) and to_dvec3 (exact) say where precision is lost.
+struct DVec3 {
+    double x = 0, y = 0, z = 0;
+
+    constexpr DVec3() = default;
+    constexpr DVec3(double x_, double y_, double z_) : x(x_), y(y_), z(z_) {}
+
+    constexpr DVec3 operator+(const DVec3& o) const { return {x + o.x, y + o.y, z + o.z}; }
+    constexpr DVec3 operator-(const DVec3& o) const { return {x - o.x, y - o.y, z - o.z}; }
+    constexpr DVec3 operator*(double s) const { return {x * s, y * s, z * s}; }
+    constexpr DVec3 operator-() const { return {-x, -y, -z}; }
+    DVec3& operator+=(const DVec3& o) {
+        x += o.x;
+        y += o.y;
+        z += o.z;
+        return *this;
+    }
+    DVec3& operator-=(const DVec3& o) {
+        x -= o.x;
+        y -= o.y;
+        z -= o.z;
+        return *this;
+    }
+    constexpr bool operator==(const DVec3&) const = default;
+};
+constexpr DVec3 operator*(double s, const DVec3& v) { return v * s; }
+
+// Templates so that `length({x, y, z})` and `dot({..}, {..})` written for Vec3 stay unambiguous (a braced list cannot deduce T).
+template <class T, class = std::enable_if_t<std::is_same_v<T, DVec3>>>
+inline double dot(const T& a, const T& b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+template <class T, class = std::enable_if_t<std::is_same_v<T, DVec3>>>
+inline double length_sq(const T& v) {
+    return dot(v, v);
+}
+template <class T, class = std::enable_if_t<std::is_same_v<T, DVec3>>>
+inline double length(const T& v) {
+    return std::sqrt(dot(v, v));
+}
+template <class T, class = std::enable_if_t<std::is_same_v<T, DVec3>>>
+inline double distance(const T& a, const T& b) {
+    return length(b - a);
+}
+// Exact: every float is a double.
+constexpr DVec3 to_dvec3(Vec3 v) { return {double(v.x), double(v.y), double(v.z)}; }
+// Rounds each component to the nearest float: use it for a position RELATIVE to something near (a local offset), never for an
+// absolute position far from the origin.
+constexpr Vec3 to_vec3(const DVec3& v) { return {float(v.x), float(v.y), float(v.z)}; }
 
 // ---------------------------------------------------------------------------
 // Vec4
