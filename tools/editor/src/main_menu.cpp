@@ -53,7 +53,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     file.push_back(menu::action(
         "Reload Scene",
         [this] {
-            if (dirty_)
+            if (has_unsaved_work())
                 showReloadConfirm_ = true;
             else
                 reload_scene_from_disk();
@@ -67,7 +67,7 @@ menu::MainMenu Editor::build_main_menu(bool native) {
             for (const auto& f : fs::list("", true))
                 if (f.size() > 11 && f.ends_with(".scene.json") && f[0] != '.') {
                     Item i = menu::action(f, [this, f] {
-                        if (dirty_)
+                        if (has_unsaved_work())
                             pendingScene_ = f;
                         else
                             open_scene(f);
@@ -218,6 +218,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(with(
         toggle("Bone tools", showBoneTools_), "menu:bonetools",
         "Draw a bone chain by clicking in the viewport, bind a sprite to bones, paint weights and drag IK targets"));
+    view.push_back(
+        with(toggle("Terrain tool", showTerrainTool_), "menu:terraintool",
+             "Sculpt, paint and cut holes in the selected Terrain with a brush in the viewport; one stroke is one "
+             "undo step and Save writes the terrain files"));
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
     view.push_back(

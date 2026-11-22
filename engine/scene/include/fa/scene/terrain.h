@@ -117,6 +117,11 @@ struct TerrainHeights {
     // Applies the patches of `step` (their `after` data) and keeps the step for undo, clearing the redo list. False, changing
     // nothing, when a patch does not fit its plane (`problem` says which).
     bool apply_step(TerrainStep step, std::string* problem = nullptr);
+    // Like apply_step, but the patches join the NEWEST undo step instead of making a new one (a brush stroke sent to the commands
+    // in pieces is still one undo step): the merged step's `before` is the data before the first piece, its `after` the data after
+    // the last. False, changing nothing, when there is no undo step, a step was undone since (the redo list is not empty), the
+    // newest step has another label than `step.label`, or a patch does not fit (`problem` says which).
+    bool extend_step(TerrainStep step, std::string* problem = nullptr);
     // Puts the `before` data of the newest step back (and keeps it for redo) / applies the newest undone step again. False when
     // there is none; `label` gets the step's label.
     bool undo(std::string* label = nullptr);

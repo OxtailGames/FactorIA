@@ -62,6 +62,7 @@
 #include "ai_usage.h"
 #include "anim3d_ui.h"
 #include "anim_ui.h"
+#include "terrain_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
@@ -275,6 +276,10 @@ public:
     bool begin_edit(const std::string& key);
     void mark_dirty() { dirty_ = true; }
     bool dirty() const { return dirty_; }
+    // The scene has unsaved edits, or a Terrain has samples, holes or splat weights not written yet (they are not in the scene file):
+    // what closing, reloading and opening another scene ask about.
+    bool has_unsaved_work();
+    void forget_unsaved_terrain();  // "Discard and quit": the terrains count as written, so closing does not ask again
     void undo();
     void redo();
     // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
@@ -803,6 +808,19 @@ public:
     Entity bone_skin_entity();
     SkinBox sprite_local_box(Entity e);  // the rectangle a Sprite covers in its own space, as the renderer lays it out
     BoneUi bone_;
+    // Terrain tool (terrain_tool.cpp; View > Terrain tool): sculpt, paint and cut holes in the selected Terrain with a brush in the
+    // viewport. A stroke is applied live and is ONE undo step ([terrain.redo] / [terrain.undo] command entry) pushed at the release.
+    void draw_terrain_tool_panel();
+    bool
+    terrain_tool_active();  // the panel is open, a mode is picked and the selected entity has a Terrain3D (edit mode)
+    bool terrain_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);  // true when the click was taken
+    void terrain_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    bool terrain_stroke_active() const;
+    void terrain_stroke_begin(Entity e, Vec2 at);
+    bool terrain_stroke_flush();
+    void terrain_stroke_end();
+    void terrain_stroke_cancel();
+    TerrainUi terrain_;
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
@@ -1198,7 +1216,7 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false,
          showProject_ = true;
-    bool showAnimation_ = false, showBoneTools_ = false;
+    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false;
     bool showLevelGen_ = false;
     LevelGenSession levelGen_;
     LevelGenOptions levelGenOpt_;
@@ -1879,6 +1897,7 @@ public:
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
+    void at_section_T3(AtScript& at);  // autotest_terrain.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp

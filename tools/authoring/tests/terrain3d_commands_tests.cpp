@@ -3,6 +3,7 @@
 // physics collider that follows, the files written on save, and the errors that teach.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -538,4 +539,76 @@ TEST_CASE("terrain commands: a terrain scaled to nothing is refused, not edited 
     const std::string err = p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":5})");
     CHECK(contains(err, "scale"));
     CHECK(p.heights("g")->undo_depth() == 0);
+}
+
+TEST_CASE(
+    "terrain.sculpt, paint and holes: continueStroke joins the newest undo step, so a stroke in pieces is one step") {
+    Project p;
+    p.make("g");
+    const std::vector<std::uint16_t> start = p.heights("g")->data;
+    CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":5,"continueStroke":true})"),
+                   "/continueStroke"));
+    p.ok("terrain.sculpt", R"({"entity":"g","points":[[-20,0],[-18,0]],"radius":4,"amount":3})");
+    Json r = p.ok("terrain.sculpt",
+                  R"({"entity":"g","points":[[-16,0],[-14,0]],"radius":4,"amount":3,"continueStroke":true})");
+    CHECK(r["continued"] == true);
+    p.ok("terrain.sculpt", R"({"entity":"g","points":[[-12,6]],"radius":4,"amount":3,"continueStroke":true})");
+    CHECK(p.heights("g")->undo_depth() == 1);
+    const std::vector<std::uint16_t> done = p.heights("g")->data;
+    CHECK(done != start);
+    p.ok("terrain.undo", R"({"entity":"g"})");
+    CHECK(p.heights("g")->data == start);  // the first piece's before, bit for bit: the whole stroke is gone
+    p.ok("terrain.redo", R"({"entity":"g"})");
+    CHECK(p.heights("g")->data == done);
+    // A piece that changes nothing (outside the terrain) adds nothing; another command's step is not continued.
+    p.ok("terrain.sculpt", R"({"entity":"g","center":[500,500],"radius":4,"continueStroke":true})");
+    CHECK(p.heights("g")->undo_depth() == 1);
+    CHECK(contains(p.refused("terrain.holes", R"({"entity":"g","center":[0,0],"radius":3,"continueStroke":true})"),
+                   "newest edit"));
+    p.ok("terrain.undo", R"({"entity":"g"})");
+    CHECK(contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":3,"continueStroke":true})"),
+                   "/continueStroke"));  // nothing to continue after an undo
+    // The same stroke in one command and in pieces ends with the same surface, give or take the rounding to a sample between pieces.
+    p.make("a");
+    p.make("b");
+    p.ok("terrain.sculpt",
+         R"({"entity":"a","points":[[-10,0],[-6,0],[-2,0],[2,0]],"radius":5,"amount":4,"strength":1})");
+    p.ok("terrain.sculpt", R"({"entity":"b","points":[[-10,0],[-6,0]],"radius":5,"amount":4,"strength":1})");
+    p.ok("terrain.sculpt",
+         R"({"entity":"b","points":[[-2,0],[2,0]],"radius":5,"amount":4,"strength":1,"continueStroke":true})");
+    CHECK(p.heights("b")->undo_depth() == 1);
+    int worst = 0;
+    for (std::size_t i = 0; i < p.heights("a")->data.size(); ++i)
+        worst = std::max(worst, std::abs(int(p.heights("a")->data[i]) - int(p.heights("b")->data[i])));
+    CHECK(worst <= 2);
+    // paint and holes: the pieces land in one step, undo gives the planes back
+    p.ok("terrain.paint", R"({"entity":"a","layer":1,"points":[[10,10],[12,10]],"radius":4,"strength":1})");
+    const std::vector<std::uint8_t> noSplat = p.heights("b")->splat[0].rgba;  // no map yet
+    CHECK(noSplat.empty());
+    p.ok("terrain.paint", R"({"entity":"b","layer":1,"points":[[10,10]],"radius":4,"strength":1})");
+    p.ok("terrain.paint",
+         R"({"entity":"b","layer":1,"points":[[12,10]],"radius":4,"strength":1,"continueStroke":true})");
+    CHECK(p.heights("a")->splat[0].rgba == p.heights("b")->splat[0].rgba);
+    CHECK(p.heights("b")->undo_depth() == 2);
+    p.ok("terrain.holes", R"({"entity":"b","points":[[-20,-20]],"radius":3})");
+    p.ok("terrain.holes", R"({"entity":"b","points":[[-17,-20]],"radius":3,"continueStroke":true})");
+    CHECK(p.heights("b")->undo_depth() == 3);  // the sculpt in two pieces, the paint in two, the holes in two
+    p.ok("terrain.undo", R"({"entity":"b"})");
+    CHECK(std::count(p.heights("b")->holes.begin(), p.heights("b")->holes.end(), std::uint8_t(1)) == 0);
+    p.ok("terrain.undo", R"({"entity":"b"})");
+    CHECK(p.heights("b")->splat[0].rgba != p.heights("a")->splat[0].rgba);
+}
+
+TEST_CASE("terrain.sculpt and terrain.paint: falloff sets how much of the radius the brush fades over") {
+    Project p;
+    p.make("g");
+    p.ok("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":16,"amount":10,"strength":1})");
+    const double soft = p.height("g", 12, 0) - p.height("g", 30, 0);
+    p.ok("terrain.undo", R"({"entity":"g"})");
+    p.ok("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":16,"amount":10,"strength":1,"falloff":0})");
+    const double hard = p.height("g", 12, 0) - p.height("g", 30, 0);
+    CHECK(hard == doctest::Approx(10.0).epsilon(1e-3).scale(1.0));  // a hard edge: the full amount all the way to it
+    CHECK(soft < hard - 1.0);
+    CHECK(
+        contains(p.refused("terrain.sculpt", R"({"entity":"g","center":[0,0],"radius":16,"falloff":2})"), "/falloff"));
 }

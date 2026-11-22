@@ -291,6 +291,43 @@ commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so t
 - **Errors.** A refused start (no mesh to light, a bad option, a manifest outside the project, a bake already running) or a failed one (a file
   that is open in another program cannot be replaced on Windows) is shown in the panel with what to change; nothing is half written.
 
+## Terrain tool
+
+View > Terrain tool opens a panel (a tab next to Inspector) and, while one of its three modes is on and an entity with a `Terrain`
+component is selected, the viewport paints on the terrain instead of selecting and moving: the gizmo is off and a click and drag is a
+brush stroke. Click the mode again to leave it. It works in edit mode only (the brush changes the scene; Stop the game first). The
+tool is the editor's face of `terrain.sculpt`, `terrain.paint` and `terrain.holes` (docs/BIG_WORLDS.md, "Terrain"): every stroke is
+those commands, so a script or the AI can do the same.
+
+- **Sculpt.** Raise, Lower, Smooth, Flatten. Raise and Lower take an `amount` in metres (the change at the middle of the brush for
+  one stamp at full strength; the stamps are a quarter of the radius apart, so the ground under the brush gets several). Hold Ctrl
+  while you stroke to do the other one (Raise lowers, Lower raises). Flatten levels to the height under your first click (the
+  default) or to a height you type; **Pick from the terrain** (or Alt+click) takes that height from the ground under the next click.
+- **Paint.** The layers of `Terrain.layers` as a list with their albedo texture's thumbnail and file name; pick one and stroke. A
+  terrain with no layers says to add them in the Inspector. The first stroke makes the splat map and sets `Terrain.splatMaps`.
+- **Holes.** Cut or Fill (Ctrl swaps them). The first cut sets `Terrain.holes`. A brush smaller than a cell can miss every cell.
+- **Brush.** Radius in metres (never more than half the terrain or about 900 samples), strength 0 to 1 and falloff 0 to 1 (1 fades from
+  the middle to the edge, 0 is a hard edge). With the mouse over the viewport: `[` and `]` make the radius smaller and bigger, Shift+`[`
+  and Shift+`]` change the strength, Esc takes the stroke you are drawing back.
+- **The cursor.** A ring of the brush's radius lies on the terrain under the mouse, following its relief (yellow for sculpt, blue for
+  paint, red for holes); a second, fainter ring inside it shows where the effect is at full strength (radius times one minus falloff).
+- **A stroke is one undo step.** While the mouse is down the stamps (one every radius / 4 along the path) go to the terrain as the mouse
+  moves, so you see the ground change. They are sent as a few command calls that share ONE step of the terrain's own history
+  (`continueStroke`): a call per frame would push the 64 steps of that history out in a second. When you let go the editor records one
+  undo entry that runs `terrain.undo` (Ctrl+Z; the whole stroke goes back, sample for sample) and `terrain.redo` (Ctrl+Shift+Z, Ctrl+Y),
+  and marks the scene as changed. A stroke stops at 20000 stamps.
+- **Saving.** The terrain's files (heightmap, holes image, splat maps) are not in the scene file; Save writes them after it. If one
+  cannot be written (a folder where the file goes, a file open in another program) a toast says which and why, nothing is marked as
+  saved and every edit is still in memory. Closing the editor, reloading the scene and opening another one ask first when a terrain has
+  edits not written yet, even if the scene itself is clean (a terrain changed by a command from the Console or the AI counts too).
+- **What an undo does not do.** Ctrl+Z of another edit (a moved entity), Play and Stop reload the scene from a snapshot; a terrain with
+  unsaved edits or history is kept across that, so those edits and their Ctrl+Z are not lost. The terrain's history keeps 64 steps: once
+  the 65th is made the oldest stroke can no longer be undone and its Ctrl+Z says so. The `Terrain.holes` and `Terrain.splatMaps` paths a
+  first stroke sets are not taken back by Undo (the data is).
+
+The brush itself (settings, stamps along the mouse path, the ring, the ray to the ground) is the editor's shared `brush.h`, which the
+other viewport brush tools use too.
+
 ## Scene settings panel
 
 View > Scene settings opens a window with the settings of the open scene, the ones the file keeps under `settings` and the
