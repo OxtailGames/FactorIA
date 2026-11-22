@@ -7,7 +7,8 @@
 namespace fa {
 
 void Renderer::Impl::unwatch_world() {
-    if (originObserver != 0 && originWorld && !originWorldAlive.expired()) originWorld->remove_origin_observer(originObserver);
+    if (originObserver != 0 && originWorld && !originWorldAlive.expired())
+        originWorld->remove_origin_observer(originObserver);
     // A world that was destroyed took its observers with it (they are never called after that): nothing to remove.
     originWorld = nullptr;
     originWorldAlive.reset();
@@ -15,7 +16,8 @@ void Renderer::Impl::unwatch_world() {
 }
 
 void Renderer::Impl::watch_world(World& world) {
-    if (originWorld == &world && originObserver != 0 && !originWorldAlive.expired()) return;  // the common frame: one compare
+    if (originWorld == &world && originObserver != 0 && !originWorldAlive.expired())
+        return;       // the common frame: one compare
     unwatch_world();  // another world (or a world made at the address of one that died): leave the old one
     originWorld = &world;
     originWorldAlive = world.lifetime();
