@@ -414,9 +414,10 @@ std::string default_file(Engine::Impl& I, const std::string& id) {
 // foliage command.
 //
 // What survives: the history lives in this process, with the engine. A scene save changes nothing in it (the file and the fields
-// are what they were); a scene reload, an edit of the file or of Foliage.meshes / Foliage.instances by anything but the foliage
-// commands, or a restart makes the state differ from the one the history recorded, and the history of that Foliage is cleared
-// (a stale history is never applied to bytes it was not made for).
+// are what they were), and neither does a scene reload that gives the same entity the same file and fields. An edit of the file or
+// of Foliage.meshes / Foliage.instances by anything but the foliage commands, or a reload that changes them, makes the state differ
+// from the one the history recorded, and the history of that Foliage is cleared (a stale history is never applied to bytes it was
+// not made for); a restart starts with none.
 
 constexpr std::size_t kHistorySteps = kFoliageHistorySteps;
 constexpr std::size_t kHistoryBytes = kFoliageHistoryBytes;
@@ -437,9 +438,12 @@ struct Step {
 struct History {
     std::vector<Step> undo, redo;  // oldest first
     std::uint64_t state = 0;       // the hash of the file and fields the newest edit left (see state_hash)
-    std::uint64_t touched = 0;     // Histories::clock at the last foliage command on this Foliage (the least recent goes first)
-    std::uint64_t id = 0;          // which history this is (Histories::serial): a new one after the entity was pruned and came back
-    std::uint64_t lost = 0;        // the steps this history let go of (trimmed off the oldest end) since it was made, never reset
+    std::uint64_t touched =
+        0;  // Histories::clock at the last foliage command on this Foliage (the least recent goes first)
+    std::uint64_t id =
+        0;  // which history this is (Histories::serial): a new one after the entity was pruned and came back
+    std::uint64_t lost =
+        0;  // the steps this history let go of (trimmed off the oldest end) since it was made, never reset
     std::size_t bytes() const {
         std::size_t n = 0;
         for (const Step& s : undo) n += s.bytes();
@@ -1055,7 +1059,8 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
     if (a.contains("points")) {
         if (!a["points"].is_array() || a["points"].empty() || a["points"].size() > kMaxFoliagePaintPoints)
             bad("/points",
-                "points must be a list of 1 to " + std::to_string(kMaxFoliagePaintPoints) + " [x, z] pairs in world metres",
+                "points must be a list of 1 to " + std::to_string(kMaxFoliagePaintPoints) +
+                    " [x, z] pairs in world metres",
                 "Example: [[10, 20], [12, 20]]. Send a longer stroke in several calls with continueStroke.");
         for (std::size_t i = 0; i < a["points"].size(); ++i) {
             const Json& p = a["points"][i];
@@ -1151,9 +1156,10 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
         if (side * side * double(centers.size()) > double(kMaxCandidates))
             throw CommandError(
                 "too_many_candidates",
-                std::format("{} stamps of radius {} m at density {} visit about {:.0f} grid cells, but one command visits "
-                            "at most {}.",
-                            centers.size(), radius, g.density, side * side * double(centers.size()), kMaxCandidates),
+                std::format(
+                    "{} stamps of radius {} m at density {} visit about {:.0f} grid cells, but one command visits "
+                    "at most {}.",
+                    centers.size(), radius, g.density, side * side * double(centers.size()), kMaxCandidates),
                 "Lower `density` or `radius`, or send fewer `points` per call.");
     }
     g.circle = true;
@@ -1165,7 +1171,8 @@ Json do_paint(Engine::Impl& I, Histories& H, const Json& a) {
     for (const FoliageInstance& in : all) {
         const Vec3 w = toWorld.transform_point(in.position);
         const double x = double(w.x), z = double(w.z);
-        if (x >= bx0 - g.spacing && x <= bx1 + g.spacing && z >= bz0 - g.spacing && z <= bz1 + g.spacing) pool.add(x, z);
+        if (x >= bx0 - g.spacing && x <= bx1 + g.spacing && z >= bz0 - g.spacing && z <= bz1 + g.spacing)
+            pool.add(x, z);
     }
     std::vector<FoliageInstance> added;
     Counts c;
@@ -1332,7 +1339,8 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                     "terrain give the "
                     "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, "
                     "placed, rejected: "
-                    "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth, historyId, historyLost}. Example: "
+                    "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth, historyId, "
+                    "historyLost}. Example: "
                     "foliage.scatter {\"entity\":\"grass\"}",
                     parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -1347,7 +1355,8 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                    [&I, H](const Json& a) { return do_scatter(I, *H, a); });
     I.commands.add(
         {"foliage.paint", "Add or remove foliage instances by hand in a circle on the ground.",
-         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) or of every one of `points` (a "
+         "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) or of every one of `points` "
+         "(a "
          "stroke of up to 512 stamps in ONE call and one rewrite of the file; the stamps are placed in order, each one "
          "against everything placed before it) with the placement rules of "
          "the "
@@ -1359,8 +1368,10 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest "
          "undo step (a brush that "
          "stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, "
-         "redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?}. Each call rewrites the whole instances file "
-         "(a file of 2,000,000 instances is 52 MB): send a stroke as `points` in pieces a few times a second, not one call "
+         "redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?}. Each call "
+         "rewrites the whole instances file "
+         "(a file of 2,000,000 instances is 52 MB): send a stroke as `points` in pieces a few times a second, not one "
+         "call "
          "per stamp. Example: foliage.paint "
          "{\"entity\":\"grass\",\"center\":[10,20],\"radius\":5}",
          parse_schema(R"({"type":"object","properties":{

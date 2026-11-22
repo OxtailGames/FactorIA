@@ -572,11 +572,11 @@ bool finish_foliage_edit(const World&, UndoPlan& plan, const Json& result) {
     const std::uint64_t id = number("historyId"), step = number("historyLost") + number("undoDepth");
     for (UndoCommand& c : plan.forward) {
         c.historyId = id;
-        c.historyStep = step;
+        c.step = step;
     }
     for (UndoCommand& c : plan.inverse) {
         c.historyId = id;
-        c.historyStep = step;
+        c.step = step;
     }
     return true;
 }
@@ -643,17 +643,38 @@ bool names_terrain(const UndoCommand& c, const char* cmd, const std::string& ent
 }
 }  // namespace
 
-TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::size_t steps) {
+void number_terrain_steps(std::vector<UndoCommand>& forward, std::vector<UndoCommand>& inverse,
+                          const std::string& entityId, std::uint64_t newest) {
+    std::vector<UndoCommand*> undos, redos;
+    for (UndoCommand& c : inverse)
+        if (c.step == 0 && names_terrain(c, "terrain.undo", entityId)) undos.push_back(&c);
+    for (UndoCommand& c : forward)
+        if (c.step == 0 && names_terrain(c, "terrain.redo", entityId)) redos.push_back(&c);
+    for (std::size_t k = 0; k < undos.size(); ++k)
+        if (newest > k) undos[k]->step = newest - k;
+    for (std::size_t k = 0; k < redos.size(); ++k) {
+        const std::size_t back = redos.size() - 1 - k;  // the last one redoes the newest step
+        if (newest > back) redos[k]->step = newest - back;
+    }
+}
+
+TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::uint64_t lost) {
     TerrainDrop out;
-    if (steps == 0) return out;
-    stack.erase_if([&](UndoEntry& e) {  // oldest first: those are the steps the terrain's history let go
-        if (out.steps >= steps) return false;
-        const std::size_t n = terrain_undo_count(e, entityId);
-        if (n == 0) return false;
-        std::erase_if(e.inverse, [&](const UndoCommand& c) { return names_terrain(c, "terrain.undo", entityId); });
-        std::erase_if(e.forward, [&](const UndoCommand& c) { return names_terrain(c, "terrain.redo", entityId); });
-        out.steps += n;
-        if (!e.inverse.empty()) return false;  // something else in the entry can still be undone: it stays
+    if (lost == 0) return out;
+    stack.erase_if([&](UndoEntry& e) {
+        if (e.kind != UndoEntry::Kind::Command) return false;
+        const std::size_t removed = std::erase_if(e.inverse, [&](const UndoCommand& c) {
+            return c.step != 0 && c.step <= lost && names_terrain(c, "terrain.undo", entityId);
+        });
+        const std::size_t redone = std::erase_if(e.forward, [&](const UndoCommand& c) {
+            return c.step != 0 && c.step <= lost && names_terrain(c, "terrain.redo", entityId);
+        });
+        if (removed == 0 && redone == 0) return false;
+        out.steps += removed;
+        if (!e.inverse.empty()) {  // something else in the entry can still be undone: it stays, smaller
+            e.refresh_bytes();
+            return false;
+        }
         ++out.entries;
         return true;
     });
@@ -670,7 +691,8 @@ FoliageDrop drop_foliage_commands(UndoStack& stack, const std::string& entityId,
     stack.erase_if([&](UndoEntry& e) {
         if (e.kind != UndoEntry::Kind::Command) return false;
         const auto mine = [&](const UndoCommand& c) {
-            return (names_terrain(c, "foliage.undo", entityId) || names_terrain(c, "foliage.redo", entityId)) && gone(c);
+            return (names_terrain(c, "foliage.undo", entityId) || names_terrain(c, "foliage.redo", entityId)) &&
+                   gone(c);
         };
         const std::size_t before = e.inverse.size() + e.forward.size();
         const std::size_t undos = std::size_t(std::count_if(e.inverse.begin(), e.inverse.end(), mine));
@@ -692,7 +714,7 @@ FoliageDrop drop_foliage_commands(UndoStack& stack, const std::string& entityId,
 FoliageDrop drop_foliage_steps(UndoStack& stack, const std::string& entityId, std::uint64_t historyId,
                                std::uint64_t lost) {
     return drop_foliage_commands(stack, entityId, [&](const UndoCommand& c) {
-        return c.historyId != 0 && (c.historyId != historyId || c.historyStep <= lost);
+        return c.historyId != 0 && (c.historyId != historyId || c.step <= lost);
     });
 }
 

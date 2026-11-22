@@ -228,10 +228,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
         with(toggle("Terrain tool", showTerrainTool_), "menu:terraintool",
              "Sculpt, paint and cut holes in the selected Terrain with a brush in the viewport; one stroke is one "
              "undo step and Save writes the terrain files"));
-    view.push_back(
-        with(toggle("Foliage tool", showFoliageTool_), "menu:foliagetool",
-             "Paint or erase the instances of the selected Foliage with a brush on its terrain; one stroke is one undo step "
-             "and every piece of a stroke rewrites the instances file"));
+    view.push_back(with(
+        toggle("Foliage tool", showFoliageTool_), "menu:foliagetool",
+        "Paint or erase the instances of the selected Foliage with a brush on its terrain; one stroke is one undo step "
+        "and every piece of a stroke rewrites the instances file"));
     view.push_back(menu::separator());
     view.push_back(toggle("Show colliders", showColliders_));
     view.push_back(

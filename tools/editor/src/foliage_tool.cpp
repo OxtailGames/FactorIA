@@ -136,7 +136,8 @@ bool Editor::foliage_stroke_flush(bool final) {
             t.instances = r["instances"].get<long long>();
             t.instancesOf = t.strokeEntity;
         }
-        if (!t.started && r.is_object() && r.contains("undo")) {  // the first piece that changed something made the step
+        if (!t.started && r.is_object() &&
+            r.contains("undo")) {  // the first piece that changed something made the step
             t.started = true;
             const auto number = [&](const char* key) -> std::uint64_t {
                 return r.contains(key) && r[key].is_number_unsigned() ? r[key].get<std::uint64_t>() : 0;
@@ -165,8 +166,8 @@ void Editor::foliage_stroke_end() {
     if (!started) return;
     ++t.strokes;
     const Json args = Json::object({{"entity", id}});
-    UndoCommand fwd{"foliage.redo", args, "", historyId, step};
-    UndoCommand back{"foliage.undo", args, "", historyId, step};
+    UndoCommand fwd{"foliage.redo", args, "", step, historyId};
+    UndoCommand back{"foliage.undo", args, "", step, historyId};
     push_command_entry("foliage:stroke:" + std::to_string(uiFrame_), {fwd}, {back});
 }
 
@@ -259,15 +260,16 @@ void Editor::foliage_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec
     if (ground.is_null() || !(vpHovered_ || t.stroke.active())) return;
     const ViewMap map{&r, imgMin, size};
     const BrushSettings& b = t.stroke.active() ? t.strokeBrush : t.brush;
-    const bool adding = t.stroke.active() ? ((t.strokeMode == FoliageMode::Add) != t.strokeInvert)
-                                          : (t.mode == FoliageMode::Add);
+    const bool adding =
+        t.stroke.active() ? ((t.strokeMode == FoliageMode::Add) != t.strokeInvert) : (t.mode == FoliageMode::Add);
     const ImU32 col = adding ? IM_COL32(120, 230, 110, 255) : IM_COL32(255, 110, 100, 255);
     const std::vector<Vec2> pts = brush_ring(Vec2{t.hit.x, t.hit.z}, b.radius, 64);
     std::vector<ImVec2> screen;
     screen.reserve(pts.size());
     for (const Vec2& p : pts) {
         float y = t.hit.y;
-        (void)terrain_height_at(w, ground, p.x, p.y, y, true);  // outside the grid the ring stays at the height of the hit
+        (void)terrain_height_at(w, ground, p.x, p.y, y,
+                                true);  // outside the grid the ring stays at the height of the hit
         screen.push_back(map.to_screen(Vec3{p.x, y + 0.02f, p.y}));
     }
     dl->AddPolyline(screen.data(), int(screen.size()), IM_COL32(0, 0, 0, 160), ImDrawFlags_Closed, 3.6f);
@@ -295,20 +297,21 @@ void Editor::draw_foliage_tool_panel() {
     const Entity e = selected();
     const Foliage* fc = e.is_null() ? nullptr : w.get<Foliage>(e);
     if (!fc) {
-        ImGui::TextWrapped(
-            "Select an entity with a Foliage component (a terrain with a Foliage on it works too). The brush works in the "
-            "viewport on the ground of the selected Foliage.");
+        ImGui::TextWrapped("Select an entity with a Foliage component (a terrain with a Foliage on it works too). The "
+                           "brush works in the "
+                           "viewport on the ground of the selected Foliage.");
         ImGui::End();
         return;
     }
     const Entity ground = foliage_ground(w, e);
     ImGui::Text("Foliage: %s", w.info(e).name.c_str());
-    ImGui::SetItemTooltip("A click in the viewport that misses the terrain (sky, another object) does nothing: the Foliage "
-                          "stays selected and the tool stays on.");
+    ImGui::SetItemTooltip(
+        "A click in the viewport that misses the terrain (sky, another object) does nothing: the Foliage "
+        "stays selected and the tool stays on.");
     if (ground.is_null()) {
-        ImGui::TextWrapped(
-            "This Foliage has no terrain to grow on: set ScatterRule.terrain to the entity with the Terrain3D, or put the "
-            "Foliage on the terrain entity or under it.");
+        ImGui::TextWrapped("This Foliage has no terrain to grow on: set ScatterRule.terrain to the entity with the "
+                           "Terrain3D, or put the "
+                           "Foliage on the terrain entity or under it.");
         at_track("foliage:noground");
         ImGui::End();
         return;
@@ -334,14 +337,16 @@ void Editor::draw_foliage_tool_panel() {
         at_track(id);
         ImGui::SetItemTooltip("%s", tip);
     };
-    mode_button(" Add ", FoliageMode::Add, "foliage:mode:add",
-                "Paint new instances inside the brush, by the rules of the ScatterRule (slope, height, layers, spacing). Hold "
-                "Ctrl while you paint to erase instead.");
+    mode_button(
+        " Add ", FoliageMode::Add, "foliage:mode:add",
+        "Paint new instances inside the brush, by the rules of the ScatterRule (slope, height, layers, spacing). Hold "
+        "Ctrl while you paint to erase instead.");
     mode_button(" Remove ", FoliageMode::Remove, "foliage:mode:remove",
                 "Erase the instances inside the brush. Hold Ctrl while you paint to add instead.");
     if (t.mode == FoliageMode::Off) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Pick a mode. While one is on the viewport gizmo is off (click the mode again to leave it).");
+        ImGui::TextWrapped(
+            "Pick a mode. While one is on the viewport gizmo is off (click the mode again to leave it).");
         ImGui::PopStyleColor();
     }
 
@@ -354,15 +359,17 @@ void Editor::draw_foliage_tool_panel() {
         if (t.mode == FoliageMode::Add) {
             ImGui::Checkbox("density of the ScatterRule", &t.ruleDensity);
             at_track("foliage:ruledensity");
-            ImGui::SetItemTooltip("On: the brush plants as dense as the entity's ScatterRule (0.1 per square metre without one). "
-                                  "Off: the density below.");
+            ImGui::SetItemTooltip(
+                "On: the brush plants as dense as the entity's ScatterRule (0.1 per square metre without one). "
+                "Off: the density below.");
             ImGui::BeginDisabled(t.ruleDensity);
             ImGui::SetNextItemWidth(180);
             ImGui::SliderFloat("density (/m2)", &t.density, 0.01f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
             at_track("foliage:density");
             ImGui::EndDisabled();
-            ImGui::SetItemTooltip("Instances per square metre. A brush never puts two instances closer than half the average "
-                                  "gap, so painting the same spot twice does not stack them.");
+            ImGui::SetItemTooltip(
+                "Instances per square metre. A brush never puts two instances closer than half the average "
+                "gap, so painting the same spot twice does not stack them.");
         }
         // The mesh the brush is limited to (add: only that mesh is planted; remove: only that mesh is erased).
         const int meshCount = int(std::min<std::size_t>(fc->meshes.size(), 16));
@@ -400,7 +407,8 @@ void Editor::draw_foliage_tool_panel() {
             notify(t.error, 2);
         } else {
             t.error.clear();
-            if (res.result.is_object() && res.result.contains("instances") && res.result["instances"].is_number_integer()) {
+            if (res.result.is_object() && res.result.contains("instances") &&
+                res.result["instances"].is_number_integer()) {
                 t.instances = res.result["instances"].get<long long>();
                 t.instancesOf = w.id_of(e);
             }
@@ -408,8 +416,9 @@ void Editor::draw_foliage_tool_panel() {
     }
     ImGui::EndDisabled();
     at_track("foliage:scatter", hasRule);
-    ImGui::SetItemTooltip(hasRule ? "Fill the whole Foliage from its ScatterRule (replaces the instances there are; one undo step)"
-                                  : "Needs a ScatterRule on this entity (the rules the brush follows too)");
+    ImGui::SetItemTooltip(
+        hasRule ? "Fill the whole Foliage from its ScatterRule (replaces the instances there are; one undo step)"
+                : "Needs a ScatterRule on this entity (the rules the brush follows too)");
     ImGui::SameLine();
     if (ImGui::Button(t.clearArmed ? "Click again to clear" : "Clear")) {
         if (!t.clearArmed) {
@@ -434,8 +443,9 @@ void Editor::draw_foliage_tool_panel() {
         }
     }
     at_track("foliage:clear");
-    ImGui::SetItemTooltip("Remove every instance of this Foliage (one undo step, Ctrl+Z brings them back). The first click arms "
-                          "the button, the second clears.");
+    ImGui::SetItemTooltip(
+        "Remove every instance of this Foliage (one undo step, Ctrl+Z brings them back). The first click arms "
+        "the button, the second clears.");
 
     ImGui::SeparatorText("Foliage");
     if (!fc->instances.empty())

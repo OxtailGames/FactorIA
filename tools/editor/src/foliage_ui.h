@@ -27,10 +27,11 @@ struct FoliageUi {
     // ---- what the user picked (the panel)
     FoliageMode mode = FoliageMode::Off;
     BrushSettings brush{8.0f, 0.5f, 1.0f};
-    float density = 0.5f;       // instances per square metre of an add stroke...
-    bool ruleDensity = true;    // ... or the density of the entity's ScatterRule (0.1 when it has none): the `density` argument is left out
-    int mesh = -1;              // an index into Foliage.meshes the brush is limited to; -1 = every mesh
-    bool clearArmed = false;    // the Clear button was pressed once: the next press clears
+    float density = 0.5f;  // instances per square metre of an add stroke...
+    bool ruleDensity =
+        true;  // ... or the density of the entity's ScatterRule (0.1 when it has none): the `density` argument is left out
+    int mesh = -1;            // an index into Foliage.meshes the brush is limited to; -1 = every mesh
+    bool clearArmed = false;  // the Clear button was pressed once: the next press clears
     // ---- the ground under the mouse this frame
     bool hasHit = false;
     Vec3 hit{};
@@ -43,19 +44,21 @@ struct FoliageUi {
     bool strokeInvert = false;  // Ctrl held at the press: add removes and remove adds
     float strokeDensity = 0.5f;
     bool strokeRuleDensity = true;
-    std::string strokeMesh;     // the mesh the stroke is limited to ("" = every one)
-    bool started = false;       // a piece made a step of the Foliage's history: the next ones continue it
-    bool failed = false;        // a command refused a piece: the stroke is over, nothing more is sent (and the error shown once)
-    bool dirtyBefore = false;   // the editor's dirty flag at the press, which Esc puts back
-    std::uint64_t historyId = 0;    // the history and step number of the stroke's undo step (the result of its first piece)
+    std::string strokeMesh;  // the mesh the stroke is limited to ("" = every one)
+    bool started = false;    // a piece made a step of the Foliage's history: the next ones continue it
+    bool failed =
+        false;  // a command refused a piece: the stroke is over, nothing more is sent (and the error shown once)
+    bool dirtyBefore = false;  // the editor's dirty flag at the press, which Esc puts back
+    std::uint64_t historyId =
+        0;  // the history and step number of the stroke's undo step (the result of its first piece)
     std::uint64_t historyStep = 0;
-    double lastPieceAt = -1e9;  // Editor time_ of the last piece
-    double lastPieceCost = 0.0; // seconds the last piece's command took
-    int pieces = 0;             // commands sent by the stroke so far
-    int strokes = 0;            // strokes finished (the autotest reads it)
-    long long instances = -1;   // the instance count the last result of `instancesOf` reported (-1 = not known)
+    double lastPieceAt = -1e9;   // Editor time_ of the last piece
+    double lastPieceCost = 0.0;  // seconds the last piece's command took
+    int pieces = 0;              // commands sent by the stroke so far
+    int strokes = 0;             // strokes finished (the autotest reads it)
+    long long instances = -1;    // the instance count the last result of `instancesOf` reported (-1 = not known)
     std::string instancesOf;
-    std::string error;          // the last problem, shown in the panel
+    std::string error;  // the last problem, shown in the panel
 };
 
 // One command call that applies some stamps of a stroke: `continueStroke` is set from the second piece of a stroke on. Pure.
