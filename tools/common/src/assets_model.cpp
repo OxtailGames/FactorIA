@@ -778,19 +778,20 @@ Json model_edit_command(const std::string& projectDir, const Json& a) {
 // ---- model.game_ready ----
 
 Json model_game_ready_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("model.game_ready", a, "",
-                   {"path", "origin", "merge", "lods", "collider", "platforms", "clear", "bake", "overwrite"});
+    check_arg_keys(
+        "model.game_ready", a, "",
+        {"path", "origin", "merge", "lods", "lodChain", "collider", "platforms", "clear", "bake", "overwrite"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     Loaded loaded = load_document(projectDir, rel);
     const bool clear = tooling_detail::arg_bool(a, "clear", false);
     bool change = clear;
-    for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+    for (const char* key : {"origin", "merge", "lods", "lodChain", "collider", "platforms"})
         if (a.contains(key)) change = true;
     Json json = loaded.json;
     if (change) {
         Json settings = Json::object();
         if (!clear && json.contains("gameReady") && json["gameReady"].is_object()) settings = json["gameReady"];
-        for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+        for (const char* key : {"origin", "merge", "lods", "lodChain", "collider", "platforms"})
             if (a.contains(key)) {
                 if (a[key].is_null())
                     settings.erase(key);
@@ -834,14 +835,8 @@ Json model_game_ready_command(const std::string& projectDir, const Json& a) {
 // ---- model.generate_lods ----
 
 Json manifest_record(const std::string& projectDir, const std::string& rel) {
-    const std::string text =
-        tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile).value_or(std::string());
-    if (text.empty()) return Json();
-    auto parsed = parse_json(text, assets::kManifestFile);
-    if (!parsed.ok() || !parsed->is_object() || !parsed->contains("assets") || !(*parsed)["assets"].is_object())
-        return Json();
-    auto it = (*parsed)["assets"].find(rel);
-    return it == (*parsed)["assets"].end() ? Json() : *it;
+    ProjectRootGuard root(projectDir);
+    return assets::entry(rel);  // the manifest's own lookup, so path case follows the platform's rules
 }
 
 // The model document `arg` names: the document itself, or the .glb a document baked.
@@ -976,7 +971,7 @@ Json model_generate_lods_command(const std::string& projectDir, const Json& a) {
                                 {"output", output},
                                 {"fullTriangles", report["lods"][0]["triangles"]},
                                 {"levels", levels},
-                                {"written", !dryRun},
+                                {"written", !dryRun},  // the document; the files are `bake`'s
                                 {"bake", bakeJson},
                                 {"settings", game_ready_to_json(parsed)["lodChain"]}});
     if (!levels.empty()) result["prefab"] = stem + ".prefab.json";
@@ -990,6 +985,9 @@ Json model_generate_lods_command(const std::string& projectDir, const Json& a) {
         steps.push_back("No level was made (see notes): lower minTriangles or use a model with more triangles.");
     else if (dryRun)
         steps.push_back("Nothing was written. Run again without dryRun to write the .lodN.glb files and the prefab.");
+    else if (bakeJson["state"] != "baked")
+        steps.push_back("Only the settings in '" + rel + "' were written; model.bake {\"path\":\"" + rel +
+                        "\"} writes the .lodN.glb files and the prefab.");
     else
         steps.push_back(
             "Instantiate " + stem +
@@ -1240,9 +1238,9 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             return Json::object(
                 {{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"default", def}, {"description", what}});
         };
-        auto numList = [](const char* what, bool positive) {
+        auto numList = [](const char* what, bool positive, double lowest = 0.001) {
             Json item = Json::object({{"type", "number"}, {"maximum", positive ? 1.0 : 1000.0}});
-            item[positive ? "exclusiveMinimum" : "minimum"] = 0;
+            item["minimum"] = positive ? lowest : 0.0;
             return Json::object({{"type", "array"}, {"maxItems", 7}, {"items", item}, {"description", what}});
         };
         CommandInfo info;
@@ -1259,8 +1257,10 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "0.008). Writes the settings into the document, then bakes <name>.lodN.glb and <name>.prefab.json whose "
             "MeshRenderer has lodMode screenSize and {mesh, screenSize} entries. Levels that would have fewer than "
             "`minTriangles` triangles are skipped with a note. `model` is the .model.json or the .glb it baked to; "
-            "skinned meshes (a rig's .glb) are refused. UV seams and part borders stay (`lockBorder`); `normalWeight` "
-            "and `uvWeight` make a collapse that smears them cost more. `dryRun` only reports. Result: {levels: "
+            "skinned meshes (a rig's .glb) are refused. Seams between parts are always kept; `lockBorder` also locks "
+            "open edges; `normalWeight` "
+            "and `uvWeight` make a collapse that smears normals or UVs cost more. `dryRun` only reports. Result: "
+            "{levels: "
             "[{level, file, triangles, error, screenSize}], notes}. Example: model.generate_lods "
             "{\"model\":\"assets/models/rock.model.json\",\"levels\":3}";
         info.inputSchema = Json::object(
@@ -1282,14 +1282,17 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                   {"minimum", 0},
                                   {"description", "The same limit for every level, metres. Exclusive with errors."}})},
                    {"screenSizes",
-                    numList("Per level, falling: the screen size below which the level is drawn.", true)},
+                    numList("Per level, falling: the screen size below which the level is drawn.", true, 0.0001)},
                    {"minTriangles",
                     Json::object(
                         {{"type", "integer"},
                          {"minimum", 1},
                          {"default", 32},
                          {"description", "A level with fewer triangles, and the ones after it, is not made."}})},
-                   {"lockBorder", boolean("Open edges and the borders between parts do not move.", true)},
+                   {"lockBorder",
+                    boolean(
+                        "Open edges (borders of the surface) do not move; the seams between parts are kept either way.",
+                        true)},
                    {"normalWeight", num("How much bending a normal costs a collapse.", 0, 100, 1)},
                    {"uvWeight", num("How much smearing a UV seam costs a collapse.", 0, 100, 0.5)},
                    {"dryRun", boolean("Only report what would be made; write nothing.", false)},
@@ -1319,6 +1322,9 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "triangles (at most that many), error (largest surface movement in metres), distance (metres "
             "from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; "
             "made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. "
+            "`lodChain`: {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, "
+            "uvWeight}, an automatic chain drawn by screen size instead of `lods` (not both; null removes it; "
+            "docs/BIG_WORLDS.md, \"Automatic LOD chain\"). "
             "`collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, "
             "maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 "
             "triangles / 16 "
@@ -1355,6 +1361,10 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                           {"items", Json::object({{"type", "object"}})},
                                           {"description",
                                            "LOD1.. as {ratio, triangles, error, distance}; replaces the list."}})},
+                   {"lodChain", object_arg("An automatic LOD chain drawn by screen size instead of `lods` (not both): "
+                                           "{enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, "
+                                           "normalWeight, uvWeight}; replaces the setting, null removes it "
+                                           "(model.generate_lods sets it with defaults).")},
                    {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, "
                                            "resolution, part, radius, height}.")},
                    {"platforms", Json::object({{"type", "array"},

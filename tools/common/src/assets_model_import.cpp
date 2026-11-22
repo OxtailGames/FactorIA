@@ -166,6 +166,9 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
                     "removeFloating", "minPieceSize", "origin",        "height",   "reference",
                     "scale",          "platform",     "triangles",     "remesh",   "remeshCells",
                     "remeshVoxel",    "unwrap",       "texelsPerUnit", "lodChain", "bake"});
+    if (a.contains("lodChain") && !a["lodChain"].is_null() && !a["lodChain"].is_object() && !a["lodChain"].is_boolean())
+        fail("invalid_argument", "/lodChain must be true or an object, got " + a["lodChain"].dump() + ".",
+             "Example: \"lodChain\": true, or {\"levels\": 3, \"screenSizes\": [0.5, 0.25, 0.1]}.");
     ModelCleanOptions o;
     // ---- arguments ----
     const std::string sourceArg = tooling_detail::arg_string(a, "source", true);
@@ -421,9 +424,6 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
     if (a.contains("lodChain") && !a["lodChain"].is_null() && a["lodChain"] != false) {
         // an automatic LOD chain (gameReady.lodChain): true takes the defaults, an object sets them; the document check reports a bad one
         Json chain = a["lodChain"].is_object() ? a["lodChain"] : Json::object();
-        if (!a["lodChain"].is_object() && a["lodChain"] != true)
-            fail("invalid_argument", "/lodChain must be true or an object, got " + a["lodChain"].dump() + ".",
-                 "Example: \"lodChain\": true, or {\"levels\": 3, \"screenSizes\": [0.5, 0.25, 0.1]}.");
         chain["enabled"] = true;
         doc["gameReady"] = Json::object({{"lodChain", chain}});
     }
