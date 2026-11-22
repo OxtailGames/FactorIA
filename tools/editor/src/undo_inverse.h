@@ -8,6 +8,7 @@
 // Plain functions of (World, command name, args): no ImGui, no Editor, tested in undo_inverse_tests.cpp.
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -57,5 +58,22 @@ struct TerrainDrop {
 // history_lost() grew by). Only the terrain calls go: an entry that holds anything else to undo (a Chain of several edits) stays with
 // that, and one left with no inverse at all leaves the list.
 TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::size_t steps);
+
+// What drop_foliage_steps and drop_foliage_all removed.
+struct FoliageDrop {
+    std::size_t steps = 0;    // foliage.undo commands taken out of the list
+    std::size_t entries = 0;  // entries that held nothing else to undo and left the list
+};
+// A Foliage keeps its last kFoliageHistorySteps edits (and a byte budget) in memory: a step it let go can only answer
+// "nothing_to_undo", and its row would stand in front of older rows that still work. Every foliage.undo / foliage.redo command of an
+// entry carries its history's id and the absolute number of its step (finish_undo_plan). Takes out the commands of `entityId`
+// that are numbered `lost` or less (the steps the history let go of: its `historyLost`) and those of another history than
+// `historyId` (the entity was destroyed and came back, so its old steps are gone). Only those commands go: a Chain entry that
+// holds other edits stays with them. Not numbered commands (historyId 0) stay.
+FoliageDrop drop_foliage_steps(UndoStack& stack, const std::string& entityId, std::uint64_t historyId,
+                               std::uint64_t lost);
+// The history of `entityId` was cleared (a scene reload, a change of its file by hand, the total budget): every foliage command
+// of it goes, numbered or not.
+FoliageDrop drop_foliage_all(UndoStack& stack, const std::string& entityId);
 
 }  // namespace fa::editor

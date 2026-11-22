@@ -26,6 +26,11 @@ struct UndoCommand {
     // What this call sets, for CoalesceMode::Merge: a later call with the same non-empty target replaces this one. Empty =
     // never merged by target.
     std::string target;
+    // foliage.undo / foliage.redo only: which step of which foliage history this command undoes or redoes (the `historyId` of the
+    // history and the step's absolute number, `historyLost + undoDepth` right after the edit; undo_inverse.h). Both 0 = not
+    // numbered.
+    std::uint64_t historyId = 0;
+    std::uint64_t historyStep = 0;
 };
 
 struct UndoEntry {
@@ -43,6 +48,8 @@ struct UndoEntry {
     static UndoEntry snapshot(Json scene);
     static UndoEntry special(Json obj);
     static UndoEntry command(std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse);
+    // Estimates `bytes` again from the commands (after a command was taken out of the lists).
+    void refresh_bytes();
 
     // The scene or the special object (null for a Command entry): lets `for (const Json& e : stack)` loops that look for
     // their `$key` keep working.

@@ -13,7 +13,9 @@ void brush_clamp(BrushSettings& b, float maxRadius) {
     b.falloff = std::isfinite(b.falloff) ? std::clamp(b.falloff, 0.0f, 1.0f) : 1.0f;
 }
 
-float brush_spacing(float radius) { return std::max(radius, kBrushMinRadius) / kBrushStampsPerRadius; }
+float brush_spacing(float radius, float stampsPerRadius) {
+    return std::max(radius, kBrushMinRadius) / std::clamp(stampsPerRadius, 1.0f, 64.0f);
+}
 
 float brush_inner_radius(const BrushSettings& b) { return b.radius * (1.0f - std::clamp(b.falloff, 0.0f, 1.0f)); }
 
@@ -28,10 +30,10 @@ void brush_step_strength(BrushSettings& b, int steps) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------ stroke --
-void BrushStroke::begin(Vec2 p, float radius) {
+void BrushStroke::begin(Vec2 p, float radius, float stampsPerRadius) {
     points_.clear();
     taken_ = 0;
-    spacing_ = brush_spacing(radius);
+    spacing_ = brush_spacing(radius, stampsPerRadius);
     last_ = p;
     points_.push_back(p);
     active_ = true;

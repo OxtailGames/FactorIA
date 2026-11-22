@@ -15,6 +15,7 @@
 #include <cmath>
 #include <format>
 
+#include "brush_view.h"
 #include "editor_internal.h"
 #include "fa/scene/terrain.h"
 #include "imgui_internal.h"
@@ -63,25 +64,13 @@ std::string layer_name(const Json& layer, int index) {
     return name;
 }
 
-struct ViewMap {
-    Renderer* r = nullptr;
-    ImVec2 imgMin{}, size{};
-    Vec2 design(ImVec2 m) const {
-        return Vec2{(m.x - imgMin.x) / size.x * float(r->target_width()),
-                    (m.y - imgMin.y) / size.y * float(r->target_height())};
-    }
-    ImVec2 to_screen(Vec3 w) const {
-        const Vec2 d = r->world_to_screen(w);
-        return ImVec2(imgMin.x + d.x / float(r->target_width()) * size.x,
-                      imgMin.y + d.y / float(r->target_height()) * size.y);
-    }
-};
-
 // The ground of the Terrain `e` under the mouse: the camera's ray walked through the box the terrain fills, in a number of steps
 // that depends on the terrain's own cells (never on the time), a quarter of a cell apart at most and never more than
 // kMaxRaySteps. The heights, the matrices and the terrain's fields are read ONCE here (the store's lock and a matrix inverse per
 // step were the cost of this function): a step is a bilinear sample of the grid.
 constexpr int kMaxRaySteps = 4096;
+
+}  // namespace
 
 bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mouse, Vec3& hit) {
     const Terrain3D* t = w.get<Terrain3D>(e);
@@ -123,8 +112,6 @@ bool terrain_under_mouse(const World& w, Entity e, const ViewMap& map, ImVec2 mo
         },
         hit);
 }
-
-}  // namespace
 
 // ------------------------------------------------------------------------------------------------------------- pure parts --
 float terrain_max_radius(Vec2 size, int planeSide) {
@@ -460,6 +447,8 @@ void Editor::draw_terrain_tool_panel() {
         if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.42f, 0.70f, 1));
         if (ImGui::Button(label)) {
             terrain_stroke_end();
+            foliage_stroke_end();  // one brush tool at a time
+            foliage_.mode = FoliageMode::Off;
             t.mode = on ? TerrainMode::Off : mode;
             t.pickingHeight = false;
         }
