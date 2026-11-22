@@ -105,8 +105,10 @@ void TerrainTileBounds::update(const fa::TerrainHeights& h, fa::TerrainRect rect
     if (rect.empty()) return;
     const int tiles0 = levelDims_[0];
     // A sample on the border of two tiles belongs to both.
-    int x0 = rect.c0 > 0 ? (rect.c0 - 1) / kTerrainPatchCells : 0, x1 = std::min(rect.c1 / kTerrainPatchCells, tiles0 - 1);
-    int y0 = rect.r0 > 0 ? (rect.r0 - 1) / kTerrainPatchCells : 0, y1 = std::min(rect.r1 / kTerrainPatchCells, tiles0 - 1);
+    int x0 = rect.c0 > 0 ? (rect.c0 - 1) / kTerrainPatchCells : 0,
+        x1 = std::min(rect.c1 / kTerrainPatchCells, tiles0 - 1);
+    int y0 = rect.r0 > 0 ? (rect.r0 - 1) / kTerrainPatchCells : 0,
+        y1 = std::min(rect.r1 / kTerrainPatchCells, tiles0 - 1);
     for (int ty = y0; ty <= y1; ++ty)
         for (int tx = x0; tx <= x1; ++tx) recompute_tile0(h, tx, ty);
     for (int l = 1; l < levels(); ++l) {
@@ -165,11 +167,12 @@ void terrain_node_box(const TerrainGrid& g, const TerrainNode& n, Vec3& bmin, Ve
     const int span = kTerrainPatchCells << n.level;
     bmin = {g.x_of(float(n.first_column())), g.y_of(float(n.minRaw)), g.z_of(float(n.first_row()))};
     bmax = {g.x_of(float(n.first_column() + span)), g.y_of(float(n.maxRaw)), g.z_of(float(n.first_row() + span))};
-    if (bmax.y < bmin.y) std::swap(bmin.y, bmax.y);  // a negative heightScale cannot happen (0..100000) but the box must stay valid
+    if (bmax.y < bmin.y)
+        std::swap(bmin.y, bmax.y);  // a negative heightScale cannot happen (0..100000) but the box must stay valid
 }
 
-void select_terrain_nodes(const TerrainGrid& g, const TerrainTileBounds& bounds, const TerrainLodRanges& ranges, Vec3 cameraLocal,
-                          const std::function<bool(Vec3, Vec3)>& visible, TerrainSelection& out) {
+void select_terrain_nodes(const TerrainGrid& g, const TerrainTileBounds& bounds, const TerrainLodRanges& ranges,
+                          Vec3 cameraLocal, const std::function<bool(Vec3, Vec3)>& visible, TerrainSelection& out) {
     out.nodes.clear();
     out.visited = 0;
     if (!bounds.built() || ranges.range.size() < std::size_t(bounds.levels())) return;
@@ -212,15 +215,16 @@ float raw_at(const fa::TerrainHeights& h, int c, int r) {
 }
 }  // namespace
 
-float terrain_vertex_raw(const fa::TerrainHeights& h, const TerrainGrid& g, const TerrainLodRanges& ranges, const TerrainNode& node,
-                         int gx, int gz, Vec3 cameraLocal) {
+float terrain_vertex_raw(const fa::TerrainHeights& h, const TerrainGrid& g, const TerrainLodRanges& ranges,
+                         const TerrainNode& node, int gx, int gz, Vec3 cameraLocal) {
     const int st = node.step();
     const int c = node.first_column() + gx * st, r = node.first_row() + gz * st;
     const float fine = raw_at(h, c, r);
     const bool oddX = (gx & 1) != 0, oddZ = (gz & 1) != 0;
     if (!oddX && !oddZ) return fine;
     float coarse;
-    if (oddX && oddZ)  // the middle of a coarse cell: on its diagonal (r, c) - (r + 1, c + 1), as the triangles of the grid
+    if (oddX &&
+        oddZ)  // the middle of a coarse cell: on its diagonal (r, c) - (r + 1, c + 1), as the triangles of the grid
         coarse = 0.5f * (raw_at(h, c - st, r - st) + raw_at(h, c + st, r + st));
     else if (oddX)
         coarse = 0.5f * (raw_at(h, c - st, r) + raw_at(h, c + st, r));

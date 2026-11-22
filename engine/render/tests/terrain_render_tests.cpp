@@ -29,7 +29,8 @@ std::string write_ridge(const char* name, bool hill) {
             double v = 0.35 + 0.3 * std::sin(6.283185307 * 1.5 * c / double(kSamples - 1));
             if (hill) {  // a cone in the middle: the golden's relief
                 const double dx = (c - 64) / 64.0, dz = (r - 64) / 64.0;
-                v = 0.15 + 0.5 * std::max(0.0, 1.0 - std::sqrt(dx * dx + dz * dz) * 1.4) + 0.04 * std::sin(c * 0.2) * std::cos(r * 0.17);
+                v = 0.15 + 0.5 * std::max(0.0, 1.0 - std::sqrt(dx * dx + dz * dz) * 1.4) +
+                    0.04 * std::sin(c * 0.2) * std::cos(r * 0.17);
             }
             g.samples[std::size_t(r) * kSamples + std::size_t(c)] = std::uint16_t(std::clamp(v, 0.0, 1.0) * 65535.0);
         }

@@ -36,7 +36,8 @@ std::shared_ptr<TerrainHeights> rough(int n, std::uint32_t seed = 7) {
                 const float a = at(cx, cy), b = at(cx + 1, cy), d = at(cx, cy + 1), e = at(cx + 1, cy + 1);
                 v += amp * ((a * (1 - fx) + b * fx) * (1 - fy) + (d * (1 - fx) + e * fx) * fy);
             }
-            h->data[std::size_t(r) * std::size_t(n) + std::size_t(c)] = std::uint16_t(std::clamp(v * 65535.0f, 0.0f, 65535.0f));
+            h->data[std::size_t(r) * std::size_t(n) + std::size_t(c)] =
+                std::uint16_t(std::clamp(v * 65535.0f, 0.0f, 65535.0f));
         }
     return h;
 }
@@ -80,7 +81,8 @@ TEST_CASE("TerrainGrid: the levels of the quadtree and the local coordinates") {
     CHECK(g.y_of(65535.0f) == doctest::Approx(10.0f));
 }
 
-TEST_CASE("TerrainTileBounds: the box of every node is the lowest and highest sample under it, and update keeps it so") {
+TEST_CASE(
+    "TerrainTileBounds: the box of every node is the lowest and highest sample under it, and update keeps it so") {
     auto h = rough(129);
     TerrainTileBounds b;
     b.build(*h);
@@ -119,7 +121,8 @@ TEST_CASE("TerrainTileBounds: the box of every node is the lowest and highest sa
     checkAll();
 }
 
-TEST_CASE("select_terrain_nodes: the nodes get coarser with distance, from a full ring of the finest to the root alone") {
+TEST_CASE(
+    "select_terrain_nodes: the nodes get coarser with distance, from a full ring of the finest to the root alone") {
     Setup s(1025, 1024.0f);  // 1 m cells, 6 levels, a finest node is 32 m
     REQUIRE(s.g.levels() == 6);
     std::size_t previous = ~std::size_t(0);
@@ -176,7 +179,8 @@ TEST_CASE("select_terrain_nodes: the frustum test drops a node with everything u
     CHECK(none.nodes.empty());
 }
 
-TEST_CASE("terrain_vertex_raw: a vertex is the sample while near, the middle of its coarse edge once far, and in between a blend") {
+TEST_CASE("terrain_vertex_raw: a vertex is the sample while near, the middle of its coarse edge once far, and in "
+          "between a blend") {
     Setup s(129, 128.0f);
     TerrainNode n;  // level 0, the tile at (1, 1): columns 32..64
     n.level = 0;
@@ -238,7 +242,8 @@ std::size_t check_watertight(const Setup& s, const TerrainSelection& sel, Vec3 c
             // the edge of B that A touches, as a polyline of B's vertices
             const bool alongZ = touchX && overlapZ;  // the shared border runs along z (a vertical line x = const)
             const bool bIsRight = alongZ ? std::fabs(A.hi.x - B.lo.x) < eps : std::fabs(A.hi.z - B.lo.z) < eps;
-            const int aSide = bIsRight ? 32 : 0, bSide = bIsRight ? 0 : 32;  // the vertex row or column each node has on the border
+            const int aSide = bIsRight ? 32 : 0,
+                      bSide = bIsRight ? 0 : 32;  // the vertex row or column each node has on the border
             for (int k = 0; k <= 32; ++k) {
                 const Vec3 p = pos(sel.nodes[a], alongZ ? aSide : k, alongZ ? k : aSide);
                 // find the segment of B's border polyline that holds p
@@ -270,8 +275,8 @@ TEST_CASE("select_terrain_nodes: no cracks where the levels change, for many cam
     Setup s(1025, 1024.0f, 1.0f, 400.0f);
     std::size_t compared = 0;
     // from the ground to high above, near the border and the middle, by a few quality factors
-    const Vec3 cams[] = {{0, 10, 0},      {137, 30, -211},  {-480, 5, 470},  {300, 120, 300},   {-60, 800, 45},
-                         {511, 20, -511}, {-333, 60, 17.5f}, {20, 2, 2},       {250, 2000, -400}, {-100, 40, 250}};
+    const Vec3 cams[] = {{0, 10, 0},      {137, 30, -211},   {-480, 5, 470}, {300, 120, 300},   {-60, 800, 45},
+                         {511, 20, -511}, {-333, 60, 17.5f}, {20, 2, 2},     {250, 2000, -400}, {-100, 40, 250}};
     for (const Vec3& cam : cams) {
         const auto sel = s.select(cam);
         REQUIRE(!sel.nodes.empty());
@@ -300,11 +305,13 @@ TEST_CASE("select_terrain_nodes: the selection of a 4097 x 4097 terrain stays sm
     double bestMs = 1e9;
     for (int run = 0; run < 20; ++run) {
         const auto a = std::chrono::steady_clock::now();
-        for (int k = 0; k < 10; ++k) select_terrain_nodes(g, bounds, ranges, {float(k) * 37.0f, 60.0f, float(k) * -11.0f}, nullptr, sel);
-        bestMs = std::min(bestMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a).count() / 10.0);
+        for (int k = 0; k < 10; ++k)
+            select_terrain_nodes(g, bounds, ranges, {float(k) * 37.0f, 60.0f, float(k) * -11.0f}, nullptr, sel);
+        bestMs = std::min(
+            bestMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a).count() / 10.0);
     }
-    std::printf("terrain 4097 x 4097: bounds built in %.1f ms, selection %.4f ms (%zu nodes, %u visited)\n", buildMs, bestMs,
-                sel.nodes.size(), sel.visited);
+    std::printf("terrain 4097 x 4097: bounds built in %.1f ms, selection %.4f ms (%zu nodes, %u visited)\n", buildMs,
+                bestMs, sel.nodes.size(), sel.visited);
     // A count, not a time: the same on every machine. 8 levels, a ring of the finest nodes around the camera.
     CHECK(sel.nodes.size() > 30);
     CHECK(sel.nodes.size() < 400);

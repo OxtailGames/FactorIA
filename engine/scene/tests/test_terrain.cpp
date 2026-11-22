@@ -21,7 +21,8 @@ GrayImage16 ramp(int n) {
     g.sixteenBit = true;
     g.samples.resize(std::size_t(n) * std::size_t(n));
     for (int r = 0; r < n; ++r)
-        for (int c = 0; c < n; ++c) g.samples[std::size_t(r) * std::size_t(n) + std::size_t(c)] = std::uint16_t((c * 1000 + r * 7) % 65536);
+        for (int c = 0; c < n; ++c)
+            g.samples[std::size_t(r) * std::size_t(n) + std::size_t(c)] = std::uint16_t((c * 1000 + r * 7) % 65536);
     return g;
 }
 
@@ -75,7 +76,9 @@ TEST_CASE("decode_terrain_heightmap: an 8-bit PNG is accepted with a warning abo
     Image img;
     img.width = img.height = 33;
     img.rgba.assign(33 * 33 * 4, 255);
-    for (int i = 0; i < 33 * 33; ++i) img.rgba[std::size_t(i) * 4] = img.rgba[std::size_t(i) * 4 + 1] = img.rgba[std::size_t(i) * 4 + 2] = std::uint8_t(i % 256);
+    for (int i = 0; i < 33 * 33; ++i)
+        img.rgba[std::size_t(i) * 4] = img.rgba[std::size_t(i) * 4 + 1] = img.rgba[std::size_t(i) * 4 + 2] =
+            std::uint8_t(i % 256);
     const auto png = encode_png(img);
     auto load = decode_terrain_heightmap(png.data(), png.size(), "terrain/h8.png");
     REQUIRE(load.ok());
@@ -187,7 +190,8 @@ TEST_CASE("terrain_sample: through the transform of the entity, with the normal 
     g.sixteenBit = true;
     g.samples.resize(33 * 33);
     for (int r = 0; r < 33; ++r)
-        for (int c = 0; c < 33; ++c) g.samples[std::size_t(r) * 33 + std::size_t(c)] = std::uint16_t(c * 2000);  // rises along +x
+        for (int c = 0; c < 33; ++c)
+            g.samples[std::size_t(r) * 33 + std::size_t(c)] = std::uint16_t(c * 2000);  // rises along +x
     const auto png = encode_png_gray16(g);
     const std::string file = fs::path_to_utf8(dir / "h.png");
     REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
@@ -200,7 +204,7 @@ TEST_CASE("terrain_sample: through the transform of the entity, with the normal 
     w.add<Transform>(e) = tr;
     Terrain3D t;
     t.heightmap = file;
-    t.size = {64.0f, 64.0f};  // 2 m cells
+    t.size = {64.0f, 64.0f};                    // 2 m cells
     t.heightScale = 65535.0f / 2000.0f * 4.0f;  // a sample step of 2000 is 4 m
     w.add<Terrain3D>(e) = t;
 

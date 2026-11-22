@@ -29,8 +29,9 @@ namespace fa::render {
 struct TerrainDraw {
     MeshRenderer mr;
     float params[8][4]{};
-    TextureAsset* textures[3]{};  // the heights, the albedo of layer 0 (white without one), its normal map (white without one)
-    std::size_t hash = 0;         // of everything above: items of two draws never share a batch
+    TextureAsset*
+        textures[3]{};     // the heights, the albedo of layer 0 (white without one), its normal map (white without one)
+    std::size_t hash = 0;  // of everything above: items of two draws never share a batch
 };
 
 // The values of a Terrain the renderer reads from `Terrain.layers[0]` (the other layers are drawn by the layered material, P5d).
@@ -56,7 +57,7 @@ public:
         Mat4 viewProj;
         bool z01 = false;
         Vec3 camera;
-        bool linear = false;  // the scene is linear (the colour space of the textures)
+        bool linear = false;       // the scene is linear (the colour space of the textures)
         std::uint64_t serial = 0;  // Renderer::Impl::frameSerial
     };
     // Appends the nodes of every Terrain the camera draws to `out` (one MeshItem per node, opaque) and keeps their TerrainDraw in

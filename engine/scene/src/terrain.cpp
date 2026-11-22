@@ -44,8 +44,9 @@ std::shared_ptr<TerrainHeights> make_heights(const std::uint16_t* src, int w, in
     h->data.resize(std::size_t(n) * std::size_t(n));
     for (int r = 0; r < n; ++r) {
         const int sr = std::min(r, w - 1);
-        for (int c = 0; c < n; ++c) h->data[std::size_t(r) * std::size_t(n) + std::size_t(c)] =
-            src[std::size_t(sr) * std::size_t(w) + std::size_t(std::min(c, w - 1))];
+        for (int c = 0; c < n; ++c)
+            h->data[std::size_t(r) * std::size_t(n) + std::size_t(c)] =
+                src[std::size_t(sr) * std::size_t(w) + std::size_t(std::min(c, w - 1))];
     }
     return h;
 }
@@ -102,25 +103,29 @@ std::shared_ptr<TerrainHeights> TerrainHeights::flat(int n, std::uint16_t raw) {
 
 Result<int> terrain_grid_samples(int width, int height, std::string_view what) {
     if (width != height)
-        return make_error(std::format("Terrain heightmap '{}' is {} x {} samples, but a terrain heightmap must be square", what,
-                                      width, height),
-                          "Crop or resize the image to a square. Sizes that work: " + valid_sizes_text() +
-                              " (2^n + 1), or one less (a power of two: the last row and column are repeated).");
+        return make_error(
+            std::format("Terrain heightmap '{}' is {} x {} samples, but a terrain heightmap must be square", what,
+                        width, height),
+            "Crop or resize the image to a square. Sizes that work: " + valid_sizes_text() +
+                " (2^n + 1), or one less (a power of two: the last row and column are repeated).");
     if (width > kTerrainMaxSamples)
         return make_error(
-            std::format("Terrain heightmap '{}' is {} x {} samples, more than the {} x {} ({} million samples) a terrain "
-                        "is built from",
-                        what, width, width, kTerrainMaxSamples, kTerrainMaxSamples,
-                        std::int64_t(kTerrainMaxSamples) * kTerrainMaxSamples / 1000000),
-            "Resize the heightmap to " + std::to_string(kTerrainMaxSamples) + " x " + std::to_string(kTerrainMaxSamples) +
+            std::format(
+                "Terrain heightmap '{}' is {} x {} samples, more than the {} x {} ({} million samples) a terrain "
+                "is built from",
+                what, width, width, kTerrainMaxSamples, kTerrainMaxSamples,
+                std::int64_t(kTerrainMaxSamples) * kTerrainMaxSamples / 1000000),
+            "Resize the heightmap to " + std::to_string(kTerrainMaxSamples) + " x " +
+                std::to_string(kTerrainMaxSamples) +
                 " or less (one terrain covers up to 100 km: 4097 samples are one every 24 m there), or split the world "
                 "into several terrains.");
     if (width >= kTerrainMinSamples && is_power_of_two(width - 1)) return width;
     if (width >= kTerrainMinSamples - 1 && is_power_of_two(width)) return width + 1;
-    return make_error(std::format("Terrain heightmap '{}' is {} x {} samples, but the side must be 2^n + 1 (or a power of two)",
-                                  what, width, width),
-                      "Resize the image to one of " + valid_sizes_text() +
-                          " (a power of two from 32 to 4096 also works: one row and column are added by repeating the last).");
+    return make_error(
+        std::format("Terrain heightmap '{}' is {} x {} samples, but the side must be 2^n + 1 (or a power of two)", what,
+                    width, width),
+        "Resize the image to one of " + valid_sizes_text() +
+            " (a power of two from 32 to 4096 also works: one row and column are added by repeating the last).");
 }
 
 Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size_t size, std::string_view name) {
@@ -128,17 +133,19 @@ Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size
     if (ends_with_ci(name, ".r16")) {
         // Raw little-endian 16-bit samples, square: the side is the root of the sample count.
         if (size == 0 || size % 2 != 0)
-            return make_error(std::format("Terrain heightmap '{}' has {} bytes, but a .r16 file holds 2 bytes per sample", name,
-                                          size),
-                              "Export the heightmap as raw 16-bit little-endian samples (a square, no header).");
+            return make_error(
+                std::format("Terrain heightmap '{}' has {} bytes, but a .r16 file holds 2 bytes per sample", name,
+                            size),
+                "Export the heightmap as raw 16-bit little-endian samples (a square, no header).");
         const std::uint64_t count = size / 2;
         std::uint64_t side = std::uint64_t(std::llround(std::sqrt(double(count))));
         while (side * side > count) --side;
         while ((side + 1) * (side + 1) <= count) ++side;
         if (side * side != count || side > 1000000)
-            return make_error(std::format("Terrain heightmap '{}' holds {} samples, which is not a square", name, count),
-                              "A .r16 file is side x side samples (e.g. 1025 x 1025 = 1050625 samples = 2101250 bytes); its "
-                              "size gives the side.");
+            return make_error(
+                std::format("Terrain heightmap '{}' holds {} samples, which is not a square", name, count),
+                "A .r16 file is side x side samples (e.g. 1025 x 1025 = 1050625 samples = 2101250 bytes); its "
+                "size gives the side.");
         auto n = terrain_grid_samples(int(side), int(side), name);
         if (!n) return n.error();
         std::vector<std::uint16_t> src(static_cast<std::size_t>(count));
@@ -156,35 +163,39 @@ Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size
     auto img = decode_gray16(data, size);
     if (!img) return make_error(std::format("Terrain heightmap '{}': {}", name, img.error().message), img.error().hint);
     if (img->width != sz->width || img->height != sz->height)
-        return make_error(std::format("Terrain heightmap '{}' changed size while it was read", name), "The file is damaged.");
+        return make_error(std::format("Terrain heightmap '{}' changed size while it was read", name),
+                          "The file is damaged.");
     out.heights = make_heights(img->samples.data(), img->width, *n);
     out.heights->source = std::string(name);
     if (!img->sixteenBit) {
         out.heights->eightBit = true;
-        out.warning = std::format(
-            "Terrain heightmap '{}' has 8 bits per sample: only 256 different heights, so slopes show as steps (terraces). "
-            "Export it as a 16-bit greyscale PNG or a .r16 file for smooth ground.",
-            name);
+        out.warning = std::format("Terrain heightmap '{}' has 8 bits per sample: only 256 different heights, so slopes "
+                                  "show as steps (terraces). "
+                                  "Export it as a 16-bit greyscale PNG or a .r16 file for smooth ground.",
+                                  name);
     }
     return out;
 }
 
 Result<TerrainLoad> load_terrain_heightmap(std::string_view path) {
-    if (path.empty()) return make_error("Terrain.heightmap is empty", "Set it to a 16-bit greyscale PNG or a .r16 file.");
+    if (path.empty())
+        return make_error("Terrain.heightmap is empty", "Set it to a 16-bit greyscale PNG or a .r16 file.");
     if (ends_with_ci(path, ".r16")) {
         const std::int64_t bytes = fs::file_size(path);
         const std::int64_t most = std::int64_t(kTerrainMaxSamples) * kTerrainMaxSamples * 2;
         if (bytes > most)
-            return make_error(std::format("Terrain heightmap '{}' is {} bytes, more than the {} x {} samples ({} bytes) a "
-                                          "terrain is built from",
-                                          path, bytes, kTerrainMaxSamples, kTerrainMaxSamples, most),
-                              "Resize the heightmap to 4097 x 4097 samples or less, or split the world into several terrains.");
+            return make_error(
+                std::format("Terrain heightmap '{}' is {} bytes, more than the {} x {} samples ({} bytes) a "
+                            "terrain is built from",
+                            path, bytes, kTerrainMaxSamples, kTerrainMaxSamples, most),
+                "Resize the heightmap to 4097 x 4097 samples or less, or split the world into several terrains.");
     }
     auto bytes = fs::read_bytes(path);
     if (!bytes)
-        return make_error(std::format("Terrain heightmap '{}' cannot be read: {}", path, bytes.error().message),
-                          "Put the file in the project (for example assets/terrain/height.png) and set Terrain.heightmap to its "
-                          "project-relative path.");
+        return make_error(
+            std::format("Terrain heightmap '{}' cannot be read: {}", path, bytes.error().message),
+            "Put the file in the project (for example assets/terrain/height.png) and set Terrain.heightmap to its "
+            "project-relative path.");
     return decode_terrain_heightmap(bytes->data(), bytes->size(), path);
 }
 

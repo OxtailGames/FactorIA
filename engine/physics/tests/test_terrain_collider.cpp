@@ -127,7 +127,7 @@ TEST_CASE("terrain collider: a sphere dropped on the terrain rests on its surfac
         const Vec3 q = s.world.get<Transform>(ball)->position;
         float h2 = 0;
         REQUIRE(terrain_height_at(s.world, ground, q.x, q.z, h2));
-        CHECK(h2 > h + 3.0f);       // the surface moved
+        CHECK(h2 > h + 3.0f);          // the surface moved
         CHECK(q.y > restedAt + 3.0f);  // and carried the ball with it
         CHECK(q.y >= h2 + 0.45f);
         CHECK(q.y <= h2 + 1.0f);

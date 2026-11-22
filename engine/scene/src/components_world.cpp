@@ -554,8 +554,11 @@ void register_world_components(TypeRegistry& r) {
          "A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material "
          "layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres "
          "centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and "
-         "`terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, \"Terrain\"); the fields are "
-         "saved and checked today.",
+         "`terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch "
+         "instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer "
+         "with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain "
+         "grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not "
+         "drawn yet (planned, docs/BIG_WORLDS.md, \"Terrain\").",
          "3D")
         .asset_field("heightmap", &Terrain3D::heightmap, "any",
                      "Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the "
@@ -577,26 +580,38 @@ void register_world_components(TypeRegistry& r) {
         .field("splatMaps", &Terrain3D::splatMaps,
                "Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c "
                "(r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole "
-               "terrain.")
-        .field("layers", &Terrain3D::layers,
-               "Array of at most 8 material layers: {\"albedo\": \"terrain/grass.png\", \"normal\": "
-               "\"terrain/grass_n.png\", \"tileSize\": 4, \"roughness\": 0.9, \"metallic\": 0, \"normalScale\": 1}. "
-               "`albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of "
-               "the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); "
-               "normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all "
-               "the normal textures: the layers are packed into texture arrays (8 layers of separate textures would "
-               "need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain.")
-        .asset_field("holes", &Terrain3D::holes, "texture",
-                     "Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the "
-                     "terrain is cut open (no surface, no collider): a cave mouth, a well. \"\" (default) = no holes.")
+               "terrain. Not drawn yet (planned): only layer 0 is.")
+        .field(
+            "layers", &Terrain3D::layers,
+            "Array of at most 8 material layers: {\"albedo\": \"terrain/grass.png\", \"normal\": "
+            "\"terrain/grass_n.png\", \"tileSize\": 4, \"roughness\": 0.9, \"metallic\": 0, \"normalScale\": 1}. "
+            "`albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of "
+            "the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); "
+            "normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all "
+            "the normal textures: the layers are packed into texture arrays (8 layers of separate textures would "
+            "need more than the 16 sampler pairs a shader stage can read). Only layers[0] is drawn today (the blend of "
+            "all of them by the splat maps is planned); a missing `albedo` texture draws it in the grey of the "
+            "plain terrain. [] (default) = a plain grey terrain.")
+        .asset_field(
+            "holes", &Terrain3D::holes, "texture",
+            "Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the "
+            "terrain is cut open (no surface, no collider): a cave mouth, a well. \"\" (default) = no holes. Not cut "
+            "yet (planned): the terrain is drawn and collides without holes.")
         .field("lodQuality", &Terrain3D::lodQuality,
-               "Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and "
-               "coarsening twice as far, 0.5 = half. 0.1..4. Default 1.")
+               "Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before "
+               "Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; "
+               "below 1 the finest level is not drawn at 0.5, the two finest at 0.25 (a coarser terrain at any "
+               "distance). 0.1..4. Default 1.")
         .range(0.1f, 4)
-        .field("castShadows", &Terrain3D::castShadows, "Cast shadows from shadow-casting lights. Default true.")
+        .field("castShadows", &Terrain3D::castShadows,
+               "Cast shadows from shadow-casting lights. Tiles outside the camera still cast: the cascades see "
+               "the whole terrain, at the levels of detail the camera chose. Default true.")
         .field("collision", &Terrain3D::collision,
-               "true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false "
-               "= visual only.");
+               "true (default) = the terrain is a static physics body made from the heights it draws (a ray and a "
+               "falling body meet the same surface, triangle for triangle), and a sculpt moves it. It needs no "
+               "Collider3D; an entity that has its own Collider3D keeps that one. A RigidBody3D that is not static "
+               "on the entity is refused. false = visual only. The collider copies the heights as 32-bit floats: "
+               "67 MB at 4097 x 4097 samples.");
 
     r.add<Foliage>(
          "Foliage",
