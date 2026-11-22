@@ -55,14 +55,14 @@ struct PortalWalk {
 
 // Where a walk starts: every area whose box holds `p` (the camera), plus areaA and areaB of every OPEN portal whose box holds it
 // (a camera in a doorway, in the gap a wall leaves between two rooms, is in both rooms). Sorted, distinct; {0} when there is none.
-std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas, const std::vector<PortalBox>& portals,
-                                             Vec3 p);
+std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas,
+                                             const std::vector<PortalBox>& portals, Vec3 p);
 
 // Whether a mesh (its model matrix and model-space bounds) is drawn when the walk reached `reached` (sorted ids). The mesh belongs to
 // EVERY area whose box its world bounds touch, and also to area 0 unless its bounds lie wholly inside one area box; it is hidden only
 // when none of its areas was reached. No allocation.
-bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached, const Mat4& model,
-                      Vec3 bmin, Vec3 bmax);
+bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached,
+                      const Mat4& model, Vec3 bmin, Vec3 bmax);
 
 // Walks from every area of `startAreas` (each with the whole picture) through the open portals as seen with `viewProj`. A camera that sees nothing of a portal does not go through it.
 PortalWalk portal_walk(const std::vector<PortalBox>& portals, const Mat4& viewProj,

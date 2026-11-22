@@ -143,8 +143,8 @@ PortalBox make_portal_box(std::int32_t areaA, std::int32_t areaB, const Mat4& mo
     return b;
 }
 
-std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas, const std::vector<PortalBox>& portals,
-                                             Vec3 p) {
+std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas,
+                                             const std::vector<PortalBox>& portals, Vec3 p) {
     std::vector<std::int32_t> out;
     for (const PortalAreaBox& a : areas)
         if (inside(a, p)) out.push_back(a.id);
@@ -159,8 +159,8 @@ std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& a
     return out;
 }
 
-bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached, const Mat4& model,
-                      Vec3 bmin, Vec3 bmax) {
+bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached,
+                      const Mat4& model, Vec3 bmin, Vec3 bmax) {
     auto reachedId = [&](std::int32_t id) { return std::binary_search(reached.begin(), reached.end(), id); };
     bool whollyInside = false;
     for (const PortalAreaBox& a : areas) {
@@ -169,7 +169,8 @@ bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector
         constexpr float inf = std::numeric_limits<float>::infinity();
         Vec3 lo{inf, inf, inf}, hi{-inf, -inf, -inf};
         for (int k = 0; k < 8; ++k) {
-            const Vec3 c = m.transform_point({(k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z});
+            const Vec3 c =
+                m.transform_point({(k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z});
             lo = {std::min(lo.x, c.x), std::min(lo.y, c.y), std::min(lo.z, c.z)};
             hi = {std::max(hi.x, c.x), std::max(hi.y, c.y), std::max(hi.z, c.z)};
         }

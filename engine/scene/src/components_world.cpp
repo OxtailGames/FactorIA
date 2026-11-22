@@ -547,7 +547,8 @@ void register_world_components(TypeRegistry& r) {
          "An opening between two OcclusionArea rooms (M75.2; a door, a window, an archway): what is seen through it "
          "from "
          "the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side "
-         "faces areaA and its +Z side areaB. The camera's view walks (the same from both sides: areaA and areaB are informative) through the open portals whose box is in view, "
+         "faces areaA and its +Z side areaB. The camera's view walks (the same from both sides: areaA and areaB are "
+         "informative) through the open portals whose box is in view, "
          "narrowing to each portal's screen rectangle. A portal with open false (a shut door) lets nothing "
          "through (docs/BIG_WORLDS_LOD.md, \"Areas and portals\").",
          "3D")

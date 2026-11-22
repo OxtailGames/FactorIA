@@ -60,7 +60,8 @@ TEST_CASE("portal graph: an area follows its matrix (rotation and scale), size i
     // A zero-scale matrix holds nothing and does not crash.
     const std::vector<PortalAreaBox> flat{make_portal_area(4, Mat4::scale({0, 1, 1}), {4, 4, 4}, 1)};
     CHECK(portal_start_areas(flat, none, {0, 0, 0}) == Ids{0});
-    CHECK_FALSE(portal_mesh_seen(flat, {}, Mat4::identity(), {-1, -1, -1}, {1, 1, 1}));  // in no area: area 0, not reached
+    CHECK_FALSE(
+        portal_mesh_seen(flat, {}, Mat4::identity(), {-1, -1, -1}, {1, 1, 1}));  // in no area: area 0, not reached
 }
 
 TEST_CASE("portal graph: nested areas start the walk in both, so what only the outer one holds is seen") {
