@@ -458,7 +458,10 @@ void register_world_components(TypeRegistry& r) {
          "level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for "
          "its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy "
          "set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a "
-         "cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every "
+         "cell of a streamed world): the proxy is drawn with the group's matrix, with the same cross-fade as a level "
+         "switch, casts the shadow, and the children are skipped (world.bake_hlod makes the mesh). A proxy that "
+         "cannot be read leaves the children drawn, with one warning. The proxy of a streamed cell that is not "
+         "loaded is not drawn. The units of every "
          "threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS_LOD.md, \"Levels of "
          "detail\").",
          "3D")
@@ -486,12 +489,14 @@ void register_world_components(TypeRegistry& r) {
         .range(0, 5)
         .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",
                      "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "
-                     "every child beyond hlodThreshold. \"\" (default) = no proxy. The children stop being drawn "
-                     "and their draw calls with them.")
+                     "every child beyond hlodThreshold, in the local space of this entity (the group's matrix is applied). "
+                     "\"\" (default) = no proxy. The children stop being drawn, in the main pass and in the shadows, "
+                     "and their draw calls with them; the proxy casts the shadow. world.bake_hlod writes it.")
         .field("hlodThreshold", &LodGroup::hlodThreshold,
                "Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen "
-               "fraction 0..1 below which the proxy is drawn in mode screenSize. Beyond the last threshold. Needs "
-               "hlodProxy; 0 (default) with a proxy is an error.")
+               "fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole "
+               "bounds like thresholds. Beyond the last threshold. Needs hlodProxy; 0 (default) with a proxy is an "
+               "error.")
         .range(0, 100000);
 
     r.add<Occluder>(

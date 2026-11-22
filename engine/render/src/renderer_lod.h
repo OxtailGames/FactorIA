@@ -18,6 +18,22 @@ struct LodPick {
     bool fading() const { return from >= 0 && amount > 0.0f; }
 };
 
+// Whether the HLOD proxy mesh of a LodGroup (M75 P1d) is drawn this frame, given the pick of its group, and how: `fade` gets the item's lodFade
+// (0 = settled, +a = the proxy fading in, -a = fading out). The proxy is shown when it is the group's level, or the level that is fading out
+// (only where `canFade`: a draw with no dither program switches at once, like the children).
+inline bool hlod_proxy_shown(const LodPick& group, bool canFade, float& fade) {
+    fade = 0.0f;
+    if (group.level == kHlodLevel) {
+        if (group.fading() && canFade) fade = group.amount;
+        return true;
+    }
+    if (group.fading() && group.from == kHlodLevel && canFade) {
+        fade = -group.amount;
+        return true;
+    }
+    return false;
+}
+
 enum class LodKind : std::uint32_t { Mesh = 0, Group = 1 };
 
 class LodFades {
