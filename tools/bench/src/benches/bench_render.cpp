@@ -8,6 +8,7 @@
 
 #include "benches.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
@@ -161,6 +162,70 @@ void build_3d_hiz(World& w) {
     w.settings().occlusionMode = OcclusionMode::Gpu;
 }
 
+// A terrain of 513 x 513 hilly samples over 1024 m with 4 layers of 64 x 64 textures, a splat map and a holes mask, under a sun with
+// shadows (M75.5: the CDLOD tiles, the layer blend of shaders/terrain.glsl, the split patch of the holes). The GPU's own work is what
+// this row moves with: fewer fetches a pixel (the normals took 16 height fetches, now 12) show here on a GPU, not on a CPU.
+void build_terrain(World& w) {
+    const std::filesystem::path dir = env().dir;
+    auto put = [&](const char* name, const std::vector<std::uint8_t>& png) {
+        const std::string path = fs::path_to_utf8(dir / "assets" / name);
+        (void)fs::write_bytes(path, png.data(), png.size());
+        return std::string("assets/") + name;
+    };
+    GrayImage16 heights;
+    heights.width = heights.height = 513;
+    heights.sixteenBit = true;
+    heights.samples.resize(513u * 513u);
+    for (int r = 0; r < 513; ++r)
+        for (int c = 0; c < 513; ++c)
+            heights.samples[std::size_t(r) * 513 + std::size_t(c)] =
+                std::uint16_t(20000.0 + 12000.0 * std::sin(double(c) * 0.05) * std::cos(double(r) * 0.04));
+    Terrain3D& t = w.add<Terrain3D>(make(w, {0, 0, 0}));
+    t.heightmap = put("bench_height.png", encode_png_gray16(heights));
+    t.size = {1024.0f, 1024.0f};
+    t.heightScale = 120.0f;
+    Image splat;
+    splat.width = splat.height = 128;
+    splat.rgba.resize(128u * 128u * 4);
+    for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x) {
+            std::uint8_t* px = splat.rgba.data() + (std::size_t(y) * 128 + std::size_t(x)) * 4;
+            px[0] = std::uint8_t(255 - x * 2);
+            px[1] = std::uint8_t(x * 2);
+            px[2] = std::uint8_t(y * 2);
+            px[3] = std::uint8_t(255 - y * 2);
+        }
+    t.splatMaps = Json::array({put("bench_splat.png", encode_png(splat))});
+    std::vector<std::uint8_t> holes(512u * 512u, 0);
+    for (int y = 250; y < 262; ++y)
+        for (int x = 250; x < 262; ++x) holes[std::size_t(y) * 512 + std::size_t(x)] = 255;
+    t.holes = put("bench_holes.png", encode_png_gray8(512, 512, holes.data()));
+    t.layers = Json::array();
+    for (int i = 0; i < 4; ++i) {
+        Image tex;
+        tex.width = tex.height = 64;
+        tex.rgba.assign(64u * 64u * 4, 255);
+        for (std::size_t k = 0; k < tex.rgba.size(); k += 4) {
+            tex.rgba[k] = std::uint8_t(60 + 50 * i);
+            tex.rgba[k + 1] = std::uint8_t(160 - 30 * i + int((k / 4) % 7) * 4);
+            tex.rgba[k + 2] = std::uint8_t(80 + int((k / 4) % 5) * 6);
+        }
+        const std::string name = "bench_layer" + std::to_string(i) + ".png";
+        t.layers.push_back(Json::object({{"albedo", put(name.c_str(), encode_png(tex))},
+                                         {"tileSize", 6.0},
+                                         {"roughness", 0.5 + 0.1 * i},
+                                         {"metallic", 0.0}}));
+    }
+    Entity cam = make(w, {0, 90, 260});
+    Camera& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    w.get<Transform>(cam)->rotation = {-18, 0, 0};
+    Entity sun = make(w, {0, 100, 0});
+    w.get<Transform>(sun)->rotation = {-50, 30, 0};
+    w.add<Light>(sun).type = LightType::Directional;
+}
+
 Bench render_bench(const char* name, const char* summary, void (*build)(World&), std::int64_t items, const char* unit) {
     Bench b;
     b.name = name;
@@ -213,6 +278,11 @@ void add_render_benches(std::vector<Bench>& out) {
         "pass, the read-back and 1600 tests, less the draws it saves; the plain frame where there are no "
         "compute shaders)",
         build_3d_hiz, 8 * 1600, "meshes"));
+    out.push_back(
+        render_bench("render.terrain3d",
+                     "8 frames of a 513 x 513 Terrain over 1024 m with 4 splat-blended layers, a holes mask and a "
+                     "shadow-casting sun, headless 640x360 (the tile selection, the layer blend, the split patch)",
+                     build_terrain, 8, "frames"));
 }
 
 }  // namespace fa::bench

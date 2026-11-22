@@ -1911,6 +1911,8 @@ private:
 sg_image make_image(const sg_image_desc& desc);
 // The same for a cube image (SG_IMAGETYPE_CUBE): the OpenGL ES fix goes through the cube target.
 sg_image make_cube_image(const sg_image_desc& desc);
+// The same for an array image (SG_IMAGETYPE_ARRAY: the layers of a Terrain), through the array target.
+sg_image make_array_image(const sg_image_desc& desc);
 
 // One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
 // MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game
