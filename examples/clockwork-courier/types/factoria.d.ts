@@ -7742,7 +7742,7 @@ declare module "factoria" {
      */
     materialColors: any;
     /**
-     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers, below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn from M75.1; until then only `distance` entries change what is drawn. Returns a plain-object COPY; assign a new value to write.
+     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's diameter over the height of the view at that distance), below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn from M75.1; until then only `distance` entries change what is drawn. Returns a plain-object COPY; assign a new value to write.
      * @since 0.16.0
      */
     lods: any;
@@ -7866,7 +7866,7 @@ declare module "factoria" {
      */
     decalLayer: number;
     /**
-     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers (1 = it fills the screen, 0.1 = a tenth of it): it does not depend on the field of view, the zoom or the size of the object, so one threshold fits a pebble and a tower. No effect yet: M75.1 draws it.
+     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the diameter of the mesh's world-space bounding sphere divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. No effect yet: M75.1 draws it.
      * @since unreleased
      */
     lodMode: "distance" | "screenSize";
@@ -11971,7 +11971,7 @@ declare module "factoria" {
    */
   export interface LodGroupComponent {
     /**
-     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the fraction 0..1 of the screen's height that the group's bounding sphere covers (1 = it fills the screen); it does not depend on the field of view or on the size of the object.
+     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the diameter of the world-space bounding sphere of the whole group (every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is a fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object.
      * @since unreleased
      */
     mode: "distance" | "screenSize";
@@ -12088,7 +12088,7 @@ declare module "factoria" {
    */
   export interface StreamingAnchorComponent {
     /**
-     * Metres: a cell whose bounds are nearer than this to the anchor (on the ground plane, x and z) is loaded. 1..1000000. Default 256.
+     * Metres: a cell whose bounds are nearer than this to the anchor is loaded. Measured on the plane of the streamed world: x and z for a world index whose dimension is "3d", x and y for "2d". Distances use absolute positions (the floating origin plus the local position), so a rebase of the floating origin never changes what is loaded. 1..1000000. Default 256.
      * @since unreleased
      */
     loadRadius: number;
@@ -12116,7 +12116,7 @@ declare module "factoria" {
    */
   export interface TerrainComponent {
     /**
-     * Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the lowest sample, white (65535) is heightScale metres higher. "" (default) = a flat terrain at heightOffset. (asset path: any)
+     * Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the lowest sample, white (65535) is heightScale metres higher. A .r16 file is square: its side is sqrt(bytes / 2) samples (1025 x 1025 is 2 101 250 bytes). The heightmap's resolution and `size` are independent: a 1025-sample map over 2048 m gives a sample every 2 m, stretched over `size`. "" (default) = a flat terrain at heightOffset. (asset path: any)
      * @since unreleased
      */
     heightmap: string;
@@ -12142,7 +12142,7 @@ declare module "factoria" {
      */
     splatMaps: any;
     /**
-     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size and format, and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
     layers: any;
@@ -12168,19 +12168,19 @@ declare module "factoria" {
     collision: boolean;
   }
   /**
-   * Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of positions, rotations and scales, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds one mesh: use several for several kinds. No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
    * 
    * Category: 3D
    * @since unreleased
    */
   export interface FoliageComponent {
     /**
-     * The mesh drawn at every instance: a primitive name or a model path (its LODs are used). Default "cube". (asset path: mesh)
+     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows. The binary format of the file is defined by the foliage package (M75.6, P6a). `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
      * @since unreleased
      */
-    mesh: string;
+    meshes: any;
     /**
-     * Project-relative data file with the instances; `foliage.paint` and `foliage.scatter` create and write it. "" (default) = no instances, nothing drawn. (asset path: any)
+     * Project-relative data file with the instances (position, rotation, scale and mesh index of each); `foliage.paint` and `foliage.scatter` create and write it. "" (default) = no instances, nothing drawn. (asset path: any)
      * @since unreleased
      */
     instances: string;
@@ -12644,7 +12644,7 @@ declare module "factoria" {
     OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
     StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
     Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
-    Foliage: { mesh?: string; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
+    Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
     ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
   }

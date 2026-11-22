@@ -20,7 +20,8 @@ TEST_CASE("big world commands: registered with their category, schema and packag
     std::ofstream(dir / "factoria.json", std::ios::binary)
         << R"({"format":"factoria.project/1","name":"Big","id":"com.example.big","mainScene":"scenes/main.scene.json",
                "display":{"width":320,"height":180}})";
-    std::ofstream(dir / "scenes/main.scene.json", std::ios::binary) << R"({"format": "factoria.scene/1", "entities": []})";
+    std::ofstream(dir / "scenes/main.scene.json", std::ios::binary)
+        << R"({"format": "factoria.scene/1", "entities": []})";
     EngineConfig c;
     c.projectDir = dir.generic_string();
     c.headless = true;
