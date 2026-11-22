@@ -54,7 +54,7 @@ void Editor::start_auto_play() {
     if (!autoPlay_.start(req)) return;
     autoPlayLast_.reset();
     open_play_sessions();
-    if (dirty_) notify("The scene has unsaved changes: the AI plays the project as saved on disk.", 1);
+    if (dirty()) notify("The scene has unsaved changes: the AI plays the project as saved on disk.", 1);
 }
 
 void Editor::poll_auto_play() {

@@ -104,7 +104,8 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
                 "\", \"version\": 1, \"dimension\": \"3d\", \"cellSize\": 128, \"origin\": [0, 0], \"cells\": []}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"format", "version", "dimension", "cellSize", "origin", "cells"};
+    static const std::vector<std::string> topKeys = {"format", "version", "dimension", "cellSize",
+                                                     "origin", "cells",   "persistent"};
     for (auto it = json.begin(); it != json.end(); ++it) {
         const std::string& k = it.key();
         if (std::find(topKeys.begin(), topKeys.end(), k) != topKeys.end()) continue;
@@ -164,6 +165,19 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
                 index.originB = o[1];
             }
         }
+    }
+    if (json.contains("persistent")) {
+        const Json& p = json["persistent"];
+        auto norm = p.is_string() ? fs::normalize_checked(p.get<std::string>()) : Result<std::string>(std::string());
+        if (!p.is_string() || p.get<std::string>().empty())
+            add(issues, true, "/persistent",
+                "\"persistent\" must be a project-relative scene path, got " + describe_json_value(p),
+                "Example: \"persistent\": \"worlds/town_main.scene.json\", the scene that holds what stays loaded; or "
+                "leave it out.");
+        else if (!norm)
+            add(issues, true, "/persistent", norm.error().message, norm.error().hint);
+        else
+            index.persistent = norm.value();
     }
     if (!json.contains("cells") || !json["cells"].is_array()) {
         add(issues, true, "/cells",
@@ -393,12 +407,14 @@ Json world_index_to_json(const WorldIndex& index) {
         if (c.sizeBytes >= 0) entry["sizeBytes"] = c.sizeBytes;
         cells.push_back(std::move(entry));
     }
-    return Json::object({{"format", kWorldIndexFormat},
-                         {"version", index.version},
-                         {"dimension", d3 ? "3d" : "2d"},
-                         {"cellSize", index.cellSize},
-                         {"origin", Json::array({index.originA, index.originB})},
-                         {"cells", std::move(cells)}});
+    Json out = Json::object({{"format", kWorldIndexFormat},
+                             {"version", index.version},
+                             {"dimension", d3 ? "3d" : "2d"},
+                             {"cellSize", index.cellSize},
+                             {"origin", Json::array({index.originA, index.originB})}});
+    if (!index.persistent.empty()) out["persistent"] = index.persistent;
+    out["cells"] = std::move(cells);
+    return out;
 }
 
 }  // namespace fa

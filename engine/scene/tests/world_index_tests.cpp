@@ -221,3 +221,26 @@ TEST_CASE("streamed cells: a reference to an entity of another cell is a warning
     CHECK(saved.dump().find("joint_b") == std::string::npos);
     CHECK(saved.dump().find("main_body") != std::string::npos);
 }
+
+TEST_CASE("world index: `persistent` names the scene of what stays loaded, is written back and is checked") {
+    auto r = parse_world_index(index_json(kCellA, R"("persistent":"worlds/town_persistent.scene.json",)"),
+                               "worlds/test.world.json", no_files());
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : all_text(r)));
+    CHECK(r.value().persistent == "worlds/town_persistent.scene.json");
+    const Json back = world_index_to_json(r.value());
+    CHECK(back["persistent"] == "worlds/town_persistent.scene.json");
+    CHECK(back.dump().find("persistent") < back.dump().find("cells"));
+    // without it the key is not written
+    auto none = parse_world_index(index_json(kCellA), "worlds/test.world.json", no_files());
+    REQUIRE(none.ok());
+    CHECK(none.value().persistent.empty());
+    CHECK_FALSE(world_index_to_json(none.value()).contains("persistent"));
+    // a wrong value has a pointer
+    auto bad = parse_world_index(index_json(kCellA, R"("persistent":5,)"), "worlds/test.world.json", no_files());
+    REQUIRE_FALSE(bad.ok());
+    CHECK(all_text(bad).find("/persistent") != std::string::npos);
+    auto escape = parse_world_index(index_json(kCellA, R"("persistent":"../x.scene.json",)"), "worlds/test.world.json",
+                                    no_files());
+    REQUIRE_FALSE(escape.ok());
+    CHECK(all_text(escape).find("/persistent") != std::string::npos);
+}

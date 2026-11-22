@@ -10,8 +10,9 @@ any size costs what the part around the player costs. The reading and parsing of
 creation of its entities is on the main thread, within a budget per frame. Nothing here changes a game without a
 `StreamedWorld` component.
 
-Parts that are not built yet: `world.split_cells` and `world.merge_cells` (they fail with `not_built`; for a tilemap use
-`tilemap.split_cells`, below) and the debug view of the cells (planned, M75.3c).
+`world.split_cells` and `world.merge_cells` cut a scene into cells and join them back (for a tilemap use `tilemap.split_cells`,
+below); the editor's Cells panel edits the cells of a streamed world ("Editing a streamed world", below). The debug view of
+the cells is the Cells panel's grid in the editor's viewport; a running game has none.
 
 ### The world index
 
@@ -43,6 +44,9 @@ The schema is `schemas/world.schema.json`.
 - `bounds` is what the entities of the cell cover, **absolute**, and must lie inside the cell's square. A radius is measured to
   these bounds: an anchor inside them is at distance 0.
 - `scene` is a project-relative scene file. `sizeBytes` is optional (a hint for the debug view).
+- `persistent` is optional: the scene that holds what is not part of any cell (the camera, the lights, the player, the
+  `StreamedWorld` itself and the scene's settings). `world.split_cells` writes it and `world.merge_cells` and the editor read it;
+  the streamer ignores it (the open scene is what stays loaded).
 - Cells are listed in any order; the engine sorts them by `[j, i]` and uses that order to break every tie.
 
 `factoria validate` (the command `project.validate`) checks every `*.world.json` of the project, every cell's scene file included however big the index is, and the
@@ -180,9 +184,50 @@ the rest.
   loading and unloading every frame), `priority` (the anchor with the higher one gets its cells first), `enabled`. The radii are
   measured on the plane of the streamed world: x and z for a world index whose dimension is `"3d"`, x and y for `"2d"`. Distances use
   absolute positions (the floating origin plus the local position), so a rebase of the origin never changes what is loaded.
-- `world.split_cells {scene, cellSize, output, dryRun}` cuts a scene into a grid of cells and writes the files and the index;
-  `world.merge_cells {manifest, output, dryRun}` joins them back so a level can be edited as one file. They write project files and
-  fail with `not_built` today.
+- `world.split_cells {scene, cellSize, out?, dimension?, overwrite?, dryRun?}` cuts a scene into cells and writes the index, one
+  scene file per cell and the persistent scene; `world.merge_cells {world, out, overwrite?, dryRun?}` joins them back into one scene
+  so a level can be edited as one file. Both write project files under the project's write rules and never change the files they
+  read. See below.
+
+### Editing a streamed world
+
+**Cutting a scene.** `world.split_cells` puts every ROOT entity, whole with its children, in the cell its position is in: cell
+`[i, j]` is `floor((position - origin) / cellSize)` on the plane (XZ for `"3d"`, XY for `"2d"`), a border belongs to the higher
+cell. The GLOBAL entities stay in the persistent scene together with the scene's `settings`: an entity whose subtree has a
+Camera, an AudioListener, a MusicPlayer, a StreamedWorld, a StreamingAnchor, a user-interface component or a directional Light,
+one without a Transform, or one tagged `global`. Cells that would be empty are not written. The entities are written exactly as
+the source scene has them, so `world.merge_cells` gives back the same entities with the same ids (the order of the roots follows the
+cells); two files with the same entity id make the merge fail before it writes. A reference from a component of one cell to an
+entity of another is reported in `warnings`: while the other cell is not loaded it is empty (the streamer drops it the same way).
+A scene with a floating `origin` is refused: rebase it first.
+
+**In the editor** (View > Cells, [Cells panel](editor/EDITOR_PANELS.md#cells-panel)) a scene with a `StreamedWorld` is edited cell by
+cell:
+
+- Edit mode never streams by distance (the engine is paused; no anchor is read), so what is loaded is what you chose: the cells
+  you load from the panel, or the cells within a radius of the camera ("Load around the view": nearest first, at most 64 per
+  click, at most 256 loaded in all). A loaded cell is an ordinary root entity `cell_<i>_<j>` with its entities under it, at their
+  absolute positions, exactly as the streamer shapes it, so every tool of the editor works on them.
+- A loaded cell is **unsaved** when its entities, written the way a save writes them, differ from its file; Undo back to the
+  saved state clears the mark. The editor's undo snapshots carry the loaded cells, so Undo and Redo work across cells (they use
+  memory in proportion to the loaded cells: unload what you are done with). Closing the scene, quitting or unloading a cell
+  with unsaved changes asks first.
+- **Save** (the toolbar's, Ctrl+S, or the panel's Save cells) writes each unsaved cell to its own file and the open scene's file
+  only if it changed; the index is written only when a cell was added or a cell's height bounds had to grow (bounds only grow;
+  a save never shrinks them, and the plane rectangle of a cell never changes). Before anything is written every path is checked
+  against the project's write rules, and a cell file that is not in the index is never overwritten.
+- **Moving an entity into another cell** is just moving it (the Transform gizmos, the Inspector, a command). There is no command for it: Save files every top-level entity of a loaded cell into the cell its position is in, loading
+  that cell for the purpose, or making a new one (a file `<index name>_cells/<i>_<j>.scene.json`, listed in the index). The
+  Inspector says "Save moves it there" while the entity is in the wrong cell. Its children go with it; its id and components
+  do not change. An entity that is dragged back before Save never moves.
+- **Global entities** live in the open scene (the persistent scene of a split world is what you open to edit them), not in
+  the cells: the editor only writes what is under a cell root.
+- A reference from an entity to one in a cell that is not loaded is empty, as in the game (the load warns about it). Deleting a
+  cell's root entity closes the cell without changing its file.
+- **Play** streams the world as the game does and **Stop** brings back the cells you had loaded, with their unsaved changes;
+  nothing you do while playing reaches a cell file.
+- The floating origin does not change any of this: cell contents are absolute, the root sits at the origin's negative and the
+  grid in the viewport is drawn through the same conversion, so a scene with a rebased origin shows its cells in the same place.
 
 ## Floating origin
 

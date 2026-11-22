@@ -4,7 +4,7 @@ Levels of detail, occlusion, streamed cells, a floating origin, terrain and foli
 kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (the world, the physics, the audio and the renderer follow a rebase); the CPU occluders of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
 do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
 commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
-`world.origin`, `world.rebase`, `world.absolute_position` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
+`world.origin`, `world.rebase`, `world.absolute_position`, `world.split_cells`, `world.merge_cells` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
 when a package lands, the scenes already written start to work. Nothing here changes a game that does not use it: every default
 is "off" or "as before".
 
@@ -44,7 +44,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 (built) | no |
 | `world.cells`, `world.stream_status` | M75.3 | no |
 | `tilemap.split_cells` | M75.3b | yes |
-| `world.split_cells`, `world.merge_cells` | M75.3 (planned) | yes |
+| `world.split_cells`, `world.merge_cells` | M75.3c (built) | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
 | `foliage.scatter`, `foliage.paint`, `foliage.clear` | M75.6 | yes |
