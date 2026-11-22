@@ -19,6 +19,7 @@
 #include "fa/core/crash.h"
 #include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
+#include "fa/scene/terrain.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
 #include "fa/platform/local_date.h"
@@ -843,7 +844,7 @@ void Editor::on_event(const sapp_event* e) {
             sapp_cancel_quit();
             return;
         }
-        if (dirty_ && engine_ && !autotest_) {
+        if (engine_ && !autotest_ && has_unsaved_work()) {
             sapp_cancel_quit();
             showQuitDialog_ = true;
         }
@@ -1141,8 +1142,28 @@ void Editor::restore_scene(const Json& snapshot) {
     if (!engine_) return;
     // Straight from the in-memory snapshot: no temp file, and the engine's current scene path (engine.info,
     // game.state, scene.save, scene.reload) keeps pointing at the scene being edited.
+    // The terrains' samples, holes and splat maps are not in a scene snapshot, and loading a scene forgets every terrain in memory:
+    // an undo of an unrelated edit, Play and Stop would silently take back the strokes the user has not saved yet (and the history
+    // their Ctrl+Z needs). The terrains with edits or history are held across the load and given back to the entities that come
+    // back with the same id and the same heightmap file.
+    struct KeptTerrain {
+        std::string id, heightmap;
+        std::shared_ptr<TerrainHeights> heights;
+    };
+    std::vector<KeptTerrain> kept;
+    for (Entity e : world().terrain().entities()) {
+        const Terrain3D* t = world().alive(e) ? world().get<Terrain3D>(e) : nullptr;
+        const std::shared_ptr<TerrainHeights> h = t ? world().terrain().find(e) : nullptr;
+        if (h && (h->any_unsaved() || h->undo_depth() > 0 || h->redo_depth() > 0))
+            kept.push_back({world().id_of(e), t->heightmap, h});
+    }
     std::string err;
     if (!engine_->load_scene_json(snapshot, "editor snapshot", &err)) notify("Scene restore failed: " + err, 2);
+    for (KeptTerrain& k : kept) {
+        const Entity e = world().find_by_id(k.id);
+        const Terrain3D* t = e.is_null() ? nullptr : world().get<Terrain3D>(e);
+        if (t && t->heightmap == k.heightmap) world().terrain().adopt(e, k.heightmap, std::move(k.heights));
+    }
 }
 
 // The game's accessibility choices for the game feel effects (feel.reduceMotion / feel.reducedEffects) belong to one Play session: a
@@ -1560,10 +1581,10 @@ void Editor::open_screenshots_folder() {
 // The panels that can be closed, in the order of the saved mask. The dock layout itself is saved by ImGui in the same ini file.
 int Editor::panels_mask() const {
     const bool flags[] = {
-        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,   showAi_,
-        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_, showImage_,
-        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,  showLevelGen_,
-        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_};
+        showViewport_, showHierarchy_, showInspector_,     showConsole_,   showProject_,    showAi_,
+        showFeedback_, showAudio_,     showProfiler_,      showAnimation_, showBoneTools_,  showImage_,
+        showVector_,   showSound_,     showMusic_,         showModeler_,   showParticle_,   showLevelGen_,
+        showPostFx_,   showGraph_,     showSceneSettings_, showLightmap_,  showTerrainTool_};
     int mask = 0;
     for (std::size_t i = 0; i < std::size(flags); ++i)
         if (flags[i]) mask |= 1 << i;
@@ -1572,10 +1593,10 @@ int Editor::panels_mask() const {
 
 void Editor::set_panels_mask(int mask) {
     bool* flags[] = {
-        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,   &showAi_,
-        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_, &showImage_,
-        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,  &showLevelGen_,
-        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_};
+        &showViewport_, &showHierarchy_, &showInspector_,     &showConsole_,   &showProject_,    &showAi_,
+        &showFeedback_, &showAudio_,     &showProfiler_,      &showAnimation_, &showBoneTools_,  &showImage_,
+        &showVector_,   &showSound_,     &showMusic_,         &showModeler_,   &showParticle_,   &showLevelGen_,
+        &showPostFx_,   &showGraph_,     &showSceneSettings_, &showLightmap_,  &showTerrainTool_};
     for (std::size_t i = 0; i < std::size(flags); ++i) *flags[i] = (mask >> i) & 1;
 }
 
@@ -1787,6 +1808,10 @@ void Editor::build_ui() {
             draw_bone_tools_panel();
         else if (bone_.tool != BoneTool::Off)
             bone_cancel_chain(), bone_.tool = BoneTool::Off;
+        if (showTerrainTool_)
+            draw_terrain_tool_panel();
+        else if (terrain_.stroke.active())
+            terrain_stroke_end();  // the panel was closed (View menu) with the mouse down: the stroke ends as the release would
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
@@ -1815,17 +1840,22 @@ void Editor::build_ui() {
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
     if (ImGui::BeginPopupModal("Unsaved changes##quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Scene '%s' has unsaved changes.", scenePath_.c_str());
+        ImGui::Text("Scene '%s' has unsaved changes%s.", scenePath_.c_str(),
+                    dirty_ ? "" : " (terrain edits that are not written yet)");
         if (ImGui::Button("Save and quit")) {
-            save_scene_now();
-            dirty_ = false;
+            const bool saved =
+                save_scene_now();  // a failed save (a toast says why) keeps the editor open: nothing is lost
             showQuitDialog_ = false;
             ImGui::CloseCurrentPopup();
-            sapp_request_quit();
+            if (saved) {
+                dirty_ = false;
+                sapp_request_quit();
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Discard and quit")) {
             dirty_ = false;
+            forget_unsaved_terrain();
             showQuitDialog_ = false;
             ImGui::CloseCurrentPopup();
             sapp_request_quit();
@@ -1926,7 +1956,7 @@ void Editor::draw_toolbar() {
                           menu::shortcut_label("Ctrl+S", menu::kApple).c_str());
     ImGui::SameLine();
     if (ImGui::Button("Reload")) {
-        if (dirty_)
+        if (has_unsaved_work())
             showReloadConfirm_ = true;
         else
             reload_scene_from_disk();
@@ -2026,7 +2056,7 @@ void Editor::draw_status_bar() {
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();
-        ImGui::Text("%s%s", scenePath_.c_str(), dirty_ ? " *" : "");
+        ImGui::Text("%s%s", scenePath_.c_str(), has_unsaved_work() ? " *" : "");
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();

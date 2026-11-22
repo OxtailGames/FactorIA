@@ -219,6 +219,84 @@ bool TerrainHeights::apply_step(TerrainStep step, std::string* problem) {
     return true;
 }
 
+bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
+    if (undo_.empty() || !redo_.empty() || undo_.back().label != step.label) {
+        if (problem) {
+            if (undo_.empty())
+                *problem = "this terrain has no edit to continue";
+            else if (!redo_.empty())
+                *problem = "an edit was undone since, so the newest edit is not the one to continue";
+            else
+                *problem =
+                    "the newest edit of this terrain is a '" + undo_.back().label + "', not a '" + step.label + "'";
+        }
+        return false;
+    }
+    for (const TerrainPatch& p : step.patches)
+        if (!patch_fits(*this, p, problem)) return false;
+    TerrainStep& last = undo_.back();
+    // One patch per plane in a step: the new patch of a plane joins the one the step has, over the rectangle that holds both.
+    struct Joined {
+        std::size_t index;  // into last.patches, or npos: the plane is new to the step
+        TerrainPatch patch;
+    };
+    std::vector<Joined> joined;
+    for (const TerrainPatch& np : step.patches) {
+        std::size_t at = std::string::npos;
+        for (std::size_t i = 0; i < last.patches.size(); ++i)
+            if (last.patches[i].plane == np.plane) {
+                at = i;
+                break;
+            }
+        if (at == std::string::npos) {
+            joined.push_back({at, np});
+            continue;
+        }
+        const TerrainPatch& op = last.patches[at];
+        int width = 0, rows = 0;
+        std::size_t elem = 0;
+        std::uint8_t* base = nullptr;
+        plane_layout(*this, np.plane, width, rows, elem, base);
+        TerrainPatch m;
+        m.plane = np.plane;
+        m.x0 = std::min(op.x0, np.x0);
+        m.y0 = std::min(op.y0, np.y0);
+        m.w = std::max(op.x0 + op.w, np.x0 + np.w) - m.x0;
+        m.h = std::max(op.y0 + op.h, np.y0 + np.h) - m.y0;
+        const std::size_t rowBytes = std::size_t(m.w) * elem;
+        m.before.resize(rowBytes * std::size_t(m.h));
+        for (int r = 0; r < m.h; ++r)  // cells neither piece touched keep what they hold now
+            std::memcpy(m.before.data() + std::size_t(r) * rowBytes,
+                        base + (std::size_t(m.y0 + r) * std::size_t(width) + std::size_t(m.x0)) * elem, rowBytes);
+        m.after = m.before;
+        auto copy_in = [&](std::vector<std::uint8_t>& dst, const TerrainPatch& from,
+                           const std::vector<std::uint8_t>& src) {
+            for (int r = 0; r < from.h; ++r)
+                std::memcpy(dst.data() +
+                                (std::size_t(from.y0 - m.y0 + r) * std::size_t(m.w) + std::size_t(from.x0 - m.x0)) *
+                                    elem,
+                            src.data() + std::size_t(r) * std::size_t(from.w) * elem, std::size_t(from.w) * elem);
+        };
+        copy_in(m.before, np,
+                np.before);  // what the new piece found, then what the step found first (it wins where they overlap)
+        copy_in(m.before, op, op.before);
+        copy_in(m.after, op, op.after);  // what the step left, then what the new piece leaves
+        copy_in(m.after, np, np.after);
+        joined.push_back({at, std::move(m)});
+    }
+    for (const TerrainPatch& p : step.patches) write_patch(p, true);  // the dirty rectangles are the new pieces' own
+    historyBytes_ -= std::min(historyBytes_, last.bytes());
+    for (Joined& j : joined) {
+        if (j.index == std::string::npos)
+            last.patches.push_back(std::move(j.patch));
+        else
+            last.patches[j.index] = std::move(j.patch);
+    }
+    historyBytes_ += last.bytes();
+    trim_history();
+    return true;
+}
+
 bool TerrainHeights::undo(std::string* label) {
     if (undo_.empty()) return false;
     TerrainStep step = std::move(undo_.back());
