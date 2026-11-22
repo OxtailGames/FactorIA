@@ -166,10 +166,15 @@ std::vector<std::uint8_t> encode_terrain_heightmap(const TerrainHeights& h, std:
 // Writes the files of the planes of `terrain` that were edited since they were loaded or written: the heightmap (a 16-bit
 // greyscale PNG, or a raw `.r16` when Terrain.heightmap ends in it), the holes mask (an 8-bit greyscale PNG, 255 = hole, at the
 // terrain's cells x cells), and each splat map (an RGBA8 PNG). Each file is replaced atomically (fs::write_bytes). `written` gets
-// the project paths. An error names the file and the fix, and the planes it did not reach stay unsaved. Nothing to write is ok.
-Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written = nullptr);
+// the project paths. Every path goes through fs::resolve_for_write (WriteRoot::Project): it must lie inside the project, and an
+// absolute or escaping path is written only with `writeAnywhere` (the caller's WriteAnywhere permission); else the error names the
+// field, the path and the fix. An error names the file and the fix, and the planes it did not reach stay unsaved. Nothing to
+// write is ok.
+Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written = nullptr,
+                                bool writeAnywhere = false);
 // The same for every Terrain of the world that has edits (what save_scene_file does after it writes the scene).
-Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written = nullptr);
+Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written = nullptr,
+                                    bool writeAnywhere = false);
 
 // ---- sampling ----
 

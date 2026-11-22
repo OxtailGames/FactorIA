@@ -353,7 +353,8 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
     // ---- 2. The running world (and, with `save`, the current scene file).
     Json out = apply_import(I.world, !I.inFrame, q, grid, legend, cells);
     if (q.save) {
-        auto r = save_scene_file(I.world, I.currentScene);
+        auto r = save_scene_file(I.world, I.currentScene, false, nullptr, nullptr,
+                                  caller_capabilities().has(Capability::WriteAnywhere));
         if (!r.ok())
             throw CommandError(
                 "failed", "The level was imported but writing '" + I.currentScene + "' failed: " + r.error().message,

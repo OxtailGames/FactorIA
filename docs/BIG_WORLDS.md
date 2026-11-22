@@ -488,6 +488,14 @@ metres, and `amount` and `height` are world metres of height too. `radius` may c
 (holes, splat) across; a stroke may visit about 67 million of them in all. Both limits are counts, not times, so a result never
 depends on the machine's speed, and they are checked before anything changes.
 
+**Every file a terrain command writes** (the `path` of `terrain.create`, the default `assets/terrain/<name>.*.png` names, and the
+`heightmap`, `holes` and `splatMaps` paths of a save) follows the project write rules: it must lie inside the project, so an
+absolute path or one that leaves the folder with `..` is refused with the field and the fix, unless the caller has the
+`WriteAnywhere` permission; a managed folder is refused too. A default name is made unique (`ground.height.png`,
+`ground_2.height.png`...) when a file or another terrain already uses it, ignoring case. `terrain.create` without a `name` takes
+`terrain`, `terrain_2`... the first free id; `path` together with `heightmap` is refused. `terrain.paint` makes the splat maps only
+when the brush changes a texel.
+
 **One command is one undo step, per terrain.** `terrain.undo` and `terrain.redo` put the samples of the newest sculpt, paint, holes
 or generate back, bit for bit, in every plane the command touched. The history keeps 64 steps and 256 MB per terrain, is not
 saved with the scene, and is cleared when the scene loads. What a command changes outside the sample data (a `Terrain.holes` or
@@ -516,7 +524,7 @@ layer 4 to 7. A map that already exists keeps its size.
 **What a renderer or a tool of its own needs** (P5d, P5c): the planes are in `TerrainHeights` (`holes`, `holesVersion`, `splat[m]`
 with `rgba` and `version`, `any_unsaved()`, `undo_depth()`); follow `holesVersion` and `splat[m].version` as the collider follows
 `holesVersion` and the heights follow `dirty_since`. `save_terrain_files(world, entity)` and `save_all_terrain_files(world)` write the edited
-planes; `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
+planes (each path goes through `fs::resolve_for_write`: inside the project unless the caller passes `writeAnywhere`); `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
 
 ## Foliage (planned, M75.6)
 

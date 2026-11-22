@@ -663,9 +663,11 @@ void register_world_components(TypeRegistry& r) {
             "plain terrain. [] (default) = a plain grey terrain.")
         .asset_field(
             "holes", &Terrain3D::holes, "texture",
-            "Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the "
-            "terrain is cut open (no surface, no collider): a cave mouth, a well. \"\" (default) = no holes. Not cut "
-            "yet (planned): the terrain is drawn and collides without holes.")
+            "Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a side, "
+            "so a 513-sample terrain has a 512 x 512 mask; other sizes are resampled nearest): where a pixel is 128 or "
+            "more the cell is a hole, a cave mouth or a well. The physics collider cuts the holes today (a ray, a ball "
+            "or a character passes through them); the renderer still draws those cells (planned). terrain.holes cuts "
+            "and fills them and writes this file (255 = hole). \"\" (default) = no holes.")
         .field("lodQuality", &Terrain3D::lodQuality,
                "Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before "
                "Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; "
