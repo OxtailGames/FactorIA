@@ -12,7 +12,7 @@ is "off" or "as before".
 |---|---|---|
 | [Levels of detail](BIG_WORLDS_LOD.md#levels-of-detail-m751) | M75.1 | screen-size thresholds, `LodGroup`, dithered cross-fade, impostor cards and the HLOD proxy with `world.bake_hlod` (all drawn) |
 | [Occlusion](BIG_WORLDS_LOD.md#occlusion-m752) | M75.2 | occluders (CPU) and a depth pyramid of the camera's picture (GPU) built, areas and portals (CPU) built |
-| [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
+| [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s; cells that are not loaded draw their HLOD proxy (`StreamedWorld.hlodDistance`, `world.bake_cell_hlods`, [HLOD proxies](BIG_WORLDS_STREAMING.md#hlod-proxies)) |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
 | [Terrain](BIG_WORLDS_TERRAIN.md#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
 | [Foliage](BIG_WORLDS_TERRAIN.md#foliage) | M75.6 | instanced vegetation and rocks: drawn from an instances file with chunk culling, fade, LOD, wind and thinning; `foliage.scatter`, `foliage.paint` and `foliage.clear` fill it (the editor brush is planned, M75 P6c) |

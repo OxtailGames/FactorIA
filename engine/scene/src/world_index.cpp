@@ -65,6 +65,12 @@ double WorldIndex::distance_to(const WorldCell& cell, double a, double b) const 
     return std::sqrt(da * da + db * db);
 }
 
+DVec3 world_cell_corner(const WorldIndex& index, const WorldCell& cell) {
+    const double a = index.originA + double(cell.i) * index.cellSize;
+    const double b = index.originB + double(cell.j) * index.cellSize;
+    return index.dimension == WorldDimension::D3 ? DVec3{a, 0.0, b} : DVec3{a, b, 0.0};
+}
+
 void WorldIndex::cell_of(double a, double b, std::int64_t& i, std::int64_t& j) const {
     auto clamp_floor = [&](double v, double origin) {
         const double f = std::floor((v - origin) / cellSize);
@@ -211,7 +217,7 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
                 "\"max\": [128, 10, 128]}}.");
             continue;
         }
-        static const std::vector<std::string> cellKeys = {"coord", "scene", "bounds", "sizeBytes"};
+        static const std::vector<std::string> cellKeys = {"coord", "scene", "bounds", "sizeBytes", "hlod"};
         for (auto it = c.begin(); it != c.end(); ++it)
             if (std::find(cellKeys.begin(), cellKeys.end(), it.key()) == cellKeys.end())
                 add(issues, false, ptr + "/" + it.key(), "Unknown cell key '" + it.key() + "' (ignored)",
@@ -334,6 +340,59 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
             else
                 cell.sizeBytes = c["sizeBytes"].get<std::int64_t>();
         }
+        if (c.contains("hlod")) {
+            const Json& h = c["hlod"];
+            const std::string hp = ptr + "/hlod";
+            const std::string example = "Example: \"hlod\": {\"mesh\": \"hlod/" + std::to_string(cell.i) + "_" +
+                                        std::to_string(cell.j) + ".glb\"}.";
+            if (!h.is_object()) {
+                add(issues, true, hp, "\"hlod\" must be {\"mesh\": \"<a .glb>\"}, got " + describe_json_value(h),
+                    example + " world.bake_cell_hlods writes it.");
+            } else {
+                static const std::vector<std::string> hlodKeys = {"mesh", "maxDistance"};
+                for (auto it = h.begin(); it != h.end(); ++it)
+                    if (std::find(hlodKeys.begin(), hlodKeys.end(), it.key()) == hlodKeys.end())
+                        add(issues, false, hp + "/" + it.key(), "Unknown hlod key '" + it.key() + "' (ignored)",
+                            did_you_mean(it.key(), hlodKeys));
+                const Json& m = h.contains("mesh") ? h["mesh"] : Json();
+                if (!h.contains("mesh") || !m.is_string() || m.get<std::string>().empty()) {
+                    add(issues, true, hp + "/mesh",
+                        h.contains("mesh")
+                            ? "\"hlod.mesh\" must be a project-relative .glb path, got " + describe_json_value(m)
+                            : std::string("\"hlod\" has no \"mesh\""),
+                        example);
+                    ok = false;
+                } else {
+                    auto norm = fs::normalize_checked(m.get<std::string>());
+                    const std::string ext = norm ? to_lower(fs::extension(norm.value())) : std::string();
+                    if (!norm) {
+                        add(issues, true, hp + "/mesh", norm.error().message, norm.error().hint);
+                        ok = false;
+                    } else if (ext != ".glb" && ext != ".gltf") {
+                        add(issues, true, hp + "/mesh",
+                            "\"hlod.mesh\" '" + norm.value() + "' is not a .glb or .gltf model",
+                            "The proxy is one mesh in a glTF file; world.bake_cell_hlods writes it as a .glb.");
+                        ok = false;
+                    } else {
+                        cell.hlod = norm.value();
+                    }
+                }
+                if (h.contains("maxDistance")) {
+                    const Json& d = h["maxDistance"];
+                    if (!finite_number(d) || d.get<double>() < 0.0 || d.get<double>() > 1.0e9) {
+                        add(issues, true, hp + "/maxDistance",
+                            "\"hlod.maxDistance\" must be a number of metres from 0 to 1e9, got " +
+                                describe_json_value(d),
+                            "Example: \"maxDistance\": 900 (the farthest anchor distance at which this proxy is "
+                            "drawn), or "
+                            "0 / leave it out to use StreamedWorld.hlodDistance.");
+                        ok = false;
+                    } else {
+                        cell.hlodMaxDistance = d.get<double>();
+                    }
+                }
+            }
+        }
         if (!ok) continue;
         auto dup = seen.find({cell.i, cell.j});
         if (dup != seen.end()) {
@@ -368,6 +427,21 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
             std::map<std::string, std::vector<std::string>> byDir;
             std::size_t hints = 0;
             for (const WorldCell& cell : index.cells) {
+                if (!cell.hlod.empty() && (!fs::exists(cell.hlod) || fs::is_directory(cell.hlod))) {
+                    // Not an error: the cell streams without its proxy (the streamer says so once, when it wants it).
+                    std::string hint = "Bake it again (world.bake_cell_hlods) or fix the path.";
+                    if (hints++ < kMaxFileHints) {
+                        const std::string dir = fs::parent(cell.hlod);
+                        auto it = byDir.find(dir);
+                        if (it == byDir.end())
+                            it = byDir.emplace(dir, fs::list(dir.empty() ? "." : dir, true, ".glb")).first;
+                        hint = did_you_mean(cell.hlod, it->second);
+                    }
+                    add(issues, false, "/cells/" + std::to_string(seen.at({cell.i, cell.j})) + "/hlod/mesh",
+                        "Cell [" + cell.id() + "]: the HLOD proxy '" + cell.hlod +
+                            "' does not exist, so the cell draws nothing while it is not loaded",
+                        std::move(hint));
+                }
                 if (fs::exists(cell.scene) && !fs::is_directory(cell.scene)) continue;
                 const std::string ptr = "/cells/" + std::to_string(seen.at({cell.i, cell.j}));
                 std::string hint = "Write the cell's file there, or fix the path.";
@@ -405,6 +479,11 @@ Json world_index_to_json(const WorldIndex& index) {
                                    {"scene", c.scene},
                                    {"bounds", Json::object({{"min", lo}, {"max", hi}})}});
         if (c.sizeBytes >= 0) entry["sizeBytes"] = c.sizeBytes;
+        if (!c.hlod.empty()) {
+            Json hlod = Json::object({{"mesh", c.hlod}});
+            if (c.hlodMaxDistance > 0.0) hlod["maxDistance"] = c.hlodMaxDistance;
+            entry["hlod"] = std::move(hlod);
+        }
         cells.push_back(std::move(entry));
     }
     Json out = Json::object({{"format", kWorldIndexFormat},

@@ -115,6 +115,23 @@
             "type": "integer",
             "minimum": 0,
             "description": "Optional: the size of the cell's scene file, a hint for the debug view."
+          },
+          "hlod": {
+            "type": "object",
+            "required": ["mesh"],
+            "description": "Optional: the proxy the cell draws while it is NOT loaded (StreamedWorld.hlodDistance above 0). world.bake_cell_hlods writes it.",
+            "properties": {
+              "mesh": {
+                "type": "string",
+                "description": "Project-relative .glb or .gltf in the space of the cell's corner (origin + [i, j] * cellSize on the plane, height 0)."
+              },
+              "maxDistance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "description": "Optional: the farthest distance (metres) from an anchor at which this proxy is drawn; 0 or absent = StreamedWorld.hlodDistance. The nearer of the two wins."
+              }
+            }
           }
         }
       }

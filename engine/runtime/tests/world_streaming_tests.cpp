@@ -11,13 +11,18 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
+#include "fa/core/json.h"
 #include "fa/physics/physics.h"
 #include "fa/runtime/engine.h"
+#include "fa/scene/components.h"
 #include "fa/scene/components_world.h"
 #include "fa/scene/serialize.h"
 #include "fa_test_paths.h"
@@ -580,4 +585,226 @@ TEST_CASE("streaming: a world whose floating origin is shifted loads and unloads
         return seen;
     };
     CHECK(walk(false) == walk(true));
+}
+
+// ---- M75 P1e: the HLOD proxies of the cells that are not loaded -------------------------------------------------------------------
+// The test engine has no renderer, so the proxy "models" are placeholder files: the loader reads them and the streamer treats them as
+// prepared (what the renderer's mesh cache would hold). The decode and the draw are in the render tests (lod_render_tests.cpp).
+
+namespace {
+
+// Names every cell of the grid a proxy hlod/<i>_<j>.glb (a file each). `maxDistance22`: the hlod.maxDistance
+// of cell [2, 2] (0 = none). `missing`: a cell whose proxy file is not written.
+void add_proxies(const StreamProject& p, double maxDistance22 = 0.0, const std::string& missing = "") {
+    auto text = fs::read_text((p.dir / "worlds/grid.world.json").generic_string());
+    REQUIRE(text.ok());
+    Json index = parse_json(text.value(), "grid.world.json").value();
+    for (Json& c : index["cells"]) {
+        const int i = c["coord"][0].get<int>(), j = c["coord"][1].get<int>();
+        const std::string name = "hlod/" + std::to_string(i) + "_" + std::to_string(j) + ".glb";
+        Json h = Json::object({{"mesh", name}});
+        if (i == 2 && j == 2 && maxDistance22 > 0.0) h["maxDistance"] = maxDistance22;
+        c["hlod"] = h;
+        if (std::to_string(i) + "," + std::to_string(j) != missing) p.write(name, "glTF placeholder " + name);
+    }
+    p.write("worlds/grid.world.json", dump_json(index));
+}
+
+bool alive_id(Engine& e, const char* id) { return e.world().alive(e.world().find_by_id(id)); }
+
+// Frames until the number of proxies shown is `want` (a cap far above what it needs).
+void wait_shown(Engine& e, int want) {
+    for (int f = 0; f < 400; ++f) {
+        e.step(1);
+        if (call(e, "world.stream_status")["hlodProxiesShown"].get<int>() == want) return;
+    }
+    FAIL("proxies shown: wanted " << want << ", status " << call(e, "world.stream_status").dump());
+}
+
+// Collects the messages of the log that mention an HLOD proxy.
+struct ProxyLog {
+    std::shared_ptr<std::vector<std::string>> lines = std::make_shared<std::vector<std::string>>();
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    int id = 0;
+    ProxyLog() {
+        auto l = lines;
+        auto m = lock;
+        id = add_log_sink([l, m](const LogEntry& entry) {
+            if (entry.message.find("HLOD proxy") == std::string::npos) return;
+            std::lock_guard<std::mutex> g(*m);
+            l->push_back(entry.message);
+        });
+    }
+    ~ProxyLog() { remove_log_sink(id); }
+    std::vector<std::string> get() const {
+        std::lock_guard<std::mutex> g(*lock);
+        return *lines;
+    }
+};
+
+}  // namespace
+
+TEST_CASE(
+    "streaming hlod: cells that are not loaded show their proxy within hlodDistance, and hide it when the cell loads") {
+    for (const std::string& mode : kModes) {
+        INFO("jobThreads " << mode);
+        StreamProject p;
+        add_proxies(p, 150.0);
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(mode), nullptr, &err), err);
+        settle(e);
+        // hlodDistance 0 (the default): nothing is drawn for the cells that are not loaded, and nothing is read.
+        e.step(10);
+        CHECK(streamed(e).hlodDistance == 0.0f);
+        CHECK_FALSE(alive_id(e, "hlod_1_1"));
+        Json s = call(e, "world.stream_status");
+        CHECK(s["hlodProxyLoadsStarted"].get<int>() == 0);
+        CHECK(s["hlodProxiesShown"].get<int>() == 0);
+
+        // The anchor is at (50, 50): [0,0], [0,1], [1,0] are loaded. Within 250 m and not loaded: [1,1] (71 m), [2,0] and [0,2] (150 m),
+        // [2,1] and [1,2] (158 m); [2,2] is 212 m away but its own hlod.maxDistance is 150: the nearer of the two wins.
+        streamed(e).hlodDistance = 250.0f;
+        wait_shown(e, 5);
+        for (const char* id : {"hlod_1_1", "hlod_2_0", "hlod_0_2", "hlod_2_1", "hlod_1_2"}) CHECK(alive_id(e, id));
+        CHECK_FALSE(alive_id(e, "hlod_2_2"));
+        for (const char* id : {"hlod_0_0", "hlod_0_1", "hlod_1_0"})
+            CHECK_FALSE(alive_id(e, id));  // loaded: not drawn twice
+        const Entity proxy = e.world().find_by_id("hlod_1_1");
+        CHECK(e.world().info(proxy).name == "hlod 1,1");
+        CHECK(e.world().info(proxy).streamedProxy);
+        CHECK_FALSE(e.world().info(proxy).streamedCell);
+        REQUIRE(e.world().get<MeshRenderer>(proxy) != nullptr);
+        CHECK(e.world().get<MeshRenderer>(proxy)->mesh == "hlod/1_1.glb");
+        const DVec3 corner = e.world().absolute_position(proxy);  // the mesh is in the space of the cell's corner
+        CHECK(corner.x == doctest::Approx(100.0));
+        CHECK(corner.y == doctest::Approx(0.0));
+        CHECK(corner.z == doctest::Approx(100.0));
+        // Never saved, and listed with its state.
+        CHECK(save_scene(e.world()).dump().find("hlod_1_1") == std::string::npos);
+        Json cells = call(e, "world.cells");
+        std::string state11, state22;
+        for (const Json& c : cells["cells"]) {
+            if (c["id"] == "1,1") state11 = c["proxy"].get<std::string>();
+            if (c["id"] == "2,2") state22 = c["proxy"].get<std::string>();
+        }
+        CHECK(state11 == "shown");
+        CHECK(state22 == "none");
+        s = call(e, "world.stream_status");
+        CHECK(s["hlodDistance"].get<double>() == 250.0);
+        CHECK(s["hlodProxiesFailed"].get<int>() == 0);
+
+        // The anchor walks to [1, 1]: the cell loads and its proxy goes in the same frame its entities come: no frame has both, and none
+        // has neither once the proxy was ready.
+        move(e, "anchor", 150, 0, 150);
+        bool bothSeen = false, neitherSeen = false, loadedYet = false;
+        for (int f = 0; f < 400 && !loadedYet; ++f) {
+            e.step(1);
+            const bool cellIn = alive_id(e, "floor_1_1");
+            const bool proxyIn = alive_id(e, "hlod_1_1");
+            if (cellIn && proxyIn) bothSeen = true;
+            if (!cellIn && !proxyIn) neitherSeen = true;
+            loadedYet = cellIn;
+        }
+        REQUIRE(loadedYet);
+        CHECK_FALSE(bothSeen);
+        CHECK_FALSE(neitherSeen);
+        settle(e);
+        // [0,0] left the load range (70.7 m < 80: it stays); walk on so a loaded cell unloads and gets its proxy at once.
+        move(e, "anchor", 290, 0, 290);
+        bool gapSeen = false, unloaded = false;
+        for (int f = 0; f < 400 && !unloaded; ++f) {
+            e.step(1);
+            const bool cellIn = alive_id(e, "floor_1_1");
+            const bool proxyIn = alive_id(e, "hlod_1_1");
+            if (cellIn && proxyIn) bothSeen = true;
+            if (!cellIn && !proxyIn) gapSeen = true;
+            unloaded = !cellIn && proxyIn;
+        }
+        CHECK(unloaded);
+        CHECK_FALSE(bothSeen);
+        CHECK_FALSE(gapSeen);
+        // Turning hlodDistance off hides every proxy.
+        streamed(e).hlodDistance = 0.0f;
+        e.step(5);
+        CHECK(call(e, "world.stream_status")["hlodProxiesShown"].get<int>() == 0);
+        CHECK_FALSE(alive_id(e, "hlod_1_1"));
+        e.shutdown();
+    }
+}
+
+TEST_CASE("streaming hlod: a proxy follows the floating origin and keeps its absolute corner") {
+    StreamProject p;
+    add_proxies(p);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    streamed(e).hlodDistance = 250.0f;
+    settle(e);
+    wait_shown(e, 6);
+    e.world().rebase(Vec3{4096, 0, 4096});
+    e.step(3);
+    const Entity proxy = e.world().find_by_id("hlod_2_0");
+    REQUIRE(e.world().alive(proxy));
+    const DVec3 abs = e.world().absolute_position(proxy);
+    CHECK(abs.x == doctest::Approx(200.0));
+    CHECK(abs.z == doctest::Approx(0.0));
+    CHECK(double(e.world().world_position(proxy).x) == doctest::Approx(200.0 - 4096.0));
+    // A proxy made after the rebase is placed from the origin as it is then: the anchor walks to the absolute (290, 0, 290), [0, 0]
+    // unloads and its proxy appears at its absolute corner.
+    e.world().get<Transform>(e.world().find_by_id("anchor"))->position = e.world().to_local(DVec3{290, 0, 290});
+    for (int f = 0; f < 400 && !alive_id(e, "hlod_0_0"); ++f) e.step(1);
+    REQUIRE(alive_id(e, "hlod_0_0"));
+    const DVec3 later = e.world().absolute_position(e.world().find_by_id("hlod_0_0"));
+    CHECK(later.x == doctest::Approx(0.0));
+    CHECK(later.z == doctest::Approx(0.0));
+    e.shutdown();
+}
+
+TEST_CASE("streaming hlod: a proxy that cannot be read is reported once and the cell draws nothing") {
+    StreamProject p;
+    add_proxies(p, 0.0, "2,0");
+    ProxyLog log;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    streamed(e).hlodDistance = 250.0f;
+    wait_shown(e, 5);  // [1,1], [0,2], [2,1], [1,2] and [2,2]; [2,0] is the one that cannot be read
+    for (int f = 0; f < 200; ++f) e.step(1);
+    CHECK_FALSE(alive_id(e, "hlod_2_0"));
+    const Json s = call(e, "world.stream_status");
+    CHECK(s["hlodProxiesFailed"].get<int>() == 1);
+    int mentions = 0;
+    for (const std::string& line : log.get())
+        if (line.find("cell 2,0") != std::string::npos && line.find("hlod/2_0.glb") != std::string::npos) ++mentions;
+    CHECK(mentions == 1);
+    const Json cells = call(e, "world.cells");
+    for (const Json& c : cells["cells"])
+        if (c["id"] == "2,0") CHECK(c["proxy"] == "failed");
+    // The cell itself still streams: walking into it loads it.
+    move(e, "anchor", 250, 0, 50);
+    settle(e);
+    CHECK(alive_id(e, "floor_2_0"));
+    e.shutdown();
+}
+
+TEST_CASE("streaming hlod: a scene change drops the proxies and a disabled streamer shows none") {
+    StreamProject p;
+    add_proxies(p);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    streamed(e).hlodDistance = 250.0f;
+    wait_shown(e, 6);
+    streamed(e).enabled = false;
+    e.step(5);
+    CHECK(call(e, "world.stream_status")["hlodProxiesShown"].get<int>() == 0);
+    CHECK_FALSE(alive_id(e, "hlod_1_1"));
+    streamed(e).enabled = true;
+    wait_shown(e, 6);
+    call(e, "scene.load", Json::object({{"path", "scenes/other.scene.json"}}));
+    e.step(5);
+    CHECK_FALSE(alive_id(e, "hlod_1_1"));
+    CHECK(call(e, "world.stream_status")["hlodProxiesShown"].get<int>() == 0);
+    e.shutdown();
 }

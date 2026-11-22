@@ -34,6 +34,10 @@
 // entry in the history and survives reset(); the streamer that started it cancels it (cancel(id) also gives back the files it
 // kept warm: call it once the cell is applied).
 //
+// HLOD proxies of a streamed world (Kind::HlodLoad, M75 P1e) are one-file asset jobs (a .glb the renderer decodes into its mesh cache) that
+// belong to the streamer like a cell job: they survive reset(), leave no history and no Update, and their end comes in Frame::cells
+// with `proxy` set, no scene, and `error` set when the file could not be read or decoded (cancel(id) gives back what it kept warm).
+//
 // Main thread only. Results never outlive the loader: a decode still running when it stops is thrown away.
 #pragma once
 
@@ -61,7 +65,7 @@ public:
     static constexpr std::size_t kHistory = 16;     // finished jobs load.status still answers for
     static constexpr int kMaxReplayUnits = 100000;  // the most units a replay entry may ask for in one frame
 
-    enum class Kind { ScenePreload, Assets, SceneLoad, CellLoad };
+    enum class Kind { ScenePreload, Assets, SceneLoad, CellLoad, HlodLoad };
     enum class Origin { Script, Tool };  // who started it: a script (its handle gets the updates) or a command
 
     struct Budget {
@@ -87,9 +91,11 @@ public:
         std::uint64_t traceTag = 0;
         Origin origin = Origin::Tool;
     };
-    // A cell job that ended this frame (Kind::CellLoad): `scene` is its parsed scene file, or null with `error` set.
+    // A cell job that ended this frame (Kind::CellLoad): `scene` is its parsed scene file, or null with `error` set. A proxy job
+    // (Kind::HlodLoad) ends the same way with `proxy` set: its model is in the renderer's cache when `error` is empty.
     struct CellResult {
         int id = 0;
+        bool proxy = false;
         std::string path;
         std::shared_ptr<const Json> scene;
         std::uint64_t bytes = 0;

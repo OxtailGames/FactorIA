@@ -253,12 +253,18 @@ Result<IoFile> warm_read(BackgroundLoader::Shared& sh, const std::string& path, 
     return IoFile{file, {}};
 }
 
+// Jobs a streamer owns (world_streamer.h): no script hears of them, they leave no history and survive reset().
+bool streamer_owned(BackgroundLoader::Kind k) {
+    return k == BackgroundLoader::Kind::CellLoad || k == BackgroundLoader::Kind::HlodLoad;
+}
+
 const char* kind_name(BackgroundLoader::Kind k) {
     switch (k) {
         case BackgroundLoader::Kind::ScenePreload: return "scene.preload";
         case BackgroundLoader::Kind::Assets: return "assets.preload";
         case BackgroundLoader::Kind::SceneLoad: return "scene.load";
         case BackgroundLoader::Kind::CellLoad: return "cell.load";
+        case BackgroundLoader::Kind::HlodLoad: return "hlod.load";
     }
     return "?";
 }
@@ -289,16 +295,16 @@ Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& p
                                     Origin origin, LoadTrace* trace) {
     const char* api = kind_name(kind);
     std::vector<std::string> roots;
+    const bool files = kind == Kind::Assets || kind == Kind::HlodLoad;  // jobs that name asset files, not a scene
     if (paths.empty())
         return make_error(std::string(api) + ": no file was given",
-                          kind == Kind::Assets
-                              ? "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"]."
-                              : "Pass the project-relative path of a scene file, e.g. \"scenes/level1.scene.json\".");
+                          files ? "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"]."
+                                : "Pass the project-relative path of a scene file, e.g. \"scenes/level1.scene.json\".");
     for (const std::string& p : paths) {
         auto n = fs::normalize_checked(p);
         if (!n) return make_error(std::string(api) + ": " + n.error().message, n.error().hint);
         const std::string path = n.value();
-        if (kind != Kind::Assets) {
+        if (!files) {
             if (!fs::exists(path) || fs::is_directory(path)) {
                 const std::string dir = kind == Kind::CellLoad ? fs::parent(path) : std::string();
                 std::vector<std::string> scenes = fs::list(dir.empty() ? "scenes" : dir, true, ".json");
@@ -322,7 +328,7 @@ Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& p
             }
         }
         roots.push_back(path);
-        if (kind != Kind::Assets) break;  // one scene
+        if (kind != Kind::Assets) break;  // one scene (or one proxy model)
     }
     if (kind == Kind::SceneLoad) cancel_scene_loads(trace);  // the last request wins
     Job job;
@@ -342,7 +348,7 @@ void BackgroundLoader::submit_scan(Job& job) {
     auto sh = std::make_shared<Shared>();
     job.scanShared = sh;
     const std::vector<std::string> roots = job.roots;
-    const bool isScene = job.kind != Kind::Assets;
+    const bool isScene = job.kind != Kind::Assets && job.kind != Kind::HlodLoad;
     const bool keepRoot = job.kind == Kind::CellLoad;
     job.scanTicket = io_.submit([] { return Result<IoFile>(IoFile{}); },
                                 [sh, roots, isScene, keepRoot](IoFile&) -> IoResult {
@@ -528,6 +534,11 @@ void BackgroundLoader::run_unit(Job& job, Renderer* renderer, Audio* audio, std:
         audio->adopt_clip(u.path, std::static_pointer_cast<const void>(r.value), std::move(r.files));
         adopted = audio->clip_loaded(u.path);
     }
+    // A proxy that did not reach the renderer's mesh cache would be drawn as a placeholder: the streamer is told it failed instead.
+    if (job.kind == Kind::HlodLoad && job.error.empty() && u.kind == UnitKind::Render && renderer && !adopted) {
+        job.error = "the model '" + u.path + "' could not be decoded" + (r.ok || r.error.empty() ? "" : ": " + r.error);
+        job.hint = "Check that it is a valid glTF binary (world.bake_cell_hlods writes one); the log names the reason.";
+    }
     // In a cache: its warm bytes are not needed any more. A file that failed to decode stays warm: its load on first use
     // reads it from memory and reports the problem as it always does.
     if (adopted)
@@ -634,7 +645,7 @@ bool BackgroundLoader::cancel(int id, LoadTrace* trace) {
         abandon(job);
         job.cancelled = true;
         if (job.kind == Kind::SceneLoad && trace) trace->load_cancelled(job.tag);
-        if (job.kind != Kind::CellLoad) {  // a cell is its streamer's business: no script hears of it
+        if (!streamer_owned(job.kind)) {  // a cell or a proxy is its streamer's business: no script hears of it
             pending_.push_back(update_of(job));
             remember(job);
         }
@@ -654,7 +665,7 @@ int BackgroundLoader::cancel_scene_loads(LoadTrace* trace) {
 void BackgroundLoader::reset(LoadTrace* trace) {
     std::vector<int> ids;
     for (const Job& j : jobs_)
-        if (j.kind != Kind::CellLoad) ids.push_back(j.id);
+        if (!streamer_owned(j.kind)) ids.push_back(j.id);
     for (int id : ids) cancel(id, trace);
     pending_.clear();
     for (const auto& entry : kept_)
@@ -744,9 +755,29 @@ BackgroundLoader::Frame BackgroundLoader::tick(Renderer* renderer, Audio* audio,
         const bool isDone = job.finished();
         if (isDone && job.error.empty()) job.progress = 1.0;
         const bool isCell = job.kind == Kind::CellLoad;
-        if (touched.count(job.id) && !isCell) frame.updates.push_back(update_of(job));
+        const bool isProxy = job.kind == Kind::HlodLoad;
+        if (touched.count(job.id) && !isCell && !isProxy) frame.updates.push_back(update_of(job));
         if (!isDone) {
             ++it;
+            continue;
+        }
+        if (isProxy) {
+            CellResult res;
+            res.id = job.id;
+            res.proxy = true;
+            res.path = job.roots.front();
+            res.bytes = job.bytes;
+            res.error = job.error;
+            res.hint = job.hint;
+            frame.cells.push_back(std::move(res));
+            if (!job.error.empty()) {
+                abandon(job);
+            } else {
+                Kept& k = kept_[job.id];  // given back when the streamer cancels the id
+                for (const std::string& f : job.warmed) k.files.insert(f);
+                job.warmed.clear();
+            }
+            it = jobs_.erase(it);
             continue;
         }
         if (isCell) {

@@ -47,7 +47,8 @@ void register_big_world_commands(Engine& engine, Engine::Impl& impl);
 void register_tilemap_split_commands(Engine& engine, Engine::Impl& impl);
 // world_split_commands.cpp: world.split_cells, world.merge_cells (a scene cut into the cells of a streamed world and back).
 void register_world_split_commands(Engine& engine, Engine::Impl& impl);
-// hlod_commands.cpp: world.bake_hlod (the merged, simplified proxy mesh of a LodGroup).
+// hlod_commands.cpp: world.bake_hlod (the merged, simplified proxy mesh of a LodGroup), world.bake_cell_hlods (one proxy per cell
+// of a world index).
 void register_hlod_commands(Engine& engine, Engine::Impl& impl);
 // terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
 // terrain.undo, terrain.redo.
