@@ -56,7 +56,7 @@ constexpr CategoryPurpose kPurposes[] = {
     {"sign", "Sign the exported macOS app and Windows package."},
     {"skills", "List, read and create skills (topic guides)."},
     {"ui", "UI checks and helpers: layout overflow, captions, touch interface, focus."},
-    {"world", "Big worlds (planned, M75): floating origin, streamed cells, terrain and foliage (docs/BIG_WORLDS.md)."},
+    {"world", "Big worlds (M75): streamed cells are built (world_cells, world_stream_status); the floating origin, terrain and foliage are planned (docs/BIG_WORLDS.md)."},
 };
 
 const char* purpose_of(const std::string& category) {

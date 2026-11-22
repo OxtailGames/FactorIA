@@ -1,8 +1,11 @@
 // The runtime commands of the big worlds of M75 (docs/BIG_WORLDS.md): the floating origin (world.origin, world.rebase) and the
 // streamed cells (world.cells, world.stream_status). M75-P0 registers them so the names, arguments and docs are fixed before the
 // packages that build them: each one fails with `not_built` and names the package that fills it in. The later packages replace the
-// handler and keep the name, the schema and the description (they may only add to them).
+// handler and keep the name, the schema and the description (they may only add to them). world.cells and world.stream_status are built
+// (M75.3, the streamer in world_streamer.h); world.origin and world.rebase are still stubs.
 #include "engine_impl.h"
+#include <algorithm>
+
 #include "fa/core/capability.h"
 
 namespace fa {
@@ -48,18 +51,51 @@ void register_world_commands(Engine& engine, Engine::Impl& I) {
                "offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"The new origin: world metres [x, y, z] as doubles."},
                "entity":{"type":"string","description":"Centre the origin on this entity's world position (an entity id)."}}})",
              "M75.4", false);
-    add_stub(I, "world.cells", "List the cells of the streamed world and which are loaded.",
-             "Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: {min, max}, "
-             "state: \"unloaded\" | \"loading\" | \"loaded\" | \"unloading\", entities, distance}]}, sorted by distance to the nearest "
-             "StreamingAnchor. `state` filters the list. Read-only. Example: world.cells {\"state\":\"loaded\"}",
-             R"({"type":"object","properties":{
-               "state":{"type":"string","enum":["unloaded","loading","loaded","unloading"],"description":"Only the cells in this state."}}})",
-             "M75.3");
-    add_stub(I, "world.stream_status", "Read what the world streaming is doing: loads in flight, budget, cells loaded.",
-             "Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, frameBudgetMs, "
-             "pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player are in. "
-             "Read-only. Result: the fields above. Example: world.stream_status {}",
-             R"({"type":"object","properties":{}})", "M75.3");
+    I.commands.add(
+        {"world.cells", "List the cells of the streamed world and which are loaded.",
+         "Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS.md, \"Streaming\"): {world, dimension, cellSize, total, "
+         "matching, truncated, cells: [{id, coord: [i, j], scene, bounds: {min, max}, state: \"unloaded\" | \"queued\" | \"loading\" | "
+         "\"loaded\" | \"unloading\", entities (under the cell's root, 0 unless loaded), distance (metres on the plane to the nearest enabled "
+         "StreamingAnchor, null with none), sizeBytes?, failed?}]}, sorted by distance (cells with no distance last, then by [j, i]). `state` "
+         "keeps one state, `limit` caps the list (default 1000; `total` and `matching` count them all). Reads the index at once when the "
+         "streamer has not (a StreamedWorld with a wrong index answers `error`). Read-only. Example: world.cells {\"state\":\"loaded\"}",
+         parse_schema(R"({"type":"object","properties":{
+               "state":{"type":"string","enum":["unloaded","queued","loading","loaded","unloading"],"description":"Only the cells in this state."},
+               "limit":{"type":"integer","minimum":1,"maximum":100000,"description":"The most cells to list (default 1000)."}}})"),
+         true, "world"},
+        [&I](const Json& args) -> Json {
+            if (!I.streamer) throw CommandError("not_running", "world.cells needs a running engine.", "Start the engine (Engine::init) first.");
+            const std::string state = args.contains("state") && args["state"].is_string() ? args["state"].get<std::string>() : std::string();
+            std::size_t limit = 1000;
+            if (args.contains("limit") && args["limit"].is_number()) {
+                const double v = args["limit"].get<double>();
+                limit = std::size_t(std::clamp(v, 1.0, 100000.0));
+            }
+            Json out = I.streamer->cells(state, limit);
+            if (out.contains("error"))
+                throw CommandError("no_streamed_world", out["error"].get<std::string>(),
+                                   "Put a StreamedWorld component with `world` set to a <name>.world.json on an entity of the scene "
+                                   "(docs.read BIG_WORLDS, \"Streaming\"), then call this again.");
+            return out;
+        });
+    I.commands.add(
+        {"world.stream_status", "Read what the world streaming is doing: loads in flight, budget, cells loaded.",
+         "Returns {enabled, world, cellsTotal, cellsLoaded, cellsLoading (jobs started and not applied yet), cellsQueued, cellsUnloading, "
+         "inFlight, waitingToApply (read and parsed, not added to the world yet), anchors (enabled StreamingAnchor entities, and the camera "
+         "with cameraLoadRadius), loadsStarted, loadsCancelled, cellsApplied, unloadsDone, bytesLoaded, appliedThisFrame, "
+         "unloadedThisFrame, unitsThisFrame (the BackgroundLoader units of the last frame), maxLoadsInFlight, maxAppliesPerFrame, "
+         "budget: {mode: \"units\" (exact, the same on every machine) | \"timed\", units | ms}, pending: [ids of the cells loading, then "
+         "the queued ones, in the order they will be applied], lastError}. A game or a test waits until the cells around the player are in "
+         "(pending empty and cellsUnloading 0). Read-only. Example: world.stream_status {}",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "world"},
+        [&I](const Json&) -> Json {
+            if (!I.streamer) throw CommandError("not_running", "world.stream_status needs a running engine.", "Start the engine (Engine::init) first.");
+            Json out = I.streamer->status();
+            const bool exact = I.replaying || !((I.windowed && !I.cfg.editorMode) || I.cfg.timedLoads);
+            out["budget"] = exact ? Json::object({{"mode", "units"}, {"units", BackgroundLoader::kFixedUnitsPerFrame}})
+                                  : Json::object({{"mode", "timed"}, {"ms", I.project.loadBudgetMs}});
+            return out;
+        });
     declare_command_capabilities(I.commands, {{"world.origin", capability_sets::reads()},
                                               {"world.rebase", capability_sets::changes_state()},
                                               {"world.cells", capability_sets::reads()},
