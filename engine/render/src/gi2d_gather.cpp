@@ -177,7 +177,8 @@ Gi2dSettings gi2d_settings(World& world) {
     return out;
 }
 
-Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dSettings& s) {
+Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dSettings& s, double originX,
+                           double originY) {
     Gi2dGeometry g;
     if (!(visible.w > 0.0f) || !(visible.h > 0.0f) || !std::isfinite(visible.x + visible.y + visible.w + visible.h) ||
         !(pixelsPerUnit > 0.0f) || !std::isfinite(pixelsPerUnit))
@@ -204,8 +205,9 @@ Gi2dGeometry gi2d_geometry(const Rect& visible, float pixelsPerUnit, const Gi2dS
     };
     g.width = stepped(cw);
     g.height = stepped(ch);
-    g.originX = std::floor((double(visible.x) - margin) / texel) * texel;
-    g.originY = std::floor((double(visible.y) - margin) / texel) * texel;
+    // Snapped in absolute space (local + floating origin), then given back in local coordinates: with no origin it is the plain snap.
+    g.originX = std::floor((double(visible.x) - margin + originX) / texel) * texel - originX;
+    g.originY = std::floor((double(visible.y) - margin + originY) / texel) * texel - originY;
     // kGi2dFieldImages images of the field's size alive together, 8 bytes a texel (never near 2^64: the sides are at most 2048).
     g.bytes = std::uint64_t(g.width) * std::uint64_t(g.height) * 8u * std::uint64_t(kGi2dFieldImages);
     g.valid = true;

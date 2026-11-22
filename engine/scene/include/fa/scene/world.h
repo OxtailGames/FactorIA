@@ -414,6 +414,9 @@ public:
     using OriginCallback = std::function<void(const DVec3& offset)>;
     int on_origin_shifted(OriginCallback cb);
     void remove_origin_observer(int id);
+    // Expires when this World is destroyed: a system that registered an origin observer and may outlive the world (the renderer, which
+    // serves whatever world it is given) asks it before remove_origin_observer, so it never touches a dead world.
+    std::weak_ptr<const void> lifetime() const { return lifetime_; }
 
     // Observers (physics/audio/script systems release resources, editor refreshes).
     using EntityCallback = std::function<void(Entity)>;
@@ -461,6 +464,7 @@ private:
     std::uint64_t rebaseCount_ = 0;
     std::vector<std::pair<int, OriginCallback>> originObservers_;
     int nextOriginObserver_ = 1;
+    std::shared_ptr<const void> lifetime_ = std::make_shared<char>(0);
 };
 
 }  // namespace fa
