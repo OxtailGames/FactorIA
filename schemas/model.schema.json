@@ -90,6 +90,77 @@
           },
           "description": "LOD1, LOD2... in order, each simpler than the last. Every submesh keeps its borders, so parts do not come apart."
         },
+        "lodChain": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "An automatic chain of LODs (alternative to `lods`; both is an error): `levels` simplified copies, each keeping `ratios[i]` of the triangles of the level above, written as <name>.lodN.glb and wired into the prefab's MeshRenderer with lodMode screenSize and `screenSizes`. Levels that would fall under `minTriangles` are skipped. Deterministic.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Make the chain."
+            },
+            "levels": {
+              "type": "integer",
+              "minimum": 1.0,
+              "maximum": 7.0,
+              "description": "How many lower levels besides the full mesh. Default 3."
+            },
+            "ratios": {
+              "type": "array",
+              "maxItems": 7,
+              "items": {
+                "type": "number",
+                "minimum": 0.001,
+                "maximum": 1.0
+              },
+              "description": "Per level, the share of the level above's triangles it keeps. Default 0.5 each."
+            },
+            "errors": {
+              "type": "array",
+              "maxItems": 7,
+              "items": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1000.0
+              },
+              "description": "Per level, the most the surface may move in metres (0 = no limit). Default none."
+            },
+            "screenSizes": {
+              "type": "array",
+              "maxItems": 7,
+              "items": {
+                "type": "number",
+                "minimum": 0.0001,
+                "maximum": 1.0
+              },
+              "description": "Per level, the screen size (falling) below which it is drawn. Default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, 0.008."
+            },
+            "minTriangles": {
+              "type": "integer",
+              "minimum": 1.0,
+              "maximum": 1000000.0,
+              "description": "A level with fewer triangles than this, and the ones after it, are not made. Default 32."
+            },
+            "lockBorder": {
+              "type": "boolean",
+              "default": true,
+              "description": "Open edges (borders of the surface) do not move. The seams between parts are kept either way."
+            },
+            "normalWeight": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0,
+              "description": "How much bending a normal costs a collapse. Default 1."
+            },
+            "uvWeight": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0,
+              "description": "How much smearing a UV seam costs a collapse. Default 0.5."
+            }
+          }
+        },
         "collider": {
           "type": "object",
           "additionalProperties": false,

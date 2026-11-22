@@ -162,9 +162,13 @@ double reference_height(const std::string& projectDir, const std::string& ref, s
 
 Json model_import_clean_command(const std::string& projectDir, const Json& a) {
     check_arg_keys("model.import_clean", a, "",
-                   {"source", "out", "overwrite", "upAxis", "weldDistance", "removeFloating", "minPieceSize", "origin",
-                    "height", "reference", "scale", "platform", "triangles", "remesh", "remeshCells", "remeshVoxel",
-                    "unwrap", "texelsPerUnit", "bake"});
+                   {"source",         "out",          "overwrite",     "upAxis",   "weldDistance",
+                    "removeFloating", "minPieceSize", "origin",        "height",   "reference",
+                    "scale",          "platform",     "triangles",     "remesh",   "remeshCells",
+                    "remeshVoxel",    "unwrap",       "texelsPerUnit", "lodChain", "bake"});
+    if (a.contains("lodChain") && !a["lodChain"].is_null() && !a["lodChain"].is_object() && !a["lodChain"].is_boolean())
+        fail("invalid_argument", "/lodChain must be true or an object, got " + a["lodChain"].dump() + ".",
+             "Example: \"lodChain\": true, or {\"levels\": 3, \"screenSizes\": [0.5, 0.25, 0.1]}.");
     ModelCleanOptions o;
     // ---- arguments ----
     const std::string sourceArg = tooling_detail::arg_string(a, "source", true);
@@ -417,6 +421,12 @@ Json model_import_clean_command(const std::string& projectDir, const Json& a) {
         doc["uv"] = uv;
     }
     doc["nodes"] = Json::array({Json::object({{"op", "mesh"}, {"id", "mesh_1"}, {"source", meshRel}})});
+    if (a.contains("lodChain") && !a["lodChain"].is_null() && a["lodChain"] != false) {
+        // an automatic LOD chain (gameReady.lodChain): true takes the defaults, an object sets them; the document check reports a bad one
+        Json chain = a["lodChain"].is_object() ? a["lodChain"] : Json::object();
+        chain["enabled"] = true;
+        doc["gameReady"] = Json::object({{"lodChain", chain}});
+    }
     {
         std::vector<ModelIssue> issues;
         auto parsed = parse_model_doc(doc, docRel, &issues);
@@ -593,6 +603,13 @@ void register_model_import_clean_command(CommandRegistry& registry, const std::s
                                  {"auto", "always", "never"}, "auto")},
                {"texelsPerUnit",
                 num("Texels per metre of the unwrap (default the project's style guide, else 128).", 0)},
+               {"lodChain",
+                Json::object(
+                    {{"description",
+                      "true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, "
+                      "minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with "
+                      "the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS.md, "
+                      "\"Automatic LOD chain\"). Skinned meshes are not read, so the chain is of the static mesh."}})},
                {"bake", boolean("Bake the document to its .glb.", true)}})}});
     mark_paths(info.inputSchema, "read", {"source", "reference"});
     mark_paths(info.inputSchema, "write", {"out"});
