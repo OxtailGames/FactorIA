@@ -1,4 +1,4 @@
-// tilemap.split_cells: cuts the Tilemap of a scene file into a 2D streamed world (docs/BIG_WORLDS.md, "Tilemap chunks"): one
+// tilemap.split_cells: cuts the Tilemap of a scene file into a 2D streamed world (docs/BIG_WORLDS_STREAMING.md, "Tilemap chunks"): one
 // chunk scene per cell of a square grid of `cellSize` tiles, and the index `<name>.world.json` that lists them. It works on
 // the files (the scene is not loaded into the running world) and writes only new files: the source scene is never changed.
 #include <algorithm>
@@ -400,7 +400,7 @@ void register_tilemap_split_commands(Engine& engine, Engine::Impl& I) {
                     "A cell is `cellSize` x `cellSize` TILES of the map: cell [i, j] holds the columns from i * "
                     "cellSize and the rows counted from the "
                     "BOTTOM of the map from j * cellSize (the last cell of a row or column is smaller when the map "
-                    "does not divide). Details: docs/BIG_WORLDS.md, \"Tilemap chunks\". " FA_COMMAND_DETAILS
+                    "does not divide). Details: docs/BIG_WORLDS_STREAMING.md, \"Tilemap chunks\". " FA_COMMAND_DETAILS
                     "Each chunk is "
                     "an entity `<id>_<i>_<j>` with the same Tilemap fields (tileset, tileSize, solidTiles, terrains, "
                     "layer, light fields...) and the "

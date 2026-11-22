@@ -608,7 +608,7 @@ void register_model_import_clean_command(CommandRegistry& registry, const std::s
                     {{"description",
                       "true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, "
                       "minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with "
-                      "the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS.md, "
+                      "the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS_LOD.md, "
                       "\"Automatic LOD chain\"). Skinned meshes are not read, so the chain is of the static mesh."}})},
                {"bake", boolean("Bake the document to its .glb.", true)}})}});
     mark_paths(info.inputSchema, "read", {"source", "reference"});

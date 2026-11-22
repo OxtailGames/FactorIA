@@ -1,4 +1,4 @@
-// M75.2 on a GPU: the occlusion culling in the renderer (src/renderer_occlusion.cpp; docs/BIG_WORLDS.md, "Occlusion"). A wall Occluder hides
+// M75.2 on a GPU: the occlusion culling in the renderer (src/renderer_occlusion.cpp; docs/BIG_WORLDS_LOD.md, "Occlusion"). A wall Occluder hides
 // the meshes behind it from the main pass, the picture is the one the scene draws without the culling, the shadow passes are not culled, a
 // scene with no enabled Occluder takes the old path (the counters stay 0) and render.occlusion reports what happened.
 #include "test_util.h"

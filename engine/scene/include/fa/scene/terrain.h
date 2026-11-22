@@ -1,4 +1,4 @@
-// The CPU side of the Terrain component (components_world.h, Terrain3D; M75.5, docs/BIG_WORLDS.md "Terrain"): the heights of a
+// The CPU side of the Terrain component (components_world.h, Terrain3D; M75.5, docs/BIG_WORLDS_TERRAIN.md "Terrain"): the heights of a
 // heightmap, loaded once and shared by everything that needs them. The renderer uploads them to a texture and picks the tiles to
 // draw (fa_render renderer_terrain.cpp), physics builds a heightfield collider from them (fa_physics), the sculpt commands of the
 // editor write into them, and foliage scattering and scripts sample them: nobody reads the heightmap file a second time.
@@ -74,7 +74,7 @@ struct TerrainStep {
     std::size_t bytes() const;
 };
 
-// One RGBA8 splat map (weights, linear: NOT sRGB), see docs/BIG_WORLDS.md "Terrain data formats".
+// One RGBA8 splat map (weights, linear: NOT sRGB), see docs/BIG_WORLDS_TERRAIN.md "Terrain data formats".
 struct TerrainSplat {
     int size = 0;                    // texels per side (0 = no such map)
     std::vector<std::uint8_t> rgba;  // size * size * 4, row 0 = the -Z edge

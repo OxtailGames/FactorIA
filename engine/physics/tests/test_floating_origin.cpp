@@ -1,5 +1,5 @@
 // M75-P4a: a rebase in the middle of a physics simulation (World::rebase + Physics::origin_shifted) changes nothing in the world:
-// bodies fall, collide, sleep and are carried exactly as if the origin had never moved (docs/BIG_WORLDS.md "Floating origin").
+// bodies fall, collide, sleep and are carried exactly as if the origin had never moved (docs/BIG_WORLDS_STREAMING.md "Floating origin").
 #include <doctest.h>
 
 #include <cmath>

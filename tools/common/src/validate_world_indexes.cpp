@@ -1,4 +1,4 @@
-// project.validate: the world indexes (*.world.json, docs/BIG_WORLDS.md "Streaming") of the project: every one is read with
+// project.validate: the world indexes (*.world.json, docs/BIG_WORLDS_STREAMING.md "Streaming") of the project: every one is read with
 // load_world_index and EVERY cell's scene file is checked (the runtime streamer skips that check on a very big index).
 #include <algorithm>
 #include <cmath>
@@ -41,7 +41,7 @@ std::vector<std::string> list_world_indexes(const std::string& projectDir) {
     return out;
 }
 
-// The chunks of a 2D index (docs/BIG_WORLDS.md, "Tilemap chunks"): the Tilemap entities of the cell scenes must be one map cut in
+// The chunks of a 2D index (docs/BIG_WORLDS_STREAMING.md, "Tilemap chunks"): the Tilemap entities of the cell scenes must be one map cut in
 // pieces: the same tileset, tile size and tile layout, and positions on one tile grid. A chunk that sticks out of its cell is a
 // warning (it would draw over its neighbour's tiles). At most this many cells are read (a deterministic cap, never a time limit).
 constexpr std::size_t kMaxChunkChecks = 4096;
@@ -188,7 +188,7 @@ void check_world_indexes(const std::string& projectDir, std::vector<ValidationIs
         auto index = load_world_index(rel, options, &issues);
         if (issues.empty() && !index.ok()) {  // not readable or not JSON: the one message
             errors.push_back({rel, "", index.error().message,
-                              index.error().hint.empty() ? "Fix the file (docs/BIG_WORLDS.md \"Streaming\", "
+                              index.error().hint.empty() ? "Fix the file (docs/BIG_WORLDS_STREAMING.md \"Streaming\", "
                                                            "schemas/world.schema.json)."
                                                          : index.error().hint});
             continue;
@@ -197,7 +197,7 @@ void check_world_indexes(const std::string& projectDir, std::vector<ValidationIs
             check_tilemap_chunks(rel, index.value(), errors, warnings);
         for (const WorldIndexIssue& issue : issues) {
             ValidationIssue v{rel, issue.pointer, issue.message,
-                              issue.hint.empty() ? "See docs/BIG_WORLDS.md \"Streaming\" and schemas/world.schema.json."
+                              issue.hint.empty() ? "See docs/BIG_WORLDS_STREAMING.md \"Streaming\" and schemas/world.schema.json."
                                                  : issue.hint};
             (issue.error ? errors : warnings).push_back(std::move(v));
         }

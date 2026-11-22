@@ -1,4 +1,4 @@
-// model.generate_lods and the `gameReady.lodChain` setting (docs/BIG_WORLDS.md, "Automatic LOD chain"): the chain's files, the screen-size prefab, determinism,
+// model.generate_lods and the `gameReady.lodChain` setting (docs/BIG_WORLDS_LOD.md, "Automatic LOD chain"): the chain's files, the screen-size prefab, determinism,
 // the settings round trip, the errors that teach, and the levels a tiny mesh skips.
 #include <doctest.h>
 

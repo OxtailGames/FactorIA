@@ -1,4 +1,4 @@
-// Renderer::Impl, occlusion culling on the GPU with a hierarchical depth image (M75.2b; docs/BIG_WORLDS.md, "Occlusion"; the maths and what
+// Renderer::Impl, occlusion culling on the GPU with a hierarchical depth image (M75.2b; docs/BIG_WORLDS_LOD.md, "Occlusion"; the maths and what
 // a test can prove are in hiz.h). Every frame a camera that is culled this way draws its depth and normal prepass, a compute pass reduces
 // that image to a small grid of (nearest, farthest) depths in a storage buffer, and a ring of staging buffers brings the grid to the CPU
 // without waiting. The CPU builds the mip chain and tests the boxes of the meshes of the NEXT frames against it (the camera's pose of the

@@ -1249,7 +1249,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.";
         info.description =
-            "Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS.md, \"Automatic LOD chain\"): "
+            "Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS_LOD.md, \"Automatic LOD chain\"): "
             "`levels` "
             "(1..7) simplified copies of the mesh, deterministic (meshoptimizer), each keeping `ratios[i]` of the "
             "triangles of the level above (default 0.5) within `errors[i]` metres (`maxError` for all), drawn when "
@@ -1332,7 +1332,7 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "\"collider\":{\"shape\":\"convex\"}}" FA_COMMAND_DETAILS
             "`lodChain`: an automatic chain by screen size instead of `lods` (not both; null removes it): {enabled, "
             "levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, "
-            "uvWeight} (docs/BIG_WORLDS.md, \"Automatic LOD chain\"). "
+            "uvWeight} (docs/BIG_WORLDS_LOD.md, \"Automatic LOD chain\"). "
             "`collider.part` fits the collider to the submeshes of that named part only (a pine's \"trunk\", so the "
             "canopy does not block; "
             "it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and "

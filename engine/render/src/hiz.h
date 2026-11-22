@@ -1,4 +1,4 @@
-// Occlusion culling on the GPU with a hierarchical depth image (M75.2, docs/BIG_WORLDS.md, "Occlusion"): the pure part, the pyramid the
+// Occlusion culling on the GPU with a hierarchical depth image (M75.2, docs/BIG_WORLDS_LOD.md, "Occlusion"): the pure part, the pyramid the
 // CPU keeps and the test of a mesh's box against it. Private to fa_render; renderer_hiz.cpp drives it.
 //
 // Where the depth comes from. The depth and normal prepass of the camera (r = linear view depth in world units, a = 1 where an opaque mesh
