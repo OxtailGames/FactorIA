@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace fa::render {
 
@@ -21,16 +22,13 @@ float axis_len(const Mat4& m, int col) {
     return std::sqrt(m.at(col, 0) * m.at(col, 0) + m.at(col, 1) * m.at(col, 1) + m.at(col, 2) * m.at(col, 2));
 }
 
-float volume_of(const PortalAreaBox& a) {
-    return std::fabs(a.size.x) * axis_len(a.model, 0) * std::fabs(a.size.y) * axis_len(a.model, 1) *
-           std::fabs(a.size.z) * axis_len(a.model, 2);
+bool holds(const Mat4& inv, Vec3 size, Vec3 p) {
+    const Vec3 l = inv.transform_point(p);
+    return std::fabs(l.x) <= size.x * 0.5f && std::fabs(l.y) <= size.y * 0.5f && std::fabs(l.z) <= size.z * 0.5f;
 }
 
-bool inside(const PortalAreaBox& a, Vec3 p) {
-    if (!a.valid) return false;
-    const Vec3 l = a.inv.transform_point(p);
-    return std::fabs(l.x) <= a.size.x * 0.5f && std::fabs(l.y) <= a.size.y * 0.5f && std::fabs(l.z) <= a.size.z * 0.5f;
-}
+bool inside(const PortalAreaBox& a, Vec3 p) { return a.valid && holds(a.inv, a.size, p); }
+bool inside(const PortalBox& a, Vec3 p) { return a.valid && holds(a.inv, a.size, p); }
 
 // The screen rectangle of a portal's box, clipped at the camera plane. False when the box is wholly behind the camera or not finite.
 bool project_box(const PortalBox& p, const Mat4& viewProj, Rect& out) {
@@ -130,33 +128,67 @@ PortalAreaBox make_portal_area(std::int32_t id, const Mat4& model, Vec3 size, st
     return b;
 }
 
-std::int32_t portal_area_at(const std::vector<PortalAreaBox>& areas, Vec3 p) {
-    const PortalAreaBox* best = nullptr;
-    float bestVolume = 0;
-    for (const PortalAreaBox& a : areas) {
-        if (!inside(a, p)) continue;
-        const float v = volume_of(a);
-        if (!best || v < bestVolume || (v == bestVolume && a.entity < best->entity)) {
-            best = &a;
-            bestVolume = v;
-        }
-    }
-    return best ? best->id : 0;
+PortalBox make_portal_box(std::int32_t areaA, std::int32_t areaB, const Mat4& model, Vec3 size, bool open,
+                          std::uint64_t entity) {
+    PortalBox b;
+    b.areaA = areaA;
+    b.areaB = areaB;
+    b.model = model;
+    b.size = size;
+    b.open = open;
+    b.entity = entity;
+    b.valid = axis_len(model, 0) > 1e-6f && axis_len(model, 1) > 1e-6f && axis_len(model, 2) > 1e-6f &&
+              std::isfinite(size.x + size.y + size.z);
+    if (b.valid) b.inv = model.inverse();
+    return b;
 }
 
-std::vector<std::int32_t> portal_areas_of_point(const std::vector<PortalAreaBox>& areas, Vec3 p) {
+std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas, const std::vector<PortalBox>& portals,
+                                             Vec3 p) {
     std::vector<std::int32_t> out;
     for (const PortalAreaBox& a : areas)
         if (inside(a, p)) out.push_back(a.id);
+    for (const PortalBox& d : portals)
+        if (d.open && inside(d, p)) {
+            out.push_back(d.areaA);
+            out.push_back(d.areaB);
+        }
     if (out.empty()) out.push_back(0);
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
 }
 
-PortalWalk portal_walk(const std::vector<PortalBox>& portals, const Mat4& viewProj, std::int32_t startArea) {
+bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached, const Mat4& model,
+                      Vec3 bmin, Vec3 bmax) {
+    auto reachedId = [&](std::int32_t id) { return std::binary_search(reached.begin(), reached.end(), id); };
+    bool whollyInside = false;
+    for (const PortalAreaBox& a : areas) {
+        if (!a.valid) continue;
+        const Mat4 m = a.inv * model;  // model space of the mesh -> local space of the area
+        constexpr float inf = std::numeric_limits<float>::infinity();
+        Vec3 lo{inf, inf, inf}, hi{-inf, -inf, -inf};
+        for (int k = 0; k < 8; ++k) {
+            const Vec3 c = m.transform_point({(k & 1) ? bmax.x : bmin.x, (k & 2) ? bmax.y : bmin.y, (k & 4) ? bmax.z : bmin.z});
+            lo = {std::min(lo.x, c.x), std::min(lo.y, c.y), std::min(lo.z, c.z)};
+            hi = {std::max(hi.x, c.x), std::max(hi.y, c.y), std::max(hi.z, c.z)};
+        }
+        const Vec3 h = a.size * 0.5f;
+        if (!(lo.x <= h.x && hi.x >= -h.x && lo.y <= h.y && hi.y >= -h.y && lo.z <= h.z && hi.z >= -h.z)) continue;
+        if (reachedId(a.id)) return true;  // touches a room the camera sees
+        if (lo.x >= -h.x && hi.x <= h.x && lo.y >= -h.y && hi.y <= h.y && lo.z >= -h.z && hi.z <= h.z)
+            whollyInside = true;
+    }
+    return !whollyInside && reachedId(0);  // outside: in no box, or sticking out of every box it touches
+}
+
+PortalWalk portal_walk(const std::vector<PortalBox>& portals, const Mat4& viewProj,
+                       const std::vector<std::int32_t>& startAreas) {
     Walker w{portals, viewProj, {}, {}, {}, {}, 0, false};
-    w.visit(startArea, Rect{});
+    for (const std::int32_t start : startAreas) {
+        w.visit(start, Rect{});
+        if (w.capped) break;
+    }
     PortalWalk out;
     out.reached = std::move(w.reached);
     std::sort(out.reached.begin(), out.reached.end());

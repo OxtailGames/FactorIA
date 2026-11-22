@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
 
 #include "fa/core/strings.h"
 #include "portal_graph.h"
@@ -72,29 +73,16 @@ void Renderer::Impl::portal_cull_meshes(World& world, Frame& fr, std::vector<Mes
             bad = true;
         }
         if (bad) return;
-        PortalBox b;
-        b.areaA = p.areaA;
-        b.areaB = p.areaB;
-        b.model = world.drawn_matrix(e);
-        b.size = p.size;
-        b.open = p.open;
-        b.entity = e.bits();
-        portals.push_back(b);
+        portals.push_back(make_portal_box(p.areaA, p.areaB, world.drawn_matrix(e), p.size, p.open, e.bits()));
     });
 
-    const std::int32_t start = portal_area_at(areas, fr.cam.position);
-    const PortalWalk walk = portal_walk(portals, fr.cam.viewProj, start);
+    const PortalWalk walk = portal_walk(portals, fr.cam.viewProj, portal_start_areas(areas, portals, fr.cam.position));
     stats.portalsVisited += walk.portalsVisited;
     if (walk.capped) return;  // the walk was cut short: draw everything rather than hide what may be seen
     int culled = 0;
     for (MeshItem& mi : meshes) {
         if (!mi.visible || mi.noCull) continue;
-        const Vec3 centre = mi.model.transform_point((mi.bmin + mi.bmax) * 0.5f);
-        const std::vector<std::int32_t> in = portal_areas_of_point(areas, centre);
-        const bool seen = std::any_of(in.begin(), in.end(), [&](std::int32_t id) {
-            return std::binary_search(walk.reached.begin(), walk.reached.end(), id);
-        });
-        if (!seen) {
+        if (!portal_mesh_seen(areas, walk.reached, mi.model, mi.bmin, mi.bmax)) {
             mi.visible = false;
             ++culled;
         }
