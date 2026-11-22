@@ -218,7 +218,7 @@ TEST_CASE("tilemap.split_cells: writes the index and one chunk per cell, determi
     REQUIRE(info != nullptr);
     CHECK(info->category == "world");
     CHECK_FALSE(info->readOnly);
-    CHECK(info->description.find("Example") != std::string::npos);
+    CHECK(info->description.find("BIG_WORLDS") != std::string::npos);
 
     // dryRun reports and writes nothing
     const Json dry = call(e, "tilemap.split_cells",
