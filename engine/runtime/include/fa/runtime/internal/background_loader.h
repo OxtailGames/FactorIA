@@ -27,6 +27,13 @@
 // file, scripts, prefabs, files the renderer does not decode) stay through the first scene load after it finished and are
 // dropped at the second (or by cancel()), so memory stays bounded: about one scene's files beyond the one in use.
 //
+// CELLS of a streamed world (Kind::CellLoad, world_streamer.h) are jobs like a scene load, with three differences: starting one
+// cancels nothing (several run at once, their units share the frame's budget in start order), the SCAN also PARSES the cell's
+// scene file off the main thread and hands the parsed document over in Frame::cells (the main thread then only adds the entities to
+// the world), and nothing is switched: the streamer applies it. A cell job gives no Update (no script hears of it), leaves no
+// entry in the history and survives reset(); the streamer that started it cancels it (cancel(id) also gives back the files it
+// kept warm: call it once the cell is applied).
+//
 // Main thread only. Results never outlive the loader: a decode still running when it stops is thrown away.
 #pragma once
 
@@ -54,7 +61,7 @@ public:
     static constexpr std::size_t kHistory = 16;     // finished jobs load.status still answers for
     static constexpr int kMaxReplayUnits = 100000;  // the most units a replay entry may ask for in one frame
 
-    enum class Kind { ScenePreload, Assets, SceneLoad };
+    enum class Kind { ScenePreload, Assets, SceneLoad, CellLoad };
     enum class Origin { Script, Tool };  // who started it: a script (its handle gets the updates) or a command
 
     struct Budget {
@@ -80,9 +87,18 @@ public:
         std::uint64_t traceTag = 0;
         Origin origin = Origin::Tool;
     };
+    // A cell job that ended this frame (Kind::CellLoad): `scene` is its parsed scene file, or null with `error` set.
+    struct CellResult {
+        int id = 0;
+        std::string path;
+        std::shared_ptr<const Json> scene;
+        std::uint64_t bytes = 0;
+        std::string error, hint;
+    };
     struct Frame {
         std::vector<Update> updates;  // the jobs that changed (and those cancelled since the last tick)
         std::vector<SceneReady> scenes;
+        std::vector<CellResult> cells;  // cell jobs that ended, in start order
         int units = 0;  // units taken (what a recording keeps)
         std::uint64_t uploadedBytes = 0;
     };
@@ -105,7 +121,7 @@ public:
     // Cancels every job a script started (its JavaScript context is gone) and forgets their updates not delivered yet.
     void cancel_origin(Origin origin, LoadTrace* trace);
     // Cancels every job and drops every file this loader holds warm (a script test file starts afresh). Files another
-    // engine's loader holds stay warm.
+    // engine's loader holds stay warm. Cell jobs (Kind::CellLoad) keep running: their streamer owns them.
     void reset(LoadTrace* trace);
     // Cancels every job and drops its files; the IO thread lets go of this engine's files before it returns. The engine
     // then waits for its jobs owner (the decodes still running) and destroys the loader.
@@ -151,6 +167,7 @@ private:
         std::uint64_t bytes = 0, uploaded = 0;
         std::set<std::string> warmed;  // files this job holds warm
         std::string error, hint;
+        std::shared_ptr<const Json> root;  // Kind::CellLoad: the scene file, parsed by the scan
         bool cancelled = false;
         bool finished() const { return cancelled || !error.empty() || (scanned && nextTake >= units.size()); }
     };

@@ -1,0 +1,114 @@
+{
+  "format": "factoria.world/1",
+  "version": 1,
+  "dimension": "2d",
+  "cellSize": 100,
+  "origin": [
+    0,
+    0
+  ],
+  "cells": [
+    {
+      "coord": [
+        0,
+        0
+      ],
+      "scene": "cells2d/0_0.scene.json",
+      "bounds": {
+        "min": [
+          0,
+          0
+        ],
+        "max": [
+          100,
+          100
+        ]
+      }
+    },
+    {
+      "coord": [
+        1,
+        0
+      ],
+      "scene": "cells2d/1_0.scene.json",
+      "bounds": {
+        "min": [
+          100,
+          0
+        ],
+        "max": [
+          200,
+          100
+        ]
+      }
+    },
+    {
+      "coord": [
+        2,
+        0
+      ],
+      "scene": "cells2d/2_0.scene.json",
+      "bounds": {
+        "min": [
+          200,
+          0
+        ],
+        "max": [
+          300,
+          100
+        ]
+      }
+    },
+    {
+      "coord": [
+        0,
+        1
+      ],
+      "scene": "cells2d/0_1.scene.json",
+      "bounds": {
+        "min": [
+          0,
+          100
+        ],
+        "max": [
+          100,
+          200
+        ]
+      }
+    },
+    {
+      "coord": [
+        1,
+        1
+      ],
+      "scene": "cells2d/1_1.scene.json",
+      "bounds": {
+        "min": [
+          100,
+          100
+        ],
+        "max": [
+          200,
+          200
+        ]
+      }
+    },
+    {
+      "coord": [
+        2,
+        1
+      ],
+      "scene": "cells2d/2_1.scene.json",
+      "bounds": {
+        "min": [
+          200,
+          100
+        ],
+        "max": [
+          300,
+          200
+        ]
+      }
+    }
+  ]
+}

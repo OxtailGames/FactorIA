@@ -1,0 +1,11 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "nothing",
+      "components": {
+        "Transform": {}
+      }
+    }
+  ]
+}

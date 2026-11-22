@@ -39,6 +39,9 @@ struct EntityInfo {
     // Not serialized and not reflected: set on entities a script created at runtime (world.spawn, world.spawnPrefab).
     // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
     bool scriptSpawned = false;
+    // Not serialized and not reflected: true on the root entity of a streamed cell (engine/runtime world_streamer.h). The cell's
+    // content is its own file: scene.save and snapshots leave the whole subtree out, and the editor treats it as not part of this scene.
+    bool streamedCell = false;
     // Not serialized and not reflected: where the entity came from when a prefab made it. `prefab` is the project-relative
     // path of the prefab on the ROOT of an instance (a scene entry {"prefab": ...}, scene.spawn or instantiate_prefab) and
     // empty everywhere else. `fromPrefab` is true on the root of an instance and on every entity the prefab's own content
