@@ -118,7 +118,7 @@ TEST_CASE("cells: a loaded cell is a root with its entities at their absolute po
     CHECK(p.world().children(root).size() == 2);
     CHECK_FALSE(cells.load(p.world(), 7, 7, &err));
     CHECK(err.find("no cell 7,7") != std::string::npos);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_dirty(0, 0));
     CHECK_FALSE(cells.any_dirty());
@@ -133,7 +133,7 @@ TEST_CASE("cells: an edit marks the cell dirty, Undo to the saved state clears i
     const std::string before1 = p.read("worlds/w_cells/1_0.scene.json");
     const std::string indexBefore = p.read("worlds/w.world.json");
     p.move("a", 15, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), true);  // the mouse is dragging: the check waits
     CHECK_FALSE(cells.is_dirty(0, 0));
     cells.update(p.world(), false);
@@ -146,11 +146,11 @@ TEST_CASE("cells: an edit marks the cell dirty, Undo to the saved state clears i
     CHECK(cells.is_loaded(0, 0));
     // back to the saved value: clean again
     p.move("a", 10, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_dirty(0, 0));
     p.move("a", 15, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_MESSAGE(rep.ok, rep.error);
     REQUIRE(rep.written.size() == 1);
@@ -169,7 +169,7 @@ TEST_CASE("cells: Save moves an entity that crossed a border to the cell of its 
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     p.move("a", 150, 1, 30);  // now in cell [1,0]
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     std::int32_t i = -9, j = -9;
     REQUIRE(cells.cell_of_entity(p.world(), p.world().find_by_id("a"), i, j));
@@ -198,7 +198,7 @@ TEST_CASE("cells: a position in no cell of the index makes a new cell, listed in
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 1, 0, nullptr));
     p.move("b", 350, 4, 20);  // cell [3,0]
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_MESSAGE(rep.ok, rep.error);
     CHECK(rep.indexWritten);
@@ -218,7 +218,7 @@ TEST_CASE("cells: a cell's height bounds follow its entities, up and down, and o
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     p.move("a", 10, 50, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_MESSAGE(rep.ok, rep.error);
     CHECK(rep.indexWritten);
@@ -227,14 +227,14 @@ TEST_CASE("cells: a cell's height bounds follow its entities, up and down, and o
     CHECK(idx["cells"][0]["bounds"]["min"][1].get<double>() == doctest::Approx(1.0));
     // the entity comes back down: the bounds shrink with it (they are not a high-water mark)
     p.move("a", 10, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport down = cells.save(p.world());
     REQUIRE_MESSAGE(down.ok, down.error);
     CHECK(down.indexWritten);
     CHECK(index_of(p)["cells"][0]["bounds"]["max"][1].get<double>() == doctest::Approx(1.0));
     // an edit that leaves the range alone does not write the index
     p.move("a", 12, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport same = cells.save(p.world());
     REQUIRE_MESSAGE(same.ok, same.error);
     CHECK_FALSE(same.indexWritten);
@@ -252,7 +252,7 @@ TEST_CASE("cells: sizeBytes, when the index lists it, follows the file after a s
     REQUIRE(cells.load(p.world(), 1, 0, nullptr));
     p.move("a", 15, 1, 10);
     p.move("b", 160, 2, 20);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_MESSAGE(rep.ok, rep.error);
     CHECK(rep.indexWritten);
@@ -277,7 +277,7 @@ TEST_CASE("cells: a save the index would refuse changes nothing in the editor") 
     const std::string indexText = p.read("worlds/w.world.json");
     const Entity root = cells.root_of(0, 0);
     p.move("a", 4.0e7, 1, 10);  // cell [1000000, 0], the last one the index can name
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_FALSE(rep.ok);
     CHECK(rep.error.find("Nothing was saved") != std::string::npos);
@@ -294,7 +294,7 @@ TEST_CASE("cells: a save the index would refuse changes nothing in the editor") 
     CHECK(p.read("worlds/w.world.json") == indexText);
     // put the entity back in its cell and the same cells save normally
     p.move("a", 15, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     const CellSaveReport again = cells.save(p.world());
     REQUIRE_MESSAGE(again.ok, again.error);
     CHECK(again.written.size() == 1);
@@ -327,7 +327,7 @@ TEST_CASE("cells: an edit names its cell and only that one is checked first, the
     CHECK(cells.is_dirty(0, 1));  // ...and is found within a few updates
     CHECK(cells.dirty_count() == 2);
     // the cell root itself counts as its cell
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     p.move("c", 10, 3, 150);
     cells.note_edit(p.world(), cells.root_of(0, 1));
@@ -348,14 +348,14 @@ TEST_CASE("cells: deleting the root of a cell with unsaved changes keeps it unsa
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     REQUIRE(cells.load(p.world(), 1, 0, nullptr));
     p.move("a", 15, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     REQUIRE(cells.is_dirty(0, 0));
     const Json before = cells.capture(p.world());
     p.world().destroy(cells.root_of(0, 0));
     p.world().destroy(cells.root_of(1, 0));  // a clean cell: it is only closed
     p.world().flush();
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK(cells.is_loaded(0, 0));
     CHECK(cells.is_dirty(0, 0));
@@ -376,7 +376,7 @@ TEST_CASE("cells: deleting the root of a cell with unsaved changes keeps it unsa
     // the same delete again, then Save
     p.world().destroy(cells.root_of(0, 0));
     p.world().flush();
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     const CellSaveReport rep = cells.save(p.world());
     REQUIRE_MESSAGE(rep.ok, rep.error);
@@ -412,13 +412,59 @@ TEST_CASE(
     CHECK(cells.warnings().find("1,0") != std::string::npos);
 }
 
+TEST_CASE("cells: an edit nobody could attribute leaves the cells unchecked, so a root deleted before the check is an "
+          "unsaved change") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    cells.note_edit(p.world());
+    cells.update(p.world(), false);
+    REQUIRE_FALSE(cells.any_dirty());
+    p.move("a", 15, 1, 10);
+    cells.note_edit(p.world());  // the editor could not say which entity changed: no entity named
+    p.world().destroy(cells.root_of(0, 0));
+    p.world().flush();
+    cells.update(p.world(), false);
+    REQUIRE(cells.is_loaded(0, 0));  // not closed as clean: the move is not dropped silently
+    CHECK(cells.is_dirty(0, 0));
+}
+
+TEST_CASE("cells: Save keeps the hlod entries world.bake_cell_hlods wrote into the index after the editor read it") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    REQUIRE(cells.load(p.world(), 1, 0, nullptr));
+    // a bake writes the proxies into the index on disk while the cells are open in the editor
+    p.write("worlds/w.world.json",
+            R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
+                  {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,1,0],"max":[100,1,100]},
+                   "hlod":{"mesh":"hlod/0_0.glb","maxDistance":900}},
+                  {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,2,0],"max":[200,2,100]},
+                   "hlod":{"mesh":"hlod/1_0.glb"}}]})");
+    p.move("a", 10, 50, 10);  // the cell's height range changes, so the index is written
+    cells.note_edit(p.world());
+    const CellSaveReport rep = cells.save(p.world());
+    REQUIRE_MESSAGE(rep.ok, rep.error);
+    CHECK(rep.indexWritten);
+    const Json idx = index_of(p);
+    CHECK(idx["cells"][0]["bounds"]["max"][1].get<double>() == doctest::Approx(50.0));
+    REQUIRE(idx["cells"][0].contains("hlod"));
+    CHECK(idx["cells"][0]["hlod"]["mesh"] == "hlod/0_0.glb");
+    CHECK(idx["cells"][0]["hlod"]["maxDistance"].get<double>() == doctest::Approx(900.0));
+    REQUIRE(idx["cells"][1].contains("hlod"));
+    CHECK(idx["cells"][1]["hlod"]["mesh"] == "hlod/1_0.glb");
+    CHECK_FALSE(idx["cells"][1]["hlod"].contains("maxDistance"));
+}
+
 TEST_CASE("cells: a clean, checked cell whose root is deleted closes without touching its file, whatever is selected") {
     CellProject p;
     CellEdit cells;
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     REQUIRE(cells.load(p.world(), 1, 0, nullptr));
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     REQUIRE_FALSE(cells.any_dirty());
     const std::string file = p.read("worlds/w_cells/1_0.scene.json");
@@ -427,7 +473,7 @@ TEST_CASE("cells: a clean, checked cell whose root is deleted closes without tou
     p.world().destroy(cells.root_of(1, 0));
     p.world().flush();
     cells.note_edit(p.world(), p.world().find_by_id("a"));
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_loaded(1, 0));
     CHECK(cells.is_loaded(0, 0));
@@ -445,7 +491,7 @@ TEST_CASE("cells: deleting a clean cell's root through the Hierarchy closes it, 
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     REQUIRE(cells.load(p.world(), 1, 0, nullptr));
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     // the Hierarchy names the root while it is alive, then deletes it before the next check
     cells.note_edit(p.world(), cells.root_of(1, 0));
@@ -473,12 +519,12 @@ TEST_CASE("cells: a cell whose file is empty is closed when its root is deleted,
     CHECK_FALSE(cells.is_dirty(1, 0));
     const Entity added = p.world().create("added", "added1");
     p.world().set_parent(added, cells.root_of(1, 0));
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     REQUIRE(cells.is_dirty(1, 0));
     p.world().destroy(cells.root_of(1, 0));  // the cell is empty again, which is what its file holds
     p.world().flush();
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_loaded(1, 0));
     CHECK_FALSE(cells.any_dirty());
@@ -500,7 +546,7 @@ TEST_CASE("cells: the write rules refuse a cell file in a managed folder and not
     REQUIRE(cells.has_index());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     p.world().get<Transform>(p.world().find_by_id("g"))->position = Vec3{1, 2, 3};
-    cells.note_edit();
+    cells.note_edit(p.world());
     const std::string before = p.read(".git/0_0.scene.json");
     const CellSaveReport rep = cells.save(p.world());
     CHECK_FALSE(rep.ok);
@@ -515,7 +561,7 @@ TEST_CASE("cells: snapshots carry the loaded cells, restore brings them back, pl
     cells.refresh(p.world());
     REQUIRE(cells.load(p.world(), 0, 0, nullptr));
     p.move("a", 33, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     REQUIRE(cells.is_dirty(0, 0));
     const Json cap = cells.capture(p.world());
@@ -540,7 +586,7 @@ TEST_CASE("cells: snapshots carry the loaded cells, restore brings them back, pl
     CHECK(cells.is_dirty(0, 0));  // still different from the file
     // Undo to the saved state: a snapshot taken from the file's state
     p.move("a", 10, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_dirty(0, 0));
 }
@@ -555,11 +601,11 @@ TEST_CASE("cells: with the floating origin moved a cell still lands at its absol
     REQUIRE_FALSE(a.is_null());
     CHECK(p.world().absolute_position(a).x == doctest::Approx(10.0));
     CHECK(p.world().world_position(a).x == doctest::Approx(-990.0));
-    cells.note_edit();
+    cells.note_edit(p.world());
     cells.update(p.world(), false);
     CHECK_FALSE(cells.is_dirty(0, 0));
     p.move("a", 20, 1, 10);
-    cells.note_edit();
+    cells.note_edit(p.world());
     REQUIRE(cells.save(p.world()).ok);
     CHECK(p.read("worlds/w_cells/0_0.scene.json").find("20") != std::string::npos);
 }

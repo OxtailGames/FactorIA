@@ -282,3 +282,42 @@ TEST_CASE("brush: a stroke can use bigger stamps than the default") {
     // A whole stroke of pieces: kMaxFoliagePaintPoints is what one call takes.
     CHECK(kMaxFoliagePaintPoints <= kBrushMaxStrokePoints);
 }
+
+TEST_CASE("foliage tool: a piece never carries more stamps than foliage.paint's work budget allows") {
+    constexpr double kBudget = kFoliageCandidateBudget;
+    const auto cells_of = [](double radius, double density) {
+        const double side =
+            2.0 * radius * std::sqrt(density) + 2.0;  // what the command computes from the rounded arguments
+        return side * side;
+    };
+    // a small brush: the 512 the command takes
+    CHECK(foliage_points_per_piece(2.0, 0.5) == kMaxFoliagePaintPoints);
+    // a big brush on a dense rule: fewer stamps, and the call stays under the budget
+    for (double radius : {8.0, 50.0, 200.0, 800.0})
+        for (double density : {0.1, 1.0, 5.0, 20.0}) {
+            const std::size_t n = foliage_points_per_piece(radius, density);
+            CHECK(n >= 1);
+            CHECK(n <= kMaxFoliagePaintPoints);
+            if (cells_of(radius, density) <= kBudget) CHECK(cells_of(radius, density) * double(n) <= kBudget);
+            if (n > 1 && n < kMaxFoliagePaintPoints) CHECK(cells_of(radius, density) * double(n + 1) > kBudget * 0.98);
+        }
+    // one stamp over the budget still sends one (the command refuses it with its own message)
+    CHECK(foliage_points_per_piece(4000.0, 20.0) == 1);
+    CHECK(foliage_points_per_piece(std::nan(""), std::nan("")) >= 1);
+}
+
+TEST_CASE("foliage tool: the density and the radius a single stamp may have") {
+    for (double radius : {0.05, 1.0, 8.0, 100.0, 1000.0, 4096.0}) {
+        const double d = foliage_max_density(radius);
+        CHECK(d > 0.0);
+        const double side = 2.0 * radius * std::sqrt(d) + 2.0;
+        CHECK(side * side <= kFoliageCandidateBudget);
+    }
+    CHECK(foliage_max_density(4096.0) > 0.2);  // the biggest brush still plants at a usable density
+    CHECK(foliage_max_density(1.0) > 20.0);    // a small brush is not limited by the slider's top
+    for (double density : {0.01, 0.1, 1.0, 20.0}) {
+        const double r = foliage_max_radius(density);
+        const double side = 2.0 * r * std::sqrt(density) + 2.0;
+        CHECK(side * side <= kFoliageCandidateBudget);
+    }
+}

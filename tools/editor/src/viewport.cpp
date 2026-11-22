@@ -105,7 +105,8 @@ Entity Editor::pick_at(Vec2 design) {
     World& w = world();
     auto all = w.entities();
     // The viewport shows the game's camera, so a click selects what that camera draws (Camera.showTags / hideTags): an entity it
-    // hides is still in the Hierarchy. Screen-space items belong to the screen and are always pickable.
+    // hides is still in the Hierarchy. Screen-space items belong to the screen and are always pickable. The transient HLOD proxies of a
+    // streamed world (EntityInfo::streamedProxy) are neither listed nor picked: they are the streamer's and are never saved.
     const CameraMask mask = CameraMask::of(w, r->camera_at(design));
     if (!primary_is_ortho()) {
         Vec3 o, d;
@@ -113,7 +114,8 @@ Entity Editor::pick_at(Vec2 design) {
         Entity best = kNullEntity;
         float bestT = 1e30f;
         for (Entity e : all) {
-            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e) || !mask.draws(w, e)) continue;
+            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e) || !mask.draws(w, e) || w.info(e).streamedProxy)
+                continue;
             Mat4 inv = w.world_matrix(e).inverse();
             Vec3 lo_ = inv.transform_point(o), ld = inv.transform_dir(d);
             float t;
@@ -145,7 +147,7 @@ Entity Editor::pick_at(Vec2 design) {
     std::int64_t order = 0;
     for (Entity e : all) {
         ++order;
-        if (!w.active_in_hierarchy(e)) continue;
+        if (!w.active_in_hierarchy(e) || w.info(e).streamedProxy) continue;
         const PickBounds b = pick_bounds(w, e, measure);
         if (!b.valid || (!b.screenSpace && !mask.draws(w, e))) continue;
         int layer = 0;
@@ -191,7 +193,8 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
         r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward, cam);
     }
     for (Entity e : w.entities()) {
-        if (!w.active_in_hierarchy(e)) continue;
+        if (!w.active_in_hierarchy(e) || w.info(e).streamedProxy)
+            continue;  // an HLOD proxy is the streamer's, never picked
         std::vector<Vec2> pts;
         if (w.has<MeshRenderer>(e) && !ortho) {
             if (!mask.draws(w, e)) continue;

@@ -411,7 +411,7 @@ std::string default_file(Engine::Impl& I, const std::string& id) {
 // alone is over budget); the oldest steps go first and the result of the command that made them go says how many (`historyDropped`).
 // All the histories together keep at most kFoliageHistoryTotalBytes: over it, the whole history of the Foliage edited longest ago is
 // cleared and the result names it (`historiesEvicted`). The history of an entity that no longer exists is dropped at the next
-// foliage command.
+// foliage command whose result then lists it (`historiesPruned`).
 //
 // What survives: the history lives in this process, with the engine. A scene save changes nothing in it (the file and the fields
 // are what they were), and neither does a scene reload that gives the same entity the same file and fields. An edit of the file or
@@ -460,6 +460,7 @@ struct Histories {
     std::map<std::string, History> byEntity;  // by entity id
     std::uint64_t clock = 0;                  // counts the foliage commands: History::touched
     std::uint64_t serial = 0;                 // counts the histories made: History::id
+    std::vector<std::string> pruned;          // ids whose history prune_histories dropped, until a result reports them
 };
 
 // The history of a Foliage entity (made empty when it has none yet).
@@ -473,11 +474,24 @@ History& history_for(Histories& H, const std::string& id) {
 // scenes and entities does not keep their undo steps (up to 128 MB each) for ever. Runs at the start of every foliage command.
 void prune_histories(const Engine::Impl& I, Histories& H) {
     for (auto it = H.byEntity.begin(); it != H.byEntity.end();) {
-        if (I.world.find_by_id(it->first).is_null())
+        if (I.world.find_by_id(it->first).is_null()) {
+            H.pruned.push_back(it->first);  // the next result that returns says so (`historiesPruned`)
             it = H.byEntity.erase(it);
-        else
+        } else
             ++it;
     }
+}
+
+// Adds `historiesPruned` to a result: the ids whose history was dropped because the entity is gone (the editor takes the undo rows of
+// those out quietly: an Undo of its delete brings the entity back with no history). A command that throws leaves the list for the
+// next result.
+Json with_pruned(Histories& H, Json res) {
+    if (H.pruned.empty() || !res.is_object()) return res;
+    Json ids = Json::array();
+    for (const std::string& id : H.pruned) ids.push_back(id);
+    H.pruned.clear();
+    res["historiesPruned"] = std::move(ids);
+    return res;
 }
 
 // Keeps all the histories together within kFoliageHistoryTotalBytes: clears the whole history of the Foliage edited longest ago
@@ -1352,7 +1366,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                     "undo history (foliage.undo, foliage.redo; in memory, the last 64 steps): `undo` is {command: "
                     "\"foliage.undo\", args: {entity}}. A scatter over a filled file costs a history step about the "
                     "size of both files."},
-                   [&I, H](const Json& a) { return do_scatter(I, *H, a); });
+                   [&I, H](const Json& a) { return with_pruned(*H, do_scatter(I, *H, a)); });
     I.commands.add(
         {"foliage.paint", "Add or remove foliage instances by hand in a circle on the ground.",
          "Adds instances (mode \"add\") within `radius` metres of `center` (world [x, z]) or of every one of `points` "
@@ -1368,7 +1382,8 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "when given); it needs no Terrain and no rule. Deterministic. `continueStroke` adds the call to the newest "
          "undo step (a brush that "
          "stamps while the mouse is down is ONE undo step). Result: {added, removed, instances, file, undo, undoDepth, "
-         "redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?}. Each call "
+         "redoDepth, historyId, historyLost, continued?, historyDropped?, historyReset?, historiesEvicted?, "
+         "historiesPruned?}. Each call "
          "rewrites the whole instances file "
          "(a file of 2,000,000 instances is 52 MB): send a stroke as `points` in pieces a few times a second, not one "
          "call "
@@ -1394,7 +1409,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "next to the "
          "scene when Foliage.instances is empty. One undo step per call (foliage.undo); a continued stroke joins the "
          "newest step."},
-        [&I, H](const Json& a) { return do_paint(I, *H, a); });
+        [&I, H](const Json& a) { return with_pruned(*H, do_paint(I, *H, a)); });
     I.commands.add(
         {"foliage.clear", "Remove every instance of a Foliage, or those in a rectangle.",
          "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances "
@@ -1408,7 +1423,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          false, "world",
          "A Foliage with no file, or a file with nothing in the region, changes nothing (no undo step). One undo "
          "step (foliage.undo)."},
-        [&I, H](const Json& a) { return do_clear(I, *H, a); });
+        [&I, H](const Json& a) { return with_pruned(*H, do_clear(I, *H, a)); });
     for (bool undo : {true, false}) {
         I.commands.add(
             {undo ? "foliage.undo" : "foliage.redo",
@@ -1428,7 +1443,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
              parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."}},"required":["entity"]})"),
              false, "world"},
-            [&I, H, undo](const Json& a) { return do_undo_redo(I, *H, a, undo); });
+            [&I, H, undo](const Json& a) { return with_pruned(*H, do_undo_redo(I, *H, a, undo)); });
     }
     declare_command_capabilities(I.commands, {{"foliage.scatter", capability_sets::edits_project()},
                                               {"foliage.paint", capability_sets::edits_project()},

@@ -31,6 +31,10 @@ namespace fa::editor {
 
 namespace {
 
+std::uint64_t number_of(const Json& r, const char* key) {
+    return r.contains(key) && r[key].is_number_unsigned() ? r[key].get<std::uint64_t>() : 0;
+}
+
 double round4(double v) { return std::round(v * 1e4) / 1e4; }
 
 // The Terrain the Foliage `e` grows on, null when there is none: the rule's own `terrain`, else the entity itself, else its parent
@@ -69,6 +73,31 @@ FoliageCall foliage_stroke_call(const FoliageUi& ui, const std::string& entityId
     return c;
 }
 
+double foliage_stamp_cells(double radius, double density) {
+    const double r = std::isfinite(radius) ? std::max(radius, 0.0) : 0.0;
+    const double d = std::isfinite(density) ? std::max(density, 0.0) : 0.0;
+    const double side = 2.0 * r * std::sqrt(d) + 2.0;
+    return side * side * 1.01;
+}
+
+std::size_t foliage_points_per_piece(double radius, double density) {
+    const double fit = std::floor(kFoliageCandidateBudget / foliage_stamp_cells(radius, density));
+    return std::size_t(std::clamp(fit, 1.0, double(kMaxFoliagePaintPoints)));
+}
+
+double foliage_max_density(double radius) {
+    const double side = std::sqrt(kFoliageCandidateBudget / 1.01);  // the side one stamp may have
+    if (!(radius > 1e-3)) return 1e6;
+    const double root = (side - 2.0) / (2.0 * radius);
+    return std::max(std::floor(root * root * 1e4) / 1e4, 1e-4);
+}
+
+double foliage_max_radius(double density) {
+    const double side = std::sqrt(kFoliageCandidateBudget / 1.01);
+    if (!(density > 1e-6)) return 1e5;
+    return std::max(std::floor((side - 2.0) / (2.0 * std::sqrt(density)) * 1e3) / 1e3, 1e-3);
+}
+
 double foliage_piece_interval(double lastCostSeconds) {
     const double cost = std::isfinite(lastCostSeconds) ? std::max(lastCostSeconds, 0.0) : 0.0;
     return std::clamp(2.0 * cost, kFoliageMinPieceSeconds, kFoliageMaxPieceSeconds);
@@ -88,9 +117,14 @@ void Editor::foliage_stroke_begin(Entity e, Vec2 at) {
     t.strokeEntity = world().id_of(e);
     t.strokeBrush = t.brush;
     t.strokeMode = t.mode;
-    t.strokeInvert = io.KeyCtrl;
-    t.strokeDensity = t.density;
+    t.strokeInvert =
+        io.KeyCtrl;  // Dear ImGui swaps Cmd and Ctrl on a Mac: Cmd there, so no Ctrl+click (a right click on a Mac)
+    // A stamp of this radius must fit the command's work budget: the slider's density is held under it (the panel shows the limit).
+    t.strokeDensity = float(std::min(double(t.density), foliage_max_density(t.strokeBrush.radius)));
     t.strokeRuleDensity = t.ruleDensity;
+    const ScatterRule* rule =
+        world().get<ScatterRule>(e);  // foliage.paint's default `rule` is the Foliage entity itself
+    t.strokeCellDensity = t.ruleDensity ? (rule ? double(rule->density) : 0.1) : double(t.strokeDensity);
     const Foliage* f = world().get<Foliage>(e);
     t.strokeMesh = f ? mesh_at(*f, t.mesh) : std::string();
     t.started = false;
@@ -105,7 +139,7 @@ void Editor::foliage_stroke_begin(Entity e, Vec2 at) {
     t.stroke.begin(at, t.strokeBrush.radius, kFoliageStampsPerRadius);
 }
 
-// Sends what the stroke has not sent yet, in pieces of at most kMaxFoliagePaintPoints stamps. Not `final`: at most one piece, and
+// Sends what the stroke has not sent yet, in pieces of at most kMaxFoliagePaintPoints stamps (fewer for a big brush at a high density). Not `final`: at most one piece, and
 // only when foliage_piece_interval has passed since the last (the first piece of a stroke goes at once). `final` (the release):
 // everything. Returns false when a command refused (the stroke is over then): the refusal is reported once, and a stroke that failed
 // sends nothing more.
@@ -116,7 +150,12 @@ bool Editor::foliage_stroke_flush(bool final) {
     while (t.stroke.pending() > 0) {
         if (!final && t.pieces > 0 && time_ - t.lastPieceAt < foliage_piece_interval(t.lastPieceCost)) return true;
         std::vector<Vec2> pts;
-        t.stroke.take_pending(pts, kMaxFoliagePaintPoints);
+        // An add piece holds as many stamps as the command's work budget allows at this radius and density (a big brush on a dense
+        // rule sends fewer per call, never a call the command would refuse); a remove piece visits no grid.
+        const bool adding = (t.strokeMode == FoliageMode::Add) != t.strokeInvert;
+        const std::size_t cap = adding ? foliage_points_per_piece(t.strokeBrush.radius, t.strokeCellDensity)
+                                       : std::size_t(kMaxFoliagePaintPoints);
+        t.stroke.take_pending(pts, cap);
         const FoliageCall call = foliage_stroke_call(t, t.strokeEntity, pts, t.started);
         const auto t0 = std::chrono::steady_clock::now();
         const CommandResult res = engine_->commands().call(call.command, call.args);
@@ -148,6 +187,17 @@ bool Editor::foliage_stroke_flush(bool final) {
             // goes now (an Esc would otherwise leave rows that redo a stroke nobody wants).
             redo_.clear();
             mark_dirty();  // the title shows the unsaved edit while the mouse is still down
+        } else if (!t.started && r.is_object() && !r.contains("undo") &&
+                   number_of(r, "added") + number_of(r, "removed") > 0) {
+            // The piece changed the file but made no step: the previous file was not a readable instances file, so the edit replaced
+            // it (the result says so in `historyReset`). Nothing of it can be undone; the scene has unsaved work all the same, and
+            // the next piece starts the stroke's step (its row undoes only what follows).
+            redo_.clear();
+            mark_dirty();
+            notify(r.contains("historyReset") && r["historyReset"].is_string()
+                       ? r["historyReset"].get<std::string>()
+                       : std::string("The foliage stroke changed the instances file and cannot be undone."),
+                   1);
         }
     }
     return true;
@@ -340,9 +390,9 @@ void Editor::draw_foliage_tool_panel() {
     mode_button(
         " Add ", FoliageMode::Add, "foliage:mode:add",
         "Paint new instances inside the brush, by the rules of the ScatterRule (slope, height, layers, spacing). Hold "
-        "Ctrl while you paint to erase instead.");
+        "Ctrl (Cmd on a Mac) while you paint to erase instead.");
     mode_button(" Remove ", FoliageMode::Remove, "foliage:mode:remove",
-                "Erase the instances inside the brush. Hold Ctrl while you paint to add instead.");
+                "Erase the instances inside the brush. Hold Ctrl (Cmd on a Mac) while you paint to add instead.");
     if (t.mode == FoliageMode::Off) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped(
@@ -362,14 +412,34 @@ void Editor::draw_foliage_tool_panel() {
             ImGui::SetItemTooltip(
                 "On: the brush plants as dense as the entity's ScatterRule (0.1 per square metre without one). "
                 "Off: the density below.");
+            // One stamp must fit the command's work budget (foliage.paint visits (2 r sqrt(density) + 2)^2 grid cells a stamp): the
+            // slider stops where a stamp of this radius stops fitting, and says so.
+            const float sliderMax = float(std::clamp(foliage_max_density(t.brush.radius), 0.01, 20.0));
+            t.density = std::min(t.density, sliderMax);
             ImGui::BeginDisabled(t.ruleDensity);
             ImGui::SetNextItemWidth(180);
-            ImGui::SliderFloat("density (/m2)", &t.density, 0.01f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+            ImGui::SliderFloat("density (/m2)", &t.density, 0.01f, sliderMax, "%.2f", ImGuiSliderFlags_Logarithmic);
             at_track("foliage:density");
             ImGui::EndDisabled();
             ImGui::SetItemTooltip(
                 "Instances per square metre. A brush never puts two instances closer than half the average "
                 "gap, so painting the same spot twice does not stack them.");
+            if (sliderMax < 20.0f) {
+                ImGui::TextDisabled("At a radius of %.0f m the density stops at %.2f /m2 (one stamp may visit 16.7 "
+                                    "million grid cells).",
+                                    t.brush.radius, sliderMax);
+                at_track("foliage:densitylimit");
+            }
+            const double ruleD = w.has<ScatterRule>(e) ? double(w.get<ScatterRule>(e)->density) : 0.1;
+            if (t.ruleDensity && ruleD > foliage_max_density(t.brush.radius)) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.4f, 1));
+                ImGui::TextWrapped("The ScatterRule's density (%.2f /m2) is too high for a radius of %.0f m: a stroke "
+                                   "would be refused. "
+                                   "Use a radius of at most %.0f m, or turn the rule's density off.",
+                                   ruleD, t.brush.radius, foliage_max_radius(ruleD));
+                ImGui::PopStyleColor();
+                at_track("foliage:ruledensitylimit");
+            }
         }
         // The mesh the brush is limited to (add: only that mesh is planted; remove: only that mesh is erased).
         const int meshCount = int(std::min<std::size_t>(fc->meshes.size(), 16));

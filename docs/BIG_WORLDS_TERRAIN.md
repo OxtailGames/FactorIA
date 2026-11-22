@@ -319,7 +319,7 @@ calls `foliage.paint`; a script, the Console and the AI use the same commands.
   the oldest are dropped and the result says `historyDropped` (how many) with a `historyNote`. All the histories together keep
   at most 512 MB: over it the whole history of the Foliage edited longest ago is cleared and the result lists it in
   `historiesEvicted` (with a `historiesEvictedNote`). The history of an entity that was destroyed is dropped at the next foliage
-  command. A new edit clears the redo steps. Every result also has `historyId` (which history this is: a Foliage whose history was
+  command, and that command's result lists the entity in `historiesPruned`. A new edit clears the redo steps. Every result also has `historyId` (which history this is: a Foliage whose history was
   dropped and began again has a new one) and `historyLost` (how many steps that history has let go in all); the newest step is
   number `historyLost + undoDepth`, which is how the editor numbers its undo rows.
   Every editing result carries `undo`, the short call `{"command": "foliage.undo", "args": {"entity": <id>}}` (absent when the
