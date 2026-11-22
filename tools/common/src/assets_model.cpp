@@ -831,7 +831,6 @@ Json model_game_ready_command(const std::string& projectDir, const Json& a) {
     return result;
 }
 
-
 // ---- model.generate_lods ----
 
 Json manifest_record(const std::string& projectDir, const std::string& rel) {
@@ -992,8 +991,9 @@ Json model_generate_lods_command(const std::string& projectDir, const Json& a) {
     else if (dryRun)
         steps.push_back("Nothing was written. Run again without dryRun to write the .lodN.glb files and the prefab.");
     else
-        steps.push_back("Instantiate " + stem +
-                        ".prefab.json: its MeshRenderer has lodMode \"screenSize\" and one {mesh, screenSize} per level.");
+        steps.push_back(
+            "Instantiate " + stem +
+            ".prefab.json: its MeshRenderer has lodMode \"screenSize\" and one {mesh, screenSize} per level.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -1237,7 +1237,8 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
     }
     {
         auto num = [](const char* what, double lo, double hi, double def) {
-            return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"default", def}, {"description", what}});
+            return Json::object(
+                {{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"default", def}, {"description", what}});
         };
         auto numList = [](const char* what, bool positive) {
             Json item = Json::object({{"type", "number"}, {"maximum", positive ? 1.0 : 1000.0}});
@@ -1250,7 +1251,8 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
         info.readOnly = false;
         info.summary = "Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.";
         info.description =
-            "Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS.md, \"Automatic LOD chain\"): `levels` "
+            "Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS.md, \"Automatic LOD chain\"): "
+            "`levels` "
             "(1..7) simplified copies of the mesh, deterministic (meshoptimizer), each keeping `ratios[i]` of the "
             "triangles of the level above (default 0.5) within `errors[i]` metres (`maxError` for all), drawn when "
             "the model covers less than `screenSizes[i]` of the view (default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, "
@@ -1272,16 +1274,21 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                                             {"maximum", 7},
                                             {"default", 3},
                                             {"description", "How many lower levels to make."}})},
-                   {"ratios", numList("Per level, the share of the level above's triangles it keeps (default 0.5 each).", true)},
+                   {"ratios",
+                    numList("Per level, the share of the level above's triangles it keeps (default 0.5 each).", true)},
                    {"errors", numList("Per level, the most the surface may move in metres (0 = no limit).", false)},
-                   {"maxError", Json::object({{"type", "number"},
-                                              {"minimum", 0},
-                                              {"description", "The same limit for every level, metres. Exclusive with errors."}})},
-                   {"screenSizes", numList("Per level, falling: the screen size below which the level is drawn.", true)},
-                   {"minTriangles", Json::object({{"type", "integer"},
-                                                  {"minimum", 1},
-                                                  {"default", 32},
-                                                  {"description", "A level with fewer triangles, and the ones after it, is not made."}})},
+                   {"maxError",
+                    Json::object({{"type", "number"},
+                                  {"minimum", 0},
+                                  {"description", "The same limit for every level, metres. Exclusive with errors."}})},
+                   {"screenSizes",
+                    numList("Per level, falling: the screen size below which the level is drawn.", true)},
+                   {"minTriangles",
+                    Json::object(
+                        {{"type", "integer"},
+                         {"minimum", 1},
+                         {"default", 32},
+                         {"description", "A level with fewer triangles, and the ones after it, is not made."}})},
                    {"lockBorder", boolean("Open edges and the borders between parts do not move.", true)},
                    {"normalWeight", num("How much bending a normal costs a collapse.", 0, 100, 1)},
                    {"uvWeight", num("How much smearing a UV seam costs a collapse.", 0, 100, 0.5)},
