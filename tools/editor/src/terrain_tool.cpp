@@ -160,8 +160,9 @@ bool Editor::terrain_tool_active() {
     return !e.is_null() && world().has<Terrain3D>(e);
 }
 
-bool Editor::has_unsaved_work() {
-    if (dirty_) return true;
+bool Editor::has_unsaved_work() { return dirty() || has_unsaved_terrain(); }
+
+bool Editor::has_unsaved_terrain() {
     if (!engine_) return false;
     for (Entity e : world().terrain().entities()) {
         const std::shared_ptr<TerrainHeights> h = world().terrain().find(e);

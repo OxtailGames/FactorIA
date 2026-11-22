@@ -207,6 +207,12 @@ menu::MainMenu Editor::build_main_menu(bool native) {
         with(toggle("Lightmap", showLightmap_), "menu:lightmap",
              "Bake the scene's baked lights, its sky and its static meshes into lightmaps (lightmap.bake_start): "
              "a progress bar with the phase, Cancel, and a summary of the pages; the scene then uses them"));
+    view.push_back(with(toggle("Cells", showCells_), "menu:cells",
+                        "Edit a streamed world (a scene with a StreamedWorld): load the cells around the camera or the "
+                        "ones you pick as "
+                        "editable entities, see which cells have unsaved changes, and save each one to its own file; "
+                        "the viewport draws the "
+                        "cell grid. Edit mode only: Play streams by distance"));
     view.push_back(with(toggle("Music", showMusic_), "menu:music",
                         "Edit a song (*.song.json): a piano roll, a drum grid, the arrangement of sections and layers "
                         "and a mixer, played by the player a game's entity.music uses (an intensity slider fades the "
