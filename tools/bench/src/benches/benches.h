@@ -18,5 +18,6 @@ void add_command_benches(std::vector<Bench>& out);    // CommandRegistry::call
 void add_script_benches(std::vector<Bench>& out);     // JS -> C++ calls, component access, behaviours
 void add_audio_benches(std::vector<Bench>& out);      // the software mixer, offline
 void add_jobs_benches(std::vector<Bench>& out);       // the job system: tiny jobs, parallel_for, graphs, nested waits
+void add_terrain_benches(std::vector<Bench>& out);    // noise grid fill, hydraulic and thermal erosion
 
 }  // namespace fa::bench
