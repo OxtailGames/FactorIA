@@ -55,90 +55,152 @@ Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's
 
 Not released yet (on main after 0.34.0).
 
-Create a Terrain entity with a heightmap file.
+Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap.
 
 Capabilities: read, state, writeProject
 
-Will create an entity with a Terrain component and write a flat 16-bit heightmap of `resolution` samples per side (or import `heightmap`), `size` metres wide, with one layer. Result: {entity, heightmap}. Example: terrain.create {"name":"ground","size":[1024,1024]} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+Writes a flat 16-bit greyscale PNG heightmap of `resolution` x `resolution` samples (2^k + 1: 33 ... 4097; the default 513) to `path` (default assets/terrain/<name>.height.png; an existing file is never overwritten) and creates an entity with a Terrain component that uses it, `size` metres wide, centred on the entity at `position`. The flat surface is at `baseHeight` (default 0) and sits half way up the `heightScale` range, so terrain.sculpt can lower it as well as raise it. With `heightmap` the entity uses that existing 16-bit PNG or .r16 file instead and writes nothing. The Terrain has no layers: add them with scene.set_component (each needs an albedo texture). Result: {entity, heightmap, samples, size}. Example: terrain.create {"name":"ground","size":[1024,1024],"resolution":513}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | no | Entity id of the terrain. |
-| `size` | array | no | Metres [x, z] the terrain covers. |
-| `resolution` | integer | no | Samples per side of a new heightmap. Default 513. |
-| `heightmap` | string | no | Import this 16-bit greyscale PNG or .r16 file instead of a flat one. |
-| `heightScale` | number | no | Metres of height of a white sample. Default 100. |
+| `name` | string | no | Entity id and name of the terrain (default: terrain, made unique). |
+| `size` | array | no | Metres [x, z] the terrain covers (default [512, 512]). |
+| `resolution` | integer | no | Samples per side of a new heightmap: 2^k + 1 (33, 65, 129, 257, 513, 1025, 2049, 4097; default 513). Not with heightmap. |
+| `heightmap` | string | no | Use this existing 16-bit greyscale PNG or .r16 file (project path) instead of a flat one; nothing is written. |
+| `path` | string | no | Project path of the heightmap to write (.png or .r16). Default assets/terrain/<name>.height.png. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `heightScale` | number | no | Metres of height of a white sample (the height range). Default 100. |
+| `baseHeight` | number | no | New flat terrain: the height of its surface in metres. Imported: Terrain.heightOffset. Default 0. |
+| `position` | array | no | World position [x, y, z] of the terrain's centre (default [0, 0, 0]). |
+| `parent` | string | no | Parent entity id. |
 
 ## `terrain.generate` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Fill a Terrain's heightmap with seeded procedural noise and optional erosion.
+Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step).
 
 Capabilities: read, state, writeProject
 
-Will replace the heightmap with fractal noise (`seed`, `frequency`, `octaves`) and `erosion` iterations of hydraulic erosion, deterministically (the same arguments give the same file). Result: {heightmap, minHeight, maxHeight}. Example: terrain.generate {"entity":"ground","seed":7,"octaves":5} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+Replaces the heights with fractal Perlin noise (`seed`, `frequency` features per metre, `octaves`, `fractal`) stretched to the height range (`amplitude` is the share of Terrain.heightScale it uses), then `erosion` droplets of hydraulic erosion and `thermal` passes of thermal erosion, all deterministic: the same arguments always give the same heights, on any machine and thread count. A terrain with no heightmap gets a new grid of `resolution` samples and the path assets/terrain/<name>.height.png. The noise follows the X axis: a terrain that is not square is stretched in z. All checks (and the work caps) run before anything changes; the replacement is ONE undo step. Result: {heightmap, samples, changedSamples, minHeight, maxHeight (metres, before Transform.scale), erosion, undoDepth}. Example: terrain.generate {"entity":"ground","seed":7,"octaves":5,"erosion":50000}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Terrain. |
 | `seed` | integer | no | The same seed gives the same terrain. Default 1. |
-| `frequency` | number | no | Noise features per metre. Default 0.004. |
+| `frequency` | number | no | Noise features per metre of the first octave. Default 0.004. |
 | `octaves` | integer | no | Layers of noise. Default 5. |
-| `erosion` | integer | no | Iterations of hydraulic erosion. Default 0. |
+| `fractal` | string ["fbm","ridged","billow"] | no | How the octaves combine: rolling hills, sharp ridges or puffy mounds. Default "fbm". |
+| `amplitude` | number | no | Share of the height range (Terrain.heightScale) the terrain uses. Default 1. |
+| `erosion` | integer | no | Droplets of hydraulic erosion (0 = none; 50000 is a good start for 513 samples). At most 8.9 million with the default droplet life. Default 0. |
+| `thermal` | integer | no | Passes of thermal erosion (slopes steeper than 35 degrees slide); 0 = none. Default 0. |
+| `resolution` | integer | no | Only for a terrain without a heightmap: samples per side (2^k + 1, default 513). |
+| `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
 
 ## `terrain.holes` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Cut or fill holes (caves, tunnels) in a Terrain in a circle.
+Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one undo step).
 
 Capabilities: read, state, writeProject
 
-Will set the texels of the terrain's holes image within `radius` metres of `center` (mode "cut" makes a hole, "fill" closes it) and write it back; the collider follows. Result: {changedTexels}. Example: terrain.holes {"entity":"ground","center":[0,0],"radius":3} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+Sets the cells of the terrain's holes mask whose centre is within `radius` world metres of `center` (or of the `points` of a stroke): mode "cut" makes them holes, "fill" closes them. A hole is neither drawn nor collided: the physics collider follows the edit at once. The mask has one byte per CELL (cells x cells, 1 = hole) and is saved as an 8-bit greyscale PNG (255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller than a cell can miss every cell centre. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, rect, bounds, undoDepth}. Example: terrain.holes {"entity":"ground","center":[0,0],"radius":3}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Terrain. |
 | `mode` | string ["cut","fill"] | no | Make a hole or close one. Default "cut". |
-| `center` | array | yes | World metres [x, z]. |
-| `radius` | number | yes | Radius in metres. |
+| `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
+| `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
+| `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
 
 ## `terrain.paint` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Paint a material layer of a Terrain in a circle.
+Paint a material layer of a Terrain with a brush (splat maps, live, one undo step).
 
 Capabilities: read, state, writeProject
 
-Will raise the weight of `layer` (an index into Terrain.layers) within `radius` metres of `center` by `strength` and lower the others, and write the splat map files back. Result: {changedTexels}. Example: terrain.paint {"entity":"ground","layer":1,"center":[10,10],"radius":8} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `radius` world metres of `center` (or along `points`) by `strength` with a smooth falloff and lowers the others in proportion, so the 8 weights of every texel always add up to 255 (renormalised). Layer L is channel L % 4 (r, g, b, a) of splat map L / 4. The maps are created on the first paint (assets/terrain/<name>.splat0.png and .splat1.png, RGBA8 linear, `splatResolution` texels per side, default the terrain's cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written by `save` true, terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, undoDepth}. Example: terrain.paint {"entity":"ground","layer":1,"center":[10,10],"radius":8}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Terrain. |
-| `layer` | integer | yes | Index into Terrain.layers. |
-| `center` | array | yes | World metres [x, z]. |
-| `radius` | number | yes | Brush radius in metres. |
-| `strength` | number | no | How much of the brush applies. Default 0.5. |
+| `layer` | integer | yes | Index into Terrain.layers (map = layer / 4, channel = layer % 4). |
+| `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
+| `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
+| `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `strength` | number | no | How much of the layer's weight a stamp reaches at the middle of the brush. Default 0.5. |
+| `splatResolution` | integer | no | Texels per side of splat maps that do not exist yet (default: the terrain's cells, at most 1024). Existing maps keep their size. |
+| `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
+
+## `terrain.redo` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Redo the terrain edit the last terrain.undo took back.
+
+Capabilities: read, state, writeProject
+
+Applies the undone edit again. Each terrain keeps the last 64 edits (and at most 256 MB of before/after samples) since the scene loaded; a new edit clears the redo list. Only the data changes: components set by a command (a Terrain.holes or splatMaps path a first edit chose) stay. `save` writes the files afterwards. Result: {undone|redone, undoDepth, redoDepth, unsaved}. Example: terrain.redo {"entity":"ground"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `save` | boolean | no | Also write the changed files now. Default false. |
+
+## `terrain.save` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Write the edited files of one Terrain, or of every Terrain, to the project.
+
+Capabilities: read, state, writeProject
+
+Writes what terrain.sculpt, terrain.paint, terrain.holes and terrain.generate changed since the files were loaded or last written: the heightmap (16-bit PNG, or raw .r16), the holes mask (8-bit PNG) and the splat maps (RGBA PNG), each replaced atomically. Nothing to write is fine. A scene save does the same for every terrain. Result: {saved: [paths]}. Example: terrain.save {"entity":"ground"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | Entity id of the Terrain (default: every Terrain with edits). |
 
 ## `terrain.sculpt` (modifies state)
 
 Not released yet (on main after 0.34.0).
 
-Raise, lower, smooth or flatten the heightmap of a Terrain in a circle.
+Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step).
 
 Capabilities: read, state, writeProject
 
-Will change the samples of the terrain's heightmap file within `radius` metres of `center` with the brush `tool` (raise, lower, smooth, flatten), scaled by `strength` and a smooth falloff, and write the file back. Result: {changedSamples, bounds}. Example: terrain.sculpt {"entity":"ground","tool":"raise","center":[100,50],"radius":20} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+Edits the samples of the terrain's heightmap within `radius` world metres of `center` (or of every point of `points`, a stroke) with the brush `tool`: raise or lower by `amount` metres x `strength` at the middle of the brush, smooth toward the mean of the neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. The effect fades smoothly to nothing at the edge of the circle. The edit is live in memory (the renderer and the physics collider follow it) and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a scene save. Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, rect (sample indices), bounds ([minX, minZ, maxX, maxZ] world), undoDepth, unsaved, undo}. Example: terrain.sculpt {"entity":"ground","tool":"raise","center":[100,50],"radius":20,"amount":5}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | yes | Entity id of the Terrain. |
 | `tool` | string ["raise","lower","smooth","flatten"] | no | The brush. Default "raise". |
-| `center` | array | yes | World metres [x, z]. |
-| `radius` | number | yes | Brush radius in metres. |
-| `strength` | number | no | How much of the brush applies. Default 0.5. |
+| `center` | array | no | World metres [x, z] of one stamp. Give center or points, not both. |
+| `points` | array | no | A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step. |
+| `radius` | number | yes | Brush radius in world metres (at most 1024 samples of the edited image). |
+| `strength` | number | no | How much of the brush applies per stamp (0 nothing, 1 all). Default 0.5. |
+| `amount` | number | no | raise and lower: metres a stamp changes the height at the middle of the brush when strength is 1. Default 1. |
+| `height` | number | no | flatten: the world y to flatten to (default: the surface under the first stamp). |
+| `save` | boolean | no | Also write the changed files now (the heightmap PNG, holes PNG, splat map PNGs; atomic). Without it they are written by terrain.save and by every scene save. Default false. |
+
+## `terrain.undo` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Undo the last terrain edit of a Terrain (one command's worth of heights, holes and splat maps).
+
+Capabilities: read, state, writeProject
+
+Puts back the samples the newest sculpt, paint, holes or generate command changed, bit for bit. Each terrain keeps the last 64 edits (and at most 256 MB of before/after samples) since the scene loaded; a new edit clears the redo list. Only the data changes: components set by a command (a Terrain.holes or splatMaps path a first edit chose) stay. `save` writes the files afterwards. Result: {undone|redone, undoDepth, redoDepth, unsaved}. Example: terrain.undo {"entity":"ground"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `save` | boolean | no | Also write the changed files now. Default false. |
 
 ## `world.absolute_position`
 
