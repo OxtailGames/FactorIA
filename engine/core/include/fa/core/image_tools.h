@@ -83,6 +83,10 @@ std::vector<double> sprite_height_field(const Image& sprite, int bevel = 0);
 // The normal map of a sprite (sprite_height_field, then normal_map_from_height with clamped borders).
 Image normal_map_from_sprite(const Image& sprite, double strength);
 
+// The luminance of an RGBA pixel (`px` points at its R byte; alpha ignored), 0..1: Rec. 709 weights 0.2126, 0.7152 and
+// 0.0722 on the 8-bit channels, divided by 255. The one formula of the height fields of the normal maps.
+double luminance01(const std::uint8_t* px);
+
 // The normal map of a grey image used as a height field (white = high; the luminance of the pixels, alpha ignored).
 Image normal_map_from_height_image(const Image& grey, double strength);
 

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <optional>
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
@@ -141,6 +142,54 @@ sg_shader_stage stage_of(const Json& j) {
     return stage == "vertex"    ? SG_SHADERSTAGE_VERTEX
            : stage == "compute" ? SG_SHADERSTAGE_COMPUTE
                                 : SG_SHADERSTAGE_FRAGMENT;
+}
+
+// GLES3 and WebGL2 guarantee 16 texture units per stage (render_internal.h, kMeshMaxFragmentUnits); sokol's own cap is
+// SG_MAX_TEXTURE_SAMPLER_PAIRS (32) over both stages. The error for a program past either: counts the pairs of the stage, says
+// which ones the engine's own bindings take and which are the material's textures (or the vertex copies of them), and
+// what to drop. Empty when the program is within both.
+std::optional<Error> too_many_pairs(const std::string& where, const Json& pairList) {
+    static const char* const engineViews[] = {"tex",       "normal_tex",    "light_tex",       "shadow_tex",
+                                              "fx_gi_tex", "fx_cookie_tex", "fx_emissive_tex", "fa_scene_tex"};
+    constexpr int kUnitsPerStage = 16;
+    int perStage[2] = {0, 0};  // fragment, vertex
+    for (const Json& p : pairList) ++perStage[text_of(p, "stage") == "vertex" ? 1 : 0];
+    const int worst = perStage[1] > perStage[0] ? 1 : 0;
+    const bool stageOver = perStage[worst] > kUnitsPerStage;
+    if (!stageOver && int(pairList.size()) <= SG_MAX_TEXTURE_SAMPLER_PAIRS) return std::nullopt;
+
+    const char* stageName = worst ? "vertex" : "fragment";
+    std::string engine, own;
+    int nEngine = 0, nOwn = 0;
+    auto add = [](std::string& list, int& n, const std::string& name) { list += (n++ ? ", " : "") + name; };
+    for (const Json& p : pairList) {
+        if ((text_of(p, "stage") == "vertex") != bool(worst) && stageOver) continue;
+        const std::string name = text_of(p, "view_name");
+        bool isEngine = name.rfind("fa_", 0) == 0 && name.rfind("fa_vs_", 0) != 0;
+        for (const char* e : engineViews) isEngine = isEngine || name == e;
+        if (isEngine)
+            add(engine, nEngine, name);
+        else
+            add(own, nOwn, name);
+    }
+    const int total = stageOver ? perStage[worst] : int(pairList.size());
+    const int limit = stageOver ? kUnitsPerStage : SG_MAX_TEXTURE_SAMPLER_PAIRS;
+    std::string what = stageOver ? std::string("in its ") + stageName + " stage" : "over both stages";
+    return make_error(
+        where + " reads " + std::to_string(total) + " image-sampler pairs " + what +
+            " (every texture a stage reads counts once, "
+            "with the sampler it is read through), and at most " +
+            std::to_string(limit) +
+            (stageOver ? " can be bound per stage: the texture units GLES3 and WebGL2 guarantee"
+                       : " fit in one shader: sokol's cap") +
+            ". The engine's own bindings take " + std::to_string(nEngine) + " (" + (nEngine ? engine : "none") +
+            "), the " + (worst ? "vertex copies of the material's textures" : "material's own textures") + " " +
+            std::to_string(nOwn) + " (" + (nOwn ? own : "none") + ")",
+        "Drop " + std::to_string(total - limit) +
+            " or more: do not sample a texture in vertex() (that removes its vertex copy), do not call "
+            "fa_scene_color() unless the material needs the picture behind it, and merge maps into the channels of "
+            "one texture (a mask, a roughness and an occlusion map fit the four channels of one image) instead of "
+            "declaring one texture per map.");
 }
 
 }  // namespace
@@ -310,8 +359,9 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         out.samplerMask |= 1u << slot;
     }
     int pairs = 0;
-    for (const Json& p : list_of(*refl, "texture_sampler_pairs")) {
-        if (pairs >= SG_MAX_TEXTURE_SAMPLER_PAIRS) return bad("too many texture-sampler pairs");
+    const Json& pairList = list_of(*refl, "texture_sampler_pairs");
+    if (auto tooMany = too_many_pairs(where, pairList)) return *tooMany;
+    for (const Json& p : pairList) {
         desc.texture_sampler_pairs[pairs++] = {stage_of(p), std::uint8_t(int_or(p, "view_slot")),
                                                std::uint8_t(int_or(p, "sampler_slot")), cstr_or_null(p, "glsl_name")};
     }
