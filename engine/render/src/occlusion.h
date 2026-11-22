@@ -12,7 +12,8 @@
 // top-left tie break): two triangles that share an edge cover every cell exactly once, so a box has no seam. (2) The test of a
 // box reads the cells it touches AND one more ring around them; for a convex occluder (every box) the cells' centres then
 // enclose the touched cells, so no part of the box's picture lies outside the occluder. (A mesh occluder with a crack narrower
-// than a cell hides what shows through the crack: use closed, simple meshes.) (3) A box that crosses the near plane, or has a
+// than a cell hides what shows through the crack: use closed, simple meshes. Likewise two neighbouring occluders with a gap
+// narrower than a cell, about 1/256 of the view: overlap them or let them touch.) (3) A box that crosses the near plane, or has a
 // corner behind the camera, is visible, and so is one that holds the camera. (4) Only the faces that look at the camera are
 // rasterised: a camera inside an occluder sees no occlusion from it.
 //
@@ -55,6 +56,15 @@ struct OccluderSource {
     Vec3 boxMin{-0.5f, -0.5f, -0.5f}, boxMax{0.5f, 0.5f, 0.5f};
     std::shared_ptr<const MeshGeometry> mesh;  // null = a box
     std::uint64_t entity = 0;                  // Entity::bits(), for the reports
+};
+
+// One triangle ready for the cells: vertices in 1/16 cells of the guarded grid, counter-clockwise (positive area), the plane of the
+// nearness, and the cells its box touches. (Here only so the buffer can keep its lists from frame to frame.)
+struct RasterTri {
+    std::int32_t x[3], y[3];
+    float n0, a, b;  // nearness at (ox, oy) and its change per cell along x and y
+    float ox, oy;
+    std::int32_t minX, maxX, minY, maxY;
 };
 
 // The camera as the buffer needs it. viewProj has the depth range of `zeroToOne` (0..1 or -1..1).
@@ -104,6 +114,9 @@ private:
     int w_ = 0, h_ = 0;    // the picture
     int gw_ = 0, gh_ = 0;  // with the guard ring
     std::vector<float> buf_;
+    // Scratch of rasterize(), kept so a frame does not allocate again.
+    std::vector<std::size_t> counts_, facing_;
+    std::vector<std::vector<RasterTri>> slots_;
 };
 
 }  // namespace fa::render

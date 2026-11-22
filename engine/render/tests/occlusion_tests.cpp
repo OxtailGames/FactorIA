@@ -323,9 +323,17 @@ TEST_CASE("occlusion: the buffer is the same bytes with the pool stopped, inline
     bool haveReference = false;
     for (const Mode& m : modes) {
         CAPTURE(m.name);
+        // The pool stops at the end of the loop body even when a REQUIRE or CHECK throws.
+        struct PoolGuard {
+            bool on;
+            ~PoolGuard() {
+                if (on) jobs::stop();
+            }
+        } pool{false};
         if (m.start) {
             auto r = jobs::start(m.settings);
             REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
+            pool.on = true;
         }
         OcclusionRasterStats st;
         const OcclusionBuffer b = make_buffer(c, occ, &st);
@@ -340,7 +348,10 @@ TEST_CASE("occlusion: the buffer is the same bytes with the pool stopped, inline
                               ? 1
                               : 0);
         const std::vector<std::uint8_t> grey = b.grey();
-        if (m.start) jobs::stop();
+        if (pool.on) {
+            jobs::stop();
+            pool.on = false;
+        }
         CHECK(st.coveredCells > 1000);
         CHECK(st.sourceTriangles == 150 * 12 + 600);
         if (!haveReference) {

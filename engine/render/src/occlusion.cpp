@@ -19,15 +19,6 @@ struct ClipV {
     float x, y, z, w;
 };
 
-// One triangle ready for the cells: vertices in 1/kSub cells of the guarded grid, counter-clockwise (positive area), the plane of the
-// nearness, and the cells its box touches.
-struct RasterTri {
-    std::int32_t x[3], y[3];
-    float n0, a, b;  // nearness at (ox, oy) and its change per cell along x and y
-    float ox, oy;
-    std::int32_t minX, maxX, minY, maxY;
-};
-
 // The faces of a box as quads of corner indices (bit 0 = x, 1 = y, 2 = z of the corner; +x, -x, +y, -y, +z, -z), counter-clockwise
 // seen from outside, so every face's normal points out.
 constexpr int kBoxQuads[6][4] = {{1, 3, 7, 5}, {0, 4, 6, 2}, {2, 6, 7, 3}, {0, 1, 5, 4}, {4, 5, 7, 6}, {0, 2, 3, 1}};
@@ -235,7 +226,8 @@ OcclusionRasterStats OcclusionBuffer::rasterize(const std::vector<OccluderSource
     OcclusionRasterStats st;
     if (!ready_) return st;
     // The caps first, serially and in the given order: how many triangles of each occluder go on.
-    std::vector<std::size_t> counts(occluders.size(), 0);
+    counts_.assign(occluders.size(), 0);
+    std::vector<std::size_t>& counts = counts_;
     std::size_t budget = limits.perFrame, total = 0;
     for (std::size_t i = 0; i < occluders.size(); ++i) {
         std::size_t n = triangle_count(occluders[i]);
@@ -256,8 +248,12 @@ OcclusionRasterStats OcclusionBuffer::rasterize(const std::vector<OccluderSource
     }
     st.sourceTriangles = total;
     const bool parallel = total >= kParallelOcclusionTriangles;
-    std::vector<std::vector<RasterTri>> slots(occluders.size());
-    std::vector<std::size_t> facing(occluders.size(), 0);
+    // The per-occluder triangle lists keep their capacity from frame to frame.
+    if (slots_.size() < occluders.size()) slots_.resize(occluders.size());
+    for (std::vector<RasterTri>& slot : slots_) slot.clear();
+    facing_.assign(occluders.size(), 0);
+    std::vector<std::vector<RasterTri>>& slots = slots_;
+    std::vector<std::size_t>& facing = facing_;
     const OcclusionCamera cam{viewProj_, pos_, fwd_, perspective_, z01_};
     const SetupCtx ctx{&cam, w_, h_, gw_, gh_};
     const rjobs::Split setup = parallel ? rjobs::split(occluders.size(), 1, 2) : rjobs::whole(occluders.size());
@@ -306,10 +302,10 @@ bool OcclusionBuffer::hidden(Vec3 bmin, Vec3 bmax, const Mat4& model) const {
     if (hix < float(kOcclusionGuard) || lox > float(w_ + kOcclusionGuard) || hiy < float(kOcclusionGuard) ||
         loy > float(h_ + kOcclusionGuard))
         return false;
-    const int cx0 = std::clamp(int(std::floor(lox)), kOcclusionGuard, w_),
-              cx1 = std::clamp(int(std::floor(hix)), kOcclusionGuard, w_);
-    const int cy0 = std::clamp(int(std::floor(loy)), kOcclusionGuard, h_),
-              cy1 = std::clamp(int(std::floor(hiy)), kOcclusionGuard, h_);
+    // Clamp the float before the int: a huge finite value cannot be narrowed.
+    const float fx0 = float(kOcclusionGuard), fx1 = float(w_), fy1 = float(h_);
+    const int cx0 = int(std::floor(std::clamp(lox, fx0, fx1))), cx1 = int(std::floor(std::clamp(hix, fx0, fx1)));
+    const int cy0 = int(std::floor(std::clamp(loy, fx0, fy1))), cy1 = int(std::floor(std::clamp(hiy, fx0, fy1)));
     // Every cell the box touches and the ring around them must hold an occluder nearer than the box's nearest corner (with a margin
     // for the rounding of the snapped triangle planes).
     const float need = nearest + 1.0e-5f * std::fabs(nearest) + 1.0e-7f;

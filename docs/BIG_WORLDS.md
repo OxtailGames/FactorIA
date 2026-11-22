@@ -92,6 +92,8 @@ What it does not do:
 - **Sprites, 2D shapes, tilemaps, particles and UI are out of scope**: only 3D meshes are culled.
 - A mesh Occluder with a crack narrower than a cell (about 1/256 of the picture) hides what shows through the crack: use closed,
   simple meshes, or `"box"` (a few hundred triangles at most, a low-poly proxy of the building).
+- Two neighbouring Occluders with a gap narrower than a cell (about 1/256 of the picture) between them hide what shows through the
+  gap as well: overlap the walls or let them touch.
 - Every cell is tested, not every pixel: an object that peeks out of the silhouette of an occluder by less than a cell or two is
   drawn anyway (that is the price of never hiding what is visible).
 
@@ -102,7 +104,10 @@ What it does not do:
 | Triangles of one Occluder | 4096 | only the first 4096 are rasterised (the occluder hides less, never more); one warning names the entities and the cap |
 | Triangles of all the Occluders of one camera | 65536 | the nearest Occluders (distance of their origin, then entity) are kept first; the others are left out or cut; one warning names them |
 
-The same scene gives the same result on every machine. Warnings are logged once per run.
+The caps count source triangles, not the work of the raster: a few huge triangles that fill the view (an occluder right in front of the
+camera) touch every cell, which costs at most the cells of the buffer (about 37 000 for a 16:9 camera) per triangle, and the buffer
+is small on purpose. The same scene gives the same result with any number of job threads (the float rounding of different CPU architectures can differ in
+the last bit, so a box exactly at the edge of an occluder may be judged differently there). Warnings are logged once per run.
 
 ### Looking at it
 
