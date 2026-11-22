@@ -102,8 +102,8 @@ std::string all_issues(const ValidationReport& r, const std::string& file) {
 
 TEST_CASE("project.validate: the tilemap chunks of a 2d index must agree in tileset, tile size and tile grid") {
     AssetsProject p;
-    const char* c0 = R"({"coord":[0,0],"scene":"cells/a.scene.json","bounds":{"min":[0,0,0],"max":[160,160,0]}})";
-    const char* c1 = R"({"coord":[1,0],"scene":"cells/b.scene.json","bounds":{"min":[160,0,0],"max":[320,160,0]}})";
+    const char* c0 = R"({"coord":[0,0],"scene":"cells/a.scene.json","bounds":{"min":[0,0],"max":[160,160]}})";
+    const char* c1 = R"({"coord":[1,0],"scene":"cells/b.scene.json","bounds":{"min":[160,0],"max":[320,160]}})";
     const std::string idx = index2d(std::string(c0) + "," + c1);
 
     // chunks that agree: nothing to report on the tilemaps

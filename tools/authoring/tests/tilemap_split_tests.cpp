@@ -27,7 +27,7 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr int kW = 70, kH = 20;   // the map, in tiles
+constexpr int kW = 70, kH = 20;  // the map, in tiles
 constexpr float kTile = 8.0f;
 constexpr double kMapX = -400.0, kMapY = 120.0;  // the map's top-left corner (absolute)
 
@@ -52,8 +52,9 @@ struct Project {
     Project() {
         authoring::install();
         dir = fs::make_temp_dir("fa_tilesplit").value();
-        write("factoria.json",
-              R"({"format":"factoria.project/1","name":"Split","id":"com.example.split","mainScene":"scenes/level.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Split","id":"com.example.split","mainScene":"scenes/level.scene.json",
                   "display":{"width":320,"height":180}})");
     }
     ~Project() {
@@ -106,15 +107,17 @@ void write_scene(const Project& p, const std::string& rel, const Json& entities)
 }
 
 // A scene that streams `index` with every cell loaded (or around an anchor when keepLoaded is false).
-void write_world_scene(const Project& p, const std::string& rel, const std::string& index, bool keepLoaded, double ax = 0,
-                       double ay = 0, double radius = 100) {
-    Json streamed = Json::object({{"world", index}, {"maxAppliesPerFrame", 64}, {"maxLoadsInFlight", 16}, {"keepLoaded", keepLoaded}});
+void write_world_scene(const Project& p, const std::string& rel, const std::string& index, bool keepLoaded,
+                       double ax = 0, double ay = 0, double radius = 100) {
+    Json streamed = Json::object(
+        {{"world", index}, {"maxAppliesPerFrame", 64}, {"maxLoadsInFlight", 16}, {"keepLoaded", keepLoaded}});
     Json anchor = Json::object({{"loadRadius", radius}, {"unloadRadius", radius * 1.4}});
-    Json entities = Json::array(
-        {Json::object({{"id", "streamer"}, {"components", Json::object({{"StreamedWorld", streamed}})}}),
-         Json::object({{"id", "anchor"},
-                       {"components", Json::object({{"Transform", Json::object({{"position", Json::array({ax, ay, 0})}})},
-                                                    {"StreamingAnchor", anchor}})}})});
+    Json entities =
+        Json::array({Json::object({{"id", "streamer"}, {"components", Json::object({{"StreamedWorld", streamed}})}}),
+                     Json::object({{"id", "anchor"},
+                                   {"components",
+                                    Json::object({{"Transform", Json::object({{"position", Json::array({ax, ay, 0})}})},
+                                                  {"StreamingAnchor", anchor}})}})});
     write_scene(p, rel, entities);
 }
 
@@ -136,7 +139,8 @@ void settle(Engine& e, int maxFrames = 200) {
     for (int f = 0; f < maxFrames; ++f) {
         e.step(1);
         const Json s = call(e, "world.stream_status");
-        if (s["pending"].empty() && s["cellsUnloading"].get<int>() == 0 && s["cellsQueued"].get<int>() == 0 && f > 0) return;
+        if (s["pending"].empty() && s["cellsUnloading"].get<int>() == 0 && s["cellsQueued"].get<int>() == 0 && f > 0)
+            return;
     }
     FAIL("the streamer did not settle: " << call(e, "world.stream_status").dump());
 }
@@ -195,8 +199,10 @@ void prepare_level(const Project& p) {
 }
 
 Json split(Engine& e, int cellSize = 16, const std::string& out = "worlds/level.world.json", bool overwrite = false) {
-    return call(e, "tilemap.split_cells",
-                Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", cellSize}, {"out", out}, {"overwrite", overwrite}}));
+    return call(
+        e, "tilemap.split_cells",
+        Json::object(
+            {{"scene", "scenes/level.scene.json"}, {"cellSize", cellSize}, {"out", out}, {"overwrite", overwrite}}));
 }
 
 }  // namespace
@@ -215,7 +221,8 @@ TEST_CASE("tilemap.split_cells: writes the index and one chunk per cell, determi
     CHECK(info->description.find("Example") != std::string::npos);
 
     // dryRun reports and writes nothing
-    const Json dry = call(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 16}, {"dryRun", true}}));
+    const Json dry = call(e, "tilemap.split_cells",
+                          Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 16}, {"dryRun", true}}));
     CHECK(dry["written"] == 0);
     CHECK(dry["index"] == "scenes/level.world.json");  // the default: next to the scene, named after it
     CHECK_FALSE(stdfs::exists(p.dir / "scenes/level.world.json"));
@@ -244,45 +251,62 @@ TEST_CASE("tilemap.split_cells: writes the index and one chunk per cell, determi
     CHECK(chunk["entities"][0]["components"]["Transform"]["position"] == Json::array({-400.0 + 512.0, kMapY, 0}));
 
     // The same call again is refused (nothing is replaced), with `overwrite` it writes the same bytes
-    const Json refused = call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 16}, {"out", "worlds/level.world.json"}}));
+    const Json refused = call_error(
+        e, "tilemap.split_cells",
+        Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 16}, {"out", "worlds/level.world.json"}}));
     CHECK(refused["code"] == "exists");
     const std::string before = p.read("worlds/level_cells/2_0.scene.json") + p.read("worlds/level.world.json");
     split(e, 16, "worlds/level.world.json", true);
     CHECK(p.read("worlds/level_cells/2_0.scene.json") + p.read("worlds/level.world.json") == before);
 
     // Errors teach
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/none.scene.json"}}))["code"] == "not_found");
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 5000}})).dump()
+    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/none.scene.json"}}))["code"] ==
+          "not_found");
+    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"cellSize", 5000}}))
+              .dump()
               .find("4096") != std::string::npos);
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"out", "worlds/level.json"}}))["message"]
-              .get<std::string>().find(".world.json") != std::string::npos);
-    const Json wrong = call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"tilemap", "grund"}}));
+    CHECK(call_error(e, "tilemap.split_cells",
+                     Json::object({{"scene", "scenes/level.scene.json"}, {"out", "worlds/level.json"}}))["message"]
+              .get<std::string>()
+              .find(".world.json") != std::string::npos);
+    const Json wrong = call_error(e, "tilemap.split_cells",
+                                  Json::object({{"scene", "scenes/level.scene.json"}, {"tilemap", "grund"}}));
     CHECK(wrong["message"].get<std::string>().find("ground") != std::string::npos);
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"}, {"out", "../x.world.json"}}))["code"] == "invalid_argument");
+    CHECK(call_error(e, "tilemap.split_cells",
+                     Json::object({{"scene", "scenes/level.scene.json"}, {"out", "../x.world.json"}}))["code"] ==
+          "invalid_argument");
 
     // a map with rectangular tiles, a scaled one and a scene without a map
     Json rect = map_entity("ground", 0, 0, 2, 2, {1, 1, 1, 1});
     rect["components"]["Tilemap"]["tileSize"] = Json::array({16, 8});
     write_scene(p, "scenes/rect.scene.json", Json::array({rect}));
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/rect.scene.json"}}))["message"].get<std::string>().find("square") != std::string::npos);
+    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/rect.scene.json"}}))["message"]
+              .get<std::string>()
+              .find("square") != std::string::npos);
     Json scaled = map_entity("ground", 0, 0, 2, 2, {1, 1, 1, 1});
     scaled["components"]["Transform"]["scale"] = Json::array({2, 2, 1});
     write_scene(p, "scenes/scaled.scene.json", Json::array({scaled}));
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/scaled.scene.json"}}))["message"].get<std::string>().find("scale") != std::string::npos);
+    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/scaled.scene.json"}}))["message"]
+              .get<std::string>()
+              .find("scale") != std::string::npos);
     write_scene(p, "scenes/empty.scene.json", Json::array());
-    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/empty.scene.json"}}))["message"].get<std::string>().find("no entity with a Tilemap") != std::string::npos);
+    CHECK(call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/empty.scene.json"}}))["message"]
+              .get<std::string>()
+              .find("no entity with a Tilemap") != std::string::npos);
 
     // an all-empty cell is not written
     std::vector<int> sparse(std::size_t(8) * 8, -1);
     sparse[0] = 1;
     write_scene(p, "scenes/sparse.scene.json", Json::array({map_entity("m", 0, 0, 8, 8, sparse)}));
-    const Json sp = call(e, "tilemap.split_cells", Json::object({{"scene", "scenes/sparse.scene.json"}, {"cellSize", 4}}));
+    const Json sp =
+        call(e, "tilemap.split_cells", Json::object({{"scene", "scenes/sparse.scene.json"}, {"cellSize", 4}}));
     CHECK(sp["cells"] == 1);
     CHECK(sp["emptyCellsSkipped"] == 3);
     e.shutdown();
 }
 
-TEST_CASE("tilemap.split_cells: all the chunks loaded are the original map (tiles, flags and solid cells), at any floating origin") {
+TEST_CASE("tilemap.split_cells: all the chunks loaded are the original map (tiles, flags and solid cells), at any "
+          "floating origin") {
     Project p;
     prepare_level(p);
     std::vector<bool> expectedSolid = solid_cells_expected();
@@ -291,7 +315,8 @@ TEST_CASE("tilemap.split_cells: all the chunks loaded are the original map (tile
         const std::vector<int> t = make_tiles();
         for (int r = 0; r < kH; ++r)
             for (int c = 0; c < kW; ++c)
-                if (t[std::size_t(r) * kW + std::size_t(c)] >= 0) expectedTiles[{c, r}] = t[std::size_t(r) * kW + std::size_t(c)];
+                if (t[std::size_t(r) * kW + std::size_t(c)] >= 0)
+                    expectedTiles[{c, r}] = t[std::size_t(r) * kW + std::size_t(c)];
     }
     {
         Engine e;
@@ -313,7 +338,8 @@ TEST_CASE("tilemap.split_cells: all the chunks loaded are the original map (tile
         settle(e);
         e.step(3);
         int chunks = 0;
-        CHECK(absolute_tiles(e, "ground_", &chunks) == expectedTiles);  // flags included (a rotated tile keeps its rotation)
+        CHECK(absolute_tiles(e, "ground_", &chunks) ==
+              expectedTiles);  // flags included (a rotated tile keeps its rotation)
         CHECK(chunks == 10);
         CHECK(solid_cells_by_physics(e) == expectedSolid);
         // A rebase after the cells loaded moves what is local, never what is where
@@ -375,8 +401,9 @@ float slowest_on_floor(Engine& e, Entity box, float from, float to, float v0) {
         if (x > from && x < to) slowest = std::min(slowest, e.world().get<RigidBody2D>(box)->velocity.x);
         if (x >= to) return slowest;
     }
-    FAIL("the body never reached " << to << ", x " << e.world().world_position(box).x << " y " << e.world().world_position(box).y
-                                    << " vx " << e.world().get<RigidBody2D>(box)->velocity.x << " slowest " << slowest);
+    FAIL("the body never reached " << to << ", x " << e.world().world_position(box).x << " y "
+                                   << e.world().world_position(box).y << " vx "
+                                   << e.world().get<RigidBody2D>(box)->velocity.x << " slowest " << slowest);
     return slowest;
 }
 
@@ -394,7 +421,8 @@ TEST_CASE("tilemap.split_cells: a body slides over the borders between chunks wi
         std::string err;
         REQUIRE_MESSAGE(e.init(p.config("scenes/level.scene.json"), nullptr, &err), err);
         const Json r = split(e);
-        CHECK(r["cells"] == 8);  // 8 columns of chunks; the rows 0-2 and 4-5 are empty in the cells' own rows... one row of cells
+        CHECK(r["cells"] ==
+              8);  // 8 columns of chunks; the rows 0-2 and 4-5 are empty in the cells' own rows... one row of cells
         e.shutdown();
     }
     write_world_scene(p, "scenes/world.scene.json", "worlds/level.world.json", true);
