@@ -1686,6 +1686,11 @@ enum class SkyModel : std::int32_t { Gradient, Physical };
 // docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts").
 enum class VolumetricQuality : std::int32_t { Low, Medium, High };
 
+// SceneSettings.occlusionMode: which occlusion culling the 3D cameras use (M75.2, docs/BIG_WORLDS.md, "Occlusion"). Cpu = the Occluder
+// entities rasterised on the CPU (the default); Gpu = a hierarchical depth image of the last frame, read back with one frame of latency
+// (needs compute shaders; a backend without them uses Cpu, with one warning); Auto = Gpu where the backend has compute shaders, else Cpu.
+enum class OcclusionMode : std::int32_t { Cpu, Gpu, Auto };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1737,6 +1742,8 @@ struct SceneSettings {
     float volumetricAmbient = 1.0f;        // how much of ambientLight the fog scatters
     float volumetricDistance = 100.0f;     // metres from the camera the medium extends to
     VolumetricQuality volumetricQuality = VolumetricQuality::Medium;
+    OcclusionMode occlusionMode =
+        OcclusionMode::Cpu;  // M75.2: cpu (Occluder entities), gpu (Hi-Z of the last frame) or auto
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

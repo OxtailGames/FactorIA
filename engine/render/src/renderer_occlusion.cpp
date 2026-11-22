@@ -191,7 +191,7 @@ void Renderer::Impl::occlusion_overlay() {
                Color::white(), 16.0f);
 }
 
-Json Renderer::occlusion_report(std::string_view savePath) {
+Json Renderer::occlusion_report(std::string_view savePath, int level) {
     Json out = Json::object();
     if (!impl_) return out;
     Impl& im = *impl_;
@@ -202,6 +202,7 @@ Json Renderer::occlusion_report(std::string_view savePath) {
     out["limits"] = Json::object({{"width", render::kOcclusionWidth},
                                   {"trianglesPerOccluder", int(im.occlusionLimits.perOccluder)},
                                   {"trianglesPerCamera", int(im.occlusionLimits.perFrame)}});
+    out["gpu"] = im.hiz_report(im.occlusion.ready() && s.valid ? std::string_view{} : savePath, level);
     if (!s.valid) {
         out["message"] = "No camera of the last frame had an enabled Occluder, so nothing was rasterised. Hint: add an "
                          "Occluder component "

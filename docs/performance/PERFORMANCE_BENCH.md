@@ -26,6 +26,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `nav.tilemap_edit` | 40 times: `setTile` on a 512 x 512 Tilemap, then `nav.findTilePath` across it: the kept cost grid is patched by the edit, not read again from the 262144 cells (a fresh read took 55.9 ms for the 40) |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
 | `render.occlusion3d` | `render.frame3d` with three wall Occluders across the field (M75.2): the rasterizer, 1600 tests against its buffer, and the draws the hidden meshes no longer cost |
+| `render.hiz3d` | `render.occlusion3d` with the walls as plain meshes and `occlusionMode` "gpu" (M75.2b): the depth prepass, the reduce pass, the read-back and 1600 tests against the pyramid of the frame before; the plain frame where the backend has no compute shaders |
 | `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
 | `schema.interpreted`, `schema.compiled` | The schema part of a command call on its own (defaults, then validation, 20000 argument sets, every 50th refused), against the schema as Json and as a `CompiledSchema` |
 | `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |

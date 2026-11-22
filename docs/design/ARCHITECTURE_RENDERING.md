@@ -373,6 +373,30 @@ rasterised per band of rows, the cell being the maximum over the triangles. Caps
 `Renderer::occlusion_report` backs `render.occlusion` and `DebugView::Occlusion` draws the boxes with `DebugDraw`. Tests:
 `engine/render/tests/occlusion_tests.cpp` (CPU, in `render_postprocess_core`) and `occlusion_render_tests.cpp` (a GPU scene).
 
+## Occlusion culling on the GPU, the depth pyramid (M75.2b)
+`SceneSettings.occlusionMode` (`cpu` default, `gpu`, `auto`) picks, per camera and exclusively, the Occluders above or this path;
+`renderer_hiz.cpp` drives it, `hiz.h/.cpp` is the pure half (`HizPyramid`, `hiz_hidden`; `hiz_tests.cpp` proves its maths without a GPU) and
+`shaders/hiz.glsl` the reduce. `gather_meshes` calls `hiz_cull` for a perspective camera that draws the world (not a probe or GI capture,
+not a camera view), which sets `MeshItem::visible = false` like `occlude_meshes` (shadows are not culled) and returns the camera's `HizCamera`
+in `ctx.hiz`; `plan_prepass` then forces the camera's depth and normal prepass (exact current geometry, sampleable, unlike the MSAA main
+depth; it costs a second draw of the opaque meshes) and `build_graph` declares a side-effect pass `hiz-reduce` right after it: a compute
+pass of one thread per cell turns the prepass image into 256 x (256 / aspect) cells of (nearest, farthest) view depth in a storage buffer
+(a pixel with no mesh counts as no depth, so only a fully covered cell occludes).
+The read-back never waits (`render::AsyncBufferRead`, render_internal.h: a ring of 4 staging slots per camera; Metal a blit into a shared
+buffer, OpenGL 4.3 `glCopyBufferSubData` + fence, D3D11 a STAGING copy + event query; GLES3 and WebGL2 have none and never get here). It is
+asked for in `Renderer::begin_frame` BEFORE sokol's frame begins (on Metal the blit must follow the committed command buffer that holds the
+reduce); a headless renderer waits for it right there, so its latency is always exactly one frame and a test counts frames, not time. The
+CPU builds the mip chain (min of nearest, max of farthest) and `hiz_hidden` tests each box in the pose of the frame the picture was made in
+(`HizPose`; the shift of a floating-origin rebase is applied to it, `hiz_shift`): corners projected with the old matrix, the mip whose
+footprint is at most 2 cells, the footprint dilated by the parallax the camera's move can cause, and "hidden" only when the box's nearest
+corner is behind the farthest depth of every cell it reads. Not culled: a corner at or behind the old near plane, a footprint crossing the
+picture's border, a changed field of view or aspect (a cut), a cell with no mesh, a move needing more than `kHizMaxDilate` cells, a pyramid
+older than `kHizMaxAgeFrames` frames or from before a jump of the world's frame. At most `kHizMaxCameras` cameras keep a pyramid; the world
+or scene path changing drops them all. Support is `render.supports occlusionGpu` (`computeShaders`) plus `AsyncBufferRead::supported()`.
+`hiz.glsl` starts with `// shdc-slang: glsl430:metal_macos:metal_ios:metal_sim:hlsl5` (tools/shaders/compile_shaders.sh), so its generated
+header carries no GLES3, WGSL or WebGL2 code and the web player does not grow. Tests: `hiz_tests.cpp` (CPU), `hiz_render_tests.cpp` (a GPU
+scene; they return where there is no compute). Bench: `render.hiz3d`.
+
 
 
 ## The floating origin (M75.4b)

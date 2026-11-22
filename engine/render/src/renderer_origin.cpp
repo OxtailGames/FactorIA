@@ -47,6 +47,11 @@ void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
     for (OcclusionShown* shown : {&occlusionShown, &occlusionPrev})
         for (OcclusionShown::Box& box : shown->boxes)
             for (Vec3& corner : box.corners) corner -= off;
+    // The depth pyramids' cameras and the boxes the GPU culling's debug view draws are world positions too.
+    hiz_shift(off);
+    for (HizShown* shown : {&hizShown, &hizPrev})
+        for (OcclusionShown::Box& box : shown->boxes)
+            for (Vec3& corner : box.corners) corner -= off;
     // The cameras of the last frame answer world_to_screen, entity.bounds() and picking until the next update(): they are the ones of the
     // world as it is now.
     if (!lastCams.empty()) {
