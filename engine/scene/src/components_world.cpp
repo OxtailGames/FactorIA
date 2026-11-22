@@ -758,7 +758,7 @@ void register_world_components(TypeRegistry& r) {
          "`terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The "
          "result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. "
          "The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules "
-         "(docs/BIG_WORLDS_TERRAIN.md, "
+         "(M75.6, docs/BIG_WORLDS_TERRAIN.md, "
          "\"Foliage\").",
          "3D")
         .field("meshes", &ScatterRule::meshes,

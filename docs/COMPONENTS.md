@@ -1702,7 +1702,7 @@ Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU insta
 
 Not released yet (on main after 0.34.0).
 
-The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (M75.6, docs/BIG_WORLDS_TERRAIN.md, "Foliage").
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -4647,6 +4647,8 @@ A stroke never puts two instances closer than half the average gap of `density` 
 | `seed` | integer | no | Seed of the draw (default: the rule's seed). The same arguments always give the same instances. |
 
 ### `foliage.restore` (modifies state)
+
+Not released yet (on main after 0.34.0).
 
 Put a Foliage's instances file back: the undo and redo of the foliage.* edits.
 
@@ -23580,7 +23582,7 @@ declare module "factoria" {
     castShadows: boolean;
   }
   /**
-   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (M75.6, docs/BIG_WORLDS_TERRAIN.md, "Foliage").
    * 
    * Category: 3D
    * @since unreleased
