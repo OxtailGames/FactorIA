@@ -17,6 +17,7 @@
 namespace fa::render {
 
 struct TerrainDraw;
+struct ImpostorDraw;
 
 // The sort key of every node of a Terrain (renderer_terrain.cpp): after any key a scene's items get, so they follow the scene's own
 // batches and, the sort being stable, stay in the order they were gathered (one terrain after the other). Without it one terrain made
@@ -62,6 +63,9 @@ struct MeshItem {
     // A node of a Terrain (renderer_terrain.h): the draw it belongs to (its material block and textures) and the eight floats of
     // instance data the terrain program reads (first column, first row, step, level, morph start and end).
     const TerrainDraw* terrain = nullptr;
+    // A card of an impostor (renderer_impostor.h, M75-P1c): the draw it belongs to (its material block and textures). `terrainNode` holds ITS eight
+    // floats of instance data then: the centre of the atlas in the world, the radius of its square, the rotation world -> model (x, y, z, w).
+    const ImpostorDraw* impostor = nullptr;
     std::array<float, 8> terrainNode{};
 };
 

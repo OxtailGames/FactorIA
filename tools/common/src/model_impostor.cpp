@@ -20,10 +20,10 @@ namespace fa::assets_detail {
 
 namespace {
 
-constexpr std::size_t kMaxTriangles = 4000000;       // a model with more is too heavy to draw from every direction
-constexpr double kMaxFrameTriangles = 4.0e8;         // triangles x frames: the setup work of the whole bake
-constexpr double kMaxPixelWork = 6.0e9;              // pixels the triangles' bounding boxes cover, over every frame
-constexpr int kDilatePasses = 4;                     // pixels the colour of an edge grows into the transparent area
+constexpr std::size_t kMaxTriangles = 4000000;  // a model with more is too heavy to draw from every direction
+constexpr double kMaxFrameTriangles = 4.0e8;    // triangles x frames: the setup work of the whole bake
+constexpr double kMaxPixelWork = 6.0e9;         // pixels the triangles' bounding boxes cover, over every frame
+constexpr int kDilatePasses = 4;                // pixels the colour of an edge grows into the transparent area
 constexpr const char* kCommand = "model.bake_impostor";
 
 const float* srgb_to_linear_table() {
@@ -61,8 +61,8 @@ struct Scene {
 struct FrameBuffer {
     int side = 0;  // samples per side
     std::vector<float> depth;
-    std::vector<float> rgb;   // linear colour, 3 per sample
-    std::vector<float> nrm;   // model-space normal, 3 per sample
+    std::vector<float> rgb;  // linear colour, 3 per sample
+    std::vector<float> nrm;  // model-space normal, 3 per sample
     void reset(int s) {
         side = s;
         const std::size_t n = std::size_t(s) * std::size_t(s);
@@ -258,10 +258,12 @@ int int_arg(const Json& a, const char* key, int def, int lo, int hi, const char*
     if (!a.contains(key) || a[key].is_null()) return def;
     const std::string pointer = std::string("/") + key;
     if (!a[key].is_number_integer())
-        arg_error(kCommand, pointer, "must be a whole number, " + std::to_string(lo) + ".." + std::to_string(hi) + ".", hint);
+        arg_error(kCommand, pointer, "must be a whole number, " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
+                  hint);
     const long long v = a[key].get<long long>();
     if (v < lo || v > hi)
-        arg_error(kCommand, pointer, "is " + std::to_string(v) + ", outside " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
+        arg_error(kCommand, pointer,
+                  "is " + std::to_string(v) + ", outside " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
                   hint);
     return int(v);
 }
@@ -277,14 +279,18 @@ bool is_our_impostor(const std::string& projectDir, const std::string& rel) {
 }
 
 // The entities of the loaded scene that draw `meshPath` get MeshRenderer.impostor = `file` (only the live scene: save it to keep it).
-Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath, const std::string& file, Json& warnings) {
+Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath, const std::string& file,
+                    Json& warnings) {
     Json applied = Json::array();
     if (!registry.info("scene.list_entities") || !registry.info("scene.set_component")) {
-        warnings.push_back("apply: there is no scene in this session (no scene.* commands), so no MeshRenderer was changed. Set "
-                           "MeshRenderer.impostor to '" + file + "' with scene.set_component or in the scene file.");
+        warnings.push_back(
+            "apply: there is no scene in this session (no scene.* commands), so no MeshRenderer was changed. Set "
+            "MeshRenderer.impostor to '" +
+            file + "' with scene.set_component or in the scene file.");
         return applied;
     }
-    CommandResult list = registry.call("scene.list_entities", Json::object({{"component", "MeshRenderer"}, {"limit", 20000}}));
+    CommandResult list =
+        registry.call("scene.list_entities", Json::object({{"component", "MeshRenderer"}, {"limit", 20000}}));
     if (!list.ok) {
         warnings.push_back("apply: scene.list_entities failed: " + list.error.value("message", std::string()));
         return applied;
@@ -294,14 +300,15 @@ Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath
     for (const Json& e : list.result["entities"]) {
         const std::string id = e.value("id", std::string());
         CommandResult got = registry.call("scene.get_entity", Json::object({{"id", id}}));
-        if (!got.ok || !got.result.contains("components") || !got.result["components"].contains("MeshRenderer")) continue;
+        if (!got.ok || !got.result.contains("components") || !got.result["components"].contains("MeshRenderer"))
+            continue;
         const Json& mr = got.result["components"]["MeshRenderer"];
         if (!mr.contains("mesh") || !mr["mesh"].is_string()) continue;
         auto norm = fs::normalize_checked(mr["mesh"].get<std::string>());
         if (!norm.ok() || *norm != meshPath) continue;
-        CommandResult set = registry.call("scene.set_component", Json::object({{"id", id},
-                                                                                  {"component", "MeshRenderer"},
-                                                                                  {"fields", Json::object({{"impostor", file}})}}));
+        CommandResult set = registry.call(
+            "scene.set_component",
+            Json::object({{"id", id}, {"component", "MeshRenderer"}, {"fields", Json::object({{"impostor", file}})}}));
         if (set.ok)
             applied.push_back(id);
         else
@@ -316,23 +323,27 @@ Json apply_to_scene(const CommandRegistry& registry, const std::string& meshPath
 Json bake_impostor_command(const CommandRegistry& registry, const std::string& projectDir, const Json& a) {
     check_arg_keys(kCommand, a, "", {"model", "views", "resolution", "mode", "apply", "overwrite"});
     const std::string arg = tooling_detail::arg_string(a, "model", true);
-    const int views = int_arg(a, "views", 8, kImpostorMinViews, kImpostorMaxViews,
-                              "More views follow the camera more closely and cost atlas pixels; 8 is a good start (a tree: 12).");
+    const int views =
+        int_arg(a, "views", 8, kImpostorMinViews, kImpostorMaxViews,
+                "More views follow the camera more closely and cost atlas pixels; 8 is a good start (a tree: 12).");
     const int resolution = int_arg(a, "resolution", 1024, kImpostorMinViews * kImpostorMinFrame, kImpostorMaxAtlas,
                                    "The atlas side in pixels, views times the side of one frame; try 1024 or 2048.");
     const std::string modeName = tooling_detail::arg_string(a, "mode", false, "octahedral");
     ImpostorMode mode;
     if (!impostor_mode_from_name(modeName, mode))
-        arg_error(kCommand, "/mode", "is \"" + modeName + "\".",
-                  "Use \"octahedral\" (the model is seen from every side) or \"hemiOctahedral\" (only from above: trees, "
-                  "rocks, buildings; twice the angular resolution for the same atlas)." +
-                      (modeName.empty() ? std::string() : " " + did_you_mean(modeName, std::vector<std::string>{"octahedral", "hemiOctahedral"})));
+        arg_error(
+            kCommand, "/mode", "is \"" + modeName + "\".",
+            "Use \"octahedral\" (the model is seen from every side) or \"hemiOctahedral\" (only from above: trees, "
+            "rocks, buildings; twice the angular resolution for the same atlas)." +
+                (modeName.empty()
+                     ? std::string()
+                     : " " + did_you_mean(modeName, std::vector<std::string>{"octahedral", "hemiOctahedral"})));
     const int frameSize = resolution / views;
     if (frameSize < kImpostorMinFrame)
         arg_error(kCommand, "/resolution",
-                  "is " + std::to_string(resolution) + ", which leaves " + std::to_string(frameSize) + " pixels for each of the " +
-                      std::to_string(views) + " x " + std::to_string(views) + " frames (at least " +
-                      std::to_string(kImpostorMinFrame) + " are needed).",
+                  "is " + std::to_string(resolution) + ", which leaves " + std::to_string(frameSize) +
+                      " pixels for each of the " + std::to_string(views) + " x " + std::to_string(views) +
+                      " frames (at least " + std::to_string(kImpostorMinFrame) + " are needed).",
                   "Raise resolution to " + std::to_string(views * kImpostorMinFrame) + " or more, or lower views.");
     const bool apply = tooling_detail::arg_bool(a, "apply", false);
     const bool overwrite = tooling_detail::arg_bool(a, "overwrite", false);
@@ -356,8 +367,9 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
     {
         ProjectRootGuard root(projectDir);
         if (!fs::exists(meshPath))
-            fail("not_found", "/model: '" + meshPath + "' does not exist" +
-                                  (meshPath == *norm ? "." : " (the .glb of '" + *norm + "' is not baked yet)."),
+            fail("not_found",
+                 "/model: '" + meshPath + "' does not exist" +
+                     (meshPath == *norm ? "." : " (the .glb of '" + *norm + "' is not baked yet)."),
                  meshPath == *norm ? "Check the path; assets.list shows the project's models."
                                    : "Run model.bake {\"path\":\"" + *norm + "\"} first.");
     }
@@ -372,8 +384,8 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
     if (!overwrite) {
         std::error_code ec;
         const bool ours = is_our_impostor(projectDir, jsonRel);
-        for (const auto& [file, rel] : {std::pair{jsonFile, jsonRel}, std::pair{albedoFile, albedoRel},
-                                        std::pair{normalFile, normalRel}})
+        for (const auto& [file, rel] :
+             {std::pair{jsonFile, jsonRel}, std::pair{albedoFile, albedoRel}, std::pair{normalFile, normalRel}})
             if (stdfs::exists(file, ec) && !ours)
                 fail("exists", "'" + rel + "' exists and no impostor of this model wrote it.",
                      "Pass \"overwrite\": true to replace it, or move the file.");
@@ -388,13 +400,15 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
     sc.mesh = &data;
     sc.triangles = data.triangle_count();
     if (sc.triangles == 0 || data.vertex_count() == 0)
-        fail("invalid_argument", "/model: '" + meshPath + "' has no triangles.", "An impostor shows a mesh; pick a model that has one.");
+        fail("invalid_argument", "/model: '" + meshPath + "' has no triangles.",
+             "An impostor shows a mesh; pick a model that has one.");
     if (sc.triangles > kMaxTriangles || double(sc.triangles) * views * views > kMaxFrameTriangles)
         fail("too_heavy",
              "/model: '" + meshPath + "' has " + std::to_string(sc.triangles) + " triangles; drawing it from " +
                  std::to_string(views * views) + " directions is more work than one bake allows (" +
                  std::to_string(std::size_t(kMaxFrameTriangles)) + " triangle draws).",
-             "Bake the impostor from a lower level of detail: model.generate_lods writes <name>.lod1.glb, <name>.lod2.glb...; give one "
+             "Bake the impostor from a lower level of detail: model.generate_lods writes <name>.lod1.glb, "
+             "<name>.lod2.glb...; give one "
              "of those as `model` (the impostor is the same picture from afar), or lower `views`.");
     // the sphere that holds every vertex a triangle uses
     Vec3 lo{std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()},
@@ -430,7 +444,8 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
             embedded[e.material] = std::move(*img);
             hasEmbedded[e.material] = true;
         } else {
-            warnings.push_back("A texture inside '" + meshPath + "' could not be read (" + img.error().message + "); its colour factor is used.");
+            warnings.push_back("A texture inside '" + meshPath + "' could not be read (" + img.error().message +
+                               "); its colour factor is used.");
         }
     }
     sc.textures.resize(data.submeshes.size());
@@ -466,8 +481,9 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
             fb.reset(frameSize * ss);
             draw_frame(sc, impostor_direction(mode, views, i, j), fb, proj, work);
             if (work > kMaxPixelWork)
-                fail("too_heavy", "/model: '" + meshPath + "' covers too many pixels over " + std::to_string(views * views) +
-                                      " frames (its triangles are huge on screen).",
+                fail("too_heavy",
+                     "/model: '" + meshPath + "' covers too many pixels over " + std::to_string(views * views) +
+                         " frames (its triangles are huge on screen).",
                      "Lower `views` or `resolution`, or bake from a model with fewer, smaller triangles.");
             resolve_frame(fb, ss, frameSize, i * frameSize, j * frameSize, atlas);
         }
@@ -489,10 +505,13 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
 
     std::string err;
     const auto png1 = encode_png(atlas.albedo), png2 = encode_png(atlas.normal);
-    if (!tooling_detail::write_file(albedoFile, std::string_view(reinterpret_cast<const char*>(png1.data()), png1.size()), &err) ||
-        !tooling_detail::write_file(normalFile, std::string_view(reinterpret_cast<const char*>(png2.data()), png2.size()), &err) ||
+    if (!tooling_detail::write_file(albedoFile,
+                                    std::string_view(reinterpret_cast<const char*>(png1.data()), png1.size()), &err) ||
+        !tooling_detail::write_file(normalFile,
+                                    std::string_view(reinterpret_cast<const char*>(png2.data()), png2.size()), &err) ||
         !tooling_detail::write_file(jsonFile, dump_json(file), &err))
-        fail("failed", "Cannot write the impostor files next to '" + meshPath + "': " + err, "Check that the folder is writable.");
+        fail("failed", "Cannot write the impostor files next to '" + meshPath + "': " + err,
+             "Check that the folder is writable.");
 
     Json result = Json::object({{"file", jsonRel},
                                 {"albedo", albedoRel},
@@ -504,9 +523,10 @@ Json bake_impostor_command(const CommandRegistry& registry, const std::string& p
                                 {"radius", std::round(sc.radius * 1000.0) / 1000.0},
                                 {"triangles", sc.triangles}});
     if (apply) result["applied"] = apply_to_scene(registry, meshPath, jsonRel, warnings);
-    result["nextSteps"] = Json::array(
-        {"Set MeshRenderer.impostor to \"" + jsonRel + "\" and impostorDistance to where the model should turn into its picture (metres, "
-         "or a screen fraction in screenSize mode)."});
+    result["nextSteps"] =
+        Json::array({"Set MeshRenderer.impostor to \"" + jsonRel +
+                     "\" and impostorDistance to where the model should turn into its picture (metres, "
+                     "or a screen fraction in screenSize mode)."});
     if (!warnings.empty()) result["warnings"] = warnings;
     return result;
 }
@@ -518,19 +538,31 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
     info.name = kCommand;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.";
+    info.summary =
+        "Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.";
     info.description =
-        "Draws `model` (a .glb or .gltf, or a .model.json: its baked .glb) from views x views directions with a CPU rasterizer "
-        "(orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), `<name>.impostor.png` (colour with "
-        "alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad is lit like the model). Frames cover a "
-        "sphere around the model, so one frame size fits every direction. `mode` octahedral (default) covers every direction; hemiOctahedral "
-        "only the upper half (y >= 0), with twice the angular resolution: for trees, rocks and buildings that are seen from above. "
-        "`resolution` is the side of the whole atlas in pixels (default 1024, at most 4096): each frame gets resolution / views, at least 8. "
-        "Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of more than 4 million "
-        "triangles, or whose triangles x views x views is above 400 million, is refused: bake from a lower LOD (model.generate_lods). "
-        "Existing files of an earlier bake are replaced; others need `overwrite`. `apply` also sets MeshRenderer.impostor of the entities "
-        "of the loaded scene that draw the model (the scene file is not saved: set the field in the scene to keep it). The "
-        "renderer draws the impostor from MeshRenderer.impostorDistance on (docs/BIG_WORLDS_LOD.md, \"Impostors\"). Result: {file, albedo, normal, "
+        "Draws `model` (a .glb or .gltf, or a .model.json: its baked .glb) from views x views directions with a CPU "
+        "rasterizer "
+        "(orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), "
+        "`<name>.impostor.png` (colour with "
+        "alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad is lit like the model). Frames "
+        "cover a "
+        "sphere around the model, so one frame size fits every direction. `mode` octahedral (default) covers every "
+        "direction; hemiOctahedral "
+        "only the upper half (y >= 0), with twice the angular resolution: for trees, rocks and buildings that are seen "
+        "from above. "
+        "`resolution` is the side of the whole atlas in pixels (default 1024, at most 4096): each frame gets "
+        "resolution / views, at least 8. "
+        "Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of more "
+        "than 4 million "
+        "triangles, or whose triangles x views x views is above 400 million, is refused: bake from a lower LOD "
+        "(model.generate_lods). "
+        "Existing files of an earlier bake are replaced; others need `overwrite`. `apply` also sets "
+        "MeshRenderer.impostor of the entities "
+        "of the loaded scene that draw the model (the scene file is not saved: set the field in the scene to keep it). "
+        "The "
+        "renderer draws the impostor from MeshRenderer.impostorDistance on (docs/BIG_WORLDS_LOD.md, \"Impostors\"). "
+        "Result: {file, albedo, normal, "
         "mode, views, frameSize, resolution, radius, triangles, applied?, warnings?}. Example: model.bake_impostor "
         "{\"model\":\"assets/models/tree.glb\",\"views\":8,\"mode\":\"hemiOctahedral\"}";
     info.inputSchema = Json::object(
@@ -539,28 +571,39 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"model", Json::object({{"type", "string"},
-                                       {"description", "The model to bake: a project-relative .glb or .gltf, or the .model.json whose .glb it is."}})},
+              {{"model",
+                Json::object(
+                    {{"type", "string"},
+                     {"description",
+                      "The model to bake: a project-relative .glb or .gltf, or the .model.json whose .glb it is."}})},
                {"views", Json::object({{"type", "integer"},
                                        {"minimum", kImpostorMinViews},
                                        {"maximum", kImpostorMaxViews},
                                        {"default", 8},
                                        {"description", "Frames per side of the atlas: views x views directions."}})},
-               {"resolution", Json::object({{"type", "integer"},
-                                            {"minimum", kImpostorMinViews * kImpostorMinFrame},
-                                            {"maximum", kImpostorMaxAtlas},
-                                            {"default", 1024},
-                                            {"description", "Pixels of the whole atlas side; one frame is resolution / views (at least 8)."}})},
+               {"resolution",
+                Json::object({{"type", "integer"},
+                              {"minimum", kImpostorMinViews * kImpostorMinFrame},
+                              {"maximum", kImpostorMaxAtlas},
+                              {"default", 1024},
+                              {"description",
+                               "Pixels of the whole atlas side; one frame is resolution / views (at least 8)."}})},
                {"mode", Json::object({{"type", "string"},
                                       {"enum", Json::array({"octahedral", "hemiOctahedral"})},
                                       {"default", "octahedral"},
-                                      {"description", "octahedral: every direction. hemiOctahedral: only from above (y >= 0), twice the resolution."}})},
-               {"apply", Json::object({{"type", "boolean"},
-                                       {"default", false},
-                                       {"description", "Set MeshRenderer.impostor of the loaded scene's entities that draw the model (not saved)."}})},
-               {"overwrite", Json::object({{"type", "boolean"},
-                                           {"default", false},
-                                           {"description", "Replace files at the output paths that no earlier bake of this command wrote."}})}})}});
+                                      {"description", "octahedral: every direction. hemiOctahedral: only from above (y "
+                                                      ">= 0), twice the resolution."}})},
+               {"apply",
+                Json::object(
+                    {{"type", "boolean"},
+                     {"default", false},
+                     {"description",
+                      "Set MeshRenderer.impostor of the loaded scene's entities that draw the model (not saved)."}})},
+               {"overwrite",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description",
+                               "Replace files at the output paths that no earlier bake of this command wrote."}})}})}});
     mark_paths(info.inputSchema, "read", {"model"});
     registry.add(info, [&registry, projectDir](const Json& args) {
         return bake_impostor_command(registry, projectDir, args.is_null() ? Json::object() : args);

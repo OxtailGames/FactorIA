@@ -163,8 +163,8 @@ void register_model_eyes_commands(
     CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
 void register_model_import_clean_command(
     CommandRegistry& registry, const std::string& projectDir);  // model.import_clean (assets_model_import.cpp)
-void register_model_impostor_command(
-    CommandRegistry& registry, const std::string& projectDir);  // model.bake_impostor (model_impostor.cpp)
+void register_model_impostor_command(CommandRegistry& registry,
+                                     const std::string& projectDir);  // model.bake_impostor (model_impostor.cpp)
 Json model_uv_report_json(
     const ModelUvReport&
         report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)

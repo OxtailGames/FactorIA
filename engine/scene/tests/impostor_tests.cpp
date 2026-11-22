@@ -28,7 +28,8 @@ TEST_CASE("impostor: directions are unit, round trip through encode, and the hem
     CHECK(impostor_direction(ImpostorMode::Octahedral, 9, 0, 0).y < -0.5f);
 }
 
-TEST_CASE("impostor: the pick holds three frames whose weights add up to 1 and a direction on a frame picks that frame") {
+TEST_CASE(
+    "impostor: the pick holds three frames whose weights add up to 1 and a direction on a frame picks that frame") {
     for (ImpostorMode mode : {ImpostorMode::Octahedral, ImpostorMode::HemiOctahedral}) {
         const int n = 8;
         for (int i = 0; i < n; ++i)
@@ -45,7 +46,8 @@ TEST_CASE("impostor: the pick holds three frames whose weights add up to 1 and a
                     if (p.weight[k] > best) best = p.weight[k], bestFrame = p.frame[k];
                 }
                 // On an edge of the grid the same direction sits in two cells: the frame picked shows the same direction.
-                CHECK(dot(impostor_direction(mode, n, bestFrame % n, bestFrame / n), d) == doctest::Approx(1.0f).epsilon(1e-4));
+                CHECK(dot(impostor_direction(mode, n, bestFrame % n, bestFrame / n), d) ==
+                      doctest::Approx(1.0f).epsilon(1e-4));
                 CHECK(best == doctest::Approx(1.0f).epsilon(1e-3));
             }
         // A direction that is between frames weighs its neighbours.
