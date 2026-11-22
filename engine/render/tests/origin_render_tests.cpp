@@ -89,7 +89,8 @@ int soft_pixels(const Image& img, int y, int x0, int x1) {
     return n;
 }
 
-constexpr float kFar = 4352.0f;  // 17 steps of 256: where the scenes below are built, far enough that a float is coarse (0.5 mm)
+constexpr float kFar =
+    4352.0f;  // 17 steps of 256: where the scenes below are built, far enough that a float is coarse (0.5 mm)
 
 // The scene of the motion blur tests (dof_motion_tests.cpp) built `kFar` away on x: a camera at (kFar, 0, 10) looking down -Z, a near cube
 // (2 m wide, 35 px) and a far one.
@@ -127,7 +128,8 @@ struct Far {
 TEST_CASE("floating origin render: the camera motion blur reprojects from is the camera shifted by the offset") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    Image still;  // the same scene drawn three times with no rebase (another renderer: two do not share one context's history)
+    Image
+        still;  // the same scene drawn three times with no rebase (another renderer: two do not share one context's history)
     {
         Own own(g);
         REQUIRE(own.ok);
@@ -153,8 +155,8 @@ TEST_CASE("floating origin render: the camera motion blur reprojects from is the
     for (Vec3 q : {Vec3{kFar - 3, 0, 0}, Vec3{kFar + 12, 1, -34.5f}, Vec3{kFar, -2, 3}}) {
         const Vec4 a = before * Vec4{q, 1.0f};
         const Vec4 b = after * Vec4{q - offset, 1.0f};
-        INFO("clip before " << a.x << " " << a.y << " " << a.z << " " << a.w << ", after " << b.x << " " << b.y << " " << b.z
-                            << " " << b.w);
+        INFO("clip before " << a.x << " " << a.y << " " << a.z << " " << a.w << ", after " << b.x << " " << b.y << " "
+                            << b.z << " " << b.w);
         CHECK(std::fabs(a.x - b.x) < 0.02f);
         CHECK(std::fabs(a.y - b.y) < 0.02f);
         CHECK(std::fabs(a.z - b.z) < 0.02f);
@@ -188,7 +190,8 @@ TEST_CASE("floating origin render: a rebase between frames of a moving camera ke
     CHECK(differing_pixels(rebased, plain) <= 150);
 }
 
-TEST_CASE("floating origin render: a world swap and either order of destruction never call into a dead renderer or world") {
+TEST_CASE(
+    "floating origin render: a world swap and either order of destruction never call into a dead renderer or world") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     {
@@ -243,7 +246,8 @@ TEST_CASE("floating origin render: a world swap and either order of destruction 
     }
 }
 
-TEST_CASE("floating origin render: the shadow cascades snap in absolute space, so a shift leaves them on the same texels") {
+TEST_CASE(
+    "floating origin render: the shadow cascades snap in absolute space, so a shift leaves them on the same texels") {
     const Vec3 light = normalize(Vec3{-0.4f, -1.0f, -0.3f});
     const int tile = 1024;
     const float radius = 23.7f;  // a texel of 0.0463: 256 is not a multiple of it
