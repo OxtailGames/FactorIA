@@ -542,29 +542,22 @@ void register_model_impostor_command(CommandRegistry& registry, const std::strin
         "Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.";
     info.description =
         "Draws `model` (a .glb or .gltf, or a .model.json: its baked .glb) from views x views directions with a CPU "
-        "rasterizer "
-        "(orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), "
-        "`<name>.impostor.png` (colour with "
-        "alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad is lit like the model). Frames "
-        "cover a "
-        "sphere around the model, so one frame size fits every direction. `mode` octahedral (default) covers every "
-        "direction; hemiOctahedral "
-        "only the upper half (y >= 0), with twice the angular resolution: for trees, rocks and buildings that are seen "
-        "from above. "
-        "`resolution` is the side of the whole atlas in pixels (default 1024, at most 4096): each frame gets "
-        "resolution / views, at least 8. "
-        "Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of more "
-        "than 4 million "
-        "triangles, or whose triangles x views x views is above 400 million, is refused: bake from a lower LOD "
-        "(model.generate_lods). "
-        "Existing files of an earlier bake are replaced; others need `overwrite`. `apply` also sets "
-        "MeshRenderer.impostor of the entities "
-        "of the loaded scene that draw the model (the scene file is not saved: set the field in the scene to keep it). "
-        "The "
-        "renderer draws the impostor from MeshRenderer.impostorDistance on (docs/BIG_WORLDS_LOD.md, \"Impostors\"). "
-        "Result: {file, albedo, normal, "
-        "mode, views, frameSize, resolution, radius, triangles, applied?, warnings?}. Example: model.bake_impostor "
-        "{\"model\":\"assets/models/tree.glb\",\"views\":8,\"mode\":\"hemiOctahedral\"}";
+        "rasterizer (orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), "
+        "`<name>.impostor.png` (colour with alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad "
+        "is lit like the model). `resolution` is the side of the whole atlas in pixels (default 1024, at most 4096). "
+        "Then set MeshRenderer.impostor and impostorDistance: the renderer draws the card from there on "
+        "(docs/BIG_WORLDS_LOD.md, \"Impostors\"). "
+        "Example: model.bake_impostor "
+        "{\"model\":\"assets/models/tree.glb\",\"views\":8,\"mode\":\"hemiOctahedral\"}. " FA_COMMAND_DETAILS
+        "Frames cover a sphere around the model, so one frame size fits every direction. `mode` octahedral (default) "
+        "covers every direction; hemiOctahedral only the upper half (y >= 0), with twice the angular resolution: for "
+        "trees, rocks and buildings that are seen from above. Each frame gets resolution / views pixels, at least 8. "
+        "Same model and arguments give the same files. Transparent materials are cut out at alpha 0.5. A model of "
+        "more than 4 million triangles, or whose triangles x views x views is above 400 million, is refused: bake from "
+        "a lower LOD (model.generate_lods). Existing files of an earlier bake are replaced; others need `overwrite`. "
+        "`apply` also sets MeshRenderer.impostor of the entities of the loaded scene that draw the model (the scene "
+        "file is not saved: set the field in the scene to keep it). Result: {file, albedo, normal, mode, views, "
+        "frameSize, resolution, radius, triangles, applied?, warnings?}.";
     info.inputSchema = Json::object(
         {{"type", "object"},
          {"required", Json::array({"model"})},

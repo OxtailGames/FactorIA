@@ -173,9 +173,11 @@ MaterialAsset* ImpostorRenderer::material() {
             s = {};
         }
         matState_ = -1;
-        FA_ERROR("render", "The impostor program could not be built for this graphics backend (see the sokol log lines above), so "
-                           "MeshRenderer.impostor draws nothing and the last level of detail keeps being drawn. Hint: update the "
-                           "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR(
+            "render",
+            "The impostor program could not be built for this graphics backend (see the sokol log lines above), so "
+            "MeshRenderer.impostor draws nothing and the last level of detail keeps being drawn. Hint: update the "
+            "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return nullptr;
     }
     auto m = std::make_unique<MaterialAsset>();
@@ -232,7 +234,9 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
         }
     }
     en.reloadSeen = generation;
-    if (en.ok && en.texSerial != serial) {  // the pictures: fetched once a frame (a cached pointer would dangle after Assets::clear())
+    if (en.ok &&
+        en.texSerial !=
+            serial) {  // the pictures: fetched once a frame (a cached pointer would dangle after Assets::clear())
         en.texSerial = serial;
         en.albedo = assets.texture(en.atlas.albedo);
         en.normal = assets.texture(en.atlas.normal);
@@ -241,20 +245,23 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
             if (problem.empty() && t->placeholder)
                 problem = std::format("the picture '{}' cannot be loaded (see the error above).", t->path);
             else if (problem.empty() && t->atlas)
-                problem = std::format("the picture '{}' was packed into a texture atlas by the export, which impostors cannot "
-                                      "read.",
-                                      t->path);
+                problem = std::format(
+                    "the picture '{}' was packed into a texture atlas by the export, which impostors cannot "
+                    "read.",
+                    t->path);
             else if (problem.empty() && (t->width != side || t->height != side))
-                problem = std::format("the picture '{}' is {} x {} pixels but the file says {} x {} ({} views of {}).", t->path,
-                                      t->width, t->height, side, side, en.atlas.views, en.atlas.frameSize);
+                problem = std::format("the picture '{}' is {} x {} pixels but the file says {} x {} ({} views of {}).",
+                                      t->path, t->width, t->height, side, side, en.atlas.views, en.atlas.frameSize);
         }
         if (!problem.empty()) en.ok = false;
     }
     if (!en.ok) {
         if (!problem.empty() && problem != en.note) {
             FA_WARN("render",
-                    "MeshRenderer.impostor '{}' (entity {}): {} The last level of detail keeps being drawn instead. Hint: bake it again "
-                    "with model.bake_impostor (its views, resolution and apply arguments write the files and set this field), or "
+                    "MeshRenderer.impostor '{}' (entity {}): {} The last level of detail keeps being drawn instead. "
+                    "Hint: bake it again "
+                    "with model.bake_impostor (its views, resolution and apply arguments write the files and set this "
+                    "field), or "
                     "clear MeshRenderer.impostor.",
                     mr.impostor, entity.bits(), problem);
             en.note = problem;
@@ -269,7 +276,8 @@ bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshR
     return true;
 }
 
-void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const ImpostorUse& use, const ImpostorCamera& cam) {
+void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const ImpostorUse& use,
+                                 const ImpostorCamera& cam) {
     const Mat4& m = item.model;
     Vec3 axis[3];
     float scale = 0.0f;

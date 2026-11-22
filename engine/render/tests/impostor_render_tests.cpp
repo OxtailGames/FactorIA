@@ -59,7 +59,8 @@ Color frame_colour(int i, int j) {
 
 // Writes assets/imp/<name>.impostor.json and its two pictures: 3 x 3 frames of 16 pixels, each one colour inside a disc of half the frame
 // (transparent around it), radius 1 around the origin. Returns the project path of the json.
-std::string write_atlas(const std::string& name, ImpostorMode mode = ImpostorMode::Octahedral, int views = 3, int frame = 16) {
+std::string write_atlas(const std::string& name, ImpostorMode mode = ImpostorMode::Octahedral, int views = 3,
+                        int frame = 16) {
     Gfx& g = gfx();
     std::filesystem::create_directories(g.projectDir / "assets" / "imp");
     ImpostorAtlas a;
@@ -78,7 +79,8 @@ std::string write_atlas(const std::string& name, ImpostorMode mode = ImpostorMod
     for (int y = 0; y < side; ++y)
         for (int x = 0; x < side; ++x) {
             const std::size_t at = (std::size_t(y) * std::size_t(side) + std::size_t(x)) * 4;
-            const float fx = float(x % frame) + 0.5f - float(frame) * 0.5f, fy = float(y % frame) + 0.5f - float(frame) * 0.5f;
+            const float fx = float(x % frame) + 0.5f - float(frame) * 0.5f,
+                        fy = float(y % frame) + 0.5f - float(frame) * 0.5f;
             const Color c = frame_colour(x / frame, y / frame);
             const bool inside = std::sqrt(fx * fx + fy * fy) < float(frame) * 0.25f;
             albedo.rgba[at] = std::uint8_t(std::lround(c.r * 255.0f));
@@ -92,7 +94,8 @@ std::string write_atlas(const std::string& name, ImpostorMode mode = ImpostorMod
         }
     for (auto [img, path] : {std::pair<const Image*, std::string>{&albedo, a.albedo}, {&normal, a.normal}}) {
         const auto png = encode_png(*img);
-        REQUIRE(fs::write_bytes(fs::path_to_utf8(g.projectDir / fs::path_from_utf8(path)), png.data(), png.size()).ok());
+        REQUIRE(
+            fs::write_bytes(fs::path_to_utf8(g.projectDir / fs::path_from_utf8(path)), png.data(), png.size()).ok());
     }
     const std::string file = "assets/imp/" + name + ".impostor.json";
     const std::string text = impostor_to_json(a).dump(2);
@@ -102,7 +105,8 @@ std::string write_atlas(const std::string& name, ImpostorMode mode = ImpostorMod
 
 void write_text(const std::string& file, const std::string& text) {
     std::filesystem::create_directories((gfx().projectDir / fs::path_from_utf8(file)).parent_path());
-    REQUIRE(fs::write_bytes(fs::path_to_utf8(gfx().projectDir / fs::path_from_utf8(file)), text.data(), text.size()).ok());
+    REQUIRE(
+        fs::write_bytes(fs::path_to_utf8(gfx().projectDir / fs::path_from_utf8(file)), text.data(), text.size()).ok());
 }
 
 // A unit cube that becomes the atlas's card from `distance` metres on (the unit of lodMode).
@@ -290,10 +294,8 @@ TEST_CASE("impostor render: the card shows the frame the CPU pick says, in front
     struct View {
         Vec3 from, rotation;
     };
-    const View views[] = {{{0, 0, 40}, {0, 0, 0}},
-                          {{40, 0, 0}, {0, 90, 0}},
-                          {{-40, 0, 0}, {0, -90, 0}},
-                          {{0, 40, 0}, {-90, 0, 0}}};
+    const View views[] = {
+        {{0, 0, 40}, {0, 0, 0}}, {{40, 0, 0}, {0, 90, 0}}, {{-40, 0, 0}, {0, -90, 0}}, {{0, 40, 0}, {-90, 0, 0}}};
     for (const View& v : views) {
         World w;
         add_camera(w, v.from, v.rotation);

@@ -85,10 +85,10 @@ public:
 private:
     struct Entry {
         ImpostorAtlas atlas;
-        bool ok = false;           // the file parsed and both pictures are usable
-        bool loaded = false;       // the file was read (ok or not)
-        std::uint64_t reloadSeen = 0;  // Assets::reload_generation() the file was read at
-        std::uint64_t triedAt = 0;     // the frame serial of the last read
+        bool ok = false;                              // the file parsed and both pictures are usable
+        bool loaded = false;                          // the file was read (ok or not)
+        std::uint64_t reloadSeen = 0;                 // Assets::reload_generation() the file was read at
+        std::uint64_t triedAt = 0;                    // the frame serial of the last read
         std::uint64_t texSerial = ~std::uint64_t(0);  // the frame the textures were fetched in
         TextureAsset* albedo = nullptr;
         TextureAsset* normal = nullptr;
