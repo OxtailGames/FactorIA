@@ -266,6 +266,18 @@ std::vector<std::uint8_t> encode_png(const Image& img) {
     return out;
 }
 
+std::vector<std::uint8_t> encode_png_gray8(int width, int height, const std::uint8_t* data) {
+    std::vector<std::uint8_t> out;
+    if (width < 1 || height < 1 || !data) return out;
+    auto write = [](void* ctx, void* bytes, int size) {
+        auto* v = static_cast<std::vector<std::uint8_t>*>(ctx);
+        const auto* p = static_cast<const std::uint8_t*>(bytes);
+        v->insert(v->end(), p, p + size);
+    };
+    stbi_write_png_to_func(write, &out, width, height, 1, data, width);
+    return out;
+}
+
 std::vector<std::uint8_t> encode_png_rgb(const Image& img) {
     std::vector<std::uint8_t> out;
     if (img.empty()) return out;

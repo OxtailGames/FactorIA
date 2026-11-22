@@ -3,6 +3,7 @@
 // names, and collision off or a broken terrain leaves no collider.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -167,6 +168,47 @@ TEST_CASE("terrain collider: collision off, a RigidBody3D that moves, or an unre
         const auto flat = s.physics.raycast3d(s.world, {1.0f, 200.0f, 1.0f}, {0, -1, 0}, 400.0f);
         REQUIRE(flat.has_value());
         CHECK(flat->point.y == doctest::Approx(-4.0f).epsilon(1e-4));
+    }
+    std::error_code ec;
+    fs::remove_tree(dir, ec);
+}
+
+TEST_CASE("terrain collider: the holes mask of the shared heights is honoured, cut and filled live, rays and bodies "
+          "fall through") {
+    const std::filesystem::path dir = fs::make_temp_dir("fa_terrain_collider_holes").value();
+    {
+        Sim s;
+        const std::string file = write_hills(dir);
+        Entity ground = add_terrain(s.world, file, {0, 0, 0}, {1, 1, 1});
+        s.run(2);
+        auto heights = s.world.terrain().heights(s.world, ground);
+        REQUIRE(heights);
+        const Vec3 origin{0.5f, 200.0f, -0.5f};  // cell column 32, row 31 (1 m x 1.5 m cells)
+        REQUIRE(s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f).has_value());
+        // cut a block of cells
+        heights->holes.assign(std::size_t(heights->cells()) * std::size_t(heights->cells()), 0);
+        for (int r = 30; r <= 33; ++r)
+            for (int c = 30; c <= 33; ++c)
+                heights->holes[std::size_t(r) * std::size_t(heights->cells()) + std::size_t(c)] = 1;
+        ++heights->holesVersion;
+        s.run(2);
+        CHECK_FALSE(s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f).has_value());
+        // the cells next to the block are still ground
+        CHECK(s.physics.raycast3d(s.world, {6.5f, 200.0f, -0.5f}, {0, -1, 0}, 400.0f).has_value());
+        // a ball over the hole falls through; one over ground rests
+        Entity ball = s.world.create("ball", "ball");
+        s.world.get<Transform>(ball)->position = {0.5f, 30.0f, -0.5f};
+        Collider3D& cb = s.world.add<Collider3D>(ball);
+        cb.shape = ColliderShape3D::Sphere;
+        cb.radius = 0.3f;
+        s.world.add<RigidBody3D>(ball);
+        s.run(240);
+        CHECK(s.world.get<Transform>(ball)->position.y < -10.0f);
+        // fill the block again: the ground is back
+        std::fill(heights->holes.begin(), heights->holes.end(), std::uint8_t(0));
+        ++heights->holesVersion;
+        s.run(2);
+        CHECK(s.physics.raycast3d(s.world, origin, {0, -1, 0}, 400.0f).has_value());
     }
     std::error_code ec;
     fs::remove_tree(dir, ec);

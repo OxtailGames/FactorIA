@@ -5,7 +5,7 @@ kilometres wide. **Milestone M75 builds this in parts.** The floating origin wor
 package M75.4b); the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
 do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
 commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
-`world.origin`, `world.rebase` and `world.absolute_position`, which work. A game that adds the rest today loses nothing:
+`world.origin`, `world.rebase`, `world.absolute_position` and the `terrain.*` commands, which work. A game that adds the rest today loses nothing:
 when a package lands, the scenes already written start to work. Nothing here changes a game that does not use it: every default
 is "off" or "as before".
 
@@ -15,7 +15,7 @@ is "off" or "as before".
 | [Occlusion](#occlusion-planned-m752) | M75.2 | occluders (CPU, then GPU), areas and portals |
 | [Streaming](#streaming-planned-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s |
 | [Floating origin](#floating-origin) | M75.4 | positions stay exact far from the origin (the core works; the renderer follows in M75.4b) |
-| [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision (layers 1+, splat layers and holes: planned) |
+| [Terrain](#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it (the blend of the splat layers and the picture of the holes: planned) |
 | [Foliage](#foliage-planned-m756) | M75.6 | instanced vegetation and rocks, scatter rules |
 
 `renderer.supports` (the `render.supports` command) already lists a row per renderer feature, all `false` with the status
@@ -181,19 +181,22 @@ observer, a rebase shows one frame of ghosting in those effects, and the GI grid
 ## Terrain (M75.5)
 
 The `Terrain` component draws a heightmap with a GPU level of detail and gives it a collider. In a scene and in scripts it is
-called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What works today (P5a):** the
-heightmap drawn as tiles that coarsen with distance, the material of the first layer, the shadows, `collision`, and the counters.
-**Planned (P5d):** the blend of up to 8 layers by the splat maps, and holes. The fields for them are saved and checked today and
-do nothing yet. The terrain sculpting and painting commands are P5b/P5c.
+called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What works today (P5a, P5b):** the
+heightmap drawn as tiles that coarsen with distance, the material of the first layer, the shadows, `collision`, and the counters;
+the commands that create, sculpt, paint, cut holes in and generate a terrain, with undo (below), and **the physics collider
+honours the holes mask** (a ray, a ball or a character falls through a cut). **Planned (P5d):** the blend of up to 8 layers by the
+splat maps, and the picture of the holes (the renderer still draws the cells of a hole). The splat maps and the holes mask are
+written and read today, and the paint and hole commands edit them, but nothing is drawn from them yet. The brushes in the editor
+are P5c.
 
 | Field | Meaning |
 |---|---|
 | `heightmap` | 16-bit greyscale PNG or `.r16` file (raw little-endian 16-bit, square: its side is `sqrt(bytes / 2)` samples, so 1025 x 1025 is 2 101 250 bytes); empty = flat at `heightOffset`. The side must be 2^n + 1 (33 to 4097); a side of 2^n is padded by one sample. An 8-bit PNG is accepted with a warning (256 heights: terraces) |
 | `size` | metres `[x, z]` the terrain covers, centred on the entity, each above 0 and at most 100 000. The heightmap is stretched over it: a 1025-sample map over 2048 m has a sample every 2 m, and resolution and `size` are independent |
 | `heightScale`, `heightOffset` | metres of height of a white sample, and metres added after it |
-| `splatMaps` | up to 2 RGBA PNG paths; channel c of map m weights `layers[4 * m + c]` (planned: not drawn yet) |
+| `splatMaps` | up to 2 RGBA PNG paths; channel c of map m weights `layers[4 * m + c]` (`terrain.paint` writes them; planned: not drawn yet) |
 | `layers` | up to 8 of `{albedo, normal, tileSize, roughness, metallic, normalScale}`. All the albedo textures share one size and format, and so do all the normal textures: the layers become texture arrays, because 8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read. Only `layers[0]` is drawn today; without it, or without its `albedo`, the terrain is a neutral lit grey |
-| `holes` | greyscale PNG; a pixel of 128 or more cuts a hole (caves, wells) (planned: no hole is cut yet, in the picture or in the collider) |
+| `holes` | greyscale PNG; a pixel of 128 or more cuts a hole (caves, wells), one pixel per CELL (`terrain.holes` writes it). The collider has the holes today; the picture still draws them (planned, P5d) |
 | `lodQuality` | multiplier of the distances where the terrain coarsens (see below) |
 | `castShadows` | the terrain casts shadows (the tiles outside the camera still cast, at the levels the camera chose) |
 | `collision` | the automatic static collider (see below) |
@@ -234,8 +237,58 @@ its `dirty_since` history, so one `mark_dirty` updates all three. `terrain_sampl
 `terrain_height_at` give the height (and the normal) of the surface that is drawn and collides, through the entity's transform.
 The declarations are in `engine/scene/include/fa/scene/terrain.h`.
 
-`terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes` and `terrain.generate` (seeded noise and erosion, the same
-arguments always give the same file) write the heightmap, splat and hole files. They fail with `not_built` today.
+### Terrain commands
+
+`factoria commands terrain.sculpt` prints every argument. All of them are `edits_project()` commands in the `world` category.
+
+| Command | What it does |
+|---|---|
+| `terrain.create {name, size, resolution, heightScale, baseHeight, position, path}` | writes a flat 16-bit PNG heightmap (`resolution` 33 ... 4097, 2^k + 1, default 513; an existing file is never overwritten) and creates the entity with a `Terrain` that uses it. The flat surface sits at `baseHeight`, half way up the `heightScale` range, so it can be sculpted down as well as up. `heightmap` uses an existing file instead and writes nothing. It adds no `layers` (each needs an albedo texture: `scene.set_component`) |
+| `terrain.sculpt {entity, tool, center or points, radius, amount, strength, height, save}` | `tool` is `raise`, `lower` (`amount` metres at the middle of the brush when `strength` is 1), `smooth` or `flatten` (toward `height`, world y, default the surface under the first stamp). The brush fades smoothly to 0 at its edge |
+| `terrain.paint {entity, layer, center or points, radius, strength, splatResolution, save}` | raises the weight of `layer` (0 ... 7) and lowers the other 7 in proportion; every texel's 8 weights add up to 255 |
+| `terrain.holes {entity, mode, center or points, radius, save}` | `mode` `cut` (default) or `fill` the cells whose centre is in the circle |
+| `terrain.generate {entity, seed, frequency, octaves, fractal, amplitude, erosion, thermal, resolution, save}` | replaces the heights by seeded fractal noise (`fbm`, `ridged` or `billow`) and then `erosion` droplets of hydraulic erosion and `thermal` passes of thermal erosion. Without a heightmap, `resolution` makes a new grid and its file |
+| `terrain.save {entity}` | writes the edited files (every terrain when `entity` is left out) |
+| `terrain.undo {entity, save}`, `terrain.redo {entity, save}` | take back or re-apply the newest edit of that terrain |
+
+**A brush is a circle in world metres.** `center [x, z]` is one stamp; `points [[x, z], ...]` (up to 4096) is a stroke, applied in
+order, each stamp seeing the one before. The edit is **live in memory**: the renderer, the collider and every reader of
+`TerrainHeights` follow it with ONE `mark_dirty` per command, so a stroke costs one texture upload. The files are written only when
+you ask: `save: true` on the command, `terrain.save`, or any scene save (`scene.save`, the editor's Save). Each file is replaced
+atomically. The brushes honour the entity's transform (position, rotation about Y, scale): `center` and `radius` are world
+metres, and `amount` and `height` are world metres of height too. `radius` may cover at most 1024 samples (heights) or texels
+(holes, splat) across; a stroke may visit about 67 million of them in all. Both limits are counts, not times, so a result never
+depends on the machine's speed, and they are checked before anything changes.
+
+**One command is one undo step, per terrain.** `terrain.undo` and `terrain.redo` put the samples of the newest sculpt, paint, holes
+or generate back, bit for bit, in every plane the command touched. The history keeps 64 steps and 256 MB per terrain, is not
+saved with the scene, and is cleared when the scene loads. What a command changes outside the sample data (a `Terrain.holes` or
+`splatMaps` path a first edit set, a `heightmap` a `terrain.generate` chose) is not undone: the path stays and the data is what
+goes back. A command that fails changes nothing and adds no step. The result of an edit has `undoDepth`, `unsaved` (files with
+edits not written yet) and `undo` (the command that takes it back).
+
+**Errors teach.** Each error names the JSON pointer of the argument (`/radius`, `/points`, `/layer`, `/resolution`), what is wrong and
+the fix: a `resolution` that is not 2^k + 1 lists the ones that work, an unknown argument gets "did you mean", an entity without a
+`Terrain` or without a heightmap names the command that makes one, and a `layer` beyond `Terrain.layers` says how many there are.
+
+### Terrain data formats
+
+All of them are PNG (or raw) files in the project, with row 0 at the **-Z edge** of the terrain and column 0 at the -X edge, in the
+terrain's local space (before `Transform`).
+
+| File | Format |
+|---|---|
+| heightmap | 16-bit greyscale PNG, or raw little-endian `.r16`; 2^k + 1 samples a side. Height in metres = `heightOffset` + `heightScale` * value / 65535. The samples are at the corners of the cells |
+| holes (`Terrain.holes`) | 8-bit greyscale PNG, `cells x cells` pixels (heights samples - 1 a side), 255 = hole, 0 = ground; a pixel of 128 or more counts as a hole when read. Pixel (i, j) is the cell between samples (i, j) and (i + 1, j + 1) |
+| splat maps (`Terrain.splatMaps[m]`) | RGBA8 PNG, linear (NOT sRGB: do not gamma-convert), each its own size (default the terrain's cells, at most 1024; 16 to 4096). Channel c of map m weights `layers[4 * m + c]`; the 8 weights of a texel add up to 255 (the commands renormalise every stamp). Texel i is centred at local x = -size/2 + (i + 0.5) * size / texels. A texel whose alpha is 0 keeps its colour channels through a save and a load |
+
+`terrain.paint` creates map 0 as all `layers[0]` (weight 255 in the red channel) and map 1 as all zeros on the first paint of a
+layer 4 to 7. A map that already exists keeps its size.
+
+**What a renderer or a tool of its own needs** (P5d, P5c): the planes are in `TerrainHeights` (`holes`, `holesVersion`, `splat[m]`
+with `rgba` and `version`, `any_unsaved()`, `undo_depth()`); follow `holesVersion` and `splat[m].version` as the collider follows
+`holesVersion` and the heights follow `dirty_since`. `save_terrain_files(world, entity)` and `save_all_terrain_files(world)` write the edited
+planes; `TerrainStep` and `TerrainHeights::apply_step` are how an edit enters the history.
 
 ## Foliage (planned, M75.6)
 
@@ -269,7 +322,7 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | `world.cells`, `world.stream_status` | M75.3 | no |
 | `world.split_cells`, `world.merge_cells` | M75.3 | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 | yes |
-| `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate` | M75.5 | yes |
+| `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
 | `foliage.scatter`, `foliage.paint`, `foliage.clear` | M75.6 | yes |
 
 `factoria commands <name>` and `docs.commands {name}` print the arguments of each.

@@ -1,4 +1,5 @@
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1263,7 +1264,13 @@ Result<void> save_scene_file(const World& world, std::string_view path, bool inc
     o.skipped = skipped;
     o.prefabs = PrefabSave::Keep;
     o.prefabsExpanded = prefabsExpanded;
-    return save_scene_json_file(path, save_scene(world, o));
+    if (auto r = save_scene_json_file(path, save_scene(world, o)); !r.ok()) return r;
+    // The terrain files the scene points to (heightmap, holes, splat maps) that terrain.sculpt, terrain.paint... edited in memory.
+    if (auto r = save_all_terrain_files(world); !r.ok())
+        return make_error("The scene file '" + std::string(path) +
+                              "' was written, but a terrain file was not: " + r.error().message,
+                          r.error().hint);
+    return {};
 }
 
 // ---------------------------------------------------------------- prefabs --
