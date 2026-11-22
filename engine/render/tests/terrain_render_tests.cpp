@@ -7,6 +7,8 @@
 #include <cmath>
 
 #include "fa/scene/terrain.h"
+#include "render_internal.h"       // sokol_gfx.h
+#include "shaders/terrain.glsl.h"  // terrain_terrain_shader_desc: the texture units the fragment stage reads
 
 using namespace fa;
 using namespace fa::test;
@@ -257,6 +259,13 @@ Color top_pixel(const Image& img, float x, float z) {
     return img.pixel(px, py);
 }
 
+// The layer pictures are decoded off the render thread: the first frame draws the layers neutral, the one after the job adopts them.
+Image render_loaded(Gfx& g, World& w) {
+    g.render(w);
+    g.renderer.wait_terrain_loaded();
+    return g.render(w);
+}
+
 }  // namespace
 
 TEST_CASE("terrain: two layers blended by a splat map, normalised, and layer 0 alone without a map") {
@@ -276,7 +285,7 @@ TEST_CASE("terrain: two layers blended by a splat map, normalised, and layer 0 a
         t.layers.push_back(Json{{"albedo", write_solid("terrain_blue.png", 8, 20, 20, 230)}, {"tileSize", 8.0}});
     }
     // No splat map: layer 0 (red) everywhere.
-    Image img = g.render(w);
+    Image img = render_loaded(g, w);
     const Color a = top_pixel(img, -40.0f, 20.0f), b = top_pixel(img, 40.0f, -20.0f);
     CHECK(a.r > a.b + 0.1f);
     CHECK(b.r > b.b + 0.1f);
@@ -381,4 +390,191 @@ TEST_CASE("terrain: a hole shows what is behind it, and the shadow has the hole 
         CHECK(diff_from(top_pixel(img, 40.0f, 0.0f), top_pixel(img, 0.0f, 0.0f)) >
               0.1f);  // the terrain itself, not the floor
     }
+}
+
+// ---- M75-POL-TERRAIN-B: the texture units, the splat repaint, the layer jobs, the holes' memory and the heightmap reload ----
+
+TEST_CASE("terrain: the fragment stage reads exactly the 16 texture units that WebGL2 and GLES3 guarantee") {
+    // shaders/terrain.glsl is at the limit: one more image-sampler pair makes the program fail on every WebGL2 and GLES3 device (and
+    // sokol's check on all of them). This test fails the moment a pair is added; the fix is not to raise the number here but to take
+    // a texture out of the fragment stage (pack two into one array, or read it in the vertex stage as the holes are) or to add a
+    // layer-array channel. If a pair is removed, lower the number to keep the margin visible.
+    const sg_shader_desc* d = terrain_terrain_shader_desc(sg_query_backend());
+    REQUIRE(d != nullptr);
+    int views = 0, samplers = 0, pairs = 0;
+    for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+        if (d->views[i].texture.stage == SG_SHADERSTAGE_FRAGMENT) ++views;
+    for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+        if (d->samplers[i].stage == SG_SHADERSTAGE_FRAGMENT) ++samplers;
+    for (int i = 0; i < SG_MAX_TEXTURE_SAMPLER_PAIRS; ++i)
+        if (d->texture_sampler_pairs[i].stage == SG_SHADERSTAGE_FRAGMENT) ++pairs;
+    INFO("fragment textures " << views << ", samplers " << samplers << ", pairs " << pairs);
+    CHECK(views <= 16);
+    CHECK(samplers <= 16);
+    if (pairs > 0)
+        CHECK(pairs == 16);  // the backends that have pairs (GL, GLES3): all 16 are used
+    else
+        CHECK(views == 16);
+}
+
+TEST_CASE("terrain: a splat repaint sends only its rectangle, and the layers are decoded once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_repaint.png");
+    World w;
+    add_top_camera(w);
+    Entity sun = add_sun(w, false);
+    w.get<Transform>(sun)->rotation = {-90, 0, 0};
+    w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
+    Entity ground = add_terrain(w, flat);
+    {
+        auto& t = *w.get<Terrain3D>(ground);
+        t.layers = Json::array();
+        t.layers.push_back(Json{{"albedo", write_solid("terrain_red_r.png", 8, 230, 20, 20)}, {"tileSize", 8.0}});
+        t.layers.push_back(Json{{"albedo", write_solid("terrain_blue_r.png", 8, 20, 20, 230)}, {"tileSize", 8.0}});
+    }
+    std::string problem;
+    auto heights = w.terrain().heights(w, ground, &problem);
+    REQUIRE(heights);
+    TerrainSplat& map = heights->splat[0];
+    map.size = 8;  // 8 x 8 texels of 16 m: texel (c, r) covers x -64 + 16 c .., z -64 + 16 r ..
+    map.rgba.assign(8 * 8 * 4, 0);
+    for (int i = 0; i < 64; ++i) map.rgba[std::size_t(i) * 4] = 255;
+    map.mark_dirty({0, 0, 7, 7});
+    Image img = render_loaded(g, w);
+    CHECK(top_pixel(img, 40.0f, -24.0f).r > top_pixel(img, 40.0f, -24.0f).b + 0.1f);
+    const std::uint64_t loads = g.renderer.terrain_uploads().layerLoads;
+    CHECK(loads > 0);
+
+    auto paint = [&](int c, int r) {
+        std::uint8_t* px = &map.rgba[(std::size_t(r) * 8 + std::size_t(c)) * 4];
+        px[0] = 0;
+        px[1] = 255;
+        map.mark_dirty({c, r, c, r});
+    };
+    // The first repaint may turn the array into one the GPU can copy into; the next ones only copy.
+    paint(6, 2);
+    img = g.render(w);
+    CHECK(top_pixel(img, 40.0f, -24.0f).b > top_pixel(img, 40.0f, -24.0f).r + 0.1f);
+    const auto before = g.renderer.terrain_uploads();
+    paint(1, 5);
+    img = g.render(w);
+    const auto after = g.renderer.terrain_uploads();
+    CHECK(top_pixel(img, -40.0f, 24.0f).b > top_pixel(img, -40.0f, 24.0f).r + 0.1f);
+    CHECK(top_pixel(img, 40.0f, -24.0f).b > top_pixel(img, 40.0f, -24.0f).r + 0.1f);  // the first stroke is still there
+    CHECK(top_pixel(img, 40.0f, 24.0f).r > top_pixel(img, 40.0f, 24.0f).b + 0.1f);    // an untouched texel stays red
+    INFO("arrays " << before.arrays << " -> " << after.arrays << ", splat rectangles " << before.splatRects << " -> "
+                   << after.splatRects);
+    CHECK(after.arrays == before.arrays);  // no array was built again
+    CHECK(after.splatRects == before.splatRects + 1);
+    CHECK(after.layerLoads == loads);  // a repaint decodes no picture
+    // Nothing changed: nothing is sent and no job starts.
+    for (int i = 0; i < 3; ++i) g.render(w);
+    CHECK(g.renderer.terrain_uploads().arrays == after.arrays);
+    CHECK(g.renderer.terrain_uploads().splatRects == after.splatRects);
+    CHECK(g.renderer.terrain_uploads().layerLoads == loads);
+    CHECK_FALSE(g.renderer.terrain_loading());
+}
+
+TEST_CASE("terrain: a changed layer picture is decoded off the render thread and adopted when ready") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_jobs.png");
+    World w;
+    add_top_camera(w);
+    Entity sun = add_sun(w, false);
+    w.get<Transform>(sun)->rotation = {-90, 0, 0};
+    w.settings().ambientLight = Color{0.2f, 0.2f, 0.2f, 1};
+    Entity ground = add_terrain(w, flat);
+    auto set_layer = [&](const std::string& albedo) {
+        auto& t = *w.get<Terrain3D>(ground);
+        t.layers = Json::array();
+        t.layers.push_back(Json{{"albedo", albedo}, {"tileSize", 8.0}});
+    };
+    set_layer(write_solid("terrain_job_red.png", 8, 230, 20, 20));
+    Image img = render_loaded(g, w);
+    CHECK(top_pixel(img, 0.0f, 0.0f).r > top_pixel(img, 0.0f, 0.0f).g + 0.1f);
+    const std::uint64_t loads = g.renderer.terrain_uploads().layerLoads;
+    for (int i = 0; i < 3; ++i) g.render(w);
+    CHECK(g.renderer.terrain_uploads().layerLoads == loads);  // an unchanged terrain starts no job
+    // Another picture: a job starts, and the frame that starts it already draws (it does not wait for the decode).
+    set_layer(write_solid("terrain_job_green.png", 8, 20, 230, 20));
+    g.render(w);
+    CHECK(g.renderer.terrain_uploads().layerLoads > loads);
+    g.renderer.wait_terrain_loaded();
+    img = g.render(w);
+    CHECK(top_pixel(img, 0.0f, 0.0f).g > top_pixel(img, 0.0f, 0.0f).r + 0.1f);
+    CHECK_FALSE(g.renderer.terrain_loading());
+}
+
+TEST_CASE(
+    "terrain: the holes are their own texture, one byte a cell, and the control array holds only the splat maps") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string flat = write_flat("terrain_flat_memory.png");
+    World w;
+    add_top_camera(w);
+    add_sun(w, false);
+    Entity ground = add_terrain(w, flat);
+    g.render(w);
+    const std::uint64_t plain = g.renderer.texture_bytes();
+    std::string problem;
+    auto heights = w.terrain().heights(w, ground, &problem);
+    REQUIRE(heights);
+    heights->holes.assign(std::size_t(128) * 128, 0);
+    heights->holes[0] = 1;
+    ++heights->holesVersion;
+    g.render(w);
+    const std::uint64_t holed = g.renderer.texture_bytes();
+    INFO("without holes " << plain << " bytes, with " << holed);
+    // 128 x 128 cells, 1 byte each: nothing like the 4 bytes a texel of a control array with the holes in it would cost.
+    CHECK(holed > plain);
+    CHECK(holed - plain >= std::uint64_t(128) * 128 - 16);
+    CHECK(holed - plain <= std::uint64_t(128) * 128 + 64);
+    // Splat maps make the control array, and painting a hole in a terrain that has them does not make it bigger.
+    auto& t = *w.get<Terrain3D>(ground);
+    t.layers = Json::array();
+    t.layers.push_back(Json{{"albedo", write_solid("terrain_mem_a.png", 8, 230, 20, 20)}, {"tileSize", 8.0}});
+    t.layers.push_back(Json{{"albedo", write_solid("terrain_mem_b.png", 8, 20, 20, 230)}, {"tileSize", 8.0}});
+    TerrainSplat& map = heights->splat[0];
+    map.size = 16;
+    map.rgba.assign(16 * 16 * 4, 0);
+    map.mark_dirty({0, 0, 15, 15});
+    render_loaded(g, w);
+    const std::uint64_t withMap = g.renderer.texture_bytes();
+    heights->holes[1] = 1;
+    ++heights->holesVersion;
+    g.render(w);
+    CHECK(g.renderer.texture_bytes() == withMap);
+}
+
+TEST_CASE("terrain: a heightmap file rewritten on disk and reloaded replaces the heights") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string file = write_flat("terrain_reload_heights.png");
+    World w;
+    add_top_camera(w);
+    add_sun(w, false);
+    Entity ground = add_terrain(w, file);
+    g.render(w);
+    std::string problem;
+    auto first = w.terrain().heights(w, ground, &problem);
+    REQUIRE(first);
+    const std::uint16_t low = first->at(10, 10);
+    CHECK(low == std::uint16_t(0.1 * 65535.0));
+    // The same path, other contents: a flat terrain at 0.5.
+    GrayImage16 gi;
+    gi.width = gi.height = kSamples;
+    gi.sixteenBit = true;
+    gi.samples.assign(std::size_t(kSamples) * kSamples, std::uint16_t(0.5 * 65535.0));
+    const auto png = encode_png_gray16(gi);
+    REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+    g.render(w);  // the file changed, but nobody said so: the terrain is what it was
+    CHECK(w.terrain().heights(w, ground, nullptr)->at(10, 10) == low);
+    g.renderer.reload_asset(file);
+    g.render(w);
+    auto second = w.terrain().heights(w, ground, nullptr);
+    REQUIRE(second);
+    CHECK(second->at(10, 10) == std::uint16_t(0.5 * 65535.0));
+    CHECK(g.renderer.terrain_uploads().whole >= 2);  // the GPU texture was sent again too
 }

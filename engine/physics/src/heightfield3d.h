@@ -49,8 +49,14 @@ struct HeightfieldShape {
         problem;  // why not ("" = valid): the answer of the last attempt, reused while the component is unchanged
     int rows = 0, cols = 0;
     float dx = 1.0f, dz = 1.0f, scale = 1.0f, offset = 0.0f;
-    float x0 = 0.0f, z0 = 0.0f;       // model x and z of sample (0, 0)
-    std::vector<float> h;             // rows * cols, model y
+    float x0 = 0.0f, z0 = 0.0f;  // model x and z of sample (0, 0)
+    // rows * cols, model y. For a Terrain3D this is a second copy of the terrain's heights (4 bytes a sample where the
+    // TerrainHeights keep 2: 67 MB for a 4097 x 4097 map, on top of its 33 MB), and it cannot simply share them: a sculpt
+    // must tell the solver the old AND the new height of the samples it touched (bodies resting on the old surface, bodies
+    // inside the new one), which needs the old values still in memory when the edit is seen, and the solver must read a
+    // snapshot that a command editing the terrain in the middle of a step cannot change. See "Collision" in
+    // docs/BIG_WORLDS_TERRAIN.md.
+    std::vector<float> h;
     std::vector<std::uint8_t> holes;  // (rows - 1) * (cols - 1) or empty: 1 = no collision
     int brows = 0, bcols = 0;         // blocks
     std::vector<float> bmin, bmax;

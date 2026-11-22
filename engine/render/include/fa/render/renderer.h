@@ -540,11 +540,17 @@ public:
     Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
     // What the Terrain textures cost the GPU work since the renderer started (a test looks at them; not a stat of the picture): the height
-    // textures sent whole, the rectangles of them a sculpt re-sent, and the layer and control arrays built.
+    // textures sent whole, the rectangles of them a sculpt re-sent, the layer and control arrays built, the sub-rectangles of the splat maps
+    // a repaint re-sent (`splatRects`) and the layer decoding jobs started (`layerLoads`).
     struct TerrainUploads {
-        std::uint64_t whole = 0, rects = 0, arrays = 0;
+        std::uint64_t whole = 0, rects = 0, arrays = 0, splatRects = 0, layerLoads = 0;
     };
     TerrainUploads terrain_uploads() const;
+    // The Terrain layer pictures (albedo and normal arrays) are decoded off the main thread, like the Foliage files: a terrain draws its
+    // layers neutral (or with the pictures it had, for a reload) until the frame after the decode adopts them. A test or a capture that
+    // needs them in the picture waits here, then renders once more.
+    bool terrain_loading() const;
+    void wait_terrain_loaded();
     // The Foliage instances files (M75.6): they are read off the main thread, and a frame draws what is ready. A test or a capture that needs
     // them in the picture waits here, then renders once more (that frame adopts them).
     bool foliage_loading() const;

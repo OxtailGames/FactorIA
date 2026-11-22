@@ -46,6 +46,9 @@ struct Renderer::Impl::PartDraw {
 struct Renderer::Impl::MaterialInputs {
     float params[kMaxMaterialParams][4];
     TextureAsset* textures[kMaxMaterialTextures]{};
+    // A texture for the VERTEX stage's copy of a slot, where it differs from the fragment stage's (null = the same one). The terrain binds
+    // its splat array to the fragment stage and the holes texture to the vertex stage of the same slot.
+    TextureAsset* vsTextures[kMaxMaterialTextures]{};
 };
 
 // What draws the sky: the engine's own program (mat null) or a sky material (SceneSettings.skyMaterial) with its
@@ -2656,6 +2659,8 @@ void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, Mat
         std::memset(in.params, 0, sizeof(in.params));
         std::memcpy(in.params, mi.terrain->params, std::min(sizeof(in.params), sizeof(mi.terrain->params)));
         for (int i = 0; i < 4; ++i) in.textures[i] = mi.terrain->textures[i];
+        in.vsTextures[3] =
+            mi.terrain->holes;  // the vertex copy of the "control" slot (renderer_terrain.cpp, material())
         return;
     }
     pack_material_params(*mat, mi.mr->materialParams, in.params);
@@ -2707,6 +2712,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
             // none).
             b.views[kMaterialVsFirstView + int(i)] = b.views[kMaterialFirstView + int(i)];
             b.samplers[kMaterialVsFirstSampler + int(i)] = b.samplers[kMaterialFirstSampler + int(i)];
+            if (in.vsTextures[i]) b.views[kMaterialVsFirstView + int(i)] = in.vsTextures[i]->gpu_view();
         }
     for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
         if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
