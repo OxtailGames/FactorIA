@@ -180,9 +180,9 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         if (k != "entity" && k != "scene" && k != "root" && k != "out" && k != "ratio" && k != "maxError" &&
             k != "apply")
             fail("Unknown argument `" + k + "` at /" + k + ".",
-                 "The arguments are entity (or scene + root), out, ratio, maxError and apply."
-                 + (k == "id" || k == "path" ? std::string(" Use `entity` for the entity and `out` for the file.")
-                                              : std::string()));
+                 "The arguments are entity (or scene + root), out, ratio, maxError and apply." +
+                     (k == "id" || k == "path" ? std::string(" Use `entity` for the entity and `out` for the file.")
+                                               : std::string()));
     }
     // Contradictions first, before any file is read.
     const bool hasEntity = args.contains("entity") && !args["entity"].is_null();
@@ -192,25 +192,30 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     if (hasEntity && (hasScene || hasRoot))
         fail("Both `entity` (/entity) and `" + std::string(hasScene ? "scene" : "root") + "` (/" +
                  (hasScene ? "scene" : "root") + ") are given.",
-             "Pass `entity` for an entity of the open scene, or `scene` + `root` for an entity of a scene file, not both.");
+             "Pass `entity` for an entity of the open scene, or `scene` + `root` for an entity of a scene file, not "
+             "both.");
     if (!hasEntity && !hasScene)
         fail("Neither `entity` nor `scene` is given (/entity).",
-             "Pass the group's entity id, e.g. {\"entity\":\"town_block\",\"out\":\"assets/hlod/block.glb\"}, or a scene file and "
+             "Pass the group's entity id, e.g. {\"entity\":\"town_block\",\"out\":\"assets/hlod/block.glb\"}, or a "
+             "scene file and "
              "the id of a root in it: {\"scene\":\"scenes/town.scene.json\",\"root\":\"town_block\",\"out\":\"...\"}.");
     if (hasScene && !hasRoot)
         fail("`scene` is given but `root` is not (/root).",
              "Pass the id of the entity of that scene whose subtree is merged, e.g. \"root\":\"town_block\".");
     if (hasRoot && !hasScene)
-        fail("`root` is given without `scene` (/scene).",
-             "`root` names an entity inside a scene file: add \"scene\":\"scenes/town.scene.json\", or use `entity` for "
-             "the open scene.");
+        fail(
+            "`root` is given without `scene` (/scene).",
+            "`root` names an entity inside a scene file: add \"scene\":\"scenes/town.scene.json\", or use `entity` for "
+            "the open scene.");
     if (hasScene && apply)
         fail("`apply` (/apply) works on the open scene, not on a scene file.",
              "Use `entity` with `apply`, or bake from the scene file without `apply` and set LodGroup.hlodProxy "
              "yourself.");
     for (const char* key : {"entity", "scene", "root", "out"})
-        if (args.contains(key) && !args[key].is_null() && (!args[key].is_string() || args[key].get<std::string>().empty()))
-            fail(std::string("`") + key + "` (/" + key + ") is " + args[key].dump() + ": it must be a non-empty string.",
+        if (args.contains(key) && !args[key].is_null() &&
+            (!args[key].is_string() || args[key].get<std::string>().empty()))
+            fail(std::string("`") + key + "` (/" + key + ") is " + args[key].dump() +
+                     ": it must be a non-empty string.",
                  std::string(key) == "out" ? "Pass the file to write, e.g. \"assets/hlod/block.glb\"."
                                            : "Pass an entity id or a project-relative scene path.");
     if (!args.contains("out") || !args["out"].is_string())
@@ -274,12 +279,14 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
                 if (m.severity == LoadMessage::Severity::Error && ++shown <= 5) detail += "\n  " + m.to_string();
             fail("Cannot bake from '" + scenePath.value() + "': it has " + std::to_string(report.error_count()) +
                      " load error(s):" + detail,
-                 "Fix the file first (project.validate lists every problem with its JSON pointer). Nothing was written.");
+                 "Fix the file first (project.validate lists every problem with its JSON pointer). Nothing was "
+                 "written.");
         }
         world = &scratch;
         root = scratch.find_by_id(args["root"].get<std::string>());
         if (root == kNullEntity)
-            fail("`root` (/root) '" + args["root"].get<std::string>() + "' is not an entity of " + scenePath.value() + ".",
+            fail("`root` (/root) '" + args["root"].get<std::string>() + "' is not an entity of " + scenePath.value() +
+                     ".",
                  "Use the id of an entity of that scene (scene.query lists them).");
     }
 
@@ -331,8 +338,10 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     const std::string rootId = world->id_of(root);
     if (merged.meshes == 0 || merged.in.indices.empty()) {
         std::string why;
-        for (const Json& s : skipped) why += "\n  " + s["entity"].get<std::string>() + ": " + s["reason"].get<std::string>();
-        fail("No meshes to merge under '" + rootId + "': it and its children have no active MeshRenderer with triangles." +
+        for (const Json& s : skipped)
+            why += "\n  " + s["entity"].get<std::string>() + ": " + s["reason"].get<std::string>();
+        fail("No meshes to merge under '" + rootId +
+                 "': it and its children have no active MeshRenderer with triangles." +
                  (why.empty() ? std::string() : " Skipped:" + why),
              "Pass the entity that holds the group (the LodGroup entity, or a cell root); its children must have "
              "MeshRenderer components. scene.query {\"component\":\"MeshRenderer\"} lists them.");
@@ -341,7 +350,8 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     auto built = build_mesh_data(merged.in);
     if (!built.ok()) fail("The merged mesh is not valid: " + built.error().message, built.error().hint, "internal");
     auto welded = model_merge_by_material(built.value());
-    if (!welded.ok()) fail("Cannot merge the meshes under '" + rootId + "': " + welded.error().message, welded.error().hint);
+    if (!welded.ok())
+        fail("Cannot merge the meshes under '" + rootId + "': " + welded.error().message, welded.error().hint);
     ModelLodInfo info;
     auto simplified = model_make_lod(welded.value(), spec, &info);
     if (!simplified.ok())
@@ -351,14 +361,16 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
     auto saved = save_mesh_glb_at(proxy, *outPath);
     if (!saved.ok()) {
         const std::string code(fs::path_error_code(saved.error()));
-        throw CommandError(code.empty() ? "invalid_argument" : code, "Cannot write `out` (/out): " + saved.error().message,
-                           saved.error().hint.empty() ? "Check that the folder is writable and the file is not open elsewhere."
-                                                      : saved.error().hint);
+        throw CommandError(
+            code.empty() ? "invalid_argument" : code, "Cannot write `out` (/out): " + saved.error().message,
+            saved.error().hint.empty() ? "Check that the folder is writable and the file is not open elsewhere."
+                                       : saved.error().hint);
     }
 
     // The default threshold: the proxy takes over at 8 times the group's size (Distance) or below 3% of the screen (ScreenSize).
-    const float diameter = std::sqrt(std::pow(proxy.bmax.x - proxy.bmin.x, 2.0f) + std::pow(proxy.bmax.y - proxy.bmin.y, 2.0f) +
-                                     std::pow(proxy.bmax.z - proxy.bmin.z, 2.0f));
+    const float diameter =
+        std::sqrt(std::pow(proxy.bmax.x - proxy.bmin.x, 2.0f) + std::pow(proxy.bmax.y - proxy.bmin.y, 2.0f) +
+                  std::pow(proxy.bmax.z - proxy.bmin.z, 2.0f));
     Json result = Json::object({{"saved", *saved},
                                 {"entity", rootId},
                                 {"meshes", merged.meshes},
@@ -377,7 +389,8 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
         float threshold = existing ? existing->hlodThreshold : 0.0f;
         if (!(threshold > 0.0f)) threshold = mode == LodMode::Distance ? std::max(8.0f * diameter, 1.0f) : 0.03f;
         Json fields = Json::object({{"hlodProxy", *saved}, {"hlodThreshold", round4(threshold)}});
-        set_component(I.world, Json::object({{"id", rootId}, {"component", "LodGroup"}, {"fields", fields}, {"merge", true}}));
+        set_component(I.world,
+                      Json::object({{"id", rootId}, {"component", "LodGroup"}, {"fields", fields}, {"merge", true}}));
         result["applied"] = true;
         result["hlodThreshold"] = round4(threshold);
     }
@@ -389,21 +402,35 @@ Json bake_hlod(Engine::Impl& I, const Json& args) {
 void register_hlod_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
     I.commands.add(
-        {"world.bake_hlod", "Bake the HLOD proxy of an entity: one simplified mesh that stands for everything under it.",
-         "Merges every active MeshRenderer under the entity (itself included) into ONE mesh in the entity's local space, keeping the "
-         "materials as submeshes, simplifies it with the engine's simplifier (the one model.generate_lods uses; `ratio` keeps that share of "
-         "the triangles, `maxError` limits how far the surface may move in metres, both given = the smaller result, none = ratio 0.1), "
-         "and writes it as a .glb at `out`. With `apply` it also sets LodGroup.hlodProxy to that file on the entity (adding the "
-         "LodGroup when it has none) and, when LodGroup.hlodThreshold is not set yet, a default one: 8 times the group's size in "
-         "Distance mode, 0.03 in ScreenSize mode; the editor undoes it as one step. The group's own children still draw nearer "
-         "than the threshold. Pass `entity` (an entity of the open scene) or `scene` + `root` (an entity of a scene file, loaded "
-         "on the side: its procedural meshes do not exist there; `apply` is not available). Skipped, and listed in `skippedList`: inactive entities, "
-         "MeshRenderers with GPU instances, meshes that cannot be read. Materials come from the model files and the primitives' "
-         "MeshRenderer.color/texture; custom material files, per-entity overrides and textures embedded in a .glb are not "
-         "carried. Deterministic: the same scene and arguments write the same bytes. Errors: no meshes under the root, `out` "
-         "that is not a writable project .glb, ratio outside (0, 1], both `entity` and `scene`. Result: {saved, entity, "
-         "meshes, trianglesBefore, triangles, vertices, submeshes, error, diameter, skipped, applied, hlodThreshold?}. "
-         "Example: world.bake_hlod {\"entity\":\"town_block\",\"out\":\"assets/hlod/town_block.glb\",\"ratio\":0.1,\"apply\":true}",
+        {"world.bake_hlod",
+         "Bake the HLOD proxy of an entity: one simplified mesh that stands for everything under it.",
+         "Merges every active MeshRenderer under the entity (itself included) into ONE mesh in the entity's local "
+         "space, "
+         "keeping the materials as submeshes, simplifies it with the simplifier of model.generate_lods (`ratio` keeps "
+         "that "
+         "share of the triangles, default 0.1; `maxError` limits how far the surface may move, metres) and writes it "
+         "as a "
+         ".glb at `out`. With `apply` it also sets LodGroup.hlodProxy (adding the LodGroup) and a default "
+         "hlodThreshold "
+         "on the entity, one undo step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity "
+         "of "
+         "a scene file; no `apply`). Deterministic: the same scene and arguments write the same bytes. Result: {saved, "
+         "entity, meshes, trianglesBefore, triangles, vertices, submeshes, error, diameter, skipped, applied, "
+         "hlodThreshold?}. Example: world.bake_hlod {\"entity\":\"town_block\",\"out\":\"assets/hlod/town_block.glb\","
+         "\"apply\":true}. Details: docs.read BIG_WORLDS_LOD, \"Levels of detail\", the HLOD proxy." FA_COMMAND_DETAILS
+         "The default hlodThreshold, when none is set: 8 times the proxy's size in Distance mode, 0.03 in ScreenSize "
+         "mode; "
+         "an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed "
+         "in "
+         "`skippedList`: inactive entities, MeshRenderers with GPU instances, meshes that cannot be read. Materials "
+         "come from "
+         "the model files and the primitives' MeshRenderer.color and texture; custom material files, per-entity "
+         "overrides "
+         "and textures embedded in a .glb are not carried. A scene file is loaded on the side, so its procedural "
+         "meshes "
+         "do not exist there. Errors: no meshes under the root, `out` that is not a writable project .glb, ratio "
+         "outside "
+         "(0, 1], `entity` together with `scene`; each names its JSON pointer and nothing is written.",
          parse_schema(R"({"type":"object","required":["out"],"properties":{
                "entity":{"type":"string","description":"Entity id in the open scene: the group whose subtree is merged."},
                "scene":{"type":"string","x-fa-path":"read","description":"Alternative to entity: a project scene file; with `root`."},

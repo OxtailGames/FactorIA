@@ -487,11 +487,12 @@ void register_world_components(TypeRegistry& r) {
             "subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See "
             "MeshRenderer.lodCrossFade.")
         .range(0, 5)
-        .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",
-                     "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "
-                     "every child beyond hlodThreshold, in the local space of this entity (the group's matrix is applied). "
-                     "\"\" (default) = no proxy. The children stop being drawn, in the main pass and in the shadows, "
-                     "and their draw calls with them; the proxy casts the shadow. world.bake_hlod writes it.")
+        .asset_field(
+            "hlodProxy", &LodGroup::hlodProxy, "mesh",
+            "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "
+            "every child beyond hlodThreshold, in the local space of this entity (the group's matrix is applied). "
+            "\"\" (default) = no proxy. The children stop being drawn, in the main pass and in the shadows, "
+            "and their draw calls with them; the proxy casts the shadow. world.bake_hlod writes it.")
         .field("hlodThreshold", &LodGroup::hlodThreshold,
                "Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen "
                "fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole "

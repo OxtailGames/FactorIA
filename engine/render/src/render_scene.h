@@ -144,7 +144,8 @@ struct SceneLodGroup {
                 0};  // the group entity's position: the distance of a group is measured to it, as of a MeshRenderer
     float radius = 0.0f;  // of the sphere around the boxes of every mesh of the subtree; 0 = the subtree draws no mesh
     int children = 0;
-    bool proxy = false;  // LodGroup.hlodProxy is set and its mesh was read: the proxy is a mesh of the scene (SceneMesh::hlodGroup)
+    bool proxy =
+        false;  // LodGroup.hlodProxy is set and its mesh was read: the proxy is a mesh of the scene (SceneMesh::hlodGroup)
 };
 
 class RenderScene {
@@ -201,8 +202,10 @@ private:
     std::vector<SceneLodGroup> lodGroups_;
     std::vector<std::uint32_t> lodChains_;
     std::vector<std::uint32_t> meshOf_;  // build_lod_groups' scratch: entity index -> index in meshes_
-    std::vector<std::uint32_t> proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
-    std::deque<MeshRenderer> hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
+    std::vector<std::uint32_t>
+        proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
+    std::deque<MeshRenderer>
+        hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
     std::unordered_set<std::string> hlodWarned_;  // "<entity bits>|<path>" of a proxy already reported as unreadable
     bool anyLods_ = false;
     void add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot);
