@@ -107,7 +107,7 @@ floating origin off: `enabled` false, `origin` `[0, 0, 0]`, `rebases` 0). `world
 (tests, cutscenes). `world.absolute_position {entity}` returns `{entity, position, origin, local}`: `position` is the origin plus the
 entity's world position, in doubles. All three fail with `not_built` today.
 
-## Terrain (M75.5, in parts)
+## Terrain (M75.5)
 
 The `Terrain` component draws a heightmap with a GPU level of detail and gives it a collider. In a scene and in scripts it is
 called `Terrain` (the C++ type is `Terrain3D`: `Terrain` is already the 2D autotile type). **What works today (P5a):** the

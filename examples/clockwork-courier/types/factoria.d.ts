@@ -12109,7 +12109,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned, docs/BIG_WORLDS.md, "Terrain").
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. Today the renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer with the first material layer (layers[0]: its albedo, normal map, tileSize, roughness, metallic) or a plain grey, and gives it the collider; the other layers, `splatMaps` and `holes` are saved and checked but not drawn yet (planned in M75.5, docs/BIG_WORLDS.md, "Terrain").
    * 
    * Category: 3D
    * @since unreleased
