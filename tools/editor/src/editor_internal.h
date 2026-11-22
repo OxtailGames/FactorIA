@@ -282,8 +282,12 @@ public:
     bool begin_edit(const std::string& key);
     void mark_dirty() {
         dirty_ = true;
-        cells_.note_edit();
+        note_cells_edit();
     }
+    // Tells the cells (cell_edit.h) which loaded cell an edit may have changed: the cells of the selected entities (and `extraId`, an
+    // entity a command names), so the dirty check hashes those first and the others one per frame. With nothing to name it checks
+    // every cell. Undo, Redo and snapshots always check every cell.
+    void note_cells_edit(const std::string& extraId = std::string());
     // Unsaved changes of the scene file or of a cell of a streamed world loaded for editing (Cells panel). Terrain data not written
     // yet is not counted here: has_unsaved_work() adds it.
     bool dirty() const { return dirty_ || cells_.any_dirty(); }

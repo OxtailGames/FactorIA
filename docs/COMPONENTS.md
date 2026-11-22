@@ -11208,7 +11208,7 @@ Capabilities: read, state, writeProject
 
 The inverse of world.split_cells: reads the index `world`, its persistent scene and every cell scene, and writes all their entities into the one scene `out`, with the persistent scene's `settings`: the persistent scene's entities first, then each cell's in index order (by j, then i), each entity with its children, ids and components exactly as in its file. So split then merge gives the same entities (the order of the roots follows the cells). Details: docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world".
 
-Two files with the same entity id are an error (nothing is written). The world's files are never changed and `out` may not be one of them; an existing `out` is replaced only with `overwrite`; `dryRun` reports without writing. Result: {scene, world, cells, persistent, entities, persistentEntities, filesRead, written, notes}. Example: world.merge_cells {"world":"worlds/town.world.json","out":"scenes/town_merged.scene.json"}
+Two files with the same entity id are an error (nothing is written). The world's files are never changed and `out` may not be one of them; an existing `out` is replaced only with `overwrite`; `dryRun` reports without writing. A StreamedWorld component in the files stays in the merged scene (the entities are written as they are), so playing that scene would stream the cells it already holds: `warnings` names each one and how to remove it. Result: {scene, world, cells, persistent, entities, persistentEntities, filesRead, written, warnings, notes}. Example: world.merge_cells {"world":"worlds/town.world.json","out":"scenes/town_merged.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

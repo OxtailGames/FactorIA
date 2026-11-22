@@ -7,20 +7,27 @@
 //
 //   DIRTY. A loaded cell is dirty when its entities, written the way a save writes them (prefab instances as instances), differ from
 //   that baseline. The check runs when the editor says something may have changed (note_edit, once per frame at most, and not while the
-//   mouse drags), so Undo back to the saved state clears the mark.
+//   mouse drags), so Undo back to the saved state clears the mark. note_edit(world, entity) names the edited entity: only its cell is
+//   checked at once and the other loaded cells are checked one per update after it (an edit the editor could not attribute, or an
+//   Undo, checks every cell in one update), so the cost of an edit does not grow with the loaded cells. Save always checks them all.
 //   SAVE. Writes only the dirty cells, each to its own file (the file's other top-level keys are kept), and the index only when a cell was
-//   added or a cell's height bounds had to grow. Before writing, a top-level entity of a cell whose position is in another cell is moved
+//   added or a cell's height range or size changed (its 3D height bounds follow what its entities need, up or down, and sizeBytes,
+//   when the index lists it, follows the file). Before writing, a top-level entity of a cell whose position is in another cell is moved
 //   to that cell (loading it, or making a new one that the index then lists): the "re-file".
 //   SNAPSHOTS. snapshot_scene leaves cells out, so the editor's snapshots (undo, play) carry capture() under "$cells" and restore() puts
 //   it back; the baselines stay here, so an undo that returns to the saved state shows a clean cell.
 //   PLAY. suspend() forgets the entities (the world is replaced and the game streams by distance); the set of loaded cells, with its
 //   baselines, stays, and restore() brings the cells back at Stop.
 //
+//   ROOT DELETED. Deleting the root entity of a cell with unsaved changes keeps the cell as unsaved and empty: Save writes the
+//   cell with no entities, Undo brings it back. A cell without unsaved changes is just closed (its file is unchanged).
+//
 // Main thread only. No exceptions leave this class.
 #pragma once
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,6 +44,7 @@ struct CellRow {
     bool inIndex = false;  // false: a cell that Save will add to the index
     bool loaded = false;
     bool dirty = false;
+    bool rootGone = false;      // its root entity was deleted: Save writes the cell empty
     std::int64_t entities = 0;  // the cell's own root entities while loaded
     double distance = 0;        // metres on the plane from the view point to its bounds
 };
@@ -80,11 +88,17 @@ public:
     const std::string& warnings() const { return warnings_; }  // what the last load said (references to other cells...)
 
     // ---- dirty
+    // Something may have changed and the editor cannot say where: every loaded cell is checked by the next update.
     void note_edit() { pending_ = true; }
+    // `e` was (or is about to be) edited: its cell is checked by the next update (an entity that is a cell root counts as its own cell),
+    // then the other cells one per update, in case the edit reached another one (a reparent). An entity that no longer exists checks them all.
+    void note_edit(const World& world, Entity e);
     // Rechecks the loaded cells when something may have changed (`busy`: the mouse is dragging; the check waits).
     void update(World& world, bool busy);
     bool is_dirty(std::int32_t i, std::int32_t j) const;
     bool any_dirty() const;
+    // Cells whose check is still waiting (tests: call update until it is 0 to see the final dirty marks).
+    int pending_checks() const { return int(touched_.size()) + int(sweepLeft_) + (pending_ ? 1 : 0); }
     int dirty_count() const;
     bool index_changed() const { return indexDirty_; }
     // A root entity of a loaded cell: which cell holds it (true), and where its position puts it (`toI`, `toJ`; the same cell when it
@@ -125,7 +139,8 @@ private:
     struct Slot {
         Entity root;
         std::uint64_t baseline = 0, current = 0;
-        bool isNew = false;  // not in the index yet
+        bool isNew = false;     // not in the index yet
+        bool rootGone = false;  // the root entity was deleted while the cell had unsaved changes: Save writes it empty
         std::string scene;
         Json top = Json::object();  // the file's top-level keys but "entities"
     };
@@ -136,13 +151,15 @@ private:
     bool place(World& world, const Key& k, Slot& slot, const Json& entities, std::string* error);
     const WorldCell* find_cell(const Key& k) const;
     std::string new_cell_path(const Key& k) const;
-    Key key_at(const World& world, Entity e) const;
 
     bool hasIndex_ = false;
     std::string indexPath_, triedPath_, error_, warnings_;
     WorldIndex index_;
     std::map<Key, Slot> slots_;
     bool pending_ = false, suspended_ = false, indexDirty_ = false;
+    std::set<Key> touched_;      // cells to check at the next update
+    std::size_t sweepLeft_ = 0;  // cells still to check, one per update, after a note_edit(world, entity)
+    Key sweepAfter_{};           // the last cell of that sweep
     PrefabBaseCache cache_;
 };
 

@@ -1226,7 +1226,10 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
     if (play_ == PlayState::Edit && command_edits_scene(name, args)) {
-        if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly) cells_.note_edit();
+        if (const CommandInfo* ci = engine_->commands().info(name); ci && !ci->readOnly)
+            note_cells_edit(args.is_object() && args.contains("id") && args["id"].is_string()
+                                ? args["id"].get<std::string>()
+                                : std::string());
     }
     // The Review window reads the sheets again (a sheet made, picked or cleaned up by the AI, the Console or the window itself).
     if (name.rfind("review.", 0) == 0 || name == "assets.pick") {
@@ -1488,6 +1491,29 @@ std::vector<std::string> Editor::selection_roots() {
     return ordered;
 }
 
+void Editor::note_cells_edit(const std::string& extraId) {
+    if (!engine_ || cells_.loaded_count() == 0) return;
+    constexpr std::size_t kMaxNamed = 64;  // a bigger selection: check every cell instead
+    const std::vector<std::string>& ids = selection_peek().ids();
+    bool named = false;
+    if (ids.size() <= kMaxNamed) {
+        for (const std::string& id : ids) {
+            const Entity e = world().find_by_id(id);
+            if (e.is_null() || !world().alive(e)) continue;
+            cells_.note_edit(world(), e);
+            named = true;
+        }
+        if (!extraId.empty()) {
+            const Entity e = world().find_by_id(extraId);
+            if (!e.is_null() && world().alive(e)) {
+                cells_.note_edit(world(), e);
+                named = true;
+            }
+        }
+    }
+    if (!named) cells_.note_edit();
+}
+
 bool Editor::begin_edit(const std::string& key) {
     if (play_ != PlayState::Edit || !engine_) return false;
     const bool coalesce =
@@ -1496,7 +1522,7 @@ bool Editor::begin_edit(const std::string& key) {
     lastEditKey_ = key;
     lastEditKind_ = UndoEntry::Kind::Snapshot;
     dirty_ = true;
-    cells_.note_edit();
+    note_cells_edit();
     if (coalesce) return false;
     undo_.push_back(UndoEntry::snapshot(snapshot_state()));  // the stack drops the oldest beyond its caps
     redo_.clear();
@@ -1512,7 +1538,7 @@ bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand>
     lastEditKey_ = key;
     lastEditKind_ = UndoEntry::Kind::Command;
     dirty_ = true;
-    cells_.note_edit();
+    note_cells_edit();
     if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
     return true;
 }

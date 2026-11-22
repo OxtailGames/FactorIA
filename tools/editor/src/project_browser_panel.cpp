@@ -306,7 +306,7 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         ImGui::EndDragDropSource();
     }
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "scene") {
-        if (dirty())
+        if (has_unsaved_work())
             pendingScene_ = f.path;  // the "Unsaved changes" dialog asks first
         else
             open_scene(f.path);

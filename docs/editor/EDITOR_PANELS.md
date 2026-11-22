@@ -343,8 +343,9 @@ View > Cells edits the cells of a streamed world (docs/BIG_WORLDS_STREAMING.md, 
 - **Load around the view** loads the cells within N cells of the camera (the drag box, 0 to 8; 0 is the cell under the camera), nearest first. One click loads at
   most 64 cells and says how many more were in range; at most 256 cells are loaded at once. **Unload clean** unloads every loaded cell without unsaved changes.
   **Read the index again** reads the index file again (a tool changed it); the loaded cells stay loaded.
-- **Save cells** writes each unsaved cell to its own file, and the index only when a cell was added or a cell's height bounds grew; the toolbar's Save and
-  Ctrl+S do the same, together with the open scene. An entity whose position is now in another cell is written into that cell (see "Editing a streamed
+- **Save cells** writes each unsaved cell to its own file, and the index only when a cell was added or a saved cell's height range (3D: follows its entities, up or down) or listed
+  `sizeBytes` changed; the toolbar's Save and Ctrl+S do the same, together with the open scene. Deleting the root of a cell with unsaved changes
+  keeps it unsaved and empty ("root deleted" in the list): Save writes it with no entities, Undo brings it back. An entity whose position is now in another cell is written into that cell (see "Editing a streamed
   world": no command is needed for it). A failure (a path outside the write rules, a cell file that is not in the index) changes nothing and the panel
   says why.
 - **Show the grid** draws the cells in the viewport on the plane of the world: green loaded, orange with unsaved changes (the label gets a `*`), grey not
