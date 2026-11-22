@@ -93,16 +93,19 @@ void settle(Engine& e, int maxFrames = 200) {
     for (int f = 0; f < maxFrames; ++f) {
         e.step(1);
         const Json s = call(e, "world.stream_status");
-        if (s["pending"].empty() && s["cellsUnloading"].get<int>() == 0 && s["cellsQueued"].get<int>() == 0 && f > 0) return;
+        if (s["pending"].empty() && s["cellsUnloading"].get<int>() == 0 && s["cellsQueued"].get<int>() == 0 && f > 0)
+            return;
     }
     FAIL("the streamer did not settle: " << call(e, "world.stream_status").dump());
 }
 
-const std::vector<std::string> kModes = {"0", "1", "8"};  // 0: the loader reads on the main thread; 1, 8: IO and decode threads
+const std::vector<std::string> kModes = {"0", "1",
+                                         "8"};  // 0: the loader reads on the main thread; 1, 8: IO and decode threads
 
 }  // namespace
 
-TEST_CASE("streaming: the wanted cells load around the anchor, and a cell stays loaded until it is past the unload radius") {
+TEST_CASE(
+    "streaming: the wanted cells load around the anchor, and a cell stays loaded until it is past the unload radius") {
     StreamProject p;
     Engine e;
     std::string err;
@@ -155,10 +158,9 @@ TEST_CASE("streaming: events cellLoaded and cellUnloaded carry the coordinate") 
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    eval(e,
-         "globalThis.loaded = []; globalThis.unloaded = [];"
-         "world.on('cellLoaded', (d) => loaded.push(d.coord[0] + ',' + d.coord[1] + ':' + d.entities));"
-         "world.on('cellUnloaded', (d) => unloaded.push(d.id)); 0");
+    eval(e, "globalThis.loaded = []; globalThis.unloaded = [];"
+            "world.on('cellLoaded', (d) => loaded.push(d.coord[0] + ',' + d.coord[1] + ':' + d.entities));"
+            "world.on('cellUnloaded', (d) => unloaded.push(d.id)); 0");
     settle(e);
     CHECK(eval(e, "loaded.length").get<int>() == 3);
     CHECK(eval(e, "loaded[0]").get<std::string>() == "0,0:2");  // the floor and the marker
@@ -170,7 +172,8 @@ TEST_CASE("streaming: events cellLoaded and cellUnloaded carry the coordinate") 
     e.shutdown();
 }
 
-TEST_CASE("streaming: several loads run at once up to maxLoadsInFlight, and at most maxAppliesPerFrame cells are added per frame") {
+TEST_CASE("streaming: several loads run at once up to maxLoadsInFlight, and at most maxAppliesPerFrame cells are added "
+          "per frame") {
     for (int cap : {1, 2, 3}) {
         for (int applies : {1, 3}) {
             INFO("maxLoadsInFlight " << cap << ", maxAppliesPerFrame " << applies);
@@ -227,7 +230,8 @@ TEST_CASE("streaming: a load that is no longer wanted is cancelled, and nothing 
     CHECK(eval(e, "loaded.length").get<int>() == s["cellsApplied"].get<int>());
     CHECK(eval(e, "unloaded.length").get<int>() == s["unloadsDone"].get<int>());
     CHECK(s["cellsApplied"].get<int>() == s["unloadsDone"].get<int>());  // what was applied was unloaded again
-    for (const char* id : {"floor_0_0", "floor_1_0", "floor_0_1"}) CHECK_FALSE(e.world().alive(e.world().find_by_id(id)));
+    for (const char* id : {"floor_0_0", "floor_1_0", "floor_0_1"})
+        CHECK_FALSE(e.world().alive(e.world().find_by_id(id)));
     e.shutdown();
 }
 
@@ -245,8 +249,10 @@ TEST_CASE("streaming: a scene change cancels every cell job and nothing is appli
         e.step(30);
         for (int j = 0; j < 3; ++j)
             for (int i = 0; i < 3; ++i) {
-                CHECK_FALSE(e.world().alive(e.world().find_by_id("floor_" + std::to_string(i) + "_" + std::to_string(j))));
-                CHECK_FALSE(e.world().alive(e.world().find_by_id("cell_" + std::to_string(i) + "_" + std::to_string(j))));
+                CHECK_FALSE(
+                    e.world().alive(e.world().find_by_id("floor_" + std::to_string(i) + "_" + std::to_string(j))));
+                CHECK_FALSE(
+                    e.world().alive(e.world().find_by_id("cell_" + std::to_string(i) + "_" + std::to_string(j))));
             }
         CHECK(e.world().alive(e.world().find_by_id("nothing")));
         const Json s = call(e, "world.stream_status");
@@ -269,7 +275,8 @@ TEST_CASE("streaming: with two anchors the cells load in a fixed order, the same
     };
     // The first anchor is at (50, 50) and wants [0,0] (0 m), [1,0] and [0,1] (50 m). The second at (250, 250) wants [2,2] (0 m), [2,1] and
     // [1,2] (50 m). Higher priority first, then nearer, then (j, i): [2,1] before [1,2], [1,0] before [0,1].
-    const Variant variants[] = {{0, 5, {"2,2", "2,1", "1,2", "0,0", "1,0", "0,1"}}, {5, 0, {"0,0", "1,0", "0,1", "2,2", "2,1", "1,2"}}};
+    const Variant variants[] = {{0, 5, {"2,2", "2,1", "1,2", "0,0", "1,0", "0,1"}},
+                                {5, 0, {"0,0", "1,0", "0,1", "2,2", "2,1", "1,2"}}};
     for (const Variant& v : variants) {
         for (const std::string& mode : kModes) {
             INFO("priorities " << v.priorityFirst << "/" << v.prioritySecond << ", job threads " << mode);

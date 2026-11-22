@@ -99,7 +99,7 @@ public:
         std::vector<Update> updates;  // the jobs that changed (and those cancelled since the last tick)
         std::vector<SceneReady> scenes;
         std::vector<CellResult> cells;  // cell jobs that ended, in start order
-        int units = 0;  // units taken (what a recording keeps)
+        int units = 0;                  // units taken (what a recording keeps)
         std::uint64_t uploadedBytes = 0;
     };
 

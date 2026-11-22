@@ -14,12 +14,14 @@ using namespace fa;
 namespace {
 
 Json index_json(const std::string& cells, const std::string& extra = "") {
-    const std::string text = R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[-100,0],)" + extra +
-                             R"("cells":[)" + cells + "]}";
+    const std::string text =
+        R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[-100,0],)" + extra +
+        R"("cells":[)" + cells + "]}";
     return parse_json(text, "test").value();
 }
 
-const char* kCellA = R"({"coord":[0,0],"scene":"cells/0_0.scene.json","bounds":{"min":[-100,0,0],"max":[0,10,100]},"sizeBytes":1234})";
+const char* kCellA =
+    R"({"coord":[0,0],"scene":"cells/0_0.scene.json","bounds":{"min":[-100,0,0],"max":[0,10,100]},"sizeBytes":1234})";
 const char* kCellB = R"({"coord":[1,0],"scene":"cells/1_0.scene.json","bounds":{"min":[0,0,0],"max":[100,10,100]}})";
 const char* kCellC = R"({"coord":[0,-1],"scene":"cells/0_-1.scene.json","bounds":{"min":[-100,0,-100],"max":[0,5,0]}})";
 
@@ -71,7 +73,8 @@ TEST_CASE("world index: a valid index is read, sorted by (j, i), and answers dis
 }
 
 TEST_CASE("world index: a 2d index puts the cells on XY and its bounds have two numbers") {
-    const std::string text = R"({"format":"factoria.world/1","version":1,"dimension":"2d","cellSize":50,"origin":[0,0],"cells":[
+    const std::string text =
+        R"({"format":"factoria.world/1","version":1,"dimension":"2d","cellSize":50,"origin":[0,0],"cells":[
         {"coord":[2,1],"scene":"cells/2_1.scene.json","bounds":{"min":[100,50],"max":[150,100]}}]})";
     auto r = parse_world_index(parse_json(text, "t").value(), "w2d", no_files());
     REQUIRE_MESSAGE(r.ok(), all_text(r));
@@ -82,7 +85,8 @@ TEST_CASE("world index: a 2d index puts the cells on XY and its bounds have two 
     CHECK(r->distance_to(c, 90, 50) == doctest::Approx(10.0));
     CHECK(r->distance_to(c, 120, 120) == doctest::Approx(20.0));
     // three numbers in a 2d index is a mistake that says which dimension asked for two
-    const std::string bad = R"({"format":"factoria.world/1","version":1,"dimension":"2d","cellSize":50,"origin":[0,0],"cells":[
+    const std::string bad =
+        R"({"format":"factoria.world/1","version":1,"dimension":"2d","cellSize":50,"origin":[0,0],"cells":[
         {"coord":[0,0],"scene":"c.scene.json","bounds":{"min":[0,0,0],"max":[50,50,50]}}]})";
     auto rb = parse_world_index(parse_json(bad, "t").value(), "w2d", no_files());
     REQUIRE_FALSE(rb.ok());
@@ -101,7 +105,8 @@ TEST_CASE("world index: duplicate coordinates name both entries, with their JSON
 }
 
 TEST_CASE("world index: bounds that stick out of their cell say which axis and what the cell covers") {
-    const char* wide = R"({"coord":[0,0],"scene":"cells/0_0.scene.json","bounds":{"min":[-100,0,0],"max":[40,10,100]}})";
+    const char* wide =
+        R"({"coord":[0,0],"scene":"cells/0_0.scene.json","bounds":{"min":[-100,0,0],"max":[40,10,100]}})";
     auto r = parse_world_index(index_json(wide), "w", no_files());
     REQUIRE_FALSE(r.ok());
     const std::string text = all_text(r);
@@ -118,20 +123,28 @@ TEST_CASE("world index: every problem has a pointer; the message lists a few and
     CHECK(all_text(notObject).find("JSON object") != std::string::npos);
 
     auto badVersion = parse_world_index(
-        parse_json(R"({"format":"factoria.world/1","version":2,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[]})", "t").value(), "w",
-        no_files());
+        parse_json(
+            R"({"format":"factoria.world/1","version":2,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[]})",
+            "t")
+            .value(),
+        "w", no_files());
     REQUIRE_FALSE(badVersion.ok());
     CHECK(all_text(badVersion).find("#/version") != std::string::npos);
 
     auto badDim = parse_world_index(
-        parse_json(R"({"format":"factoria.world/1","version":1,"dimension":"4d","cellSize":100,"origin":[0,0],"cells":[]})", "t").value(), "w",
-        no_files());
+        parse_json(
+            R"({"format":"factoria.world/1","version":1,"dimension":"4d","cellSize":100,"origin":[0,0],"cells":[]})",
+            "t")
+            .value(),
+        "w", no_files());
     REQUIRE_FALSE(badDim.ok());
     CHECK(all_text(badDim).find("\"3d\" or \"2d\"") != std::string::npos);
 
     auto badSize = parse_world_index(
-        parse_json(R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":0,"origin":[0,0],"cells":[]})", "t").value(), "w",
-        no_files());
+        parse_json(
+            R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":0,"origin":[0,0],"cells":[]})", "t")
+            .value(),
+        "w", no_files());
     REQUIRE_FALSE(badSize.ok());
     CHECK(all_text(badSize).find("#/cellSize") != std::string::npos);
 
@@ -149,7 +162,8 @@ TEST_CASE("world index: every problem has a pointer; the message lists a few and
 
 TEST_CASE("world index: warnings do not fail the read") {
     std::vector<WorldIndexIssue> issues;
-    const std::string text = R"({"format":"factoria.world/9","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"colour":1,"cells":[
+    const std::string text =
+        R"({"format":"factoria.world/9","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"colour":1,"cells":[
         {"coord":[0,0],"scene":"a.scene.json","bounds":{"min":[0,0,0],"max":[1,1,1]},"sise":3}]})";
     auto r = parse_world_index(parse_json(text, "t").value(), "w", no_files(), &issues);
     REQUIRE_MESSAGE(r.ok(), all_text(r));
@@ -162,7 +176,8 @@ TEST_CASE("world index: warnings do not fail the read") {
     CHECK(warnings == 3);  // an unknown format, an unknown top-level key, an unknown cell key
 }
 
-TEST_CASE("streamed cells: a reference to an entity of another cell is a warning and stays empty; the main scene is reachable") {
+TEST_CASE("streamed cells: a reference to an entity of another cell is a warning and stays empty; the main scene is "
+          "reachable") {
     World world;
     auto load_cell = [&](const char* name, const char* text, LoadReport* out = nullptr) {
         const Entity root = world.create(name, name);
@@ -182,7 +197,8 @@ TEST_CASE("streamed cells: a reference to an entity of another cell is a warning
     const Entity rootB = load_cell("cell_b", R"({"format":"factoria.scene/1","entities":[
         {"id":"joint_b","components":{"Transform":{},"Joint3D":{"connected":"body_a"}}},
         {"id":"joint_c","components":{"Transform":{},"Joint3D":{"connected":"main_body"}}},
-        {"id":"joint_d","components":{"Transform":{},"Joint3D":{"connected":"nobody_anywhere"}}}]})", &report);
+        {"id":"joint_d","components":{"Transform":{},"Joint3D":{"connected":"nobody_anywhere"}}}]})",
+                                   &report);
     CHECK(report.ok());  // warnings, never errors: the cell still loads
     int warnings = 0;
     std::string text;

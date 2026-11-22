@@ -67,7 +67,8 @@ WorldStreamer::Settings WorldStreamer::read_settings() const {
     if (enabledCount > 1 && !warnedMultiple_) {
         warnedMultiple_ = true;
         FA_WARN("stream",
-                "{} entities have an enabled StreamedWorld: the streamer uses the first one. Keep one StreamedWorld per scene (a second world "
+                "{} entities have an enabled StreamedWorld: the streamer uses the first one. Keep one StreamedWorld "
+                "per scene (a second world "
                 "is not streamed); disable or remove the others.",
                 enabledCount);
     }
@@ -208,10 +209,8 @@ void WorldStreamer::cancel_cell(std::size_t idx) {
 }
 
 void WorldStreamer::send_event(const char* name, const WorldCell& cell, Json extra, Entity source) {
-    Json data = Json::object({{"world", indexPath_},
-                              {"id", cell.id()},
-                              {"coord", Json::array({cell.i, cell.j})},
-                              {"scene", cell.scene}});
+    Json data = Json::object(
+        {{"world", indexPath_}, {"id", cell.id()}, {"coord", Json::array({cell.i, cell.j})}, {"scene", cell.scene}});
     for (auto it = extra.begin(); it != extra.end(); ++it) data[it.key()] = it.value();
     world_.events().game.push_back(GameEvent{name, std::move(data), source});
 }
@@ -219,7 +218,8 @@ void WorldStreamer::send_event(const char* name, const WorldCell& cell, Json ext
 void WorldStreamer::do_apply(std::size_t idx) {
     CellState& st = cells_[idx];
     const WorldCell& cell = index_.cells[idx];
-    const Entity root = world_.create("cell " + cell.id(), "cell_" + std::to_string(cell.i) + "_" + std::to_string(cell.j));
+    const Entity root =
+        world_.create("cell " + cell.id(), "cell_" + std::to_string(cell.i) + "_" + std::to_string(cell.j));
     world_.info(root).streamedCell = true;
     SceneLoadOptions opts;
     opts.additive = true;
@@ -332,7 +332,8 @@ void WorldStreamer::update() {
             ev.want = ev.keep = true;
             ev.priority = 0;
             double nearest = kInf;
-            for (const Anchor& an : anchors) nearest = std::min(nearest, index_.distance_to(index_.cells[k], an.a, an.b));
+            for (const Anchor& an : anchors)
+                nearest = std::min(nearest, index_.distance_to(index_.cells[k], an.a, an.b));
             ev.distance = std::isinf(nearest) ? 0.0 : nearest;
         }
     } else {
@@ -380,8 +381,7 @@ void WorldStreamer::update() {
             case State::Queued:
                 if (!ev.want) set_state(idx, State::Unloaded);
                 break;
-            case State::Unloaded:
-                break;
+            case State::Unloaded: break;
         }
     }
     for (std::size_t idx : std::vector<std::size_t>(failed_.begin(), failed_.end()))
@@ -416,7 +416,8 @@ void WorldStreamer::update() {
         if (inFlight >= s.maxLoads) break;
         CellState& st = cells_[q.idx];
         const WorldCell& cell = index_.cells[q.idx];
-        auto r = loader_.start(BackgroundLoader::Kind::CellLoad, {cell.scene}, std::nullopt, BackgroundLoader::Origin::Tool, nullptr);
+        auto r = loader_.start(BackgroundLoader::Kind::CellLoad, {cell.scene}, std::nullopt,
+                               BackgroundLoader::Origin::Tool, nullptr);
         if (!r) {
             st.failed = true;
             failed_.insert(q.idx);
@@ -454,7 +455,8 @@ void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, in
             st.failed = true;
             failed_.insert(found);
             st.job = 0;
-            lastError_ = "cell " + index_.cells[found].id() + ": " + r.error + (r.hint.empty() ? std::string() : " " + r.hint);
+            lastError_ =
+                "cell " + index_.cells[found].id() + ": " + r.error + (r.hint.empty() ? std::string() : " " + r.hint);
             FA_WARN("stream", "{}", lastError_);
             set_state(found, State::Unloaded);
             continue;
@@ -505,15 +507,18 @@ Json WorldStreamer::cells(const std::string& stateFilter, std::size_t limit) {
         if (list.size() >= limit) break;
         const WorldCell& c = index_.cells[row.idx];
         const CellState& st = cells_[row.idx];
-        Json min = plane2d ? Json::array({c.boundsMin.x, c.boundsMin.y}) : Json::array({c.boundsMin.x, c.boundsMin.y, c.boundsMin.z});
-        Json max = plane2d ? Json::array({c.boundsMax.x, c.boundsMax.y}) : Json::array({c.boundsMax.x, c.boundsMax.y, c.boundsMax.z});
-        Json item = Json::object({{"id", c.id()},
-                                  {"coord", Json::array({c.i, c.j})},
-                                  {"scene", c.scene},
-                                  {"bounds", Json::object({{"min", min}, {"max", max}})},
-                                  {"state", state_name(st.state)},
-                                  {"entities", st.entities},
-                                  {"distance", std::isinf(row.distance) ? Json() : Json(std::round(row.distance * 1000.0) / 1000.0)}});
+        Json min = plane2d ? Json::array({c.boundsMin.x, c.boundsMin.y})
+                           : Json::array({c.boundsMin.x, c.boundsMin.y, c.boundsMin.z});
+        Json max = plane2d ? Json::array({c.boundsMax.x, c.boundsMax.y})
+                           : Json::array({c.boundsMax.x, c.boundsMax.y, c.boundsMax.z});
+        Json item = Json::object(
+            {{"id", c.id()},
+             {"coord", Json::array({c.i, c.j})},
+             {"scene", c.scene},
+             {"bounds", Json::object({{"min", min}, {"max", max}})},
+             {"state", state_name(st.state)},
+             {"entities", st.entities},
+             {"distance", std::isinf(row.distance) ? Json() : Json(std::round(row.distance * 1000.0) / 1000.0)}});
         if (c.sizeBytes >= 0) item["sizeBytes"] = c.sizeBytes;
         if (st.failed) item["failed"] = true;
         list.push_back(std::move(item));
@@ -525,7 +530,9 @@ Json WorldStreamer::cells(const std::string& stateFilter, std::size_t limit) {
                              {"matching", rows.size()},
                              {"truncated", rows.size() > list.size()},
                              {"cells", list}});
-    if (indexPath_.empty()) out["error"] = lastError_.empty() ? std::string("no StreamedWorld with a world index in the scene") : lastError_;
+    if (indexPath_.empty())
+        out["error"] =
+            lastError_.empty() ? std::string("no StreamedWorld with a world index in the scene") : lastError_;
     return out;
 }
 
@@ -547,7 +554,8 @@ Json WorldStreamer::status() {
         }
     }
     Json pending = Json::array();
-    std::vector<std::pair<int, std::size_t>> order;  // loading cells by job id (the order they were started), then the queued ones
+    std::vector<std::pair<int, std::size_t>>
+        order;  // loading cells by job id (the order they were started), then the queued ones
     for (std::size_t idx : tracked_)
         if (cells_[idx].state == State::Loading) order.push_back({cells_[idx].job, idx});
     std::sort(order.begin(), order.end());

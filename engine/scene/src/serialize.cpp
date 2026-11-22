@@ -322,8 +322,10 @@ void Loader::resolve_one(const PendingRef& ref) {
         }
         if (!cellRoot_.is_null()) {
             warn(ref.pointer, "No entity with id " + where + " in this cell or in the scene; the field stays empty",
-                 "A streamed cell sees only its own entities and those of the main scene: the entity may live in another "
-                 "cell, which loads and unloads on its own. Keep both entities in one cell, or find the other one at run "
+                 "A streamed cell sees only its own entities and those of the main scene: the entity may live in "
+                 "another "
+                 "cell, which loads and unloads on its own. Keep both entities in one cell, or find the other one at "
+                 "run "
                  "time (world.find(id), after the \"cellLoaded\" event of world.on). " +
                      did_you_mean(v.get<std::string>(), ids, 20));
             return;
@@ -343,8 +345,10 @@ void Loader::resolve_one(const PendingRef& ref) {
             warn(ref.pointer,
                  "Field '" + ref.type->name + "." + ref.field->name + "' names '" + v.get<std::string>() +
                      "', an entity of another streamed cell (" + world_.info(cell).name + "); the field stays empty",
-                 "A cell can unload while the other one stays, which would leave the reference dangling. Move the two entities into "
-                 "one cell, or look the other one up at run time (world.find(id), after the \"cellLoaded\" event of world.on).");
+                 "A cell can unload while the other one stays, which would leave the reference dangling. Move the two "
+                 "entities into "
+                 "one cell, or look the other one up at run time (world.find(id), after the \"cellLoaded\" event of "
+                 "world.on).");
             return;
         }
     }

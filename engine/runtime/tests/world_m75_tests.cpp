@@ -128,7 +128,8 @@ TEST_CASE("world.floatingOrigin: a mistake names the JSON pointer, the problem a
     CHECK(r.error().message.find("/world") != std::string::npos);
 }
 
-TEST_CASE("world.* runtime commands: registered, documented, and the ones not built yet fail with not_built naming their package") {
+TEST_CASE("world.* runtime commands: registered, documented, and the ones not built yet fail with not_built naming "
+          "their package") {
     TempProject p(project_with(""));
     EngineConfig c;
     c.projectDir = p.dir.generic_string();

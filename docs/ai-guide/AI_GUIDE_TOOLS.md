@@ -38,7 +38,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | sign | `sign_macos`, `sign_windows` | Sign the exported macOS app and Windows package. |
 | skills | `skills_list`, `skills_new`, `skills_read` | List, read and create skills (topic guides). |
 | ui | `ui_caption`, `ui_check_layout`, `ui_clear_captions`, `ui_force_touch`, `ui_reset_layout_positions`, `ui_set_mirror_rtl`, `ui_set_scale`, `ui_set_slider`, `ui_set_text_scale`, `ui_speak`, `ui_state`, `ui_stop_speaking` | UI checks and helpers: layout overflow, captions, touch interface, focus. |
-| world | `foliage_clear`, `foliage_paint`, `foliage_scatter`, `terrain_create`, `terrain_generate`, `terrain_holes`, `terrain_paint`, `terrain_sculpt`, `world_absolute_position`, `world_cells`, `world_merge_cells`, `world_origin`, `world_rebase`, `world_split_cells`, `world_stream_status` | Big worlds (planned, M75): floating origin, streamed cells, terrain and foliage (docs/BIG_WORLDS.md). |
+| world | `foliage_clear`, `foliage_paint`, `foliage_scatter`, `terrain_create`, `terrain_generate`, `terrain_holes`, `terrain_paint`, `terrain_sculpt`, `world_absolute_position`, `world_cells`, `world_merge_cells`, `world_origin`, `world_rebase`, `world_split_cells`, `world_stream_status` | Big worlds (M75): streamed cells are built (world_cells, world_stream_status); the floating origin, terrain and foliage are planned (docs/BIG_WORLDS.md). |
 
 `docs_commands {"name":"scene.spawn"}` gives one command in full (arguments, defaults, examples) and `docs_commands {"filter":"words"}` searches names, categories and summaries. Tools of plugins and of the project's `tools/*.js` are not in this table: `docs_commands` in the running project lists them.
 <!-- end generated -->

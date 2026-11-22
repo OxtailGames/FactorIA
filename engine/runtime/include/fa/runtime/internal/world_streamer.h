@@ -48,7 +48,8 @@ public:
 
     static constexpr int kMaxLoadsInFlight = 16;    // StreamedWorld.maxLoadsInFlight is clamped to 1..this
     static constexpr int kMaxAppliesPerFrame = 64;  // StreamedWorld.maxAppliesPerFrame is clamped to 1..this
-    static constexpr std::int64_t kEagerFileChecks = 4096;  // an index with more cells is not checked file by file when it is read
+    static constexpr std::int64_t kEagerFileChecks =
+        4096;  // an index with more cells is not checked file by file when it is read
 
     WorldStreamer(World& world, BackgroundLoader& loader);
     WorldStreamer(const WorldStreamer&) = delete;
@@ -80,12 +81,12 @@ public:
 private:
     struct CellState {
         State state = State::Unloaded;
-        int job = 0;                          // BackgroundLoader job id while Loading
-        std::shared_ptr<const Json> doc;      // the parsed scene, once the job finished and before it is applied
-        bool failed = false;                  // its load failed: it is not tried again until it has left the wanted set
-        Entity root;                          // the cell's root entity while Loaded
-        std::int64_t entities = 0;            // entities under the root
-        std::uint64_t bytes = 0;              // bytes its load read
+        int job = 0;                      // BackgroundLoader job id while Loading
+        std::shared_ptr<const Json> doc;  // the parsed scene, once the job finished and before it is applied
+        bool failed = false;              // its load failed: it is not tried again until it has left the wanted set
+        Entity root;                      // the cell's root entity while Loaded
+        std::int64_t entities = 0;        // entities under the root
+        std::uint64_t bytes = 0;          // bytes its load read
     };
     struct Anchor {
         double a = 0, b = 0;
@@ -93,7 +94,7 @@ private:
         std::int32_t priority = 0;
     };
     struct Settings {
-        bool found = false;      // a StreamedWorld exists (the first one that is enabled and active)
+        bool found = false;  // a StreamedWorld exists (the first one that is enabled and active)
         bool enabled = false;
         std::string world;
         int maxLoads = 2, maxApplies = 1;
@@ -115,11 +116,11 @@ private:
     World& world_;
     BackgroundLoader& loader_;
     WorldIndex index_;
-    std::string indexPath_;                  // the path index_ was read from ("" = none)
-    std::string failedPath_;                 // a path whose index was wrong (not read again until the path changes)
-    std::vector<CellState> cells_;           // parallel to index_.cells
-    std::set<std::size_t> tracked_;          // cells that are not Unloaded
-    std::set<std::size_t> failed_;           // cells with `failed` set
+    std::string indexPath_;          // the path index_ was read from ("" = none)
+    std::string failedPath_;         // a path whose index was wrong (not read again until the path changes)
+    std::vector<CellState> cells_;   // parallel to index_.cells
+    std::set<std::size_t> tracked_;  // cells that are not Unloaded
+    std::set<std::size_t> failed_;   // cells with `failed` set
     Settings settings_;
     std::int64_t minI_ = 0, maxI_ = -1, minJ_ = 0, maxJ_ = -1;  // the coordinate range of the index
     std::string lastError_;
