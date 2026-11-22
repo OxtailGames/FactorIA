@@ -22,8 +22,10 @@ enum class LodKind : std::uint32_t { Mesh = 0, Group = 1 };
 
 class LodFades {
 public:
-    // One frame starts: the picks of the main camera of the last frame are forgotten.
-    void begin_frame();
+    // One frame starts: the picks of the main camera of the last frame are forgotten. `world` and `sceneGeneration` name what is drawn
+    // (World::scene_generation): another world, or another scene loaded into it, drops every fade (entity ids repeat from one scene to
+    // the next, so a fade of the last scene would show on a stranger).
+    void begin_frame(const void* world = nullptr, std::uint64_t sceneGeneration = 0);
     // One frame ends: the fades of entities nobody asked about this frame (destroyed, hidden, out of every camera's list) are dropped.
     void end_frame();
     // The pick of `entity` (Entity::bits) for the camera `camera` (any number that tells the camera's jobs apart): the level the metric
@@ -46,6 +48,8 @@ private:
     std::unordered_map<std::uint64_t, Slot> slots_;
     std::unordered_map<std::uint64_t, LodPick> main_[2];
     std::uint64_t frame_ = 0;
+    const void* world_ = nullptr;
+    std::uint64_t sceneGeneration_ = 0;
     bool mainSet_ = false;
 };
 

@@ -480,7 +480,8 @@ void register_world_components(TypeRegistry& r) {
             "crossFade", &LodGroup::crossFade,
             "Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are "
             "drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh "
-            "with a full-shader material switches at once. 0 (default) = a hard switch. 0..5. See "
+            "whose material is a full shader or a custom material that is not alphaMode \"clip\", or that has "
+            "subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See "
             "MeshRenderer.lodCrossFade.")
         .range(0, 5)
         .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",

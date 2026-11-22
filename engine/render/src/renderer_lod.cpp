@@ -15,8 +15,13 @@ std::uint64_t slot_key(std::uint64_t camera, std::uint64_t entity, LodKind kind)
 }
 }  // namespace
 
-void LodFades::begin_frame() {
+void LodFades::begin_frame(const void* world, std::uint64_t sceneGeneration) {
     ++frame_;
+    if (world != world_ || sceneGeneration != sceneGeneration_) {
+        slots_.clear();
+        world_ = world;
+        sceneGeneration_ = sceneGeneration;
+    }
     main_[0].clear();
     main_[1].clear();
     mainSet_ = false;
@@ -33,6 +38,11 @@ void LodFades::end_frame() {
 
 LodPick LodFades::step(std::uint64_t camera, std::uint64_t entity, LodKind kind, int target, float crossFade,
                        float dt) {
+    if (!(crossFade > 0.0f)) {  // no fade: the level switches at once and nothing is kept for the entity
+        LodPick p;
+        p.level = target;
+        return p;
+    }
     auto [it, fresh] = slots_.try_emplace(slot_key(camera, entity, kind));
     Slot& slot = it->second;
     if (fresh) slot.s = LodFadeState{target, -1, 1.0f};

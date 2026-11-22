@@ -191,6 +191,7 @@ private:
     std::uint64_t sortKeyFallbacks_ = 0;
     std::vector<SceneLodGroup> lodGroups_;
     std::vector<std::uint32_t> lodChains_;
+    std::vector<std::uint32_t> meshOf_;  // build_lod_groups' scratch: entity index -> index in meshes_
     bool anyLods_ = false;
     void build_lod_groups(World& world, Entity scopeRoot);
     Entity scope_;

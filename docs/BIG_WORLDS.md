@@ -60,10 +60,14 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
 - `MeshRenderer.lodCrossFade` and `LodGroup.crossFade`: seconds a switch fades over. 0 = a hard switch. During the fade
   both levels are drawn (`renderStats.lodCrossFades` counts them: two per fading entity), each one through a screen-space
   dither (interleaved gradient noise on the pixel) that is the complement of the other's, so every pixel of the silhouette
-  shows exactly one of the two levels and the share of the new one grows from 0 to 1. There is no blending and no new shader
-  variant: the dither is a `discard` driven by one per-draw number, so it works with the depth prepass, the opaque pass and
-  every backend (`render.supports` `lodCrossFade` is true everywhere). The fade state is render-only: it advances with the frame
-  delta, is never saved, and a script cannot read it. Details:
+  shows exactly one of the two levels and the share of the new one grows from 0 to 1. There is no blending: the dither is a
+  `discard` driven by one per-draw number, so it works with the depth prepass, the opaque pass and every backend
+  (`render.supports` `lodCrossFade` is true everywhere). Only the draws that fade have a program with that `discard`: the
+  engine's own mesh and prepass programs get a variant for it (`mesh_lod`, `mesh_skin_lod`, `prepass_lod`, `prepass_skin_lod`,
+  compiled the first time a fade draws), and a custom material with `alphaMode` `"clip"` dithers inside the `discard` it
+  already has. Every other draw keeps the programs it had, with no `discard` (a tile-based GPU keeps its early depth test and
+  hidden surface removal for them). The variants are about 120 KB of GLSL ES and 155 KB of WGSL more in the player. The fade state
+  is render-only: it advances with the frame delta, is never saved, and a script cannot read it. Details:
   - A new entity, or one that comes back into view, starts settled at its level: it does not fade in from nothing.
   - If the level goes back while a fade runs, the fade turns round where it is (no restart); a third level cuts the fade and
     fades from the level that was fading in.
@@ -71,9 +75,13 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
     dithers, so a shadow does not flicker.
   - Instancing: draws are batched per level. An entity that is fading is drawn on its own (its two levels are two draws), so a
     fade costs two draws and a lost batch for the entity, only while it runs.
-  - A mesh whose material is a full-shader material (docs/shaders/) switches at once: it has no dither, and only the new level
-    is drawn.
-  - A scene with no `lods` and no `LodGroup` pays nothing: the renderer checks one flag per scene.
+  - A mesh switches at once, with no fade (only the new level is drawn), when its material is a full-shader material
+    (docs/shaders/) or a custom material that is not `alphaMode` `"clip"` (their programs have no dither), and when it has
+    subsurface scattering (its extra pass).
+  - Cost. A scene with no `lods` and no `LodGroup` draws with the programs it always had and checks one flag per scene: the
+    `render.frame3d` bench reads the same with and without this feature. A scene with `lods` pays the pick of each mesh
+    (`render.lod3d`, docs/performance/PERFORMANCE_BENCH.md) and, only while an entity fades, two draws and a lost batch for it.
+    With `crossFade` 0 the pick keeps no state.
 - `MeshRenderer.impostor` and `impostorDistance`, and `LodGroup.hlodProxy` and `hlodThreshold` (the HLOD proxy of a whole cell):
   saved and checked, **no effect yet**.
 - `model.generate_lods {model, levels, ratios, errors, maxError, screenSizes, ...}` simplifies a model into lower levels

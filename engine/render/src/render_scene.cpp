@@ -151,9 +151,17 @@ Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, 
 // whole subtree, whichever child is drawn, so the screen size does not change when the level does). Runs after the boxes and matrices of
 // the meshes are known.
 void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
-    std::unordered_map<std::uint64_t, std::uint32_t> meshOf;  // entity bits -> index in meshes_
-    meshOf.reserve(meshes_.size());
-    for (std::size_t i = 0; i < meshes_.size(); ++i) meshOf.emplace(meshes_[i].entity.bits(), std::uint32_t(i));
+    // Entity index -> index in meshes_ (kNoMesh = none): a flat table the scene keeps between builds, no hashing. A stale entity (the
+    // slot was reused) is told apart by the entity the mesh holds.
+    constexpr std::uint32_t kNoMesh = UINT32_MAX;
+    std::uint32_t slots = 0;
+    for (const SceneMesh& sm : meshes_) slots = std::max(slots, sm.entity.index + 1);
+    meshOf_.assign(slots, kNoMesh);
+    for (std::size_t i = 0; i < meshes_.size(); ++i) meshOf_[meshes_[i].entity.index] = std::uint32_t(i);
+    const auto mesh_of = [&](Entity x) {
+        if (x.index >= meshOf_.size() || meshOf_[x.index] == kNoMesh) return kNoMesh;
+        return meshes_[meshOf_[x.index]].entity == x ? meshOf_[x.index] : kNoMesh;
+    };
     world.each<LodGroup>([&](Entity e, LodGroup& g) {
         if (!entity_active_in_scope(world, scopeRoot, e)) return;
         SceneLodGroup& sg = lodGroups_.emplace_back();
@@ -175,9 +183,9 @@ void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
             while (!stack.empty()) {
                 const Entity x = stack.back();
                 stack.pop_back();
-                if (auto it = meshOf.find(x.bits()); it != meshOf.end()) {
-                    const SceneMesh& sm = meshes_[it->second];
-                    links.emplace_back(it->second, (std::uint32_t(gi) << 4) | child);
+                if (const std::uint32_t found = mesh_of(x); found != kNoMesh) {
+                    const SceneMesh& sm = meshes_[found];
+                    links.emplace_back(found, (std::uint32_t(gi) << 4) | child);
                     for (int c = 0; c < 8; ++c) {
                         const Vec3 p =
                             sm.model.transform_point({(c & 1) ? sm.bmax.x : sm.bmin.x, (c & 2) ? sm.bmax.y : sm.bmin.y,

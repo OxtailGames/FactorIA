@@ -2275,8 +2275,10 @@ void register_builtin_components(TypeRegistry& r) {
                "Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the "
                "change does not pop. 0 (default) = a hard switch. 0..5. During the fade both levels are drawn, each "
                "on a complementary screen-space dither (two draws of the entity; renderStats.lodCrossFades counts "
-               "them), so a mesh fades by dissolving, with no blending and no sorting. A mesh with a full-shader "
-               "material switches at once. The shadow passes draw the new level only. An entity that is fading is "
+               "them), so a mesh fades by dissolving, with no blending and no sorting. A mesh switches at once, with "
+               "no fade, when its material is a full shader, a custom material that is not alphaMode \"clip\" (only "
+               "the engine's own program and a clip material have the dither), or when it has subsurface scattering. "
+               "The shadow passes draw the new level only. An entity that is fading is "
                "drawn on its own, outside the instanced batch of its mesh. The fade lasts lodCrossFade seconds of the "
                "frame delta and is never part of the simulation; going back to the first level during a fade turns "
                "it round where it stands. `renderer.supports` lodCrossFade is true on every backend.")
