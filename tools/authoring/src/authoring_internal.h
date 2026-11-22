@@ -52,7 +52,7 @@ void register_hlod_commands(Engine& engine, Engine::Impl& impl);
 // terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
 // terrain.undo, terrain.redo.
 void register_terrain3d_commands(Engine& engine, Engine::Impl& impl);
-// foliage_commands.cpp: foliage.scatter, foliage.paint, foliage.clear, foliage.restore (called by register_big_world_commands).
+// foliage_commands.cpp: foliage.scatter, foliage.paint, foliage.clear, foliage.undo, foliage.redo (called by register_big_world_commands).
 void register_foliage_commands(Engine& engine, Engine::Impl& impl);
 
 }  // namespace fa

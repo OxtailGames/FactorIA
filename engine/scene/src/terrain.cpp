@@ -576,15 +576,26 @@ void terrain_splat_weights(const TerrainHeights* h, int layerCount, float u, flo
 }
 
 bool terrain_layer_weights(const World& world, Entity terrain, float worldX, float worldZ, TerrainLayerWeights& out) {
-    const Terrain3D* t = world.get<Terrain3D>(terrain);
-    if (!t || !(t->size.x > 0.0f) || !(t->size.y > 0.0f)) return false;
-    const Mat4 m = world.world_matrix(terrain);
-    const Vec3 local = m.inverse().transform_point({worldX, m.translation().y, worldZ});
-    const float u = local.x / t->size.x + 0.5f, v = local.z / t->size.y + 0.5f;
+    return TerrainSampler(world, terrain).layer_weights(worldX, worldZ, out);
+}
+
+TerrainSampler::TerrainSampler(const World& world, Entity terrain) {
+    t_ = world.get<Terrain3D>(terrain);
+    if (!t_) return;
+    heights_ = world.terrain().heights(world, terrain);  // may be null: the layers still answer, the heights do not
+    m_ = world.world_matrix(terrain);
+    inv_ = m_.inverse();
+}
+
+bool TerrainSampler::layer_weights(float worldX, float worldZ, TerrainLayerWeights& out) const {
+    if (!t_ || !(t_->size.x > 0.0f) || !(t_->size.y > 0.0f)) return false;
+    const Vec3 local = inv_.transform_point({worldX, m_.translation().y, worldZ});
+    const float u = local.x / t_->size.x + 0.5f, v = local.z / t_->size.y + 0.5f;
     if (!(u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f)) return false;
     out = TerrainLayerWeights{};
-    out.count = t->layers.is_array() ? int(std::min<std::size_t>(t->layers.size(), std::size_t(kMaxTerrainLayers))) : 0;
-    terrain_splat_weights(world.terrain().heights(world, terrain).get(), out.count, u, v, out.weight);
+    out.count =
+        t_->layers.is_array() ? int(std::min<std::size_t>(t_->layers.size(), std::size_t(kMaxTerrainLayers))) : 0;
+    terrain_splat_weights(heights_.get(), out.count, u, v, out.weight);
     return true;
 }
 
@@ -692,15 +703,16 @@ bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float loc
 
 bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out,
                     bool ignoreHoles) {
-    const Terrain3D* t = world.get<Terrain3D>(terrain);
-    if (!t) return false;
-    auto heights = world.terrain().heights(world, terrain);
-    if (!heights) return false;
-    const Mat4 m = world.world_matrix(terrain);
-    const Mat4 inv = m.inverse();
+    return TerrainSampler(world, terrain).sample(worldX, worldZ, out, ignoreHoles);
+}
+
+bool TerrainSampler::sample(float worldX, float worldZ, TerrainSample& out, bool ignoreHoles) const {
+    if (!t_ || !heights_) return false;
+    const Mat4& m = m_;
+    const Mat4& inv = inv_;
     const Vec3 local = inv.transform_point({worldX, m.translation().y, worldZ});
     float y, dx, dz;
-    if (!terrain_local_sample(*heights, *t, local.x, local.z, y, dx, dz, ignoreHoles)) return false;
+    if (!terrain_local_sample(*heights_, *t_, local.x, local.z, y, dx, dz, ignoreHoles)) return false;
     const Vec3 world3 = m.transform_point({local.x, y, local.z});
     out.height = world3.y;
     // The normal of the surface y = f(x, z) is (-dx, 1, -dz); normals move with the inverse transpose of the matrix.

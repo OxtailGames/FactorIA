@@ -47,6 +47,6 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | `world.split_cells`, `world.merge_cells` | M75.3c (built) | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 (built) | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
-| `foliage.scatter`, `foliage.paint`, `foliage.clear`, `foliage.restore` | M75.6 (built) | yes |
+| `foliage.scatter`, `foliage.paint`, `foliage.clear`, `foliage.undo`, `foliage.redo` | M75.6 (built) | yes |
 
 `factoria commands <name>` and `docs.commands {name}` print the arguments of each.
