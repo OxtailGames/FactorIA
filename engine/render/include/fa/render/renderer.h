@@ -529,6 +529,12 @@ public:
     // not loaded yet; {} before init().
     Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+    // What the Terrain textures cost the GPU work since the renderer started (a test looks at them; not a stat of the picture): the height
+    // textures sent whole, the rectangles of them a sculpt re-sent, and the layer and control arrays built.
+    struct TerrainUploads {
+        std::uint64_t whole = 0, rects = 0, arrays = 0;
+    };
+    TerrainUploads terrain_uploads() const;
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
     // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a

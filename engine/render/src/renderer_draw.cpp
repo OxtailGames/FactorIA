@@ -1014,6 +1014,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         tv.camera = fr.cam.position;
         tv.linear = fr.linear;
         tv.serial = frameSerial;
+        tv.gpu = &gpu;
+        tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
         terrains.gather(tv, ctx.terrainDraws, meshes);
         meshBlended.resize(meshes.size(), 0);
     }
@@ -2456,8 +2458,9 @@ MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
 
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
     if (mi.terrain) {  // a node of a terrain: the draw's block and textures (renderer_terrain.h)
-        std::memcpy(in.params, mi.terrain->params, sizeof(mi.terrain->params));
-        for (int i = 0; i < 3; ++i) in.textures[i] = mi.terrain->textures[i];
+        std::memset(in.params, 0, sizeof(in.params));
+        std::memcpy(in.params, mi.terrain->params, std::min(sizeof(in.params), sizeof(mi.terrain->params)));
+        for (int i = 0; i < 4; ++i) in.textures[i] = mi.terrain->textures[i];
         return;
     }
     pack_material_params(*mat, mi.mr->materialParams, in.params);
