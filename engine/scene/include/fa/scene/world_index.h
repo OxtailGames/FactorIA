@@ -7,6 +7,7 @@
 //     "dimension": "3d",              // "3d": the cells are laid out on the XZ plane; "2d": on the XY plane
 //     "cellSize": 128,                // metres (units of the world) along each side of a cell
 //     "origin": [0, 0],               // where cell [0, 0] starts on the plane (absolute: world origin + local position)
+//     "persistent": "worlds/town_main.scene.json",   // optional: the scene of what stays loaded (world.split_cells writes it)
 //     "cells": [
 //       { "coord": [0, 0], "scene": "cells/0_0.scene.json",
 //         "bounds": { "min": [0, 0, 0], "max": [128, 20, 128] },   // what the cell's entities cover (3 numbers in 3d, 2 in 2d)
@@ -55,6 +56,9 @@ struct WorldIndex {
     WorldDimension dimension = WorldDimension::D3;
     double cellSize = 128.0;
     double originA = 0.0, originB = 0.0;  // the corner of cell [0, 0] on the plane
+    // The scene that holds what is not in any cell (the global entities and the scene's settings): "" = none. The streamer ignores
+    // it; world.merge_cells and the editor's Cells panel read it. world.split_cells writes it.
+    std::string persistent;
     std::vector<WorldCell> cells;         // sorted by (j, i): the order every list and every tie-break uses
     // The cell with this coordinate, or null.
     const WorldCell* find(std::int32_t i, std::int32_t j) const;
