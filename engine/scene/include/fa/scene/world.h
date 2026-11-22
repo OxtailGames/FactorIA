@@ -68,6 +68,7 @@ struct WorldEvents {
 
 class ComponentPool;  // defined in src/component_pool.h
 class ParticleStore;  // scene/particle_store.h
+class TerrainStore;   // scene/terrain.h
 
 class World {
 public:
@@ -374,6 +375,10 @@ public:
     // scene and its Play session) never see each other's emitters. clear() empties it.
     ParticleStore& particles() { return *particles_; }
     const ParticleStore& particles() const { return *particles_; }
+    // The heights of this world's Terrain components (terrain.h): loaded from their heightmaps the first time the renderer, physics or
+    // a script asks, and shared by all of them. clear() releases them.
+    TerrainStore& terrain() { return *terrain_; }
+    const TerrainStore& terrain() const { return *terrain_; }
     // The "entity|clip" pairs update_sprite_animators() already warned about (a SpriteAnimator.clip its sheet does not
     // have), so each is said once per scene. clear() forgets them.
     std::set<std::string>& warned_sprite_clips() { return warnedSpriteClips_; }
@@ -418,6 +423,7 @@ private:
     int vfxLive_ = 0;
     MeshStore meshes_;
     std::unique_ptr<ParticleStore> particles_;
+    std::unique_ptr<TerrainStore> terrain_;
     std::set<std::string> warnedSpriteClips_;
 };
 
