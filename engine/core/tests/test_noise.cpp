@@ -351,12 +351,12 @@ TEST_CASE("noise: fill_noise refuses bad requests before any work, with a hint")
     CHECK(noise_fill_work(1024, 1024, NoiseParams{}) == std::uint64_t(1024) * 1024 * 6);
 }
 
-TEST_CASE("noise: reference values stay put (a platform that rounds differently shows up here)") {
-    // Compared with a tolerance: the same build is bit-identical, other platforms may differ in the last digit.
-    CHECK(perlin_2d(1, 0.37f, 0.81f) == doctest::Approx(PERLIN2_REF).epsilon(1e-4));
-    CHECK(value_2d(1, 0.37f, 0.81f) == doctest::Approx(VALUE2_REF).epsilon(1e-4));
-    CHECK(cellular_2d(1, 0.37f, 0.81f).f1 == doctest::Approx(CELL2_REF).epsilon(1e-4));
+TEST_CASE("noise: reference values stay put (the design is bit-identical on every platform)") {
+    // The literals have 6 significant digits, so the tolerance is their rounding (5e-7), not a platform difference.
+    CHECK(perlin_2d(1, 0.37f, 0.81f) == doctest::Approx(PERLIN2_REF).epsilon(1e-5));
+    CHECK(value_2d(1, 0.37f, 0.81f) == doctest::Approx(VALUE2_REF).epsilon(1e-5));
+    CHECK(cellular_2d(1, 0.37f, 0.81f).f1 == doctest::Approx(CELL2_REF).epsilon(1e-5));
     NoiseParams p;
     p.seed = 9;
-    CHECK(sample_noise_2d(p, 123.4f, 56.7f) == doctest::Approx(FBM_REF).epsilon(1e-4));
+    CHECK(sample_noise_2d(p, 123.4f, 56.7f) == doctest::Approx(FBM_REF).epsilon(1e-5));
 }
