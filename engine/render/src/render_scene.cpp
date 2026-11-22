@@ -249,10 +249,11 @@ void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoo
         const MeshAsset* mesh = assets.mesh(g.hlodProxy);
         if (!mesh || mesh->placeholder) {
             if (hlodWarned_.insert(std::to_string(e.bits()) + "|" + g.hlodProxy).second)
-                FA_WARN("render",
-                        "LodGroup.hlodProxy '{}' of entity '{}' cannot be read, so the group draws its children as before. "
-                        "Hint: bake the proxy again (world.bake_hlod) or fix the path; a model is a project-relative .glb.",
-                        g.hlodProxy, world.id_of(e));
+                FA_WARN(
+                    "render",
+                    "LodGroup.hlodProxy '{}' of entity '{}' cannot be read, so the group draws its children as before. "
+                    "Hint: bake the proxy again (world.bake_hlod) or fix the path; a model is a project-relative .glb.",
+                    g.hlodProxy, world.id_of(e));
             return;
         }
         MeshRenderer& r = hlodRenderers_.emplace_back();

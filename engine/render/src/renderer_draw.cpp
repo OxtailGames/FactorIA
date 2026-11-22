@@ -1048,7 +1048,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const bool canFade =
             customMat ? !mi.material->full && mi.material->alphaMode == "clip" : !(subsurface_of(mr)[0] > 0.0f);
         float groupFade = 0.0f;
-        if (sm->hlodGroup != 0) {  // the proxy of a group: drawn only at the group's proxy level (or while it fades out)
+        if (sm->hlodGroup !=
+            0) {  // the proxy of a group: drawn only at the group's proxy level (or while it fades out)
             if (!hlod_proxy_shown(groupPick[sm->hlodGroup - 1], canFade, groupFade)) {
                 if (lodDropped.empty()) lodDropped.assign(meshes.size(), 0);
                 lodDropped[i] = 1;

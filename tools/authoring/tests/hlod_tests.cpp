@@ -25,8 +25,9 @@ struct Project {
     Project() {
         authoring::install();
         dir = fs::make_temp_dir("fa_hlod").value();
-        write("factoria.json",
-              R"({"format":"factoria.project/1","name":"Hlod","id":"com.example.hlod","mainScene":"scenes/town.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Hlod","id":"com.example.hlod","mainScene":"scenes/town.scene.json",
                   "display":{"width":320,"height":180}})");
         write("scenes/town.scene.json", R"({
   "format": "factoria.scene/1",
@@ -95,13 +96,14 @@ TEST_CASE("world.bake_hlod: is registered, documented and an edit of the project
     CHECK(info->capabilitiesDeclared);
 }
 
-TEST_CASE("world.bake_hlod: merges the meshes under the entity, keeps the materials and writes a .glb that loads back") {
+TEST_CASE(
+    "world.bake_hlod: merges the meshes under the entity, keeps the materials and writes a .glb that loads back") {
     Project p;
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
-    const Json r =
-        call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"ratio", 0.5}}));
+    const Json r = call(e, "world.bake_hlod",
+                        Json::object({{"entity", "block"}, {"out", "assets/hlod/block.glb"}, {"ratio", 0.5}}));
     CHECK(r["saved"] == "assets/hlod/block.glb");
     CHECK(r["meshes"] == 2);  // the inactive one is skipped
     CHECK(r["skipped"] == 1);
@@ -130,9 +132,10 @@ TEST_CASE("world.bake_hlod: the same arguments write the same bytes, in the open
     REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
     call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/a.glb"}, {"ratio", 0.25}}));
     call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/b.glb"}, {"ratio", 0.25}}));
-    const Json r = call(e, "world.bake_hlod",
-                        Json::object({{"scene", "scenes/town.scene.json"}, {"root", "block"}, {"out", "assets/c.glb"},
-                                      {"ratio", 0.25}}));
+    const Json r =
+        call(e, "world.bake_hlod",
+             Json::object(
+                 {{"scene", "scenes/town.scene.json"}, {"root", "block"}, {"out", "assets/c.glb"}, {"ratio", 0.25}}));
     CHECK(r["meshes"] == 2);
     const std::string a = p.read("assets/a.glb");
     REQUIRE_FALSE(a.empty());
@@ -142,7 +145,8 @@ TEST_CASE("world.bake_hlod: the same arguments write the same bytes, in the open
     call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/d.glb"}, {"ratio", 0.9}}));
     CHECK(a != p.read("assets/d.glb"));
     // maxError alone works too, and a baked proxy can itself be merged under another entity
-    const Json m = call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/e.glb"}, {"maxError", 0.5}}));
+    const Json m =
+        call(e, "world.bake_hlod", Json::object({{"entity", "block"}, {"out", "assets/e.glb"}, {"maxError", 0.5}}));
     CHECK(m["triangles"].get<int>() > 0);
 }
 
@@ -185,12 +189,14 @@ TEST_CASE("world.bake_hlod: errors teach, with the JSON pointer and the fix, and
     CHECK(t.find("/out") != std::string::npos);
     t = error_text(e, Json::object({{"entity", "block"}, {"out", "../outside.glb"}}));
     CHECK(t.find("/out") != std::string::npos);
-    t = error_text(e, Json::object({{"entity", "block"}, {"scene", "scenes/town.scene.json"}, {"out", "assets/x.glb"}}));
+    t = error_text(e,
+                   Json::object({{"entity", "block"}, {"scene", "scenes/town.scene.json"}, {"out", "assets/x.glb"}}));
     CHECK(t.find("/scene") != std::string::npos);
     t = error_text(e, Json::object({{"scene", "scenes/town.scene.json"}, {"out", "assets/x.glb"}}));
     CHECK(t.find("/root") != std::string::npos);
-    t = error_text(e, Json::object({{"scene", "scenes/town.scene.json"}, {"root", "block"}, {"out", "assets/x.glb"},
-                                    {"apply", true}}));
+    t = error_text(
+        e, Json::object(
+               {{"scene", "scenes/town.scene.json"}, {"root", "block"}, {"out", "assets/x.glb"}, {"apply", true}}));
     CHECK(t.find("/apply") != std::string::npos);
     t = error_text(e, Json::object({{"out", "assets/x.glb"}}));
     CHECK(t.find("/entity") != std::string::npos);

@@ -1002,8 +1002,9 @@ TEST_CASE("Renderer::supports: an unknown name, or a renderer that is not initia
 TEST_CASE("RenderStats: the M75 counters start at zero and are listed in to_json") {
     const RenderStats s;
     const Json j = s.to_json();
-    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "lodCrossFades", "impostors", "hlodProxies",
-                            "terrainTiles", "terrainTriangles", "foliageInstances", "foliageInstancesCulled"}) {
+    for (const char* key :
+         {"occluders", "occlusionTests", "meshesOccluded", "lodCrossFades", "impostors", "hlodProxies", "terrainTiles",
+          "terrainTriangles", "foliageInstances", "foliageInstancesCulled"}) {
         INFO(key);
         REQUIRE(j.contains(key));
         CHECK(j[key] == 0);
