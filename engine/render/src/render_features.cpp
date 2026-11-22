@@ -334,9 +334,11 @@ std::vector<FeatureDef> build_table() {
          "OpenGL 4.3; never GLES3 or WebGL2), where the CPU culling is used instead (M75.2).",
          "M75"},
         {"terrain", "",
-         "Terrain: a heightmap drawn as tiles that coarsen with distance, with splat-mapped material "
-         "layers, holes and an automatic collider (the Terrain component, M75.5). Every backend.",
-         "M75"},
+         "Terrain: a heightmap drawn as a quadtree of tiles that coarsen with distance (the Terrain component, M75): "
+         "one 33 x 33 patch instanced per tile, the heights read in the vertex shader, morphed between levels, lit and "
+         "shadowed like a mesh, with the first material layer and an optional height collider. Splat-mapped layers and "
+         "holes are planned (M75). Every backend whose textures reach the heightmap's size.",
+         nullptr},
         {"foliage", "",
          "Foliage: thousands of instances of a mesh drawn with GPU instancing from a data file, with wind, LODs and a "
          "fade-out distance (the Foliage component, M75.6). Every backend.",

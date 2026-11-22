@@ -375,6 +375,30 @@ rasterised per band of rows, the cell being the maximum over the triangles. Caps
 
 
 
+## Terrain (M75-P5a)
+
+`render/src/renderer_terrain.{h,cpp}` (`TerrainRenderer`, a member of `Renderer::Impl`) draws the `Terrain` component through the ordinary mesh
+pipeline. `terrain_lod.{h,cpp}` is the CPU half and is free of any GPU call (so tests read it): the quadtree bounds (`TerrainTileBounds`,
+min/max raw height per node, updated by rectangle), the LOD ranges (`TerrainLodRanges`), the selection (`select_terrain_nodes`) and the CPU
+twin of the vertex shader's formula (`terrain_vertex_raw`), which the tests compare with the physics collider's triangles.
+`shaders/terrain.glsl` is the mesh template with a `vertex()` and a `surface()` (it is compiled with `FA_HAS_VERTEX` and `FA_INST_2`, named
+by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
+
+- *Material.* `TerrainRenderer::material()` builds an in-memory `MaterialAsset` (kind mesh, `instanceVec4` 2, textures `height` nearest,
+  `albedo`, `normal`) with the three programs of the shader (main, shadow, prepass), so `mesh_pipeline`, `shadow_pipeline` and `prepass_pipeline`
+  draw it unchanged. Its patch is one `MeshAsset` of a 33 x 33 vertex grid (`<terrain-patch>`).
+- *Items.* `gather_meshes` calls `TerrainRenderer::gather` before the `render.mesh_frustum` job: per terrain it brings the RG8 height texture up
+  to date (re-created whole when `TerrainHeights::version` changed; nothing on a frame without edits), runs `render.terrain_select` (one job
+  chunk per terrain) and appends one opaque `MeshItem` per node (`terrain` = its `TerrainDraw`, `terrainNode` = the instance data: first
+  column, first row, step, level, morph start and end). `TerrainDraw` (kept in `DrawContext::terrainDraws`, a deque) holds the eight vec4 block
+  and the three textures; its hash is the items' `paramsHash`, so draws of two terrains or cameras never share a batch.
+  `pack_instance_extras` copies `terrainNode` for these items, `material_inputs` the draw's block and textures.
+- *Stats.* The main pass counts a terrain batch in `terrainTiles` / `terrainTriangles`, not in `meshes` or the material counters.
+- *Limits.* The height texture is RG8 (r high byte, g low byte) because R16 unorm is not portable on GLES3; it is read with `texelFetch` through
+  a nearest sampler. A grid larger than `sg_query_limits().max_image_size_2d` is reported once and skipped. Entries not asked for during 120
+  frames free their texture. The collider is in `engine/physics/src/heightfield3d.cpp` (`update_heightfield` for a `Terrain3D`), reading the
+  same `TerrainHeights`.
+
 ## PostProcess (M71)
 
 The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes that draw it are on the page

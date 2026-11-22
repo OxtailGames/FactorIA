@@ -30,16 +30,16 @@
 
 namespace fa::render {
 
-inline constexpr int kOcclusionWidth = 256;       // cells across the camera's picture (without the guard ring)
-inline constexpr int kOcclusionMinHeight = 16;    // the height is kOcclusionWidth / aspect, clamped to this and the next
+inline constexpr int kOcclusionWidth = 256;     // cells across the camera's picture (without the guard ring)
+inline constexpr int kOcclusionMinHeight = 16;  // the height is kOcclusionWidth / aspect, clamped to this and the next
 inline constexpr int kOcclusionMaxHeight = 512;
-inline constexpr int kOcclusionGuard = 1;         // cells of guard on every side
-inline constexpr int kOcclusionBand = 16;         // rows of one raster job
+inline constexpr int kOcclusionGuard = 1;  // cells of guard on every side
+inline constexpr int kOcclusionBand = 16;  // rows of one raster job
 inline constexpr float kOcclusionEmpty = -1.0e30f;
 
 // The caps, counted in triangles of the source geometry (never time): the same scene gives the same result on every machine.
-inline constexpr std::size_t kMaxOccluderTriangles = 4096;   // one Occluder: its mesh's first triangles, no more
-inline constexpr std::size_t kMaxOcclusionTriangles = 65536; // all the occluders of one camera
+inline constexpr std::size_t kMaxOccluderTriangles = 4096;    // one Occluder: its mesh's first triangles, no more
+inline constexpr std::size_t kMaxOcclusionTriangles = 65536;  // all the occluders of one camera
 // From this many source triangles the setup and the raster run as jobs (a job costs more than a few hundred triangles save).
 inline constexpr std::size_t kParallelOcclusionTriangles = 1024;
 
@@ -67,11 +67,11 @@ struct OcclusionCamera {
 };
 
 struct OcclusionRasterStats {
-    int occluders = 0;                 // rasterised (at least one triangle submitted)
-    std::size_t sourceTriangles = 0;   // submitted, after the caps
-    std::size_t frontTriangles = 0;    // of them facing the camera (the ones drawn)
-    int occludersCapped = 0;           // occluders whose mesh was cut at the per-occluder cap
-    int occludersDropped = 0;          // occluders left out whole or cut by the cap of the camera
+    int occluders = 0;                // rasterised (at least one triangle submitted)
+    std::size_t sourceTriangles = 0;  // submitted, after the caps
+    std::size_t frontTriangles = 0;   // of them facing the camera (the ones drawn)
+    int occludersCapped = 0;          // occluders whose mesh was cut at the per-occluder cap
+    int occludersDropped = 0;         // occluders left out whole or cut by the cap of the camera
     std::size_t coveredCells = 0;
     std::vector<std::uint64_t> cappedEntities, droppedEntities;  // who, in order (at most 8 each)
 };

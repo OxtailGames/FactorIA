@@ -217,6 +217,7 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 - Guessing a component field or command argument. Check `factoria api --md` and `factoria commands`.
 - Changing only the running game (`scene_spawn`, `scene_set_component`) and then forgetting that the scene file did not change. Save the scene (`scene_save`) or write it in the file.
 - Writing a prefab file by hand to capture something you already built in the running game, or laying out JSON by hand. Save it with `prefab_save` and tidy hand edits with `scene_format` (section 6).
+- Caching a world position in a script (a target, a spawn point, a checkpoint) in a game that turns on the floating origin. A rebase moves every root Transform by a whole number of steps and the numbers you kept are then wrong by that much. Keep `entity.absolutePosition` (a double that never changes with a rebase) and turn it back with the current origin when you need it, or refresh what you kept in `game.on("originShifted", ({ offset }) => ...)`. Enable it (`world.floatingOrigin.enabled`) only for a world wider than about 4 km from where play starts; leave `threshold` at 2048 and `step` at 256 unless you know why (a smaller threshold shifts more often, a `step` must be a power of two). `factoria docs read big-worlds`, "Floating origin".
 - Skipping THE FEEDBACK RULE because the workaround "works".
 
 ## 13. Performance
@@ -235,6 +236,7 @@ editor the user can start the same run from **Play > Let the AI play**; it appea
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
+- `factoria docs read big-worlds` (MCP `docs_read {"name":"big-worlds"}`): worlds kilometres wide: the floating origin (what it shifts, `originShifted`, `entity.absolutePosition`), levels of detail, streaming, terrain.
 - `factoria docs read game-feel` (MCP `docs_read {"name":"game-feel"}`): camera shake, hit-stop, flash, knockback and squash and stretch, their clocks and accessibility.
 - `factoria docs read effects` (MCP `docs_read {"name":"effects"}`): the draft, film, look, refine loop for hit sparks, pickups and fires, with three worked examples.
 - `factoria docs read animation` (MCP `docs_read {"name":"animation"}`): the Animator component (clips, cross-fades, events, state machine) and `tween` / `ease`.

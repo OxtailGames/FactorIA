@@ -475,3 +475,20 @@ export default class Dash extends Behaviour {
 - **Cost.** Each run of readers costs one copy of the camera's rectangle, at most 8 per camera and frame (the log says so once past that; `game.render_stats` has `sceneCopies`). `render.supports {"feature":"2dWater"}` is true on every backend.
 - **Your own look.** `Water2D.material` / `DistortionZone2D.material` take a sprite material that reads `fa_scene_color(i.screen_uv + ...)` and `fa_world_to_uv(vec3(x, y, 0))`; the component's fields arrive as the params of the same names that the material declares. A material that does not build draws the area magenta (`materialFallbacks` names it). The waves follow the engine clock, so a replay shows the same water.
 - Full reference: `docs.read rendering-2d-water`; the material API: `docs.read shaders-sprites`, "The scene colour". A scene to copy: `examples/lantern-keep/scenes/cellar_pool.scene.json` (if you got it with `project.create {example: "lantern-keep"}`).
+
+### 9.21.2 A terrain: a heightmap as ground you can see and walk on
+
+Use a `Terrain` for ground wider than a few hundred metres, where a mesh of the whole landscape would be too heavy: the renderer draws a quadtree of tiles that coarsen with distance, so the cost follows what the camera sees, not the size of the map. For a small level a MeshRenderer ground is cheaper to author. It is off until an entity has the component, and then costs nothing else.
+
+```json
+{ "id": "ground", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Terrain": { "heightmap": "assets/terrain/height.png", "size": [2048, 2048], "heightScale": 180,
+                 "layers": [ { "albedo": "assets/terrain/grass.png", "tileSize": 6 } ] } } }
+```
+
+- **The heightmap** is a 16-bit greyscale PNG or `.r16` file, square, a side of 2^n + 1 (33 to 4097) samples; an 8-bit PNG works but steps show as terraces. Resolution and `size` are independent.
+- **What draws today:** layer 0 only (its albedo and normal map tiled every `tileSize` metres, `roughness`, `metallic`), lit and shadowed like a MeshRenderer. Further layers, `splatMaps` and `holes` are planned (docs/BIG_WORLDS.md); do not rely on them yet.
+- **Collision** (`collision`, default true) is automatic: a ray or a falling body meets the surface that is drawn, with no Collider3D. To know the ground height under a point, cast a ray down at it (see 9.19). A sculpt moves the collider with the picture.
+- **Cost.** `game.render_stats` has `terrainTiles` and `terrainTriangles` (2048 per tile). A 4097 x 4097 map holds 33.5 MB of GPU texture, 33.5 MB for the CPU copy and 67 MB for the collider, and a sculpt re-sends the whole height texture. A GPU whose largest texture is below the map's side draws nothing and says so once (`render.supports {"feature":"terrain"}` is true on every backend, the size is the limit). `lodQuality` trades distance for tiles: 0.5 draws a coarser terrain, 2 a finer one.
+- Full reference: `docs.read big-worlds`, section "Terrain".

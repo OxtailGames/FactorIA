@@ -261,6 +261,122 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
     return {};
 }
 
+std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t,
+                               const TerrainHeights& th, HeightfieldEdit& edit) {
+    edit = HeightfieldEdit{};
+    const int n = th.samples;
+    const float cells = float(std::max(n - 1, 1));
+    const float dx = std::max(t.size.x, 0.001f) / cells, dz = std::max(t.size.y, 0.001f) / cells;
+    const HeightfieldShape::Source now{n, n, dx, dz, t.heightScale, t.heightOffset, th.id, th.version, 0, 0};
+    if (f.attempted && now == f.tried) return f.problem;
+    f.attempted = true;
+    f.tried = now;
+    if (!th.valid() || !(t.size.x > 0.0f) || !(t.size.y > 0.0f) || !std::isfinite(t.size.x) ||
+        !std::isfinite(t.size.y) || !std::isfinite(t.heightScale) || !std::isfinite(t.heightOffset)) {
+        f.valid = false;
+        f.problem =
+            std::format("entity '{}': Terrain.size = [{}, {}], heightScale = {} and heightOffset = {} must be finite "
+                        "numbers, size above 0, so "
+                        "the terrain has no collider. Set e.g. size [512, 512], heightScale 100, heightOffset 0.",
+                        who, t.size.x, t.size.y, t.heightScale, t.heightOffset);
+        return f.problem;
+    }
+    // The same expression as the vertex shader and TerrainGrid::y_of: the collider is the surface that is drawn.
+    const float scale = t.heightScale * (1.0f / float(fa::kTerrainRawMax)), offset = t.heightOffset;
+    auto height_of = [&](std::uint16_t raw) { return offset + scale * float(raw); };
+    const std::size_t cols = std::size_t(n), samples = cols * cols;
+    const bool sameShape = !f.h.empty() && f.built.rows == now.rows && f.built.cols == now.cols &&
+                           f.built.dx == now.dx && f.built.dz == now.dz && f.built.scale == now.scale &&
+                           f.built.offset == now.offset && f.built.hId == now.hId;
+    if (!sameShape) {
+        f.rows = f.cols = n;
+        f.dx = dx;
+        f.dz = dz;
+        f.scale = t.heightScale;
+        f.offset = offset;
+        f.x0 = -0.5f * float(n - 1) * dx;
+        f.z0 = -0.5f * float(n - 1) * dz;
+        f.h.resize(samples);
+        for (std::size_t i = 0; i < samples; ++i) f.h[i] = height_of(th.data[i]);
+        f.holes.clear();
+        f.brows = f.bcols = (n - 1 + HeightfieldShape::kBlock - 1) / HeightfieldShape::kBlock;
+        f.bmin.assign(std::size_t(f.brows) * std::size_t(f.bcols), 0.0f);
+        f.bmax = f.bmin;
+        f.bflag.assign(f.bmin.size(), 0);
+        f.blist.clear();
+        for (int bi = 0; bi < f.brows; ++bi)
+            for (int bj = 0; bj < f.bcols; ++bj) recompute_block(f, bi, bj);
+        recompute_bounds(f);
+        edit.rebuilt = edit.changed = edit.boundsChanged = true;
+        edit.r0 = edit.c0 = 0;
+        edit.r1 = edit.c1 = n - 2;
+        edit.yLo = f.minH;
+        edit.yHi = f.maxH;
+    } else if (f.built.hVer != now.hVer) {
+        // Only the rectangle written since the version this copy was taken from (physics keeps its own last-seen version, so another
+        // reader of the heights can neither hide an edit from it nor lose one), and in it only the samples whose value differs.
+        fa::TerrainRect rect;
+        if (!th.dirty_since(f.built.hVer, rect)) rect = fa::TerrainRect{0, 0, n - 1, n - 1};
+        rect.c0 = std::max(rect.c0, 0);
+        rect.r0 = std::max(rect.r0, 0);
+        rect.c1 = std::min(rect.c1, n - 1);
+        rect.r1 = std::min(rect.r1, n - 1);
+        std::size_t changedSamples = 0;
+        float oldLo = std::numeric_limits<float>::infinity(), oldHi = -oldLo;
+        auto each_changed = [&](auto&& fn) {
+            for (int r = rect.r0; r <= rect.r1; ++r)
+                for (int c = rect.c0; c <= rect.c1; ++c) {
+                    const std::size_t i = std::size_t(r) * cols + std::size_t(c);
+                    if (height_of(th.data[i]) != f.h[i]) fn(r, c, i);
+                }
+        };
+        each_changed([&](int r, int c, std::size_t) {
+            ++changedSamples;
+            const int ra = std::max(r - 1, 0), rb = std::min(r, n - 2), ca = std::max(c - 1, 0),
+                      cb = std::min(c, n - 2);
+            for (int rr = ra; rr <= rb; ++rr)
+                for (int cc = ca; cc <= cb; ++cc) {
+                    float lo, hi;
+                    f.cell_range(rr, cc, lo, hi);
+                    oldLo = std::fmin(oldLo, lo);
+                    oldHi = std::fmax(oldHi, hi);
+                }
+            note_cells(edit, ra, rb, ca, cb);
+        });
+        if (changedSamples > 0) {
+            const float oldMin = f.minH, oldMax = f.maxH;
+            f.blist.clear();
+            each_changed([&](int r, int c, std::size_t i) {
+                f.h[i] = height_of(th.data[i]);
+                mark_blocks(f, std::max(r - 1, 0), std::min(r, n - 2), std::max(c - 1, 0), std::min(c, n - 2));
+            });
+            for (const std::uint32_t b : f.blist) {
+                recompute_block(f, int(b) / f.bcols, int(b) % f.bcols);
+                f.bflag[b] = 0;
+            }
+            f.blist.clear();
+            recompute_bounds(f);
+            float newLo = std::numeric_limits<float>::infinity(), newHi = -newLo;
+            for (int rr = edit.r0; rr <= edit.r1; ++rr)
+                for (int cc = edit.c0; cc <= edit.c1; ++cc) {
+                    float lo, hi;
+                    f.cell_range(rr, cc, lo, hi);
+                    newLo = std::fmin(newLo, lo);
+                    newHi = std::fmax(newHi, hi);
+                }
+            edit.changed = true;
+            edit.boundsChanged = f.minH != oldMin || f.maxH != oldMax;
+            edit.yLo = std::fmin(oldLo, newLo);
+            edit.yHi = std::fmax(oldHi, newHi);
+        }
+    }
+    if (edit.changed) ++f.revision;
+    f.built = now;
+    f.valid = true;
+    f.problem.clear();
+    return {};
+}
+
 bool ray_triangle(Vec3 origin, Vec3 d, const Vec3 v[3], float maxT, float& t) {
     constexpr float kEps = 1e-6f;
     const Vec3 e1 = v[1] - v[0], e2 = v[2] - v[0], pv = cross(d, e2);
