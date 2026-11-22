@@ -356,6 +356,31 @@ TEST_CASE("hlod: past hlodThreshold a LodGroup draws its proxy with its own matr
     g.renderer.clear_asset_cache();
 }
 
+TEST_CASE(
+    "hlod: a streamed cell's proxy entity (EntityInfo::streamedProxy) counts in renderStats.hlodProxies and draws") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const int cube = triangles_of("cube");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity plain = make(w, "plain", {-2, 0, 0});
+    w.add<MeshRenderer>(plain).mesh = "cube";
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 1);
+    Entity proxy = make(w, "hlod 0,0", {2, 0, 0});
+    w.add<MeshRenderer>(proxy).mesh = "cube";
+    w.info(proxy).streamedProxy = true;  // what the world streamer sets on the entity of a cell's HLOD proxy
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 1);  // the plain cube is not one
+    CHECK(g.renderer.stats().meshes == 2);
+    CHECK(g.renderer.stats().triangles == 2 * cube);
+    w.destroy(proxy);
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    g.renderer.clear_asset_cache();
+}
+
 TEST_CASE("hlod: the proxy casts the shadow and the children it replaces do not") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

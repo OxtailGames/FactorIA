@@ -6,7 +6,8 @@ Part of [Big worlds](BIG_WORLDS.md) (the entry page lists every page).
 
 Drawn since M75-P1a: the selection by distance or screen size, `LodGroup`, and the dithered cross-fade. Drawn since M75-P1c:
 the impostors (`impostor`, `impostorDistance`, `model.bake_impostor`, "Impostors" below). Drawn since M75-P1d: the HLOD proxy
-of a `LodGroup` and the command that bakes it (`world.bake_hlod`).
+of a `LodGroup` and the command that bakes it (`world.bake_hlod`); since M75-P1e the proxy of a streamed cell that is not loaded
+(`world.bake_cell_hlods`, BIG_WORLDS_STREAMING.md).
 
 `MeshRenderer.lods` switches meshes by distance, as it always did (a scene that does not use the new fields draws exactly
 as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or the first child of a `LodGroup`), level k is
@@ -77,7 +78,8 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
   included. The floating origin changes nothing: the proxy is drawn with the group's drawn matrix. If the proxy cannot be
   read the group draws its children as before and logs one warning with the entity and the path. A scene with no `hlodProxy`
   costs one empty-string check per `LodGroup` and draws exactly as before. The proxy of a streamed cell that is NOT loaded
-  is not drawn: its group does not exist yet (package P1e).
+  is a different feature with its own mesh: `StreamedWorld.hlodDistance` and the `hlod` of the world index
+  (docs/BIG_WORLDS_STREAMING.md, "HLOD proxies"; M75 P1e); it counts in `renderStats.hlodProxies` too.
 - `world.bake_hlod {entity | scene + root, out, ratio | maxError, apply}` makes the proxy: it merges every active
   `MeshRenderer` under the entity's children into one mesh in the entity's local space, keeping the materials as
   submeshes, simplifies it with the simplifier of `model.generate_lods` (`ratio` keeps that share of the triangles, default
@@ -94,6 +96,9 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
   and arguments. Instanced meshes, inactive entities and meshes that cannot be read are skipped and listed in
   `skippedList`; custom material files, per-entity material overrides and textures embedded in a `.glb` are not carried
   into the proxy (it keeps colours and project textures).
+- `world.bake_cell_hlods {world, outDir, cells, ratio | maxError, maxDistance, dryRun}` is the same bake for every cell of a streamed
+  world: one proxy `.glb` per cell, in the space of the cell's corner, named in the world index (BIG_WORLDS_STREAMING.md,
+  "HLOD proxies").
 - `model.generate_lods {model, levels, ratios, errors, maxError, screenSizes, ...}` simplifies a model into lower levels
   (deterministic) and wires them for screen-size LOD: it is real, see "Automatic LOD chain" below.
   `model.bake_impostor {model, views, resolution, mode, apply, overwrite}` bakes the impostor atlas (see "Impostors").

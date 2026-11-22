@@ -966,7 +966,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         if (sm.hasLods || sm.liveTextures || sm.chainCount != 0 || sm.hlodGroup != 0)
             special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
-        mi.hlod = sm.hlodGroup != 0;
+        mi.hlod = sm.hlodGroup != 0 || sm.streamProxy;
         mi.mr = sm.mr;
         mi.entity = sm.entity;
         mi.model = sm.model;

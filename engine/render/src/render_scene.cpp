@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <utility>
 
 #include "fa/core/log.h"
 #include "render_jobs.h"
@@ -283,6 +284,7 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         SceneMesh& sm = meshes_.emplace_back();
         sm.mr = &mr;
         sm.entity = e;
+        sm.streamProxy = std::as_const(world).info(e).streamedProxy;
     });
     hlodRenderers_.clear();
     if (world.any<LodGroup>()) add_hlod_proxies(world, assets, scopeRoot);

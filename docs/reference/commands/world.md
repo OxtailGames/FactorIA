@@ -269,6 +269,28 @@ Returns {entity, position: [x, y, z] (the origin plus the entity's world positio
 |---|---|---|---|
 | `entity` | string | yes | The entity id (or name). |
 
+## `world.bake_cell_hlods` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Bake the HLOD proxy of every cell of a streamed world and name it in the world index.
+
+Capabilities: read, state, writeProject
+
+For each cell of the index (or the `cells` you list) loads the cell's scene on the side, merges every active MeshRenderer in it into ONE mesh in the space of the cell's corner (the cell's minimum corner on the plane, height 0), simplifies it with the simplifier of world.bake_hlod (`ratio`, default 0.1; `maxError`, metres) and writes <outDir>/<i>_<j>.glb, then sets `hlod.mesh` of those cells in the index (with `hlod.maxDistance` when you pass `maxDistance`), one atomic write of the index after every file is in place. The streamer draws the proxy while the cell is not loaded and StreamedWorld.hlodDistance is above 0 (docs.read BIG_WORLDS_STREAMING, "HLOD proxies"). Example: world.bake_cell_hlods {"world":"worlds/town.world.json","maxDistance":900}.
+
+Deterministic: the same scenes and arguments write the same bytes. A cell with no mesh is listed in `cellsSkipped` and keeps its current proxy. The cell scenes are loaded on the side, so their procedural meshes do not exist there and custom material files, per-entity overrides and textures embedded in a .glb are not carried (as in world.bake_hlod). The index is rewritten in its canonical key order. `dryRun` bakes and reports (triangles, errors) without writing a file. A cell scene that cannot be read or has load errors stops the command before anything is written. Result: {world, outDir, baked: [{coord, mesh, meshes, trianglesBefore, triangles, vertices, error, skipped}], cellsBaked, cellsSkipped, trianglesBefore, triangles, dryRun, written, indexWritten?}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `world` | string | yes | Project-relative world index (<name>.world.json) whose cells are baked; it is rewritten with the hlod entries. Path the command reads. |
+| `outDir` | string | no | Project folder for the proxy files <i>_<j>.glb. Default: the index path without .world.json plus _hlod (worlds/town_hlod). Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `cells` | array | no | Cells to bake, as [i, j] pairs or {i, j} objects. Default: every cell of the index. |
+| `ratio` | number | no | Share of the triangles to keep (0.1 = a tenth). Default 0.1 when maxError is not given. |
+| `maxError` | number | no | The most the simplified surface may move from the merged one, in metres. |
+| `maxDistance` | number | no | Sets hlod.maxDistance of the baked cells: the farthest distance from an anchor their proxy is drawn at (0 = StreamedWorld.hlodDistance). Without it the cells keep their current value. |
+| `dryRun` | boolean | no | Bake and report without writing the files or the index. Default false. |
+
 ## `world.bake_hlod` (modifies state)
 
 Not released yet (on main after 0.34.0).

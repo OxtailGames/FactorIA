@@ -11,7 +11,8 @@
 //     "cells": [
 //       { "coord": [0, 0], "scene": "cells/0_0.scene.json",
 //         "bounds": { "min": [0, 0, 0], "max": [128, 20, 128] },   // what the cell's entities cover (3 numbers in 3d, 2 in 2d)
-//         "sizeBytes": 18234 }                                      // optional: a hint for the debug view
+//         "sizeBytes": 18234,                                       // optional: a hint for the debug view
+//         "hlod": { "mesh": "hlod/0_0.glb", "maxDistance": 900 } }  // optional: the proxy drawn while the cell is not loaded
 //     ]
 //   }
 //
@@ -19,6 +20,12 @@
 // it. Distances to a cell (what StreamingAnchor.loadRadius measures) are taken to its bounds, on the plane only: the height of an
 // anchor never matters. Positions and bounds are absolute: with a floating origin the world origin is added to the local position
 // before the comparison, so shifting the origin never changes which cells are loaded.
+//
+// HLOD proxy (M75 P1e). A cell may name `hlod.mesh`, a project-relative .glb (or .gltf) that stands for the whole cell from far away: the
+// streamer draws it while the cell is not loaded (StreamedWorld.hlodDistance). The mesh is in the space of the cell's CORNER: its origin
+// is the minimum corner of the cell on the plane (origin + (i, j) * cellSize; height 0 in 3d), so its vertices stay small however far the
+// cell is from the world origin; world.bake_cell_hlods writes it. `hlod.maxDistance` (metres, optional) is the farthest distance from an
+// anchor at which this cell's proxy is drawn (the StreamedWorld's own hlodDistance when 0 or absent; the nearer of the two wins).
 #pragma once
 
 #include <cstdint>
@@ -47,6 +54,9 @@ struct WorldCell {
     std::string scene;              // project-relative scene file
     Vec3 boundsMin{}, boundsMax{};  // 3d: [x, y, z]; 2d: [x, y] with z 0. Absolute.
     std::int64_t sizeBytes = -1;    // -1 = not given
+    std::string hlod;  // project-relative .glb/.gltf of the cell's HLOD proxy ("" = none), in the cell-corner space
+    double hlodMaxDistance =
+        0.0;  // metres from an anchor beyond which the proxy is not drawn; 0 = StreamedWorld.hlodDistance
     std::string id() const { return std::to_string(i) + "," + std::to_string(j); }  // "3,-2"
 };
 
@@ -67,6 +77,10 @@ struct WorldIndex {
     // The coordinate of the cell the plane point (a, b) is in (it may have no entry in the index).
     void cell_of(double a, double b, std::int64_t& i, std::int64_t& j) const;
 };
+
+// The absolute position of the origin of a cell's HLOD proxy mesh: the cell's minimum corner on the plane (origin + (i, j) * cellSize; x
+// and z in 3d, x and y in 2d), at height 0.
+DVec3 world_cell_corner(const WorldIndex& index, const WorldCell& cell);
 
 // One thing wrong in an index: a JSON pointer ("/cells/3/bounds/max"), what is wrong and how to fix it.
 struct WorldIndexIssue {
