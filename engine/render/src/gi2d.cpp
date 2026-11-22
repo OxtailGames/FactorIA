@@ -243,6 +243,19 @@ void Gi2dSystem::free_unused() {
     }
 }
 
+void Gi2dSystem::shift(double dx, double dy) {
+    for (auto& s : slots_) {
+        if (!s) continue;
+        // Every position of the fields is local: the same world square has the coordinates minus the offset. Both the images' geometry and
+        // the history's stay on the same texels, so the next frame finds the shift between them as before the rebase (0 for a still camera).
+        s->geom.originX -= dx;
+        s->geom.originY -= dy;
+        s->histOriginX -= dx;
+        s->histOriginY -= dy;
+    }
+    ++shifts_;
+}
+
 void Gi2dSystem::free_images() {
     for (auto& s : slots_) {
         if (!s) continue;
