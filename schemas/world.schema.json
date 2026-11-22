@@ -50,6 +50,10 @@
       ],
       "description": "Where cell [0, 0] starts on the plane (absolute: the floating origin plus the local position)."
     },
+    "persistent": {
+      "type": "string",
+      "description": "Optional. The project-relative scene file that holds what is not in any cell: the entities that stay loaded and the scene's settings. world.split_cells writes it and world.merge_cells reads it back; the engine does not load it by itself (make it the project's main scene)."
+    },
     "cells": {
       "type": "array",
       "maxItems": 262144,
