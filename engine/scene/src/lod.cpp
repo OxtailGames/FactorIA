@@ -116,6 +116,11 @@ int lod_group_level(const LodGroup& g, int childCount, float value) {
     return std::min(level, childCount - 1);
 }
 
+bool lod_hlod_reached(const LodGroup& g, float value) {
+    if (g.hlodProxy.empty() || !(g.hlodThreshold > 0.0f) || std::isnan(value)) return false;
+    return g.mode == LodMode::ScreenSize ? value < g.hlodThreshold : value >= g.hlodThreshold;
+}
+
 void lod_fade_step(LodFadeState& s, int target, float crossFade, float dt) {
     const bool fades = crossFade > 0.0f && std::isfinite(crossFade);
     if (!fades) {

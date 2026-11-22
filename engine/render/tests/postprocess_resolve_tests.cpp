@@ -575,8 +575,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 7 rows of M75 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 7 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -678,6 +678,15 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 }
 
 // (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)
+TEST_CASE("features: hlod is drawn on every backend (M75 P1d)") {
+    REQUIRE(find_feature("hlod") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("hlod"))].kind == FeatureKind::Engine);
+    CHECK(feature_table()[std::size_t(find_feature("hlod"))].planned == nullptr);
+    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "hlod"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "hlod"));
+    CHECK(supported(gpu(FeatureBackend::WebGl2, false, false, false), "hlod"));
+}
+
 TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they exist (M75.2b)") {
     REQUIRE(find_feature("occlusionGpu") >= 0);
     const auto& row = feature_table()[std::size_t(find_feature("occlusionGpu"))];
@@ -978,9 +987,9 @@ TEST_CASE("Renderer::supports: an unknown name, or a renderer that is not initia
 TEST_CASE("RenderStats: the M75 counters start at zero and are listed in to_json") {
     const RenderStats s;
     const Json j = s.to_json();
-    for (const char* key :
-         {"occluders", "occlusionTests", "meshesOccluded", "portalsVisited", "meshesCulledByArea", "lodCrossFades",
-          "impostors", "terrainTiles", "terrainTriangles", "foliageInstances", "foliageInstancesCulled"}) {
+    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "portalsVisited", "meshesCulledByArea",
+                            "lodCrossFades", "hlodProxies", "impostors", "terrainTiles", "terrainTriangles",
+                            "foliageInstances", "foliageInstancesCulled"}) {
         INFO(key);
         REQUIRE(j.contains(key));
         CHECK(j[key] == 0);

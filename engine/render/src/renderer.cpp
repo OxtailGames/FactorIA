@@ -54,6 +54,7 @@ Json RenderStats::to_json() const {
                 {"portalsVisited", portalsVisited},
                 {"meshesCulledByArea", meshesCulledByArea},
                 {"lodCrossFades", lodCrossFades},
+                {"hlodProxies", hlodProxies},
                 {"impostors", impostors},
                 {"terrainTiles", terrainTiles},
                 {"terrainTriangles", terrainTriangles},

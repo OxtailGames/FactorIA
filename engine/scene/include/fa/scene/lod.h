@@ -52,6 +52,14 @@ const std::string& lod_level_mesh(const MeshRenderer& mr, int level);
 // at most the number of thresholds. -1 when the group has no children. A NaN value gives 0.
 int lod_group_level(const LodGroup& g, int childCount, float value);
 
+// The level a group has when its HLOD proxy (LodGroup.hlodProxy, M75 P1d) is drawn: past every child level (a group has at most 9 children,
+// levels 0..8), so a cross-fade between a child and the proxy is a fade between two levels like any other.
+inline constexpr int kHlodLevel = kMaxLodThresholds + 1;
+// True when `value` (metres in Distance mode, a screen size in ScreenSize mode) is past LodGroup.hlodThreshold: at or above it in Distance
+// mode, below it in ScreenSize mode. False with no hlodProxy, with a threshold that is not above 0, or for a NaN value. The caller says
+// whether the proxy mesh could be read; this only compares.
+bool lod_hlod_reached(const LodGroup& g, float value);
+
 // A cross-fade between two levels, advanced one frame at a time (render-only state: never saved, never part of the simulation).
 struct LodFadeState {
     int level = 0;   // the level drawn (fading in, or settled)

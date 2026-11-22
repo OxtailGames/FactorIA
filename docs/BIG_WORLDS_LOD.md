@@ -5,8 +5,8 @@ Part of [Big worlds](BIG_WORLDS.md) (the entry page lists every page).
 ## Levels of detail (M75.1)
 
 Drawn since M75-P1a: the selection by distance or screen size, `LodGroup`, and the dithered cross-fade. Drawn since M75-P1c:
-the impostors (`impostor`, `impostorDistance`, `model.bake_impostor`, "Impostors" below). Not drawn yet: the HLOD proxy
-(`hlodProxy`: saved and checked, no effect).
+the impostors (`impostor`, `impostorDistance`, `model.bake_impostor`, "Impostors" below). Drawn since M75-P1d: the HLOD proxy
+of a `LodGroup` and the command that bakes it (`world.bake_hlod`).
 
 `MeshRenderer.lods` switches meshes by distance, as it always did (a scene that does not use the new fields draws exactly
 as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or the first child of a `LodGroup`), level k is
@@ -65,12 +65,39 @@ as before). The levels are numbered from 0: level 0 is `MeshRenderer.mesh` (or t
     running) took 11.7 to 15.3 ms against 5.4 ms for `render.frame3d` in that build, on the CPU
     (docs/performance/PERFORMANCE_BENCH.md). Only while an entity fades does it also pay two draws and a lost batch for it.
     With `crossFade` 0 the pick keeps no state.
-- `MeshRenderer.impostor` and `impostorDistance`: drawn, see "Impostors" below. `LodGroup.hlodProxy` and `hlodThreshold` (the
-  HLOD proxy of a whole cell): saved and checked, **no effect yet**.
+- `MeshRenderer.impostor` and `impostorDistance`: drawn, see "Impostors" below.
+- **HLOD proxy** (`LodGroup.hlodProxy` and `hlodThreshold`, M75 P1d). A `LodGroup` with an `hlodProxy` (a mesh file) and an
+  `hlodThreshold` above 0 draws that ONE mesh, with the group entity's own world matrix, instead of its children once the
+  group is past the threshold. The threshold is in the unit of the group's `mode` and is measured on the group's whole bounds
+  like the `thresholds`: metres from the camera at or above it in `distance` mode, a screen size below it in `screenSize`
+  mode. The proxy is one more level past every child's, so with `crossFade` above 0 it fades in (and the children fade out)
+  with the same dither as any switch; the children are skipped in the main pass and in the shadows, and the proxy casts the
+  shadow (`renderStats.hlodProxies` counts the proxies drawn in the main view, `render.supports` `hlod` is true on every
+  backend). A group nested in another group counts as one of its meshes: the outer group's pick shows or hides it, proxy
+  included. The floating origin changes nothing: the proxy is drawn with the group's drawn matrix. If the proxy cannot be
+  read the group draws its children as before and logs one warning with the entity and the path. A scene with no `hlodProxy`
+  costs one empty-string check per `LodGroup` and draws exactly as before. The proxy of a streamed cell that is NOT loaded
+  is not drawn: its group does not exist yet (package P1e).
+- `world.bake_hlod {entity | scene + root, out, ratio | maxError, apply}` makes the proxy: it merges every active
+  `MeshRenderer` under the entity's children into one mesh in the entity's local space, keeping the materials as
+  submeshes, simplifies it with the simplifier of `model.generate_lods` (`ratio` keeps that share of the triangles, default
+  0.1; `maxError` limits how far the surface may move, in metres) and writes it as a `.glb` at `out`. What a cell must
+  look like: a `LodGroup`'s CHILDREN are its levels (child 0 the full detail), so a cell is an entity with ONE child
+  (LOD 0) that holds the meshes, or an existing `LodGroup` whose child 0 does. With `apply` the command sets
+  `LodGroup.hlodProxy` (adding the `LodGroup`) and, when none is set, a default `hlodThreshold` (8 times the proxy's
+  size in `distance` mode, 0.03 in `screenSize` mode; set it beyond the last `thresholds` entry); the editor undoes that
+  as one step. `apply` on an entity with several children and no `LodGroup` is refused, because adding the group would
+  turn those children into levels and only the first would be drawn up close: wrap them in one child entity first. Under
+  an existing `LodGroup` only child 0 is merged (`levelsIgnored` counts the others), and the entity's own `MeshRenderer`
+  is never merged (a group does not hide it, so it would draw next to the proxy; it is listed in `skippedList`). With
+  `scene` + `root` it bakes an entity of a scene file (no `apply` there). The output is the same bytes for the same scene
+  and arguments. Instanced meshes, inactive entities and meshes that cannot be read are skipped and listed in
+  `skippedList`; custom material files, per-entity material overrides and textures embedded in a `.glb` are not carried
+  into the proxy (it keeps colours and project textures).
 - `model.generate_lods {model, levels, ratios, errors, maxError, screenSizes, ...}` simplifies a model into lower levels
   (deterministic) and wires them for screen-size LOD: it is real, see "Automatic LOD chain" below.
   `model.bake_impostor {model, views, resolution, mode, apply, overwrite}` bakes the impostor atlas (see "Impostors").
-- `renderStats.lodCrossFades` and `renderStats.impostors` are drawn.
+- `renderStats.lodCrossFades`, `hlodProxies` and `impostors` are drawn.
 
 ### Impostors
 

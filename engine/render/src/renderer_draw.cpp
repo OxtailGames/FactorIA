@@ -963,8 +963,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool masked = !fr.mask.empty();
     for (const SceneMesh& sm : shared) {
         if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
-        if (sm.hasLods || sm.liveTextures || sm.chainCount != 0) special.emplace_back(meshes.size(), &sm);
+        if (sm.hasLods || sm.liveTextures || sm.chainCount != 0 || sm.hlodGroup != 0)
+            special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
+        mi.hlod = sm.hlodGroup != 0;
         mi.mr = sm.mr;
         mi.entity = sm.entity;
         mi.model = sm.model;
@@ -1022,8 +1024,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             const float distance = length(sg.origin - fr.cam.position);
             const float value =
                 sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
-            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), lod_group_level(*sg.group, sg.children, value),
-                                    sg.group->crossFade);
+            // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
+            const int level = sg.proxy && lod_hlod_reached(*sg.group, value)
+                                  ? kHlodLevel
+                                  : lod_group_level(*sg.group, sg.children, value);
+            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), level, sg.group->crossFade);
         }
     }
     std::vector<char> lodDropped;  // an item whose LodGroup child is not shown
@@ -1044,6 +1049,15 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         const bool canFade =
             customMat ? !mi.material->full && mi.material->alphaMode == "clip" : !(subsurface_of(mr)[0] > 0.0f);
         float groupFade = 0.0f;
+        if (sm->hlodGroup !=
+            0) {  // the proxy of a group: drawn only at the group's proxy level (or while it fades out)
+            if (!hlod_proxy_shown(groupPick[sm->hlodGroup - 1], canFade, groupFade)) {
+                if (lodDropped.empty()) lodDropped.assign(meshes.size(), 0);
+                lodDropped[i] = 1;
+                continue;
+            }
+            mi.lodFade = groupFade;
+        }
         if (sm->chainCount != 0 && lodsOn) {
             const std::vector<std::uint32_t>& chains = renderScene.lod_chains();
             bool drop = false;
@@ -1738,6 +1752,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
             if (mi.visible && mi.lodFade != 0.0f && !mi.foliage && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
+            if (mi.visible && mi.hlod && !ctx.fr.lodFollowMain) ++stats.hlodProxies;
             if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }

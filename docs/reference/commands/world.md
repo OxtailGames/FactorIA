@@ -269,6 +269,28 @@ Returns {entity, position: [x, y, z] (the origin plus the entity's world positio
 |---|---|---|---|
 | `entity` | string | yes | The entity id (or name). |
 
+## `world.bake_hlod` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Bake the HLOD proxy of an entity: one simplified mesh that stands for everything under it.
+
+Capabilities: read, state, writeProject
+
+Merges every active MeshRenderer under the entity's children (under a LodGroup: child 0 only; not the entity's own) into ONE mesh in the entity's local space, keeping the materials as submeshes, simplifies it with the simplifier of model.generate_lods (`ratio` keeps that share of the triangles, default 0.1; `maxError` limits how far the surface may move, metres) and writes it as a .glb at `out`. With `apply` it also sets LodGroup.hlodProxy (adding the LodGroup) and a default hlodThreshold on the entity (refused when it has several children and no LodGroup: they would become LOD levels), one undo step in the editor. Pass `entity` (of the open scene) or `scene` + `root` (an entity of a scene file; no `apply`). Deterministic: the same scene and arguments write the same bytes. Result: {saved, entity, meshes, trianglesBefore, triangles, vertices, submeshes, error, diameter, skipped, applied, hlodThreshold?}. Example: world.bake_hlod {"entity":"town_block","out":"assets/hlod/town_block.glb","apply":true}. Details: docs.read BIG_WORLDS_LOD, "Levels of detail", the HLOD proxy.
+
+A LodGroup's children are its levels, so wrap the children of a plain cell in ONE child entity (LOD 0) before `apply`; `levelsIgnored` counts the other children of an existing group. The default hlodThreshold, when none is set: 8 times the proxy's size in Distance mode, 0.03 in ScreenSize mode; an existing threshold is kept. Both given, `ratio` and `maxError` give the smaller mesh. Skipped, and listed in `skippedList`: inactive entities, MeshRenderers with GPU instances, meshes that cannot be read. Materials come from the model files and the primitives' MeshRenderer.color and texture; custom material files, per-entity overrides and textures embedded in a .glb are not carried. A scene file is loaded on the side, so its procedural meshes do not exist there. Errors: no meshes under the root, `out` that is not a writable project .glb, ratio outside (0, 1], `entity` together with `scene`; each names its JSON pointer and nothing is written.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | no | Entity id in the open scene: the group whose subtree is merged. |
+| `scene` | string | no | Alternative to entity: a project scene file; with `root`. Path the command reads. |
+| `root` | string | no | With scene: the id of the entity of that file to bake. |
+| `out` | string | yes | Project-relative .glb to write, e.g. assets/hlod/block.glb. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `ratio` | number | no | Share of the triangles to keep (0.1 = a tenth). Default 0.1 when maxError is not given. |
+| `maxError` | number | no | The most the simplified surface may move from the merged one, in metres. |
+| `apply` | boolean | no | Also set LodGroup.hlodProxy (and a default hlodThreshold) on `entity`. Not with `scene`. Default false. |
+
 ## `world.cells`
 
 Not released yet (on main after 0.34.0).

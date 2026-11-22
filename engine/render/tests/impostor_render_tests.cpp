@@ -352,3 +352,70 @@ TEST_CASE("impostor render: the card turns with the entity, so a turned tree sho
     CHECK(std::fabs(side.b - want.b) < 0.06f);
     g.renderer.clear_asset_cache();
 }
+
+TEST_CASE(
+    "impostor render: a LodGroup with an hlodProxy and an impostor in the same entity draw each their own level") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string atlas = write_atlas("hlod_group");
+    World w;
+    add_camera(w, {0, 0, 10});
+    // The group has an impostor of its own (a MeshRenderer on the group entity, which a group does not hide) and ONE child
+    // (LOD 0) that is an impostor too. The proxy replaces the children from 60 m, the cards start at 40 m.
+    Entity group = add_tree(w, {0, 0, 0}, atlas);
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "sphere";
+    lg.hlodThreshold = 60.0f;
+    Entity kid = add_tree(w, {0, 0, 0}, atlas);
+    w.set_parent(kid, group);
+    g.render(w);  // 10 m: both cubes, no card, no proxy
+    CHECK(g.renderer.stats().impostors == 0);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 2);
+    w.get<Transform>(group)->position = {0, 0, -30};  // 40 m: the two cards (the child is at the group's place)
+    g.render(w);
+    CHECK(g.renderer.stats().impostors == 2);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().meshes == 0);
+    w.get<Transform>(group)->position = {0, 0, -60};  // 70 m: the proxy replaces the child, the group's own card stays
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 1);
+    CHECK(g.renderer.stats().impostors == 1);
+    CHECK(g.renderer.stats().meshes == 1);            // the proxy; the cards are not meshes
+    w.get<Transform>(group)->position = {0, 0, -30};  // back at 40 m: the child's card comes back and the proxy goes
+    g.render(w);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    CHECK(g.renderer.stats().impostors == 2);
+    CHECK(g.renderer.stats().meshes == 0);
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("impostor render: the proxy fades in over the child's card with one cross-fade, both drawn for its seconds") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string atlas = write_atlas("hlod_fade");
+    World w;
+    add_camera(w, {0, 0, 10});
+    Entity group = make(w, "group", {0, 0, -30});  // 40 m: the child is a card
+    auto& lg = w.add<LodGroup>(group);
+    lg.hlodProxy = "sphere";
+    lg.hlodThreshold = 60.0f;
+    lg.crossFade = 1.0f;
+    Entity kid = add_tree(w, {0, 0, -30}, atlas);
+    w.set_parent(kid, group);
+    const float dt = 0.25f;
+    g.render(w, dt);
+    g.render(w, dt);  // settled
+    CHECK(g.renderer.stats().impostors == 1);
+    CHECK(g.renderer.stats().hlodProxies == 0);
+    w.get<Transform>(group)->position = {0, 0, -60};  // 70 m: the group's level changes to the proxy and fades
+    w.get<Transform>(kid)->position = {0, 0, -60};
+    g.render(w, dt);
+    CHECK(g.renderer.stats().hlodProxies == 1);   // the proxy is fading in
+    CHECK(g.renderer.stats().impostors == 1);     // the child's card is still fading out
+    for (int i = 0; i < 6; ++i) g.render(w, dt);  // past the second
+    CHECK(g.renderer.stats().hlodProxies == 1);
+    CHECK(g.renderer.stats().impostors == 0);
+    CHECK(g.renderer.stats().meshes == 1);
+    g.renderer.clear_asset_cache();
+}
