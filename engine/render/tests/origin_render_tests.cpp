@@ -1,4 +1,4 @@
-// M75.4b: the renderer follows the floating origin (src/renderer_origin.cpp; docs/BIG_WORLDS.md "Floating origin"). A rebase moves every local
+// M75.4b: the renderer follows the floating origin (src/renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). A rebase moves every local
 // position of the world by -offset; what the renderer keeps in world space across frames moves with it, so the frame of the rebase draws
 // what the frame without it would have drawn. The tests compare pictures with a tolerance and read counters (no golden: they run on every
 // backend):

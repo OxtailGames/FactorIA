@@ -1,4 +1,4 @@
-// M75.3: world streaming (docs/BIG_WORLDS.md, "Streaming"): the cells of a streamed world load and unload around the
+// M75.3: world streaming (docs/BIG_WORLDS_STREAMING.md, "Streaming"): the cells of a streamed world load and unload around the
 // StreamingAnchor entities through the whole engine (BackgroundLoader jobs of Kind::CellLoad, the streamer of
 // engine/runtime), the commands world.cells and world.stream_status, the events, the scene change, physics and a 2D index.
 // The fixture world is engine/runtime/tests/fixtures/streaming: 3x3 cells of 100 m on XZ (worlds/grid.world.json) and

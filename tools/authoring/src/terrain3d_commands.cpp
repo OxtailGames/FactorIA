@@ -1,4 +1,4 @@
-// The terrain commands (M75.5, docs/BIG_WORLDS.md "Terrain" and "Terrain commands"): terrain.create, terrain.sculpt,
+// The terrain commands (M75.5, docs/BIG_WORLDS_TERRAIN.md "Terrain" and "Terrain commands"): terrain.create, terrain.sculpt,
 // terrain.paint, terrain.holes, terrain.generate, terrain.save, terrain.undo and terrain.redo.
 //
 // The edits are live: a command changes the TerrainHeights of the world's TerrainStore (fa/scene/terrain.h) in memory, as ONE

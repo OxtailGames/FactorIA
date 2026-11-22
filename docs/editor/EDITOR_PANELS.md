@@ -296,7 +296,7 @@ commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so t
 View > Terrain tool opens a panel (a tab next to Inspector) and, while one of its three modes is on and an entity with a `Terrain`
 component is selected, the viewport paints on the terrain instead of selecting and moving: the gizmo is off and a click and drag is a
 brush stroke. Click the mode again to leave it. It works in edit mode only (the brush changes the scene; Stop the game first). The
-tool is the editor's face of `terrain.sculpt`, `terrain.paint` and `terrain.holes` (docs/BIG_WORLDS.md, "Terrain"): every stroke is
+tool is the editor's face of `terrain.sculpt`, `terrain.paint` and `terrain.holes` (docs/BIG_WORLDS_TERRAIN.md, "Terrain"): every stroke is
 those commands, so a script or the AI can do the same.
 
 - **Sculpt.** Raise, Lower, Smooth, Flatten. Raise and Lower take an `amount` in metres (the change at the middle of the brush for

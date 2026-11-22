@@ -1,6 +1,6 @@
 // Floating origin, 3D physics side: moves everything Physics3D keeps in world space by -offset, in the step World::rebase ran.
 // The Transforms are already shifted. Nothing is woken, rebuilt or re-baked: velocities, sleeping state, pairs touching, the
-// broad-phase tree and the navigation grids keep their state, only positions change (docs/BIG_WORLDS.md, "Floating origin").
+// broad-phase tree and the navigation grids keep their state, only positions change (docs/BIG_WORLDS_STREAMING.md, "Floating origin").
 #include <algorithm>
 #include <vector>
 

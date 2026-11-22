@@ -1,4 +1,4 @@
-// M75.2: occlusion culling on the CPU, the rasterizer (src/occlusion.h; docs/BIG_WORLDS.md, "Occlusion"). No GPU: these run where
+// M75.2: occlusion culling on the CPU, the rasterizer (src/occlusion.h; docs/BIG_WORLDS_LOD.md, "Occlusion"). No GPU: these run where
 // `ctest -LE gpu` does. The buffer must never hide what can be seen (checked against a brute-force ray test on hundreds of random
 // boxes), must handle the near plane and a camera inside an occluder, must give the same buffer with any number of job threads, and its
 // caps count triangles and say what they cut.
