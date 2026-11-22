@@ -1977,6 +1977,7 @@
     "EaseFn": "0.2.0",
     "EaseName": "0.2.0",
     "Entity": "0.1.0",
+    "Entity.absolutePosition": "unreleased",
     "Entity.active": "0.1.0",
     "Entity.activeInHierarchy": "0.1.0",
     "Entity.add": "0.1.0",

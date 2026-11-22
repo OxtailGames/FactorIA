@@ -58,6 +58,15 @@ public:
     const Aabb3& fat(int proxy) const { return nodes_[std::size_t(proxy)].box; }
     std::uint32_t payload(int proxy) const { return nodes_[std::size_t(proxy)].payload; }
     void clear();
+    // Moves every box by -offset (the world's origin moved): the tree keeps its shape, and a box that held another still holds it
+    // (rounding a subtraction never reverses an order), so nothing is rebuilt and the query order stays the same.
+    void shift(Vec3 offset) {
+        for (Node& n : nodes_)
+            if (n.used) {
+                n.box.lo -= offset;
+                n.box.hi -= offset;
+            }
+    }
     std::size_t size() const { return leaves_; }
     // Number of leaves that were moved or created since construction / clear() (tests, stats).
     std::uint64_t writes() const { return writes_; }

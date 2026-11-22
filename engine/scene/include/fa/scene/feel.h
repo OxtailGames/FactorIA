@@ -227,6 +227,8 @@ public:
     float knockback_remaining(Entity e) const;
 
     void clear_scene();  // World::clear(): drops the effects, keeps the settings
+    // The world moved by -offset (World::rebase): queued spawns and screen effects aimed at a world point follow it.
+    void shift(Vec3 offset);
 };
 
 // ------------------------------------------------------------------------------------------------------------ actions
