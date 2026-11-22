@@ -581,6 +581,17 @@ Json bake_cell_hlods(Engine::Impl& I, const Json& args) {
         outDir += "_hlod";
     }
     while (outDir.size() > 1 && (outDir.back() == '/' || outDir.back() == '\\')) outDir.pop_back();
+    // The index names the proxies by project-relative path, so the folder must be one even for a caller that may write anywhere: an
+    // absolute or escaping outDir would put a path in the index no other machine (or the streamer) can read. Judged before any write.
+    {
+        auto norm = fs::normalize_checked(outDir);
+        if (!norm.ok() || fs::is_absolute(norm.value()))
+            fail("`outDir` (/outDir) '" + outDir + "' is not a project-relative folder inside the project" +
+                     (norm.ok() ? "." : ": " + norm.error().message),
+                 "Use a folder below the project root, such as worlds/town_hlod: the index stores each proxy as a "
+                 "project-relative path.");
+        outDir = norm.value();
+    }
     if (!dryRun) require_capability(Capability::WriteProject, kCommand, "writing the proxy meshes and the index");
     const bool anywhere = caller_capabilities().has(Capability::WriteAnywhere);
     const auto cell_file = [&](std::int32_t i, std::int32_t j) {
@@ -735,6 +746,9 @@ Json bake_cell_hlods(Engine::Impl& I, const Json& args) {
              w.error().hint, "write_failed");
     result["written"] = written;
     result["indexWritten"] = indexPath;
+    result["note"] = "A running game keeps the index it read: it picks up the new proxies when the scene is reloaded "
+                     "(scene.load) or "
+                     "the game is started again.";
     return result;
 }
 
@@ -813,7 +827,10 @@ void register_hlod_commands(Engine& engine, Engine::Impl& I) {
                     "baked: [{coord, mesh, meshes, "
                     "trianglesBefore, triangles, vertices, error, skipped}], cellsBaked, cellsSkipped, "
                     "trianglesBefore, triangles, dryRun, "
-                    "written, indexWritten?}.",
+                    "written, indexWritten?, note}. `outDir` must be a project-relative folder inside the project (an "
+                    "absolute or ../ path is refused at /outDir before anything is written). A running game does not "
+                    "see the new proxies at once: it reads the index again when the scene is reloaded (scene.load) or "
+                    "when it starts again, and `note` says so.",
                     parse_schema(R"({"type":"object","required":["world"],"properties":{
                "world":{"type":"string","x-fa-path":"read","description":"Project-relative world index (<name>.world.json) whose cells are baked; it is rewritten with the hlod entries."},
                "outDir":{"type":"string","x-fa-path":"write","description":"Project folder for the proxy files <i>_<j>.glb. Default: the index path without .world.json plus _hlod (worlds/town_hlod)."},

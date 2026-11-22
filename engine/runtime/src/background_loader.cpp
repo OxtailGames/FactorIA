@@ -316,15 +316,20 @@ Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& p
         } else {
             const std::string ext = to_lower(fs::extension(path));
             if (fs::exists(path) && fs::is_directory(path))
-                return make_error("assets.preload: '" + p + "' is a folder, not a file",
+                return make_error(std::string(api) + ": '" + p + "' is a folder, not a file",
                                   "List the files: fs.list in a tool, or name each one.");
             if (!file_or_twin_exists(path, ext)) {
                 // Suggestions from the folder it names first (assets/, sounds/, ...), or from assets/ for a bare name.
                 const std::size_t slash = path.find('/');
                 const std::string top = slash == std::string::npos ? std::string() : path.substr(0, slash);
-                std::vector<std::string> files = fs::list(!top.empty() && fs::is_directory(top) ? top : "assets", true);
-                return make_error("assets.preload: file '" + p + "' does not exist. " + did_you_mean(path, files),
-                                  "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"].");
+                std::vector<std::string> listed =
+                    fs::list(!top.empty() && fs::is_directory(top) ? top : "assets", true);
+                return make_error(
+                    std::string(api) + ": file '" + p + "' does not exist. " + did_you_mean(path, listed),
+                    kind == Kind::HlodLoad
+                        ? "Bake the cell proxies again with world.bake_cell_hlods (it writes the files the "
+                          "world index names), or fix the cell's hlod.mesh in the index."
+                        : "Pass project-relative paths such as [\"assets/hero.glb\", \"assets/theme.ogg\"].");
             }
         }
         roots.push_back(path);
@@ -463,6 +468,13 @@ void BackgroundLoader::take_scan(Job& job, Renderer* renderer, Audio* audio) {
     if (!res.error.empty()) {
         job.error = res.error;
         job.hint = res.hint;
+        return;
+    }
+    if (job.kind == Kind::HlodLoad &&
+        res.binaries.empty()) {  // it was there when the job started, not when it was read
+        job.error = "the proxy model '" + (job.roots.empty() ? std::string() : job.roots.front()) +
+                    "' was there when the load started and is gone: file vanished";
+        job.hint = "Bake the cell proxies again (world.bake_cell_hlods) or restore the file.";
         return;
     }
     std::vector<Unit> models;
