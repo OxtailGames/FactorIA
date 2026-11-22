@@ -575,8 +575,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 6 rows of M75 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 6 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -675,6 +675,22 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+TEST_CASE(
+    "features: the big-world rows of M75 are false and say planned (M75) until the package that draws them lands") {
+    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
+    for (const char* name : {"lodCrossFade", "impostors", "occlusionCpu", "occlusionGpu", "terrain", "foliage"}) {
+        CAPTURE(name);
+        REQUIRE(find_feature(name) >= 0);
+        CHECK(feature_table()[std::size_t(find_feature(name))].kind == FeatureKind::Engine);
+        CHECK(std::string(feature_table()[std::size_t(find_feature(name))].doc).find("M75") != std::string::npos);
+        std::string why;
+        CHECK_FALSE(supported(full, name, &why));
+        CHECK(why.find("planned (M75)") != std::string::npos);
+        CHECK_FALSE(
+            supported(gpu(FeatureBackend::Gles3, false, false, false), name, &why));  // false whatever the reason
+    }
 }
 
 TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for RGBA16F render targets that blend") {
@@ -912,4 +928,15 @@ TEST_CASE("Renderer::supports: an unknown name, or a renderer that is not initia
     CHECK_FALSE(r.supports("no such feature"));
     CHECK_FALSE(r.supports(""));
     CHECK(r.supports_report().empty());
+}
+
+TEST_CASE("RenderStats: the M75 counters start at zero and are listed in to_json") {
+    const RenderStats s;
+    const Json j = s.to_json();
+    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "lodCrossFades", "impostors",
+                            "terrainTiles", "terrainTriangles", "foliageInstances", "foliageInstancesCulled"}) {
+        INFO(key);
+        REQUIRE(j.contains(key));
+        CHECK(j[key] == 0);
+    }
 }

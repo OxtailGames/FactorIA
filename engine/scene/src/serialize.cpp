@@ -684,6 +684,34 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                     warn(pptr, issue.message, issue.hint);
             }
         }
+        // M75: the big-world components (their numbers are range-checked by reflection; these are the contradictions between
+        // fields and the shapes inside their Json arrays).
+        auto world_problems = [&](const char* comp, const std::vector<WorldProblem>& issues) {
+            for (const WorldProblem& issue : issues) {
+                const std::string wptr = cptr + "/" + comp + issue.pointer;
+                const std::string message = issue.message + " (entity " + who + ")";
+                if (issue.error)
+                    error(wptr, message, issue.hint);
+                else
+                    warn(wptr, message, issue.hint);
+            }
+        };
+        if (const MeshRenderer* mr = world_.get<MeshRenderer>(e))
+            world_problems("MeshRenderer",
+                           mesh_lod_problems(mr->mesh, mr->lods, mr->lodMode, mr->impostorDistance, mr->impostor));
+        if (const LodGroup* lg = world_.get<LodGroup>(e)) world_problems("LodGroup", lod_group_problems(*lg));
+        if (const Occluder* oc = world_.get<Occluder>(e))
+            world_problems("Occluder", occluder_problems(*oc, world_.get<MeshRenderer>(e) != nullptr));
+        if (const OcclusionArea* oa = world_.get<OcclusionArea>(e))
+            world_problems("OcclusionArea", occlusion_area_problems(*oa));
+        if (const OcclusionPortal* op = world_.get<OcclusionPortal>(e))
+            world_problems("OcclusionPortal", occlusion_portal_problems(*op));
+        if (const StreamingAnchor* sa = world_.get<StreamingAnchor>(e))
+            world_problems("StreamingAnchor", streaming_anchor_problems(*sa));
+        if (const Terrain3D* tr = world_.get<Terrain3D>(e)) world_problems("Terrain", terrain_problems(*tr));
+        if (const Foliage* fo = world_.get<Foliage>(e)) world_problems("Foliage", foliage_problems(*fo));
+        if (const ScatterRule* sr = world_.get<ScatterRule>(e))
+            world_problems("ScatterRule", scatter_rule_problems(*sr));
         if (const Camera* cam = world_.get<Camera>(e)) {
             const std::string problem = camera_viewport_problem(cam->viewport);
             if (!problem.empty())

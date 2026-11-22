@@ -101,6 +101,19 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("interpolationSnapDistance");
         if (j["render"].empty()) j.erase("render");
     }
+    if (floatingOrigin != FloatingOriginSettings{}) {
+        Json world = j.contains("world") && j["world"].is_object() ? j["world"] : Json::object();
+        Json fo = Json::object();
+        fo["enabled"] = floatingOrigin.enabled;
+        fo["threshold"] = floatingOrigin.threshold;
+        fo["step"] = floatingOrigin.step;
+        fo["anchor"] = floatingOrigin.anchor;
+        world["floatingOrigin"] = fo;
+        j["world"] = world;
+    } else if (j.contains("world") && j["world"].is_object()) {
+        j["world"].erase("floatingOrigin");
+        if (j["world"].empty()) j.erase("world");
+    }
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
@@ -247,6 +260,53 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
         Result<void> r_ = (expr);                                                                                      \
         if (!r_.ok()) return r_.error();                                                                               \
     } while (0)
+
+// "world": {"floatingOrigin": {...}} (docs/BIG_WORLDS.md): a number in a range, a name that fits, else an error with the pointer.
+Result<void> read_floating_origin(const Json& fo, FloatingOriginSettings& out) {
+    const std::string base = "/world/floatingOrigin";
+    if (!fo.is_object())
+        return field_error(
+            base, "an object like {\"enabled\": true, \"threshold\": 2048, \"step\": 256, \"anchor\": \"camera\"}", fo);
+    static const std::vector<std::string> keys = {"enabled", "threshold", "step", "anchor"};
+    for (auto e = fo.begin(); e != fo.end(); ++e)
+        if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
+            return make_error(at(base + "/" + e.key()) + ": '" + e.key() + "' is not a floating origin setting",
+                              did_you_mean(e.key(), keys));
+    FloatingOriginSettings v = out;
+    FA_TRY(read_bool(fo, "enabled", base, v.enabled));
+    auto number = [&](const char* key, double lo, double hi, double& dst, const char* example) -> Result<void> {
+        auto it = fo.find(key);
+        if (it == fo.end() || it->is_null()) return {};
+        const std::string ptr = base + "/" + key;
+        if (!it->is_number()) return field_error(ptr, std::string("a number of metres like ") + example, *it);
+        const double d = it->get<double>();
+        if (!(d >= lo && d <= hi))
+            return make_error(at(ptr) + ": " + std::format("{}", d) + " is out of range (at least " +
+                                  std::format("{}", lo) + ", at most " + std::format("{}", hi) + " metres)",
+                              std::string("Typical value: ") + example + ". Remove the field to use the default.");
+        dst = d;
+        return {};
+    };
+    FA_TRY(number("threshold", 16.0, 1.0e7, v.threshold, "2048"));
+    FA_TRY(number("step", 1.0, 1.0e7, v.step, "256"));
+    if (v.step > v.threshold)
+        return make_error(at(base + "/step") + ": step " + std::format("{}", v.step) + " is above threshold " +
+                              std::format("{}", v.threshold) + ", so the origin would jump past the anchor",
+                          "Make step smaller than threshold: threshold 2048 with step 256 is typical.");
+    if (auto it = fo.find("anchor"); it != fo.end() && !it->is_null()) {
+        if (!it->is_string()) return field_error(base + "/anchor", "\"camera\" or \"entity:<id>\"", *it);
+        const std::string a = it->get<std::string>();
+        const bool named = a.rfind("entity:", 0) == 0 && a.size() > 7;
+        if (a != "camera" && !named)
+            return make_error(
+                at(base + "/anchor") + ": anchor " + describe_json_value(*it) +
+                    (a.rfind("entity:", 0) == 0 ? " names no entity" : " is neither \"camera\" nor \"entity:<id>\""),
+                "Use \"camera\" (the active 3D camera) or \"entity:player\" (the entity whose id is player).");
+        v.anchor = a;
+    }
+    out = v;
+    return {};
+}
 
 // Names a plugin cannot take: the areas of the built-in commands (a plugin's commands are "<name>.<verb>") and the
 // names scripts already use.
@@ -562,6 +622,13 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
+    }
+    if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
+        if (!it->is_object())
+            return field_error("/world", "an object like {\"floatingOrigin\": {\"enabled\": true}}", *it);
+        if (auto fo = it->find("floatingOrigin"); fo != it->end() && !fo->is_null()) {
+            FA_TRY(read_floating_origin(*fo, s.floatingOrigin));
+        }
     }
     if (auto it = j.find("storage"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/storage", "an object like {\"encryptionSecret\": \"...\"}", *it);
@@ -1023,7 +1090,45 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
-    R"JSON(    "storage": {
+    R"JSON(    "world": {
+      "type": "object",
+      "description": "Big-world settings (docs/BIG_WORLDS.md).",
+      "properties": {
+        "floatingOrigin": {
+          "type": "object",
+          "description": "Floating origin (planned, M75.4; saved and checked today, no effect yet): when the anchor is farther than `threshold` metres from the world origin, the engine moves the origin to the anchor (rounded to a multiple of `step`) and shifts every Transform the other way, so nothing moves on screen and float precision holds at 100 km and more.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true turns the floating origin on. Default false: the world origin never moves."
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 16,
+              "maximum": 10000000,
+              "default": 2048,
+              "description": "Metres between the anchor and the origin beyond which the origin moves. Default 2048."
+            },
+            "step": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10000000,
+              "default": 256,
+              "description": "Metres: the origin only moves in multiples of this, so a move is exact in float. At most `threshold`. Default 256."
+            },
+            "anchor": {
+              "type": "string",
+              "pattern": "^(camera|entity:.+)$",
+              "default": "camera",
+              "description": "What is measured from the origin: \"camera\" (the active 3D camera) or \"entity:<id>\" (the entity with that id, e.g. \"entity:player\"). Default \"camera\"."
+            }
+          }
+        }
+      }
+    },
+    "storage": {
       "type": "object",
       "description": "Save storage settings (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\").",
       "properties": {

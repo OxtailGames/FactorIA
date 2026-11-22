@@ -86,6 +86,19 @@ struct LocalizationParse {
 // "did you mean".
 LocalizationParse parse_localization(const Json& section);
 
+// "world": {"floatingOrigin": {...}} (docs/BIG_WORLDS.md, "Floating origin"): when the anchor (the camera or a named entity) is
+// farther than `threshold` metres from the world origin, the engine moves the origin to the anchor, rounded to a multiple of
+// `step`, and shifts every Transform by the opposite so nothing moves on screen, which keeps float precision at 100 km and more.
+// P0 of M75 reads, validates and saves the section and does nothing with it; M75.4 builds the rebase.
+struct FloatingOriginSettings {
+    bool enabled = false;
+    double threshold = 2048.0;  // metres from the origin where a rebase happens; 16 .. 1e7
+    double step =
+        256.0;  // metres: the origin only moves in multiples of this (so a rebase is exact in float); at most threshold
+    std::string anchor = "camera";  // "camera" or "entity:<id of an entity>": what is measured from the origin
+    bool operator==(const FloatingOriginSettings&) const = default;
+};
+
 struct ProjectSettings {
     std::string name = "Untitled";
     std::string id = "com.example.game";
@@ -107,6 +120,7 @@ struct ProjectSettings {
     // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
+    FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();
     Json inputSchemes = Json::
         object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)

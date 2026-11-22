@@ -309,7 +309,37 @@ std::vector<FeatureDef> build_table() {
          "fa_scene_color(uv) in a sprite material: the colour of the picture drawn so far in the camera (the "
          "renderer copies the camera's rectangle before the first such draw and again only where needed, at most 8 "
          "times per camera). Every backend.",
-         nullptr}};
+         nullptr},
+        // The big worlds of M75 (docs/BIG_WORLDS.md): planned "M75" until each package draws its row.
+        {"lodCrossFade", "",
+         "Dithered cross-fade between two levels of detail (MeshRenderer.lodCrossFade, LodGroup.crossFade): both "
+         "levels "
+         "are drawn for the fade's duration, each with a screen-door mask, so a change of level does not pop. Every "
+         "backend (M75.1).",
+         "M75"},
+        {"impostors", "",
+         "Impostors: a mesh far away is drawn as one camera-facing quad that shows a baked picture of the model from "
+         "the nearest of a ring of angles (MeshRenderer.impostor, the model.bake_impostor command). Every backend "
+         "(M75.1).",
+         "M75"},
+        {"occlusionCpu", "",
+         "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer and the "
+         "objects it proves hidden are not drawn; OcclusionArea and OcclusionPortal cull interiors. Needs no GPU "
+         "feature, so every backend draws it (M75.2).",
+         "M75"},
+        {"occlusionGpu", "compute",
+         "Occlusion culling on the GPU: a hierarchical depth image of the last frame culls the objects of a scene "
+         "with many thousands of meshes in a compute pass. Needs compute shaders (computeShaders: D3D11, Metal, "
+         "OpenGL 4.3; never GLES3 or WebGL2), where the CPU culling is used instead (M75.2).",
+         "M75"},
+        {"terrain", "",
+         "Terrain: a heightmap drawn as tiles that coarsen with distance, with splat-mapped material "
+         "layers, holes and an automatic collider (the Terrain component, M75.5). Every backend.",
+         "M75"},
+        {"foliage", "",
+         "Foliage: thousands of instances of a mesh drawn with GPU instancing from a data file, with wind, LODs and a "
+         "fade-out distance (the Foliage component, M75.6). Every backend.",
+         "M75"}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,

@@ -20,6 +20,7 @@
 #include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 #include "fa/core/utf8.h"
+#include "fa/scene/components_world.h"
 #include "fa/scene/skeleton.h"
 
 namespace fa {
@@ -1157,6 +1158,12 @@ struct MeshRenderer {
     Color subsurfaceColor{1.0f, 0.4f, 0.25f, 1.0f};  // M73.5: the spread of each colour channel, relative to the radius
     bool receiveDecals = true;                       // M73.5b: Decal components project onto this mesh
     std::int32_t decalLayer = 0;  // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
+    // The fields below belong to the big worlds of M75 (docs/BIG_WORLDS.md): read, written and validated today, drawn by the
+    // package named in each doc string. Their defaults keep the LOD of every scene made before M75.
+    LodMode lodMode = LodMode::Distance;  // M75.1: what the thresholds of `lods` and `impostorDistance` measure
+    float lodCrossFade = 0.0f;            // M75.1: seconds a switch between two LODs fades over; 0 = a hard switch
+    std::string impostor;           // M75.1: the baked impostor atlas (*.impostor.json) drawn from impostorDistance on
+    float impostorDistance = 0.0f;  // M75.1: where the impostor replaces the last LOD (unit: lodMode); 0 = never
 };
 // M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_DECALS_FOG.md,
 // "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the

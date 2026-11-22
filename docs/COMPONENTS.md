@@ -474,7 +474,7 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `material` | asset (material) | `""` | Project-relative path of a custom material, a *.material.json file (e.g. "materials/water.material.json"), or "" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional vertex() moves the vertices (it can sample the material's textures), and declares its params, textures, lighting (pbr, unlit, or custom: the snippet's light() shades each light) and alphaMode (opaque, clip or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces unlit lighting. A material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (since 0.2.0) |
 | `materialParams` | json | `{}` | Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures (a path, or "target:<name>" for the live picture of a render-target camera). Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. A material that declares "buffers" takes the id of a compute buffer for each, as an integer: {"particles": 3} (see instances). An entity without overrides batches with the others that share the material. (since 0.2.0) |
 | `materialColors` | json | `{}` | Per-material colours of a glTF model, an object keyed by glTF material name: {"Body": [0.2, 0.8, 0.7, 1]}. The colour REPLACES that material's baseColorFactor on its sub-meshes (the texture still multiplies it) and `color` still multiplies the result, so `color` stays the tint of the whole model. Materials not named keep their own colour. Names come from the model (the sub-mesh keeps its material name from import); `factoria validate` checks them and suggests the right one for a typo. Ignored by built-in shapes. Entities that differ only in materialColors are drawn in separate batches. (since 0.3.0) |
-| `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. (since 0.16.0) |
+| `lods` | json | `[]` | Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers, below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn from M75.1; until then only `distance` entries change what is drawn. (since 0.16.0) |
 | `instances` | int | `0` | 0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the material reads from compute buffers (the material declares "buffers", and materialParams gives the id of a compute buffer for each: {"particles": 3}; docs/shaders/SHADERS_COMPUTE.md, "Drawing from a compute buffer"). The material's vertex() gets the instance number as fa_instance_index (0..N-1) and places each instance; the entity's Transform is the base every instance is placed relative to (fa_model in a full shader). Every buffer the material reads must hold at least N elements (otherwise the entity is not drawn and the log says why), and N is at most 16777216: size the buffers for it. The instances cast shadows and enter the depth prepass like the mesh does; an entity with instances is drawn on its own and never batched with others. Needs a material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why. Range 0..16777216. (since 0.32.0) |
 | `instanceBounds` | float | `0.0` | For a material with buffers only: the half-extent, in the entity's local metres, of the box around the entity that holds every instance (the instances are placed by the GPU, so the CPU cannot know where they are). The entity is skipped, with its shadows, when that box (scaled by the Transform) is outside the camera's view. 0 (default) = never culled by the camera, always drawn: safe, but it costs GPU time for an entity that is off screen. Range 0.0..1000000.0. (since 0.32.0) |
 | `lightmapScale` | float | `1.0` | Resolution of this mesh in the baked lightmap, as a multiple of the scene's lightmap density (1 = the scene's). The lightmap.bake command gives the mesh that many texels per metre of its surface (16 per metre times this, capped by the page size); 0 keeps it out of the bake, and an entity the bake left out is lit as without a lightmap. Has no effect on its own: the bake writes the result into the scene's lightmap manifest (SceneSettings.lightmaps, docs/rendering/RENDERING_LIGHTMAPS.md, "Baking"). Range 0.0..100.0. (since 0.33.0) |
@@ -498,6 +498,10 @@ Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal map
 | `subsurfaceColor` | color | `[1.0,0.4,0.25,1.0]` | How far each colour channel spreads, relative to subsurfaceRadius: red 1.0 and green and blue lower give the red glow of skin (default 1, 0.4, 0.25); white scatters every channel the same (marble). Alpha is ignored. Has an effect only when subsurface is above 0. (since 0.33.0) |
 | `receiveDecals` | bool | `true` | true (default): the Decal components whose box reaches this mesh paint it. false: decals skip it (a character that must stay clean, a mesh drawn by a custom shader that does not call fa_apply_decals). Drawn since M73.5b. (since 0.33.0) |
 | `decalLayer` | int | `0` | 0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b. Range 0..15. (since 0.33.0) |
+| `lodMode` | enum: distance \| screenSize | `"distance"` | What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers (1 = it fills the screen, 0.1 = a tenth of it): it does not depend on the field of view, the zoom or the size of the object, so one threshold fits a pebble and a tower. No effect yet: M75.1 draws it. (not released yet, on main after 0.34.0) |
+| `lodCrossFade` | float | `0.0` | Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; `renderer.supports` lodCrossFade says whether the GPU backend can. Range 0.0..5.0. (not released yet, on main after 0.34.0) |
+| `impostor` | asset (any) | `""` | Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes next to its atlas): a ring of pictures of the model that a camera-facing quad shows from impostorDistance on, for trees and other things that are far away. "" (default) = none. No effect yet: M75.1 draws it; `model.bake_impostor` is not built yet either. (not released yet, on main after 0.34.0) |
+| `impostorDistance` | float | `0.0` | Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). 0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` warns. 0..100000. No effect yet: M75.1 draws it. Range 0.0..100000.0. (not released yet, on main after 0.34.0) |
 
 ### Light
 
@@ -1569,6 +1573,133 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `radialBlurCenter` | vec2 | `[0.5,0.5]` | Only used when radialBlurEnabled. The centre of the blur [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. |
 | `radialBlurSamples` | int | `12` | Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more. Range 4..32. |
 | `customPasses` | json | `[]` | Your own full-screen passes, drawn by kind "post" materials (docs/shaders/SHADERS_POST.md). An array (at most 8) of {material, materialParams, enabled, position, name}: `material` is the project path of a post *.material.json; `materialParams` overrides its params by name (`material.info` lists them); `enabled` (default true) false keeps the entry in the list but draws nothing; `position` (default "before:tonemap") puts the pass before or after a built-in effect. Scene-linear colour, before the tonemap: "after:ssao", "after:fog", "before:ssr", "after:ssr", "before:sunShafts", "after:sunShafts", "before:depthOfField", "after:motionBlur", "before:bloom", "after:bloom" or "before:" exposure, radialBlur, lensDistortion, chromaticAberration, tonemap (the last ones are the same place). Display-referred (the picture the tonemap made, sRGB-encoded, 0..1; HDR output above 1): "after:tonemap", "before:colorGrading", "after:colorGrading", "before:vignette", "after:vignette", "before:sharpen", "after:sharpen", "before:outline", "after:outline", "before:posterize", "after:posterize", "before:filmGrain", "after:filmGrain" or "before:colorFilter". Entries at the same position run in array order, and each reads the picture the one before wrote. A pass whose material is missing, broken or not a post material is skipped (the log says why once, and `render.stats.materialFallbacks` counts it). A volume adds its entries to the camera's when its weight times its influence is at least 0.5 (at most 32 entries together; the rest are dropped and the log says so once). Edit it with postprocess.set (the whole array) or the editor's Post-processing panel. (since 0.32.0) |
+
+## 3D
+
+### LodGroup
+
+Not released yet (on main after 0.34.0).
+
+The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, "Levels of detail"); the fields are saved and checked today.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | enum: distance \| screenSize | `"distance"` | What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the fraction 0..1 of the screen's height that the group's bounding sphere covers (1 = it fills the screen); it does not depend on the field of view or on the size of the object. |
+| `thresholds` | arrayF32 | `[]` | One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions 0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the last children unused. [] (default) = the first child is always drawn. Range 0.0..100000.0. |
+| `crossFade` | float | `0.0` | Seconds a switch between two levels fades over (a dithered cross-fade, no pop). 0 (default) = a hard switch. 0..5. Range 0.0..5.0. |
+| `hlodProxy` | asset (mesh) | `""` | Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of every child beyond hlodThreshold. "" (default) = no proxy. The children stop being drawn and their draw calls with them. |
+| `hlodThreshold` | float | `0.0` | Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen fraction 0..1 below which the proxy is drawn in mode screenSize. Beyond the last threshold. Needs hlodProxy; 0 (default) with a proxy is an error. Range 0.0..100000.0. |
+
+### Occluder
+
+Not released yet (on main after 0.34.0).
+
+A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS.md, "Occlusion"); the fields are saved and checked today.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `shape` | enum: box \| mesh | `"box"` | box (default): the box `size` and `center`. mesh: the triangles of `mesh` (or of the entity's MeshRenderer.mesh when `mesh` is empty); keep it low-poly, under about 200 triangles. |
+| `size` | vec3 | `[1.0,1.0,1.0]` | Box shape: metres along the entity's local axes before Transform.scale, each above 0. Default [1, 1, 1]. Make it a little smaller than the visible solid, so nothing visible is ever hidden. Range 0.0..100000.0. |
+| `center` | vec3 | `[0.0,0.0,0.0]` | Box shape: where the box's centre is, in metres from the entity's origin along its local axes. Default [0, 0, 0]. Range -100000.0..100000.0. |
+| `mesh` | asset (mesh) | `""` | Mesh shape: the mesh that is rasterised, a primitive name or a model path. "" (default) = the entity's MeshRenderer.mesh. Ignored by the box shape. |
+| `enabled` | bool | `true` | false = this occluder hides nothing. Default true. |
+
+### OcclusionArea
+
+Not released yet (on main after 0.34.0).
+
+A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[10.0,4.0,10.0]` | Metres along the entity's local axes before Transform.scale, each above 0. Default [10, 4, 10]. Range 0.0..100000.0. |
+| `areaId` | int | `1` | 1..65535: the id that OcclusionPortal.areaA and areaB name. Two areas of one scene must not share an id. Default 1. Range 1..65535. |
+
+### OcclusionPortal
+
+Not released yet (on main after 0.34.0).
+
+An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec3 | `[2.0,2.0,0.2]` | Metres along the entity's local axes before Transform.scale: width, height and depth of the opening's box, each above 0. Default [2, 2, 0.2]. Range 0.0..100000.0. |
+| `areaA` | int | `0` | The OcclusionArea.areaId on the entity's -Z side; 0 (default) = outside every area. Range 0..65535. |
+| `areaB` | int | `0` | The OcclusionArea.areaId on the entity's +Z side; 0 (default) = outside every area. A portal with areaA equal to areaB does nothing. Range 0..65535. |
+| `open` | bool | `true` | true (default) = the portal lets the view through. false = shut (a closed door): the areas behind it are hidden. A script opens and closes it at run time. |
+
+## World
+
+### StreamingAnchor
+
+Not released yet (on main after 0.34.0).
+
+Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS.md, "Streaming").
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `loadRadius` | float | `256.0` | Metres: a cell whose bounds are nearer than this to the anchor (on the ground plane, x and z) is loaded. 1..1000000. Default 256. Range 1.0..1000000.0. |
+| `unloadRadius` | float | `320.0` | Metres: a loaded cell whose bounds are farther than this from every anchor is unloaded. Must be above loadRadius (the gap keeps a cell on the border from flickering). 1..1000000. Default 320. Range 1.0..1000000.0. |
+| `priority` | int | `0` | -100..100: when two anchors want cells loaded, the anchor with the higher priority gets its cells first. Default 0. Range -100..100. |
+| `enabled` | bool | `true` | false = this anchor loads nothing and keeps nothing loaded. |
+
+## 3D
+
+### Terrain
+
+Not released yet (on main after 0.34.0).
+
+A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `heightmap` | asset (any) | `""` | Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the lowest sample, white (65535) is heightScale metres higher. "" (default) = a flat terrain at heightOffset. |
+| `size` | vec2 | `[512.0,512.0]` | [x, z] metres the heightmap covers, centred on the entity, before Transform.scale; each above 0 and at most 100000. Default [512, 512]. Range 0.0..100000.0. |
+| `heightScale` | float | `100.0` | Metres of height of a white heightmap sample, 0..100000. Default 100. Range 0.0..100000.0. |
+| `heightOffset` | float | `0.0` | Metres added to every height after the scale (the height of a black sample), -100000..100000. Default 0. Range -100000.0..100000.0. |
+| `splatMaps` | json | `[]` | Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. |
+| `layers` | json | `[]` | Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). [] (default) = a plain grey terrain. |
+| `holes` | asset (texture) | `""` | Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. |
+| `lodQuality` | float | `1.0` | Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and coarsening twice as far, 0.5 = half. 0.1..4. Default 1. Range 0.1..4.0. |
+| `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. Default true. |
+| `collision` | bool | `true` | true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false = visual only. |
+
+### Foliage
+
+Not released yet (on main after 0.34.0).
+
+Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of positions, rotations and scales, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds one mesh: use several for several kinds. No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mesh` | asset (mesh) | `"cube"` | The mesh drawn at every instance: a primitive name or a model path (its LODs are used). Default "cube". |
+| `instances` | asset (any) | `""` | Project-relative data file with the instances; `foliage.paint` and `foliage.scatter` create and write it. "" (default) = no instances, nothing drawn. |
+| `density` | float | `1.0` | 0..1: the share of the instances that are drawn, thinned out evenly (a quality setting: 0.5 draws every second instance). Default 1. Range 0.0..1.0. |
+| `windStrength` | float | `0.0` | Metres the top of an instance sways in the wind, 0..10; the base stays put. 0 (default) = no wind. Range 0.0..10.0. |
+| `windFrequency` | float | `0.5` | Swings per second of the wind sway, 0..20. Default 0.5. Range 0.0..20.0. |
+| `lodDistance` | float | `40.0` | Metres from the camera beyond which an instance uses the next LOD of its mesh (a model with LODs). 0.1..100000. Default 40. Range 0.1..100000.0. |
+| `fadeStart` | float | `80.0` | Metres from the camera where instances start to fade out (a dithered fade), 0..100000. Default 80. Range 0.0..100000.0. |
+| `fadeEnd` | float | `100.0` | Metres from the camera beyond which instances are not drawn at all; above fadeStart. 0..100000. Default 100. Range 0.0..100000.0. |
+| `castShadows` | bool | `false` | Whether the instances cast shadows. false (default): grass seldom needs them and they cost a lot. |
+
+### ScatterRule
+
+Not released yet (on main after 0.34.0).
+
+The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS.md, "Foliage").
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `meshes` | json | `[]` | Array of at most 16 {"mesh": path, "weight": number}: the meshes to scatter and their relative chances (weight above 0, default 1). The path is a primitive name or a model path. [] (default) = nothing to scatter. |
+| `density` | float | `0.1` | Instances per square metre of ground, 0..100. Default 0.1 (one per 10 square metres). Range 0.0..100.0. |
+| `minSpacing` | float | `0.0` | Metres kept between two instances (a tree's crown); 0 (default) = they may touch. 0..1000. Range 0.0..1000.0. |
+| `slopeRange` | vec2 | `[0.0,45.0]` | [min, max] degrees of the ground's slope where instances grow (0 is flat, 90 a wall), 0..90, min at most max. Default [0, 45]. Range 0.0..90.0. |
+| `heightRange` | vec2 | `[-100000.0,100000.0]` | [min, max] metres of the ground's height (world y) where instances grow, min at most max. Default [-100000, 100000] (everywhere). Range -100000.0..100000.0. |
+| `scaleRange` | vec2 | `[0.8,1.2]` | [min, max] of the random uniform scale of an instance, each above 0, min at most max. Default [0.8, 1.2]. Range 0.0..1000.0. |
+| `alignToNormal` | float | `0.0` | 0..1: how far an instance leans to the ground's normal. 0 (default) = upright, 1 = its up is the normal (moss on a cliff). Range 0.0..1.0. |
+| `layerMask` | int | `-1` | Bit mask of the Terrain.layers the ground must be painted with for an instance to grow (bit 0 = layer 0 ... bit 7 = layer 7); -1 (default) = anywhere. -1..255. Range -1..255. |
+| `seed` | int | `1` | The random seed: the same rule and seed give the same instances. Default 1. |
+| `terrain` | entity |  | The entity with the Terrain to scatter on. Empty (default) = this entity's Terrain, or its parent's. |
 
 ## Scene
 
@@ -4456,6 +4587,57 @@ Capabilities: read
 
 Returns {reduceMotion, reducedEffects, reduceMotionSetting, reducedEffectsSetting, hitStop: {remaining, scale, running}, queued: {sounds, spawns, spawnLifetimes} (sounds and spawns waiting for the next frame, spawned effects that will be destroyed), screenEffects: [{kind, camera (null = every camera), elapsed, duration, alpha? (flash, fade), held? (fade)}], entities: [{entity, shake?, flash?, squash?, knockback?, pose?}]}. `pose` is what is added to the entity at draw time (position, rotation degrees, scale factor); its Transform is unchanged. Example: feel.state {}
 
+## world
+
+### `foliage.clear` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Remove every instance of a Foliage, or those in a rectangle.
+
+Capabilities: read, state, writeProject
+
+Will empty the Foliage's instances file, or only the instances inside `region` ([minX, minZ, maxX, maxZ] world metres). Result: {removed}. Example: foliage.clear {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Foliage. |
+| `region` | array | no | [minX, minZ, maxX, maxZ] in world metres; omit for all. |
+
+### `foliage.paint` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Add or remove foliage instances by hand in a circle on the ground.
+
+Capabilities: read, state, writeProject
+
+Will add instances (mode "add", `density` per square metre) or remove them (mode "remove") within `radius` metres of `center` and write the instances file back. Result: {added, removed}. Example: foliage.paint {"entity":"grass","center":[10,20],"radius":5} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Foliage. |
+| `mode` | string ["add","remove"] | no | Add instances or remove them. Default "add". |
+| `center` | array | yes | World metres [x, z]. |
+| `radius` | number | yes | Brush radius in metres. |
+| `density` | number | no | Instances per square metre when adding. Default 1. |
+
+### `foliage.scatter` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Fill a Foliage's instances by a ScatterRule over a terrain.
+
+Capabilities: read, state, writeProject
+
+Will read the ScatterRule of `rule` (an entity id; default: the Foliage entity's own ScatterRule), place instances on the Terrain it names by density, slope, height and layers, deterministically from its seed, and write the Foliage's `instances` file. `dryRun` only counts. Result: {instances, file}. Example: foliage.scatter {"entity":"grass"} Not built yet (planned, M75.6): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Foliage. |
+| `rule` | string | no | Entity id with the ScatterRule (default: the Foliage entity). |
+| `dryRun` | boolean | no | Only count the instances. Default false. |
+
 ## fs
 
 ### `fs.delete` (modifies state)
@@ -4625,7 +4807,7 @@ Capabilities: read
 
 Draws a frame first when none was drawn since the last change (a headless run or an on-demand render may not have drawn one yet), then returns {drawCalls, sprites, shapes, textGlyphs, particles, meshes, meshesCulled, meshBatches, triangles, views, shadowCasters, lights, lightsDropped, lightsCulled, lightClusters, lightClusterEntries, lightClusterClipped, lightMaxPerCluster, decals, decalsDropped, decalClusterClipped, volumetricCameras, volumetricLights, volumetricLightsDropped, contactShadowLights, subsurfaceCameras, subsurfaceDraws, lights2d, lights2dDropped, lights2dShadowed, sceneCopies, materials, materialResolves, materialFallbacks, sortKeyFallbacks, textureMB, width, height, renderScale}. materialResolves is the 2D material lookups (one per material and params). sortKeyFallbacks counts, since the renderer started, the times the 3D scene of a frame (or of a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (the picture is the same; 0 is normal; it is not reset each frame, it only grows). For the time of each pass see render.frame_graph.
 
-lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 256); sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
+lights and lightsDropped count the 3D lights of the main pass (at most 1024, 32 of them directional; lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view, lightClusters the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list and lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out (over 256 per view, or a texture that is unreadable or does not fit the atlas) and decalClusterClipped the decal-list entries lost to the 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out; contactShadowLights the lights whose contact-shadow ray (Light.contactShadowLength, SceneSettings.contactShadows) the meshes marched, counted once for each camera that drew them: 0 when no camera could make the depth prepass; subsurfaceCameras the cameras that scattered the light of MeshRenderer.subsurface and subsurfaceDraws the draw calls of the scattering meshes: 0 when no mesh scatters or the GPU cannot, see render.supports); lights2d and lights2dDropped count the Light2D lights (at most 256: the ones that reach the camera view are kept first), lights2dShadowed those with a shadow (castShadows, at most 256); sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). Nine more are 0 until M75.1-M75.6 draw them (big worlds: occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled; docs/BIG_WORLDS.md). views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * window.renderScale). Same as game.renderStats() in tests. Needs graphics. Example: game.render_stats {}
 
 ### `game.resume` (modifies state)
 
@@ -6264,6 +6446,23 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no model document baked. Default false. |
 
+### `model.bake_impostor` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Bake a billboard impostor texture of a model from several views.
+
+Capabilities: read, state, writeProject
+
+Will render the model from `views` directions around it into an atlas of `resolution` pixels per view, write the atlas and its data file, and set MeshRenderer.impostor of the entities that use the model when `apply` is true. Result: {file, views, resolution}. Example: model.bake_impostor {"model":"models/tree.glb","views":8} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model or mesh file to bake (project-relative path). |
+| `views` | integer | no | How many directions around the model. Default 8. |
+| `resolution` | integer | no | Pixels of one view's side. Default 256. |
+| `apply` | boolean | no | Also set MeshRenderer.impostor of the entities that use the model. Default false. |
+
 ### `model.bake_maps` (modifies state)
 
 Since 0.16.0.
@@ -6405,6 +6604,24 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
 | `bake` | boolean | no | Bake after writing. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+
+### `model.generate_lods` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Generate simplified LOD meshes of a model and write them to the project.
+
+Capabilities: read, state, writeProject
+
+Will simplify a model's meshes to `levels` lower levels of detail (each keeps `ratios[i]` of the triangles of the level above, within `maxError` metres of the original), write each as a mesh file and fill the MeshRenderer.lods of every entity that uses the model when `apply` is true. Result: {levels: [{file, triangles, error}]}. Example: model.generate_lods {"model":"models/rock.glb","levels":3} Not built yet (planned, M75.1): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model or mesh file to simplify (project-relative path). |
+| `levels` | integer | no | How many lower levels to make. Default 3. |
+| `ratios` | array | no | Share of triangles each level keeps of the one above (default 0.5 each). |
+| `maxError` | number | no | Largest distance in metres a vertex may move (default: none). |
+| `apply` | boolean | no | Also fill MeshRenderer.lods of the entities that use the model. Default false. |
 
 ### `model.import_clean` (modifies state)
 
@@ -8124,7 +8341,7 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, 2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, 2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the big-world rows of M75: lodCrossFade, impostors, occlusionCpu, occlusionGpu, terrain, foliage) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -9303,6 +9520,97 @@ Writes `style.roles[path] = role` in assets.json. A role names what the picture 
 | `path` | string | yes | Project-relative file, folder ending in a slash, or glob ("assets/ui/**"). |
 | `role` | string ["ui","icon","effect"] | no | What the pictures are for. Required unless `remove`. |
 | `remove` | boolean | no | Delete the role of this path. Default false. |
+
+## world
+
+### `terrain.create` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Create a Terrain entity with a heightmap file.
+
+Capabilities: read, state, writeProject
+
+Will create an entity with a Terrain component and write a flat 16-bit heightmap of `resolution` samples per side (or import `heightmap`), `size` metres wide, with one layer. Result: {entity, heightmap}. Example: terrain.create {"name":"ground","size":[1024,1024]} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | no | Entity id of the terrain. |
+| `size` | array | no | Metres [x, z] the terrain covers. |
+| `resolution` | integer | no | Samples per side of a new heightmap. Default 513. |
+| `heightmap` | string | no | Import this 16-bit greyscale PNG or .r16 file instead of a flat one. |
+| `heightScale` | number | no | Metres of height of a white sample. Default 100. |
+
+### `terrain.generate` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Fill a Terrain's heightmap with seeded procedural noise and optional erosion.
+
+Capabilities: read, state, writeProject
+
+Will replace the heightmap with fractal noise (`seed`, `frequency`, `octaves`) and `erosion` iterations of hydraulic erosion, deterministically (the same arguments give the same file). Result: {heightmap, minHeight, maxHeight}. Example: terrain.generate {"entity":"ground","seed":7,"octaves":5} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `seed` | integer | no | The same seed gives the same terrain. Default 1. |
+| `frequency` | number | no | Noise features per metre. Default 0.004. |
+| `octaves` | integer | no | Layers of noise. Default 5. |
+| `erosion` | integer | no | Iterations of hydraulic erosion. Default 0. |
+
+### `terrain.holes` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Cut or fill holes (caves, tunnels) in a Terrain in a circle.
+
+Capabilities: read, state, writeProject
+
+Will set the texels of the terrain's holes image within `radius` metres of `center` (mode "cut" makes a hole, "fill" closes it) and write it back; the collider follows. Result: {changedTexels}. Example: terrain.holes {"entity":"ground","center":[0,0],"radius":3} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `mode` | string ["cut","fill"] | no | Make a hole or close one. Default "cut". |
+| `center` | array | yes | World metres [x, z]. |
+| `radius` | number | yes | Radius in metres. |
+
+### `terrain.paint` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Paint a material layer of a Terrain in a circle.
+
+Capabilities: read, state, writeProject
+
+Will raise the weight of `layer` (an index into Terrain.layers) within `radius` metres of `center` by `strength` and lower the others, and write the splat map files back. Result: {changedTexels}. Example: terrain.paint {"entity":"ground","layer":1,"center":[10,10],"radius":8} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `layer` | integer | yes | Index into Terrain.layers. |
+| `center` | array | yes | World metres [x, z]. |
+| `radius` | number | yes | Brush radius in metres. |
+| `strength` | number | no | How much of the brush applies. Default 0.5. |
+
+### `terrain.sculpt` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Raise, lower, smooth or flatten the heightmap of a Terrain in a circle.
+
+Capabilities: read, state, writeProject
+
+Will change the samples of the terrain's heightmap file within `radius` metres of `center` with the brush `tool` (raise, lower, smooth, flatten), scaled by `strength` and a smooth falloff, and write the file back. Result: {changedSamples, bounds}. Example: terrain.sculpt {"entity":"ground","tool":"raise","center":[100,50],"radius":20} Not built yet (planned, M75.5): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entity` | string | yes | Entity id of the Terrain. |
+| `tool` | string ["raise","lower","smooth","flatten"] | no | The brush. Default "raise". |
+| `center` | array | yes | World metres [x, z]. |
+| `radius` | number | yes | Brush radius in metres. |
+| `strength` | number | no | How much of the brush applies. Default 0.5. |
 
 ## scene
 
@@ -10718,6 +11026,90 @@ Capabilities: read, state
 |---|---|---|---|
 | `id` | string | yes | The entity (id or name) with the Vfx, as vfx.play returned it. |
 | `immediate` | boolean | no | Remove it now instead of letting its particles finish. Default false. |
+
+## world
+
+### `world.cells`
+
+Not released yet (on main after 0.34.0).
+
+List the cells of the streamed world and which are loaded.
+
+Capabilities: read
+
+Will list every cell of the streamed world (the cells world.split_cells wrote): {cells: [{id, bounds: {min, max}, state: "unloaded" | "loading" | "loaded" | "unloading", entities, distance}]}, sorted by distance to the nearest StreamingAnchor. `state` filters the list. Read-only. Example: world.cells {"state":"loaded"} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `state` | string ["unloaded","loading","loaded","unloading"] | no | Only the cells in this state. |
+
+### `world.merge_cells` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Merge the cells of a split scene back into one scene file.
+
+Capabilities: read, state, writeProject
+
+Will read a manifest written by world.split_cells and write the entities of every cell back into one scene file (the inverse of the split, so a level can be edited as one file). `dryRun` only reports. Result: {scene, entities}. Example: world.merge_cells {"manifest":"scenes/main.world.json"} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `manifest` | string | yes | The manifest file written by world.split_cells. |
+| `output` | string | no | The scene file to write (default: the scene the manifest was made from). |
+| `dryRun` | boolean | no | Only report what would be written. Default false. |
+
+### `world.origin`
+
+Not released yet (on main after 0.34.0).
+
+Read the floating origin: where the world's origin is, in double precision.
+
+Capabilities: read
+
+Will return {enabled, origin: [x, y, z] (metres, doubles: the world position of the engine's local (0, 0, 0)), rebases (how many times the origin moved since the scene loaded), threshold, step, anchor} from the project's `world.floatingOrigin` settings and the running world. Read-only. Result: {enabled, origin, rebases}. Example: world.origin {} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+
+### `world.rebase` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Move the floating origin now, shifting every entity so the camera is near (0, 0, 0) again.
+
+Capabilities: read, state
+
+Will move the origin to `offset` (double metres, world space) or to the position of `entity`, shifting every Transform, physics body, audio source and particle by the difference in one step, so nothing visible changes. It does what the engine does by itself when the anchor goes past `world.floatingOrigin.threshold`, on demand, for tests and cutscenes. Without `offset` and `entity` it centres on the project's anchor. Fails when floating origin is not enabled in the project. Result: {origin, shifted (entities moved)}. Example: world.rebase {"offset":[5000,0,0]} Not built yet (planned, M75.4): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `offset` | array | no | The new origin: world metres [x, y, z] as doubles. |
+| `entity` | string | no | Centre the origin on this entity's world position (an entity id). |
+
+### `world.split_cells` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Split a scene into streamable cells on a grid, with a manifest.
+
+Capabilities: read, state, writeProject
+
+Will cut the scene's entities into a grid of cells `cellSize` metres wide on X and Z, write one scene file per cell and the index `<name>.world.json` (the manifest: cell size, each cell's bounds and file, the entities that stay always loaded), and report what it wrote. `dryRun` only reports. Writes next to the scene unless `output` names a folder. Result: {cells, files, alwaysLoaded}. Example: world.split_cells {"scene":"scenes/world.scene.json","cellSize":128} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scene` | string | yes | The scene file to split (project-relative path). |
+| `cellSize` | number | no | Width of a cell in metres, on X and Z. Default 128. |
+| `output` | string | no | Folder for the cell files (default: next to the scene). |
+| `dryRun` | boolean | no | Only report what would be written. Default false. |
+
+### `world.stream_status`
+
+Not released yet (on main after 0.34.0).
+
+Read what the world streaming is doing: loads in flight, budget, cells loaded.
+
+Capabilities: read
+
+Will return {cellsLoaded, cellsLoading, cellsTotal, anchors, loadsStarted, unloadsDone, bytesLoaded, frameBudgetMs, pending: [cell ids waiting], lastError} so a game or a test can wait until the cells around the player are in. Read-only. Result: the fields above. Example: world.stream_status {} Not built yet (planned, M75.3): the command exists so its name and arguments are fixed.
 
 
 ## Scripting API (TypeScript declarations)
@@ -18467,7 +18859,7 @@ declare module "factoria" {
      */
     materialColors: any;
     /**
-     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. Returns a plain-object COPY; assign a new value to write.
+     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers, below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn from M75.1; until then only `distance` entries change what is drawn. Returns a plain-object COPY; assign a new value to write.
      * @since 0.16.0
      */
     lods: any;
@@ -18590,6 +18982,26 @@ declare module "factoria" {
      * @since 0.33.0
      */
     decalLayer: number;
+    /**
+     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the fraction 0..1 of the screen's height that the mesh's bounding sphere covers (1 = it fills the screen, 0.1 = a tenth of it): it does not depend on the field of view, the zoom or the size of the object, so one threshold fits a pebble and a tower. No effect yet: M75.1 draws it.
+     * @since unreleased
+     */
+    lodMode: "distance" | "screenSize";
+    /**
+     * Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; `renderer.supports` lodCrossFade says whether the GPU backend can.
+     * @since unreleased
+     */
+    lodCrossFade: number;
+    /**
+     * Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes next to its atlas): a ring of pictures of the model that a camera-facing quad shows from impostorDistance on, for trees and other things that are far away. "" (default) = none. No effect yet: M75.1 draws it; `model.bake_impostor` is not built yet either. (asset path: any)
+     * @since unreleased
+     */
+    impostor: string;
+    /**
+     * Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). 0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` warns. 0..100000. No effect yet: M75.1 draws it.
+     * @since unreleased
+     */
+    impostorDistance: number;
   }
   /**
    * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
@@ -22669,6 +23081,325 @@ declare module "factoria" {
     customPasses: any;
   }
   /**
+   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, "Levels of detail"); the fields are saved and checked today.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface LodGroupComponent {
+    /**
+     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the fraction 0..1 of the screen's height that the group's bounding sphere covers (1 = it fills the screen); it does not depend on the field of view or on the size of the object.
+     * @since unreleased
+     */
+    mode: "distance" | "screenSize";
+    /**
+     * One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions 0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the last children unused. [] (default) = the first child is always drawn. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since unreleased
+     */
+    get thresholds(): Float32Array;
+    set thresholds(value: Float32Array | readonly number[]);
+    /**
+     * Seconds a switch between two levels fades over (a dithered cross-fade, no pop). 0 (default) = a hard switch. 0..5.
+     * @since unreleased
+     */
+    crossFade: number;
+    /**
+     * Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of every child beyond hlodThreshold. "" (default) = no proxy. The children stop being drawn and their draw calls with them. (asset path: mesh)
+     * @since unreleased
+     */
+    hlodProxy: string;
+    /**
+     * Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen fraction 0..1 below which the proxy is drawn in mode screenSize. Beyond the last threshold. Needs hlodProxy; 0 (default) with a proxy is an error.
+     * @since unreleased
+     */
+    hlodThreshold: number;
+  }
+  /**
+   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS.md, "Occlusion"); the fields are saved and checked today.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface OccluderComponent {
+    /**
+     * box (default): the box `size` and `center`. mesh: the triangles of `mesh` (or of the entity's MeshRenderer.mesh when `mesh` is empty); keep it low-poly, under about 200 triangles.
+     * @since unreleased
+     */
+    shape: "box" | "mesh";
+    /**
+     * Box shape: metres along the entity's local axes before Transform.scale, each above 0. Default [1, 1, 1]. Make it a little smaller than the visible solid, so nothing visible is ever hidden.
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Box shape: where the box's centre is, in metres from the entity's origin along its local axes. Default [0, 0, 0].
+     * @since unreleased
+     */
+    get center(): Vec3;
+    set center(value: Vec3Like);
+    /**
+     * Mesh shape: the mesh that is rasterised, a primitive name or a model path. "" (default) = the entity's MeshRenderer.mesh. Ignored by the box shape. (asset path: mesh)
+     * @since unreleased
+     */
+    mesh: string;
+    /**
+     * false = this occluder hides nothing. Default true.
+     * @since unreleased
+     */
+    enabled: boolean;
+  }
+  /**
+   * A room of an interior, for portal culling: the objects inside this box are drawn only when the camera is in the same area, or when a chain of open OcclusionPortal entities leads from the camera's area to it. Outside every area (areaId 0) everything is drawn as usual. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface OcclusionAreaComponent {
+    /**
+     * Metres along the entity's local axes before Transform.scale, each above 0. Default [10, 4, 10].
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * 1..65535: the id that OcclusionPortal.areaA and areaB name. Two areas of one scene must not share an id. Default 1.
+     * @since unreleased
+     */
+    areaId: number;
+  }
+  /**
+   * An opening between two OcclusionArea rooms (a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. A portal with open false (a shut door) lets nothing through. No effect yet: M75.2 builds it (docs/BIG_WORLDS.md, "Occlusion").
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface OcclusionPortalComponent {
+    /**
+     * Metres along the entity's local axes before Transform.scale: width, height and depth of the opening's box, each above 0. Default [2, 2, 0.2].
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * The OcclusionArea.areaId on the entity's -Z side; 0 (default) = outside every area.
+     * @since unreleased
+     */
+    areaA: number;
+    /**
+     * The OcclusionArea.areaId on the entity's +Z side; 0 (default) = outside every area. A portal with areaA equal to areaB does nothing.
+     * @since unreleased
+     */
+    areaB: number;
+    /**
+     * true (default) = the portal lets the view through. false = shut (a closed door): the areas behind it are hidden. A script opens and closes it at run time.
+     * @since unreleased
+     */
+    open: boolean;
+  }
+  /**
+   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS.md, "Streaming").
+   * 
+   * Category: World
+   * @since unreleased
+   */
+  export interface StreamingAnchorComponent {
+    /**
+     * Metres: a cell whose bounds are nearer than this to the anchor (on the ground plane, x and z) is loaded. 1..1000000. Default 256.
+     * @since unreleased
+     */
+    loadRadius: number;
+    /**
+     * Metres: a loaded cell whose bounds are farther than this from every anchor is unloaded. Must be above loadRadius (the gap keeps a cell on the border from flickering). 1..1000000. Default 320.
+     * @since unreleased
+     */
+    unloadRadius: number;
+    /**
+     * -100..100: when two anchors want cells loaded, the anchor with the higher priority gets its cells first. Default 0.
+     * @since unreleased
+     */
+    priority: number;
+    /**
+     * false = this anchor loads nothing and keeps nothing loaded.
+     * @since unreleased
+     */
+    enabled: boolean;
+  }
+  /**
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. No effect yet: M75.5 draws it (docs/BIG_WORLDS.md, "Terrain"); the fields are saved and checked today.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface TerrainComponent {
+    /**
+     * Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the lowest sample, white (65535) is heightScale metres higher. "" (default) = a flat terrain at heightOffset. (asset path: any)
+     * @since unreleased
+     */
+    heightmap: string;
+    /**
+     * [x, z] metres the heightmap covers, centred on the entity, before Transform.scale; each above 0 and at most 100000. Default [512, 512].
+     * @since unreleased
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Metres of height of a white heightmap sample, 0..100000. Default 100.
+     * @since unreleased
+     */
+    heightScale: number;
+    /**
+     * Metres added to every height after the scale (the height of a black sample), -100000..100000. Default 0.
+     * @since unreleased
+     */
+    heightOffset: number;
+    /**
+     * Array of at most 2 project-relative RGBA PNG paths, each the size of the terrain's paint: channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    splatMaps: any;
+    /**
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    layers: any;
+    /**
+     * Project-relative greyscale PNG the size of the terrain's paint: where a pixel is 128 or more the terrain is cut open (no surface, no collider): a cave mouth, a well. "" (default) = no holes. (asset path: texture)
+     * @since unreleased
+     */
+    holes: string;
+    /**
+     * Multiplier of the mesh density and of the distances where the terrain coarsens: 2 = twice as dense and coarsening twice as far, 0.5 = half. 0.1..4. Default 1.
+     * @since unreleased
+     */
+    lodQuality: number;
+    /**
+     * Cast shadows from shadow-casting lights. Default true.
+     * @since unreleased
+     */
+    castShadows: boolean;
+    /**
+     * true (default) = the terrain is a static physics body: it follows the heightmap and its holes. false = visual only.
+     * @since unreleased
+     */
+    collision: boolean;
+  }
+  /**
+   * Thousands of copies of one mesh (grass, trees, rocks) drawn with GPU instancing from a data file of positions, rotations and scales, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds one mesh: use several for several kinds. No effect yet: M75.6 draws it (docs/BIG_WORLDS.md, "Foliage"); the fields are saved and checked today.
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface FoliageComponent {
+    /**
+     * The mesh drawn at every instance: a primitive name or a model path (its LODs are used). Default "cube". (asset path: mesh)
+     * @since unreleased
+     */
+    mesh: string;
+    /**
+     * Project-relative data file with the instances; `foliage.paint` and `foliage.scatter` create and write it. "" (default) = no instances, nothing drawn. (asset path: any)
+     * @since unreleased
+     */
+    instances: string;
+    /**
+     * 0..1: the share of the instances that are drawn, thinned out evenly (a quality setting: 0.5 draws every second instance). Default 1.
+     * @since unreleased
+     */
+    density: number;
+    /**
+     * Metres the top of an instance sways in the wind, 0..10; the base stays put. 0 (default) = no wind.
+     * @since unreleased
+     */
+    windStrength: number;
+    /**
+     * Swings per second of the wind sway, 0..20. Default 0.5.
+     * @since unreleased
+     */
+    windFrequency: number;
+    /**
+     * Metres from the camera beyond which an instance uses the next LOD of its mesh (a model with LODs). 0.1..100000. Default 40.
+     * @since unreleased
+     */
+    lodDistance: number;
+    /**
+     * Metres from the camera where instances start to fade out (a dithered fade), 0..100000. Default 80.
+     * @since unreleased
+     */
+    fadeStart: number;
+    /**
+     * Metres from the camera beyond which instances are not drawn at all; above fadeStart. 0..100000. Default 100.
+     * @since unreleased
+     */
+    fadeEnd: number;
+    /**
+     * Whether the instances cast shadows. false (default): grass seldom needs them and they cost a lot.
+     * @since unreleased
+     */
+    castShadows: boolean;
+  }
+  /**
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; the command runs it. No effect yet: M75.6 builds it (docs/BIG_WORLDS.md, "Foliage").
+   * 
+   * Category: 3D
+   * @since unreleased
+   */
+  export interface ScatterRuleComponent {
+    /**
+     * Array of at most 16 {"mesh": path, "weight": number}: the meshes to scatter and their relative chances (weight above 0, default 1). The path is a primitive name or a model path. [] (default) = nothing to scatter. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    meshes: any;
+    /**
+     * Instances per square metre of ground, 0..100. Default 0.1 (one per 10 square metres).
+     * @since unreleased
+     */
+    density: number;
+    /**
+     * Metres kept between two instances (a tree's crown); 0 (default) = they may touch. 0..1000.
+     * @since unreleased
+     */
+    minSpacing: number;
+    /**
+     * [min, max] degrees of the ground's slope where instances grow (0 is flat, 90 a wall), 0..90, min at most max. Default [0, 45].
+     * @since unreleased
+     */
+    get slopeRange(): Vec2;
+    set slopeRange(value: Vec2Like);
+    /**
+     * [min, max] metres of the ground's height (world y) where instances grow, min at most max. Default [-100000, 100000] (everywhere).
+     * @since unreleased
+     */
+    get heightRange(): Vec2;
+    set heightRange(value: Vec2Like);
+    /**
+     * [min, max] of the random uniform scale of an instance, each above 0, min at most max. Default [0.8, 1.2].
+     * @since unreleased
+     */
+    get scaleRange(): Vec2;
+    set scaleRange(value: Vec2Like);
+    /**
+     * 0..1: how far an instance leans to the ground's normal. 0 (default) = upright, 1 = its up is the normal (moss on a cliff).
+     * @since unreleased
+     */
+    alignToNormal: number;
+    /**
+     * Bit mask of the Terrain.layers the ground must be painted with for an instance to grow (bit 0 = layer 0 ... bit 7 = layer 7); -1 (default) = anywhere. -1..255.
+     * @since unreleased
+     */
+    layerMask: number;
+    /**
+     * The random seed: the same rule and seed give the same instances. Default 1.
+     * @since unreleased
+     */
+    seed: number;
+    /**
+     * The entity with the Terrain to scatter on. Empty (default) = this entity's Terrain, or its parent's.
+     * @since unreleased
+     */
+    get terrain(): Entity | null;
+    set terrain(value: EntityLike);
+  }
+  /**
    * Scene-wide settings stored under "settings" in the scene file: lighting, fog, gravity and background music.
    * 
    * Category: Scene
@@ -22954,6 +23685,14 @@ declare module "factoria" {
     Chart: ChartComponent;
     Script: ScriptComponent;
     PostProcess: PostProcessComponent;
+    LodGroup: LodGroupComponent;
+    Occluder: OccluderComponent;
+    OcclusionArea: OcclusionAreaComponent;
+    OcclusionPortal: OcclusionPortalComponent;
+    StreamingAnchor: StreamingAnchorComponent;
+    Terrain: TerrainComponent;
+    Foliage: FoliageComponent;
+    ScatterRule: ScatterRuleComponent;
     SceneSettings: SceneSettingsComponent;
   }
   /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */
@@ -22978,7 +23717,7 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; lightLayers?: number; emissive?: ColorLike; emissiveIntensity?: number; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number; lodMode?: "distance" | "screenSize"; lodCrossFade?: number; impostor?: string; impostorDistance?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
     ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
@@ -23016,6 +23755,14 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
+    LodGroup: { mode?: "distance" | "screenSize"; thresholds?: Float32Array; crossFade?: number; hlodProxy?: string; hlodThreshold?: number };
+    Occluder: { shape?: "box" | "mesh"; size?: Vec3Like; center?: Vec3Like; mesh?: string; enabled?: boolean };
+    OcclusionArea: { size?: Vec3Like; areaId?: number };
+    OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
+    StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
+    Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
+    Foliage: { mesh?: string; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
+    ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
   }
   /**
@@ -23615,10 +24362,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; occluders, occlusionTests, meshesOccluded, lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances and foliageInstancesCulled are the big-world counters of M75 and stay 0 until M75.1-M75.6 draw them), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; occluders: number; occlusionTests: number; meshesOccluded: number; lodCrossFades: number; impostors: number; terrainTiles: number; terrainTriangles: number; foliageInstances: number; foliageInstancesCulled: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

@@ -274,6 +274,10 @@ void register_terrain_commands(
     Engine& engine,
     Engine::Impl&
         impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+void register_world_commands(
+    Engine& engine,
+    Engine::Impl&
+        impl);  // world_commands.cpp: world.origin, world.rebase, world.cells, world.stream_status (M75 stubs)
 void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
 void register_play_session_commands(Engine& engine,
                                     Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report

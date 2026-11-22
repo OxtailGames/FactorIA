@@ -659,6 +659,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+    register_world_commands(engine, I);            // world.origin, world.rebase, world.cells, world.stream_status
     register_play_session_commands(engine, I);     // play.sessions, play.report
     register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language
@@ -1188,6 +1189,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "first), lights2dShadowed those with a shadow (castShadows, at most 256); "
          "sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that "
          "call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). "
+         "Nine more are 0 until M75.1-M75.6 draw them (big worlds: occluders, occlusionTests, meshesOccluded, "
+         "lodCrossFades, impostors, terrainTiles, terrainTriangles, foliageInstances, foliageInstancesCulled; "
+         "docs/BIG_WORLDS.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
          "window.renderScale). Same as game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",

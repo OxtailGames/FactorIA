@@ -2126,7 +2126,11 @@ void register_builtin_components(TypeRegistry& r) {
                "model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` "
                "string and a `distance` number is "
                "ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in "
-               "the batch of the mesh they show.")
+               "the batch of the mesh they show. With lodMode \"screenSize\" an entry takes {\"mesh\": ..., "
+               "\"screenSize\": 0.25} instead of `distance`: the fraction 0..1 of the screen's height that the mesh's "
+               "bounding sphere covers, below which that mesh replaces the one before it (entries ordered from the "
+               "largest screenSize to the smallest). The screenSize entries are saved and checked today and drawn "
+               "from M75.1; until then only `distance` entries change what is drawn.")
         .field(
             "instances", &MeshRenderer::instances,
             "0 (default) = a normal draw of the mesh. N > 0 = ONE draw of N instances of the mesh, whose data the "
@@ -2255,7 +2259,29 @@ void register_builtin_components(TypeRegistry& r) {
         .field("decalLayer", &MeshRenderer::decalLayer,
                "0..15: the layer of this mesh for decals. A Decal draws on it when bit decalLayer of its `layers` "
                "mask is set (a `layers` of 0 matches every layer). Drawn since M73.5b.")
-        .range(0, 15);
+        .range(0, 15)
+        .enum_field("lodMode", &MeshRenderer::lodMode, {"distance", "screenSize"},
+                    "What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between "
+                    "the camera and the entity's origin, as every scene made before M75 has it. screenSize: the "
+                    "fraction 0..1 of the screen's height that the mesh's bounding sphere covers (1 = it fills the "
+                    "screen, 0.1 = a tenth of it): it does not depend on the field of view, the zoom or the size of "
+                    "the object, so one threshold fits a pebble and a tower. No effect yet: M75.1 draws it.")
+        .field("lodCrossFade", &MeshRenderer::lodCrossFade,
+               "Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the "
+               "change does not pop. 0 (default) = a hard switch. 0..5. No effect yet: M75.1 draws it; "
+               "`renderer.supports` lodCrossFade says whether the GPU backend can.")
+        .range(0, 5)
+        .asset_field("impostor", &MeshRenderer::impostor, "any",
+                     "Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes "
+                     "next to its atlas): a ring of pictures of the model that a camera-facing quad shows from "
+                     "impostorDistance on, for trees and other things that are far away. \"\" (default) = none. No "
+                     "effect yet: M75.1 draws it; `model.bake_impostor` is not built yet either.")
+        .field("impostorDistance", &MeshRenderer::impostorDistance,
+               "Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a "
+               "screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). "
+               "0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` "
+               "warns. 0..100000. No effect yet: M75.1 draws it.")
+        .range(0, 100000);
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "
@@ -4471,6 +4497,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("enabled", &Script::enabled, "false = the script receives no callbacks.");
 
     register_postprocess_component(r);  // fa/scene/postprocess.h (M71)
+    register_world_components(r);       // fa/scene/components_world.h (M75)
 
     // ------------------------------------------------------------ Scene ---
     r.add<SceneSettings>("SceneSettings",

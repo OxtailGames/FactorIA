@@ -156,6 +156,20 @@ struct RenderStats {
     // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
     // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
     int sceneCopies = 0;
+    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. All zero until the package named on each draws
+    // something: P0 only reserves the counters (game.render_stats, perf.measure and the budgets of perf.check read them).
+    int occluders = 0;       // M75.2: Occluder entities rasterised into the occlusion depth buffer
+    int occlusionTests = 0;  // M75.2: objects tested against that buffer and the OcclusionArea portals
+    int meshesOccluded =
+        0;  // M75.2: of meshesCulled, the MeshRenderer entities hidden behind occluders or closed portals
+    int lodCrossFades =
+        0;  // M75.1: meshes drawn in a dithered LOD cross-fade (MeshRenderer.lodCrossFade, LodGroup.crossFade)
+    int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
+    int terrainTiles = 0;      // M75.5: Terrain tiles drawn (after the GPU LOD and the culling)
+    int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`)
+    int foliageInstances = 0;  // M75.6: Foliage instances drawn (after the density, the fade and the culling)
+    int foliageInstancesCulled =
+        0;  // M75.6: Foliage instances left out by the frustum, the occlusion or the fade distance
     // Subsurface scattering (M73.5), summed over the cameras of the frame.
     int subsurfaceCameras =
         0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
