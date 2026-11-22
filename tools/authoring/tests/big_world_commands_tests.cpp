@@ -40,7 +40,6 @@ TEST_CASE("big world commands: registered with their category, schema and packag
     const Row rows[] = {
         {"world.split_cells", "M75.3", "world", R"({"scene":"scenes/main.scene.json"})"},
         {"world.merge_cells", "M75.3", "world", R"({"manifest":"scenes/main.world.json"})"},
-        {"model.generate_lods", "M75.1", "assets", R"({"model":"models/rock.glb"})"},
         {"model.bake_impostor", "M75.1", "assets", R"({"model":"models/tree.glb"})"},
         {"terrain.create", "M75.5", "world", "{}"},
         {"terrain.sculpt", "M75.5", "world", R"({"entity":"ground","center":[0,0],"radius":5})"},

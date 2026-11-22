@@ -35,6 +35,7 @@ std::vector<std::string> model_expected_extras(const ModelDoc& doc, const std::s
     auto g = settings_of(doc);
     if (!g.ok()) return out;
     const std::string stem = stem_of(output);
+    // a lodChain makes as many levels as the mesh allows: only the files the last bake recorded are expected
     for (std::size_t i = 0; i < g->lods.size(); ++i) out.push_back(stem + ".lod" + std::to_string(i + 1) + ".glb");
     if (g->collider.shape == "convex") out.push_back(stem + ".collider.glb");
     if (!g->lods.empty() || g->collider.shape != "none") out.push_back(stem + ".prefab.json");
@@ -65,9 +66,15 @@ Result<ModelGameReadyFiles> model_game_ready_files(const ModelDoc& doc, const Mo
             return make_error("cannot write LOD" + std::to_string(i + 1) + ": " + bytes.error().message,
                               bytes.error().hint);
         files.glbs.emplace_back(path, std::move(*bytes));
-        lods.push_back(Json::object({{"mesh", path}, {"distance", round5(made->lodInfo[i + 1].distance)}}));
+        if (made->lodScreenSize)
+            lods.push_back(Json::object({{"mesh", path}, {"screenSize", round5(made->lodInfo[i + 1].screenSize)}}));
+        else
+            lods.push_back(Json::object({{"mesh", path}, {"distance", round5(made->lodInfo[i + 1].distance)}}));
     }
-    if (!lods.empty()) meshRenderer["lods"] = lods;
+    if (!lods.empty()) {
+        meshRenderer["lods"] = lods;
+        if (made->lodScreenSize) meshRenderer["lodMode"] = "screenSize";
+    }
 
     const ModelCollider& c = made->collider;
     Json components = Json::object({{"MeshRenderer", meshRenderer}});
