@@ -202,6 +202,27 @@ Puts back the samples the newest sculpt, paint, holes or generate command change
 | `entity` | string | yes | Entity id of the Terrain. |
 | `save` | boolean | no | Also write the changed files now. Default false. |
 
+## `tilemap.split_cells` (modifies state)
+
+Not released yet (on main after 0.34.0).
+
+Cut the Tilemap of a scene into a streamed 2D world: one chunk scene per cell and an index.
+
+Capabilities: read, state, writeProject
+
+Reads a scene file, takes its Tilemap entity (top level, orthogonal, square tiles, no rotation or scale) and writes a 2D world index `<out>` (`dimension` "2d") plus one scene per non-empty cell in `<out without .world.json>_cells/<i>_<j>.scene.json`. A cell is `cellSize` x `cellSize` TILES of the map: cell [i, j] holds the columns from i * cellSize and the rows counted from the BOTTOM of the map from j * cellSize (the last cell of a row or column is smaller when the map does not divide). Details: docs/BIG_WORLDS.md, "Tilemap chunks".
+
+Each chunk is an entity `<id>_<i>_<j>` with the same Tilemap fields (tileset, tileSize, solidTiles, terrains, layer, light fields...) and the other components of the source entity, placed at its ABSOLUTE top-left corner, so neighbouring chunks touch exactly; the index `origin` is the map's bottom-left corner and the `bounds` of each cell are the chunk's rectangle. Cells with only empty tiles are not written. The output is deterministic (the same scene gives the same bytes) and the source scene is never changed: remove the Tilemap entity and add a StreamedWorld entity yourself (the result's `notes` say what). Existing files are only replaced with `overwrite`. `dryRun` reports without writing. Result: {index, cells, cellGrid, emptyCellsSkipped, files, written, cellList, notes}. Example: tilemap.split_cells {"scene":"scenes/level.scene.json","cellSize":32,"out":"worlds/level.world.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scene` | string | yes | The scene file with the Tilemap (project-relative *.scene.json). |
+| `tilemap` | string | no | Id of the Tilemap entity; optional when the scene has only one. |
+| `cellSize` | integer | no | Tiles along one side of a cell. Default 32. |
+| `out` | string | no | The index file to write, ending in .world.json (default: next to the scene, named after it). |
+| `overwrite` | boolean | no | Replace files of an earlier split. Without it an existing file is an error and nothing is written. Default false. |
+| `dryRun` | boolean | no | Only report what would be written. Default false. |
+
 ## `world.absolute_position`
 
 Not released yet (on main after 0.34.0).
