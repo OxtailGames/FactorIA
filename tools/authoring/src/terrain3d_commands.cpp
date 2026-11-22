@@ -245,6 +245,7 @@ struct Stamp {
 };
 struct Stroke {
     float radius = 0;
+    float falloff = 1.0f;  // the share of the radius the brush fades over (1 = from the middle, 0 = a hard edge)
     std::vector<Stamp> stamps;
     IRect all;  // the union of the stamps' rectangles, grown by `margin`
 };
@@ -260,6 +261,7 @@ Stroke plan_stroke(const Json& a, const Target& tg, const Lattice& l, int margin
             "Give 'center' [x, z] in world metres for one stamp, or 'points' [[x, z], ...] for a stroke.");
     if (!a.contains("radius")) bad("/radius", "Missing 'radius'", "Give the brush radius in world metres, such as 8.");
     s.radius = float(number_at(a["radius"], "/radius", 1e-6, 1e7));
+    if (a.contains("falloff")) s.falloff = float(number_at(a["falloff"], "/falloff", 0.0, 1.0));
     std::vector<Vec2> pts;
     auto read_point = [&](const Json& p, const std::string& pointer) {
         if (!p.is_array() || p.size() != 2)
@@ -330,9 +332,14 @@ void visit_stamp(const Target& tg, const Lattice& l, const IRect& r, const Stamp
     }
 }
 
-// 1 at the middle of the brush, 0 at its edge, smooth in between.
-float falloff(float t) {
-    const float f = 1.0f - std::min(t, 1.0f);
+// 1 at the middle of the brush, 0 at its edge, smooth in between. `width` is the share of the radius the fade covers: 1 fades from
+// the middle (the default brush), a smaller one keeps the full effect up to radius * (1 - width) and fades from there, 0 is a hard
+// edge.
+float falloff(float t, float width) {
+    if (width < 1e-4f) return t <= 1.0f ? 1.0f : 0.0f;
+    const float inner = 1.0f - width;
+    if (t <= inner) return 1.0f;
+    const float f = 1.0f - std::min((t - inner) / width, 1.0f);
     return f * f * (3.0f - 2.0f * f);
 }
 
@@ -387,9 +394,27 @@ TerrainPatch make_patch(TerrainPlane plane, const IRect& rect, const IRect& u, s
     return p;
 }
 
-void commit(Target& tg, TerrainStep step) {
+// `continueStroke`: true when the call adds to the newest undo step of the terrain instead of making one.
+bool wants_continue(const Json& a) {
+    return a.contains("continueStroke") && a["continueStroke"].is_boolean() && a["continueStroke"].get<bool>();
+}
+
+// Refuses `continueStroke` early (before anything changes) when the newest undo step of the terrain is not a `label` one.
+void check_continue(const Target& tg, const Json& a, const char* label) {
+    if (!wants_continue(a)) return;
+    // A probe step with no patches would not tell; extend_step with an empty step checks the same rules without changing anything.
+    TerrainStep probe;
+    probe.label = label;
     std::string why;
-    if (!tg.heights->apply_step(std::move(step), &why))
+    if (!tg.heights->extend_step(std::move(probe), &why))
+        bad("/continueStroke", "Cannot continue the stroke: " + why,
+            "Send the first piece of a stroke without continueStroke, and the following pieces right after it with "
+            "continueStroke true (no other terrain edit and no terrain.undo in between).");
+}
+
+void commit(Target& tg, TerrainStep step, bool extend = false) {
+    std::string why;
+    if (extend ? !tg.heights->extend_step(std::move(step), &why) : !tg.heights->apply_step(std::move(step), &why))
         throw CommandError("internal_error", "The terrain edit did not fit its terrain: " + why,
                            "This is a bug: report it. Nothing was changed.");
 }
@@ -439,6 +464,7 @@ Json finish(Engine::Impl& I, const Target& tg, const Json& a, Json out) {
 
 Json do_sculpt(Engine::Impl& I, const Json& a) {
     Target tg = open_target(I, a);
+    check_continue(tg, a, "terrain.sculpt");
     TerrainHeights& h = *tg.heights;
     const std::string tool = a.contains("tool") ? a["tool"].get<std::string>() : "raise";
     const float strength = float(number_at(a.contains("strength") ? a["strength"] : Json(0.5), "/strength", 0.0, 1.0));
@@ -485,11 +511,11 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
         auto idx = [&](int i, int j) { return std::size_t(j - u.y0) * uw + std::size_t(i - u.x0); };
         if (tool == "raise" || tool == "lower") {
             visit_stamp(tg, l, st.rect, st, s.radius,
-                        [&](int i, int j, float t) { work[idx(i, j)] += deltaRaw * falloff(t); });
+                        [&](int i, int j, float t) { work[idx(i, j)] += deltaRaw * falloff(t, s.falloff); });
         } else if (tool == "flatten") {
             visit_stamp(tg, l, st.rect, st, s.radius, [&](int i, int j, float t) {
                 float& v = work[idx(i, j)];
-                v += (flatRaw - v) * strength * falloff(t);
+                v += (flatRaw - v) * strength * falloff(t, s.falloff);
             });
         } else {  // smooth: toward the mean of the 3 x 3 neighbours as they were before this stamp
             IRect g{std::max(st.rect.x0 - 1, 0), std::max(st.rect.y0 - 1, 0), std::min(st.rect.x1 + 1, l.n - 1),
@@ -508,7 +534,7 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
                         ++count;
                     }
                 float& v = work[idx(i, j)];
-                v += (sum / float(count) - v) * strength * falloff(t);
+                v += (sum / float(count) - v) * strength * falloff(t, s.falloff);
             });
         }
     }
@@ -526,7 +552,8 @@ Json do_sculpt(Engine::Impl& I, const Json& a) {
         TerrainStep step;
         step.label = "terrain.sculpt";
         step.patches.push_back(make_patch(TerrainPlane::Heights, ch.rect, u, 2, before, after));
-        commit(tg, std::move(step));
+        commit(tg, std::move(step), wants_continue(a));
+        if (wants_continue(a)) out["continued"] = true;
         out["changedSamples"] = ch.count;
         out["rect"] = rect_json(ch.rect);
         out["bounds"] = world_bounds(tg, l, ch.rect);
@@ -567,6 +594,7 @@ std::string default_path(Engine::Impl& I, const std::string& stem, const std::st
 
 Json do_holes(Engine::Impl& I, const Json& a) {
     Target tg = open_target(I, a);
+    check_continue(tg, a, "terrain.holes");
     TerrainHeights& h = *tg.heights;
     const bool cut = !a.contains("mode") || a["mode"].get<std::string>() == "cut";
     const Lattice l = texel_lattice(h.cells());
@@ -599,7 +627,8 @@ Json do_holes(Engine::Impl& I, const Json& a) {
         TerrainStep step;
         step.label = "terrain.holes";
         step.patches.push_back(make_patch(TerrainPlane::Holes, ch.rect, u, 1, before, after));
-        commit(tg, std::move(step));
+        commit(tg, std::move(step), wants_continue(a));
+        if (wants_continue(a)) out["continued"] = true;
         out["changedTexels"] = ch.count;
         out["rect"] = rect_json(ch.rect);
         out["bounds"] = world_bounds(tg, l, ch.rect);
@@ -632,6 +661,7 @@ void quantize_weights(const float* w, int n, std::uint8_t* out) {
 
 Json do_paint(Engine::Impl& I, const Json& a) {
     Target tg = open_target(I, a);
+    check_continue(tg, a, "terrain.paint");
     TerrainHeights& h = *tg.heights;
     Terrain3D& t = *tg.terrain;
     if (!a.contains("layer"))
@@ -706,7 +736,7 @@ Json do_paint(Engine::Impl& I, const Json& a) {
             } else {
                 for (int c = 0; c < channels; ++c) w[c] /= sum;
             }
-            const float amountHere = strength * falloff(tt);
+            const float amountHere = strength * falloff(tt, s.falloff);
             for (int c = 0; c < channels; ++c)
                 w[c] = (c == target) ? w[c] + (1.0f - w[c]) * amountHere : w[c] * (1.0f - amountHere);
             std::uint8_t bytes[8];
@@ -770,7 +800,8 @@ Json do_paint(Engine::Impl& I, const Json& a) {
             created.push_back(f.path);
         }
         if (!created.empty()) out["created"] = created;
-        commit(tg, std::move(step));
+        commit(tg, std::move(step), wants_continue(a));
+        if (wants_continue(a)) out["continued"] = true;
         out["changedTexels"] = changed;
         out["rect"] = rect_json(changedRect);
         out["bounds"] = world_bounds(tg, l, changedRect);
@@ -1094,7 +1125,8 @@ constexpr char kSaveProp[] =
 constexpr char kBrushProps[] =
     R"("center":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2,"description":"World metres [x, z] of one stamp. Give center or points, not both."},
        "points":{"type":"array","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":1,"maxItems":4096,"description":"A stroke: up to 4096 stamps [[x, z], ...] applied in order, each seeing the result of the one before. One undo step."},
-       "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in world metres (at most 1024 samples of the edited image)."})";
+       "radius":{"type":"number","exclusiveMinimum":0,"description":"Brush radius in world metres (at most 1024 samples of the edited image)."},
+       "continueStroke":{"type":"boolean","default":false,"description":"Add this call to the terrain's newest undo step instead of making a new one: a stroke sent in pieces (a brush that applies live while the mouse is down) is still ONE undo step. The newest step must be an edit of the same command and nothing may have been undone since; otherwise an error. The first piece is sent without it."})";
 
 }  // namespace
 
@@ -1140,13 +1172,15 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
          "toward the mean of the "
          "neighbours, flatten toward `height` (world metres; default the surface under the first stamp) by `strength`. "
          "The effect fades "
-         "smoothly to nothing at the edge of the circle. The edit is live in memory (the renderer and the physics "
+         "smoothly to nothing at the edge of the circle (`falloff` makes the fade narrower). The edit is live in "
+         "memory (the renderer and the physics "
          "collider follow it) "
          "and is ONE undo step of the terrain (terrain.undo); the file is written by `save` true, terrain.save or a "
          "scene save. "
          "Deterministic. The terrain's transform is honoured (moved, turned about Y, scaled). Result: {changedSamples, "
          "rect (sample "
-         "indices), bounds ([minX, minZ, maxX, maxZ] world), undoDepth, unsaved, undo}. "
+         "indices), bounds ([minX, minZ, maxX, maxZ] world), continued?, undoDepth, unsaved, undo}. `continueStroke` "
+         "adds the call to the newest undo step (a stroke sent in pieces is one step). "
          "Example: terrain.sculpt "
          "{\"entity\":\"ground\",\"tool\":\"raise\",\"center\":[100,50],\"radius\":20,\"amount\":5}",
          parse_schema(
@@ -1154,6 +1188,7 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
               R"("tool":{"type":"string","enum":["raise","lower","smooth","flatten"],"default":"raise","description":"The brush."},)" +
               brush + "," +
               R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the brush applies per stamp (0 nothing, 1 all)."},
+                          "falloff":{"type":"number","minimum":0,"maximum":1,"default":1,"description":"The share of the radius the brush fades over: 1 fades from the middle to the edge (the default), 0.25 keeps the full effect up to 75% of the radius, 0 is a hard edge."},
                           "amount":{"type":"number","exclusiveMinimum":0,"default":1,"description":"raise and lower: metres a stamp changes the height at the middle of the brush when strength is 1."},
                           "height":{"type":"number","description":"flatten: the world y to flatten to (default: the surface under the first stamp)."},)" +
               save + "}, \"required\":[\"entity\",\"radius\"]}")
@@ -1174,13 +1209,15 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
          "cells up to 1024) and Terrain.splatMaps is set; map 0 starts as all layer 0. Live and ONE undo step; written "
          "by `save` true, "
          "terrain.save or a scene save. Result: {changedTexels, layer, map, channel, created?, rect, bounds, "
-         "undoDepth}. "
+         "continued?, undoDepth}. `falloff` narrows the fade and `continueStroke` adds the call to the newest undo "
+         "step (a stroke sent in pieces is one step). "
          "Example: terrain.paint {\"entity\":\"ground\",\"layer\":1,\"center\":[10,10],\"radius\":8}",
          parse_schema(
              ("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
               R"("layer":{"type":"integer","minimum":0,"maximum":7,"description":"Index into Terrain.layers (map = layer / 4, channel = layer % 4)."},)" +
               brush + "," +
               R"("strength":{"type":"number","minimum":0,"maximum":1,"default":0.5,"description":"How much of the layer's weight a stamp reaches at the middle of the brush."},
+                          "falloff":{"type":"number","minimum":0,"maximum":1,"default":1,"description":"The share of the radius the brush fades over: 1 fades from the middle to the edge (the default), 0.25 keeps the full effect up to 75% of the radius, 0 is a hard edge."},
                           "splatResolution":{"type":"integer","minimum":16,"maximum":4096,"description":"Texels per side of splat maps that do not exist yet (default: the terrain's cells, at most 1024). Existing maps keep their size."},)" +
               save + "}, \"required\":[\"entity\",\"layer\",\"radius\"]}")
                  .c_str()),
@@ -1198,7 +1235,8 @@ void register_terrain3d_commands(Engine& engine, Engine::Impl& I) {
          "(255 = hole) at assets/terrain/<name>.holes.png, which the first cut sets in Terrain.holes. A brush smaller "
          "than a cell can "
          "miss every cell centre. Live and ONE undo step; written by `save` true, terrain.save or a scene save. "
-         "Result: {changedTexels, rect, bounds, undoDepth}. "
+         "Result: {changedTexels, rect, bounds, continued?, undoDepth}. `continueStroke` adds the call to the newest "
+         "undo step (a stroke sent in pieces is one step). "
          "Example: terrain.holes {\"entity\":\"ground\",\"center\":[0,0],\"radius\":3}",
          parse_schema(
              ("{\"type\":\"object\",\"properties\":{" + entityProp + "," +
