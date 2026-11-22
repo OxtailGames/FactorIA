@@ -318,10 +318,11 @@ std::vector<FeatureDef> build_table() {
          "of level does not pop. Every backend (M75.1); a mesh with a full-shader material switches at once.",
          nullptr},
         {"impostors", "",
-         "Impostors: a mesh far away is drawn as one camera-facing quad that shows a baked picture of the model from "
-         "the nearest of a ring of angles (MeshRenderer.impostor, the model.bake_impostor command). Every backend "
-         "(M75.1).",
-         "M75"},
+         "Impostors: a mesh far away (MeshRenderer.impostor beyond impostorDistance) is drawn as one camera-facing "
+         "card that shows a baked atlas of the model (model.bake_impostor), blending the nearest three of its views "
+         "and lit with the atlas's normals, with the dithered cross-fade of the last level. Every backend (M75-P1c); "
+         "a mesh that casts shadows casts the card's shadow.",
+         nullptr},
         {"occlusionCpu", "",
          "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer "
          "(256 cells across) and the meshes it proves hidden are not drawn in the camera's pictures (they still cast "

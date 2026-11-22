@@ -92,6 +92,11 @@ int lod_level_of(const MeshRenderer& mr, float distance, float screenSize) {
                                              : lod_level_by_distance(mr, distance);
 }
 
+bool impostor_active(const MeshRenderer& mr, float distance, float screenSize) {
+    if (mr.impostor.empty() || !(mr.impostorDistance > 0.0f)) return false;
+    return mr.lodMode == LodMode::ScreenSize ? screenSize < mr.impostorDistance : distance >= mr.impostorDistance;
+}
+
 const std::string& lod_level_mesh(const MeshRenderer& mr, int level) {
     if (level <= 0 || !mr.lods.is_array() || std::size_t(level) > mr.lods.size()) return mr.mesh;
     const std::string* m = entry_mesh(mr.lods[std::size_t(level) - 1]);

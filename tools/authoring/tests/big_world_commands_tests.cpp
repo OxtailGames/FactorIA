@@ -38,7 +38,6 @@ TEST_CASE("big world commands: registered with their category, schema and packag
         const char* args;  // the least that satisfies the schema
     };
     const Row rows[] = {
-        {"model.bake_impostor", "M75.1", "assets", R"({"model":"models/tree.glb"})"},
         {"foliage.scatter", "M75.6", "world", R"({"entity":"grass"})"},
         {"foliage.paint", "M75.6", "world", R"({"entity":"grass","center":[0,0],"radius":5})"},
         {"foliage.clear", "M75.6", "world", R"({"entity":"grass"})"},

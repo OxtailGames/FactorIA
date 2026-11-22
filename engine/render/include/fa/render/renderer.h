@@ -170,7 +170,8 @@ struct RenderStats {
     int lodCrossFades =
         0;  // M75.1: meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras (a fading
             // entity counts 2; probe and GI captures do not count)
-    int impostors = 0;         // M75.1: meshes drawn as their impostor quad (MeshRenderer.impostor)
+    int impostors =
+        0;  // M75-P1c: cards of MeshRenderer.impostor drawn in the main pass (not in `meshes`; a fading card counts)
     int terrainTiles = 0;      // M75.5: Terrain tiles drawn in the main pass (after the LOD selection and the culling)
     int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`; the tiles are not in `meshes`)
     int foliageInstances = 0;  // M75.6: Foliage instances drawn (after the density, the fade and the culling)
