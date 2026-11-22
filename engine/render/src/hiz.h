@@ -50,6 +50,10 @@ inline constexpr int kHizMaxCameras = 8;
 // The frames a pyramid stays usable without a newer one (the camera was not drawn, or the GPU did not answer): past it the camera is
 // not culled until one arrives.
 inline constexpr int kHizMaxAgeFrames = 8;
+// The world clock counts FIXED steps (World::advance_clock), and a render frame runs 0..5 of them: a pyramid older than this many
+// ticks (kHizMaxAgeFrames frames of 6 steps) was made before a scene load or a seek, whatever the project's fixedHz. A counter of 8 steps
+// called every frame a jump at 60 Hz fixed with a slow render, and at 240 Hz.
+inline constexpr int kHizMaxWorldTicks = kHizMaxAgeFrames * 6;
 
 // The cells a camera of this aspect (width / height) has: kHizWidth across, kHizWidth / aspect down (16 .. 512).
 void hiz_size_for(float aspect, int& width, int& height);

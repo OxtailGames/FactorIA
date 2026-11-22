@@ -1208,8 +1208,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "and meshesCulledByArea (the meshes left out of the main pass because no chain of open portals leads from "
          "the camera's area to theirs, also in meshesCulled) count the area and portal culling: 0 when no enabled "
          "OcclusionArea is in the scene. "
-         "Two more are 0 until M75.6 draws them (big worlds: foliageInstances, foliageInstancesCulled; "
-         "docs/BIG_WORLDS.md). "
+         "foliageInstances counts the instances of Foliage drawn in the main pass (not in meshes) and "
+         "foliageInstancesCulled the ones left out of the picture (outside the view, behind an Occluder, beyond "
+         "fadeEnd, or past the 262144 a camera takes at once; one kept only for the shadow maps counts too): both 0 "
+         "with no Foliage (docs/BIG_WORLDS_TERRAIN.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
          "window.renderScale). Same as game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",

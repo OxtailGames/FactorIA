@@ -289,3 +289,34 @@ TEST_CASE("async read-back: a slot asked for a smaller size, then a bigger one, 
     }
     sg_destroy_buffer(buf);
 }
+
+TEST_CASE("hi-z on a GPU: a capture of the camera leaves the game's pyramid and the numbers it reports as they were") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!has_hiz()) {
+        MESSAGE("no compute shaders or no asynchronous read-back on this backend");
+        return;
+    }
+    World w;
+    const Scene s = make_scene(w, OcclusionMode::Gpu);
+    frames(g, w, 4);
+    CHECK(g.renderer.stats().meshesOccluded == 1);
+    const int cameras = RendererTestAccess::hiz_cameras(g.renderer);
+    const Json before = g.renderer.occlusion_report();
+    REQUIRE(before.contains("gpu"));
+    Renderer::CameraCapture spec;
+    spec.camera = s.cam;
+    spec.width = 160;
+    spec.height = 90;  // another size than the game's picture: its own pyramid, if it makes one, is not the game's
+    Image shot;
+    std::string error;
+    REQUIRE_MESSAGE(g.renderer.capture_camera(w, spec, shot, &error), error);
+    CHECK(RendererTestAccess::hiz_cameras(g.renderer) == cameras);  // nothing of the capture is kept
+    const Json after = g.renderer.occlusion_report();
+    CHECK(after["gpu"]["hidden"] == before["gpu"]["hidden"]);
+    CHECK(after["gpu"]["width"] == before["gpu"]["width"]);
+    CHECK(after["gpu"]["height"] == before["gpu"]["height"]);
+    // the next frame of the game still culls from its own pyramid, with no cut
+    g.draw(w);
+    CHECK(g.renderer.stats().meshesOccluded == 1);
+}

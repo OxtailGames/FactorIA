@@ -88,10 +88,10 @@ struct Gi2dGeometry {
     bool valid = false;
     int width = 0, height = 0;  // field texels
     double texel = 1.0;         // world units per texel (a float's value)
-    double originX =
-        0.0;  // world x of the left edge of texel column 0 (a multiple of `texel`, once the floating origin is added)
-    double originY =
-        0.0;  // world y of the lower edge of texel row 0 (a multiple of `texel`, once the floating origin is added)
+    // World x of the left edge of texel column 0 and world y of the lower edge of texel row 0. Each is a multiple of `texel` once the
+    // floating origin is added (World::origin()); in local coordinates it is that minus the origin.
+    double originX = 0.0;
+    double originY = 0.0;
     bool capped =
         false;  // the area asked for was over kGi2dMaxSize texels a side: the texels are larger than resolutionScale says
     std::uint64_t bytes =

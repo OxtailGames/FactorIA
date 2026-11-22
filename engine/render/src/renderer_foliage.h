@@ -8,9 +8,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "fa/core/jobs.h"
@@ -46,6 +47,7 @@ public:
         std::uint64_t serial = 0;  // Renderer::Impl::frameSerial
         const OcclusionBuffer* occlusion =
             nullptr;  // this camera's CPU depth buffer (null: no Occluder, nothing is tested)
+        std::size_t maxItems = kFoliageMaxItems;  // the cap of items for this camera (tests lower it)
     };
     struct Counts {
         int entities = 0;  // Foliage entities with instances ready to draw
@@ -53,7 +55,10 @@ public:
         int items = 0;     // MeshItems appended
     };
     // Appends one MeshItem per instance that is drawn, or that casts a shadow into the view, to `out` (and a flag to `blended`, kept in step
-    // with it: 1 = a mesh drawn with the blended ones). Starts and adopts the reads of the instances files.
+    // with it: 1 = a mesh drawn with the blended ones). Starts and adopts the reads of the instances files. At most kFoliageMaxItems items, over
+    // every Foliage entity together: the chunks nearest the camera come first, whichever entity they belong to.
+    // The depth pyramid of occlusionMode Hi-Z does not cull foliage (the items are made after its pass): with it a chunk is tested against
+    // the frustum only; the Occluders of the CPU mode do cull it.
     Counts gather(const View& view, std::vector<MeshItem>& out, std::vector<char>& blended);
 
     // Forgets every entry (the context is going away or the world was replaced); a read still running is abandoned.
@@ -84,8 +89,9 @@ private:
         // The file's size and time when the data was read (-1: it was missing), to find a rewrite; checked every few frames.
         std::int64_t fileTime = -1, fileSize = -1;
         std::uint64_t checkedAt = 0, reloadSeen = 0, seen = 0;
-        bool failed = false;  // the last read failed: not tried again until the file changes
-        std::string warned;   // the last problem said (said once)
+        bool failed = false;      // the last read failed: not tried again until the file changes
+        std::string warned;       // the last problem of the file said (said once)
+        std::string problemSaid;  // the last problem of the component's own fields said (said once)
         // The meshes: what Foliage.meshes names, one MeshRenderer each (the items point at them), and the next LOD of each (a model's
         // "<name>.lod1.glb" when that file exists, else empty).
         std::vector<std::string> names, lodNames;
@@ -95,7 +101,9 @@ private:
     void start_load(Entry& en, const std::string& file, std::size_t meshes);
     void adopt(Entry& en, const std::string& entityId);
 
-    std::unordered_map<std::uint64_t, std::unique_ptr<Entry>> entries_;  // by Entity::bits()
+    // By (the world, Entity::bits()): two worlds drawn in turn (the game and a capture of another one) keep their own entries.
+    // An entry nobody asked for in the last few frames is forgotten.
+    std::map<std::pair<const void*, std::uint64_t>, std::unique_ptr<Entry>> entries_;
     std::uint64_t pruned_ = ~std::uint64_t(0);
     std::uint64_t loads_ = 0;
     std::vector<std::vector<MeshItem>>
@@ -103,8 +111,8 @@ private:
     bool capWarned_ = false;
 };
 
-// "<dir>/<name>.lod1.<ext>" for a model path "<dir>/<name>.<ext>" (.glb, .gltf), the file model.generate_lods writes; "" for a primitive or
-// any other name.
+// "<dir>/<name>.lod1.<ext>" for a model path "<dir>/<name>.<ext>" (.glb, .gltf; the extension in any case, the result in lower case: the
+// file model.generate_lods writes); "" for a primitive or any other name.
 std::string foliage_lod_name(const std::string& mesh);
 
 }  // namespace fa::render

@@ -7,6 +7,9 @@
 #include <filesystem>
 
 #include "foliage_chunks.h"
+#include "render_internal.h"
+#include "renderer_foliage.h"
+#include "renderer_test_access.h"
 #include "fa/scene/foliage.h"
 
 using namespace fa;
@@ -266,6 +269,8 @@ TEST_CASE("foliage: castShadows keeps the casters just outside the picture for t
     RenderStats st = g.renderer.stats();
     CHECK(st.foliageInstances == 0);
     CHECK(st.foliageInstancesCulled == 16);
+    CHECK(st.meshesCulled ==
+          0);  // the instances kept for the shadows are counted in foliageInstancesCulled, not as culled meshes
     CHECK(st.shadowCasters > 0);
     w.get<Foliage>(e)->castShadows = false;
     g.render(w);
@@ -383,4 +388,135 @@ TEST_CASE("foliage: a wind moves the tops of the instances, and only then") {
     const Image windy = g.render(w);
     CHECK(differing(calm, windy) > 0);
     CHECK(g.renderer.stats().foliageInstances == 32);
+}
+
+namespace {
+
+// What gather() takes of `world` for a camera at the origin whose clip volume holds everything within a kilometre (so no instance is
+// culled by the view): no draw, so the cap can be tested at its real size without drawing a quarter of a million cubes.
+struct Gathered {
+    render::FoliageRenderer::Counts counts;
+    std::vector<render::MeshItem> items;
+};
+
+Gathered gather_all(render::FoliageRenderer& fr, render::Assets& assets, World& world, std::uint64_t serial,
+                    std::size_t maxItems = render::kFoliageMaxItems) {
+    render::FoliageRenderer::View v;
+    v.world = &world;
+    v.assets = &assets;
+    v.viewProj = Mat4::scale({0.001f, 0.001f, 0.001f});
+    v.camera = {0, 0, 0};
+    v.serial = serial;
+    v.maxItems = maxItems;
+    Gathered out;
+    std::vector<char> blended;
+    out.counts = fr.gather(v, out.items, blended);
+    CHECK(blended.size() == out.items.size());
+    return out;
+}
+
+void set_foliage(World& w, Entity e, const std::string& file, float fadeEnd = 1000.0f) {
+    auto& f = w.add<Foliage>(e);
+    f.instances = file;
+    f.meshes = Json::array({"cube"});
+    f.fadeStart = fadeEnd - 100.0f;
+    f.fadeEnd = fadeEnd;
+}
+
+}  // namespace
+
+TEST_CASE("foliage: a camera takes at most 262144 instances, whole nearest chunks first, and counts "
+          "the rest as culled") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string file = foliage_path("foliage_cap.foliage");
+    write_instances(file, block(600, 600, 0.5f, -10.0f));  // 360000 instances, 4096 to a chunk
+    World w;
+    set_foliage(w, make(w, "forest"), file);
+    render::FoliageRenderer fr;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    gather_all(fr, assets, w, 1);
+    fr.wait_loaded();
+    const Gathered r = gather_all(fr, assets, w, 2);
+    REQUIRE(r.counts.entities == 1);
+    CHECK(r.items.size() == std::size_t(r.counts.items));
+    CHECK(r.items.size() <= render::kFoliageMaxItems);
+    CHECK(r.items.size() + 4096 * 2 >
+          render::kFoliageMaxItems);                    // whole chunks only: less than two chunks short of the cap
+    CHECK(r.counts.items + r.counts.culled == 360000);  // nothing is lost from the count
+    // the nearest are the ones kept: the mean distance of the kept ones is well below the mean of the whole field (about 200 m)
+    double sum = 0.0;
+    for (const render::MeshItem& mi : r.items) sum += double(mi.dist);
+    CHECK(sum / double(r.items.size()) < 170.0);
+}
+
+TEST_CASE("foliage: the cap of items is shared by every Foliage entity, the nearest chunks win") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string nearFile = foliage_path("foliage_cap_near.foliage"),
+                      farFile = foliage_path("foliage_cap_far.foliage");
+    write_instances(nearFile, block(8, 8, 1.0f, -10.0f));  // 64 instances in one chunk, 10 m away
+    write_instances(farFile, block(8, 8, 1.0f, -80.0f));   // 64 instances in one chunk, 80 m away
+    World w;
+    // the far entity comes FIRST in the world: it must not take the budget before the near one
+    set_foliage(w, make(w, "far"), farFile);
+    set_foliage(w, make(w, "near"), nearFile);
+    render::FoliageRenderer fr;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    gather_all(fr, assets, w, 1);
+    fr.wait_loaded();
+    const Gathered r = gather_all(fr, assets, w, 2, 64);
+    CHECK(r.counts.items == 64);
+    CHECK(r.counts.culled == 64);
+    for (const render::MeshItem& mi : r.items) CHECK(mi.dist < 40.0f);
+}
+
+TEST_CASE("foliage: two worlds with the same entity numbers each keep their own instances, nothing is read again every "
+          "frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string fileA = foliage_path("foliage_wa.foliage"), fileB = foliage_path("foliage_wb.foliage");
+    write_instances(fileA, block(3, 3, 1.0f, -10.0f));
+    write_instances(fileB, block(5, 5, 1.0f, -10.0f));
+    World a, b;
+    set_foliage(a, make(a, "forest"), fileA);
+    set_foliage(b, make(b, "forest"), fileB);  // the same entity number as in a
+    render::FoliageRenderer fr;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    for (std::uint64_t i = 1; i <= 2; ++i) {
+        gather_all(fr, assets, a, i);
+        gather_all(fr, assets, b, i);
+        fr.wait_loaded();
+    }
+    const std::uint64_t loads = fr.loads();
+    for (std::uint64_t i = 3; i < 12; ++i) {
+        CHECK(gather_all(fr, assets, a, i).counts.items == 9);
+        CHECK(gather_all(fr, assets, b, i).counts.items == 25);
+    }
+    CHECK(fr.loads() == loads);
+    CHECK(fr.size() == 2);
+}
+
+TEST_CASE(
+    "foliage: fields changed at run time that stop it drawing are reported once, and drawing starts again when fixed") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::string file = foliage_path("foliage_fields.foliage");
+    write_instances(file, block(3, 3, 1.0f, -10.0f));
+    World w;
+    Entity e = make(w, "forest");
+    set_foliage(w, e, file);
+    render::FoliageRenderer fr;
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    gather_all(fr, assets, w, 1);
+    fr.wait_loaded();
+    CHECK(gather_all(fr, assets, w, 2).counts.items == 9);
+    auto* f = w.get<Foliage>(e);
+    f->fadeEnd = f->fadeStart;  // not above fadeStart
+    CHECK(gather_all(fr, assets, w, 3).counts.items == 0);
+    f->fadeEnd = f->fadeStart + 100.0f;
+    f->meshes = Json::array({"cube", 3});  // not a name
+    CHECK(gather_all(fr, assets, w, 4).counts.items == 0);
+    f->meshes = Json::array({"cube"});
+    CHECK(gather_all(fr, assets, w, 5).counts.items == 9);
 }

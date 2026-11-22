@@ -221,19 +221,22 @@ The renderer reads and chunks the file on a worker thread: a big file never stal
 or capture taken before that does not contain them. The file is checked on disk every 30 frames (its modified time and size):
 saving it again, from `write_foliage` or a tool, shows the new instances without a restart, and changing `meshes` or `instances` reloads too.
 A missing or invalid file draws nothing and is warned about once (again only when its text changes); the file is not read again until it
-changes.
+changes. So does a Foliage whose own fields stopped being valid while the game runs (`meshes` not a list of 1 to 16 names, `fadeEnd` not above
+`fadeStart`, a transform that is NaN or of scale 0): one warning in the log naming the field, and it draws again once it is fixed. A file of
+2 million instances takes about 170 MB while it is sorted into chunks (72 MB afterwards); that is why a file holds at most 2 million.
 
 ### Drawing
 
 The instances are grouped in chunks of 32 m with a bounding box. A frame draws, nearest chunk first:
 
 - a chunk whose box is farther than `fadeEnd` is skipped; one outside the view frustum is skipped (the box is widened by the mesh
-  radius and the wind sway), and so is one hidden by the CPU occlusion buffer when an occluder is present (`occlusionCpu`,
-  docs/BIG_WORLDS_LOD.md). With `castShadows`, a chunk up to 24 m outside the view still goes into the shadow passes, as a shadow only.
+  radius and the wind sway), and so is one hidden by the CPU occlusion buffer when an occluder is present (`SceneSettings.occlusionMode` `Cpu`,
+  docs/BIG_WORLDS_LOD.md; the depth pyramid of the `Gpu` mode does not test foliage: the chunks are made after its pass, so with
+  it only the frustum culls them). With `castShadows`, a chunk up to 24 m outside the view still goes into the shadow passes, as a shadow only.
 - between `fadeStart` and `fadeEnd` an instance fades out with a dithered fade in 8 steps (the dither of the LOD cross-fade, so no
   alpha blending and no sorting; the fade is not counted in `renderStats.lodCrossFades`).
 - beyond `lodDistance` an instance uses the next LOD of its mesh: for `assets/models/grass.glb`, the file `assets/models/grass.lod1.glb`
-  (the name the model LOD chain bake gives its first level); when that file does not exist the mesh stays. There is no cross-fade between
+  (the name the model LOD chain bake gives its first level; `grass.GLB` looks for `grass.lod1.glb`); when that file does not exist the mesh stays. There is no cross-fade between
   the two (the switch is one hard step). Instances of the same mesh and LOD are drawn as one instanced draw, like any other meshes.
 - `density` keeps the instances whose fixed pseudo-random rank (from the instance index) is below it: the same instances stay when you
   raise or lower it, so nothing flickers.
@@ -244,7 +247,7 @@ The instances are grouped in chunks of 32 m with a bounding box. A frame draws, 
 - `castShadows` puts the instances (with the wind and the fade) in the shadow maps; false (default) leaves them out.
 
 At most 262144 instances, over every Foliage entity together, are handed to the draw in a frame per camera (a camera with shadow passes
-counts its own). Whole chunks are taken, nearest first, and the rest counts as culled, with one warning in the log: lower `fadeEnd` or `density`, or split the
+counts its own). Whole chunks are taken, nearest first whichever entity they belong to, and the rest counts as culled, with one warning in the log: lower `fadeEnd` or `density`, or split the
 field into several entities with a shorter reach. Costs: an empty scene or one with no `Foliage` pays nothing; with a field of 100000
 instances in view, the cost is the CPU time of one draw item per visible instance plus the instanced draws.
 

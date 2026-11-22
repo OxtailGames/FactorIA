@@ -88,6 +88,7 @@
     "Button.texture": "0.1.6",
     "Button.tooltip": "0.3.0",
     "Camera": "0.1.0",
+    "Camera.areaCulling": "unreleased",
     "Camera.clear": "0.1.0",
     "Camera.clearColor": "0.1.0",
     "Camera.depth": "0.1.0",
