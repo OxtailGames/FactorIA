@@ -169,23 +169,27 @@ rotation and parents; a floating-origin shift needs nothing). An `OcclusionPorta
 has one enabled (active) OcclusionArea (one `world.any<OcclusionArea>()` check per frame); a scene without one draws and counts exactly
 as before. With one, for every main-view camera, after the frustum test and before the Occluder test (or the depth pyramid of the GPU path: areas and portals work with `occlusionMode` `cpu` and `gpu`):
 
-1. **Membership.** A mesh belongs to every area whose box holds the centre of its world bounds; a mesh in no area belongs to area 0
-   ("outside"). Meshes with no known bounds are not tested. Two boxes with the same `areaId` are one area (a room of several boxes).
-2. **The camera's area** is the area whose box holds the camera position; where boxes overlap, the smallest volume wins and the
-   lower entity breaks a tie, so the result never depends on the order of the world. In no box: area 0.
+1. **Membership.** A mesh belongs to **every** area whose box its world bounds touch, and also to area 0 ("outside") unless its
+   bounds lie wholly inside one area box. So a floor or a terrain tile wider than a room, or a wall shared by two rooms, is drawn
+   when any of its areas is reached, and a mesh in no box is outside only. Meshes with no known bounds are not tested. Two boxes
+   with the same `areaId` are one area (a room of several boxes).
+2. **Where the walk starts.** In every area whose box holds the camera position (nested areas count all), and in `areaA` and `areaB`
+   of every open portal whose box holds it: a camera in a doorway, or in the gap a wall leaves between two rooms, is in both
+   rooms. In no box: area 0.
 3. **The walk.** From the camera's area, with the whole picture as its view, every open portal that touches the current area and
    whose box is in the current view leads to its other area, and the view is narrowed to the portal's own screen rectangle (classic
    portal culling: what is seen through a door is only what the door's rectangle lets through). A portal box that crosses the near
    plane is clipped at it and never narrows the view below what is visible; a camera inside a portal's box sees through it. A
    closed portal (`open: false`) blocks the walk. Area 0 is an area like any other: a portal with `areaA` or `areaB` 0 joins the
-   building to the outside, in both directions.
+   building to the outside, in both directions. `areaA` (the -Z side) and `areaB` (+Z) are informative today: the walk is
+   symmetric and does not look at which side the camera is on.
 4. **The cull.** A mesh none of whose areas the walk reached is left out of the main pass (`meshesCulledByArea`); it still casts
    shadows. A mesh that belongs to a reached area, and the Occluder test after it, are as without areas.
 
 Guards (counts, never time): a portal back to an area already on the current path is never taken (a cycle ends), an area is entered
 again only with a view that no earlier visit of it held, a chain longer than 32 portals or more than 4096 portal tests ends the walk
 and the camera then draws everything (an unknown answer never hides). Reflection probe, GI and light-probe captures are not culled,
-and neither are shadow passes, sprites, 2D shapes and UI.
+and neither are shadow passes, Foliage instances (they have their own culling), sprites, 2D shapes and UI.
 
 Mistakes teach, once per entity in the log: a portal whose `areaA` or `areaB` names an id no OcclusionArea has (with a did-you-mean over
 the existing ids), a portal with `areaA` equal to `areaB`, and an OcclusionArea with an `areaId` outside 1..65535. Such a portal

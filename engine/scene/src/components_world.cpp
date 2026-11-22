@@ -525,14 +525,13 @@ void register_world_components(TypeRegistry& r) {
 
     r.add<OcclusionArea>(
          "OcclusionArea",
-         "A room of an interior, for portal culling (M75.2): a mesh whose bounding-box centre is inside this box "
-         "belongs to "
-         "the area, and is drawn in the main pass only when the camera is in that area or a chain of open "
-         "OcclusionPortal entities in view leads from the camera's area to it. A mesh in no area belongs to area 0 "
-         "(outside), which is an area like any other. The camera is in the area whose box holds it (the smallest "
-         "volume where boxes overlap). A scene with no OcclusionArea draws everything as usual. Shadows are not "
-         "culled. renderStats.portalsVisited and meshesCulledByArea count it (docs/BIG_WORLDS_LOD.md, \"Areas and "
-         "portals\").",
+         "A room of an interior, for portal culling (M75.2): a mesh whose world bounds touch this box belongs to the "
+         "area (and also to area 0, \"outside\", unless its bounds lie wholly inside one box), and is drawn in the "
+         "main pass only when one of its areas is reached: the camera is in it, or a chain of open OcclusionPortal "
+         "entities in view leads to it. Area 0 is an area like any other. The camera starts in every area whose box "
+         "holds it, and in both sides of every open portal whose box holds it. A scene with no OcclusionArea draws "
+         "everything as usual. Shadows and Foliage are not culled. renderStats.portalsVisited and meshesCulledByArea "
+         "count it (docs/BIG_WORLDS_LOD.md, \"Areas and portals\").",
          "3D")
         .field("size", &OcclusionArea::size,
                "Metres along the entity's local axes before Transform.scale, each above 0. Default [10, 4, 10].")
@@ -548,7 +547,7 @@ void register_world_components(TypeRegistry& r) {
          "An opening between two OcclusionArea rooms (M75.2; a door, a window, an archway): what is seen through it "
          "from "
          "the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side "
-         "faces areaA and its +Z side areaB. The camera's view walks through the open portals whose box is in view, "
+         "faces areaA and its +Z side areaB. The camera's view walks (the same from both sides: areaA and areaB are informative) through the open portals whose box is in view, "
          "narrowing to each portal's screen rectangle. A portal with open false (a shut door) lets nothing "
          "through (docs/BIG_WORLDS_LOD.md, \"Areas and portals\").",
          "3D")

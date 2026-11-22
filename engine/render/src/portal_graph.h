@@ -39,7 +39,12 @@ struct PortalBox {
     Vec3 size{1, 1, 1};
     bool open = true;
     std::uint64_t entity = 0;
+    Mat4 inv;           // model.inverse(), made once by make_portal_box
+    bool valid = true;  // false: a degenerate (zero scale) box that holds nothing
 };
+
+PortalBox make_portal_box(std::int32_t areaA, std::int32_t areaB, const Mat4& model, Vec3 size, bool open,
+                          std::uint64_t entity);
 
 struct PortalWalk {
     std::vector<std::int32_t> reached;  // the area ids the camera can see, sorted, the start included
@@ -48,13 +53,19 @@ struct PortalWalk {
         false;  // the depth or step cap was reached (the caller then culls nothing: a cut walk would hide what is visible)
 };
 
-// The area that holds `p`: the one of the smallest volume (then the lowest entity bits); 0 when none holds it.
-std::int32_t portal_area_at(const std::vector<PortalAreaBox>& areas, Vec3 p);
+// Where a walk starts: every area whose box holds `p` (the camera), plus areaA and areaB of every OPEN portal whose box holds it
+// (a camera in a doorway, in the gap a wall leaves between two rooms, is in both rooms). Sorted, distinct; {0} when there is none.
+std::vector<std::int32_t> portal_start_areas(const std::vector<PortalAreaBox>& areas, const std::vector<PortalBox>& portals,
+                                             Vec3 p);
 
-// The areas whose oriented box holds `p` (sorted, distinct ids); {0} when none does.
-std::vector<std::int32_t> portal_areas_of_point(const std::vector<PortalAreaBox>& areas, Vec3 p);
+// Whether a mesh (its model matrix and model-space bounds) is drawn when the walk reached `reached` (sorted ids). The mesh belongs to
+// EVERY area whose box its world bounds touch, and also to area 0 unless its bounds lie wholly inside one area box; it is hidden only
+// when none of its areas was reached. No allocation.
+bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector<std::int32_t>& reached, const Mat4& model,
+                      Vec3 bmin, Vec3 bmax);
 
-// Walks from `startArea` through the open portals as seen with `viewProj`. A camera that sees nothing of a portal does not go through it.
-PortalWalk portal_walk(const std::vector<PortalBox>& portals, const Mat4& viewProj, std::int32_t startArea);
+// Walks from every area of `startAreas` (each with the whole picture) through the open portals as seen with `viewProj`. A camera that sees nothing of a portal does not go through it.
+PortalWalk portal_walk(const std::vector<PortalBox>& portals, const Mat4& viewProj,
+                       const std::vector<std::int32_t>& startAreas);
 
 }  // namespace fa::render

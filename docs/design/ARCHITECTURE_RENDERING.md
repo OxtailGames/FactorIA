@@ -371,7 +371,7 @@ functions, the farthest depth a triangle can have inside a cell, the touched cel
 the occluder means visible. Every result is independent of the thread count: the triangles are set up per occluder (one slot each) and
 rasterised per band of rows, the cell being the maximum over the triangles. Caps count triangles (4096 per Occluder, 65536 per camera).
 
-Areas and portals are the same pattern: `render/src/portal_graph.h` is the pure half (the camera's area, the areas of a point, the walk with
+Areas and portals are the same pattern: `render/src/portal_graph.h` is the pure half (the start areas of the camera, the test of a mesh against the areas, the walk with
 the NDC rectangle narrowed at each portal, the depth and step guards) and `renderer_portals.cpp` gathers the OcclusionArea and
 OcclusionPortal entities with their drawn matrices, warns once per entity about unknown or equal area ids, and clears `MeshItem::visible`
 of the meshes whose areas the walk did not reach (`stats.meshesCulledByArea`, `stats.portalsVisited`). It runs before `occlude_meshes`,
