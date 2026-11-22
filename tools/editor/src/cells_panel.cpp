@@ -1,4 +1,4 @@
-// The Cells panel (View > Cells) and the cell grid in the viewport: editing a streamed world (docs/BIG_WORLDS.md, "Editing a streamed world").
+// The Cells panel (View > Cells) and the cell grid in the viewport: editing a streamed world (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world").
 // The model is cell_edit.h; this file is the UI. Edit mode only: Play streams by distance, and the cells the user loaded come back at Stop.
 //
 // The panel lists the cells nearest the camera (and every loaded one) with their state (not loaded, loaded, unsaved), loads the cells around
@@ -93,8 +93,9 @@ bool Editor::cells_load_around_view(std::string* message) {
     std::string err;
     const bool ok = cells_.load_around(world(), a, b, radius, CellEdit::kMaxAround, &loaded, &left, &err);
     std::string text = "Loaded " + std::to_string(loaded) + " cell" + (loaded == 1 ? "" : "s") + " around the camera";
-    if (left > 0) text += "; " + std::to_string(left) + " more in range (the editor loads at most " +
-                          std::to_string(CellEdit::kMaxAround) + " at a time)";
+    if (left > 0)
+        text += "; " + std::to_string(left) + " more in range (the editor loads at most " +
+                std::to_string(CellEdit::kMaxAround) + " at a time)";
     if (!ok) text += ". " + err;
     if (message) *message = text;
     cells_.note_edit();
@@ -130,11 +131,14 @@ void Editor::cells_inspector_line(Entity e) {
     std::int32_t i = 0, j = 0;
     if (!cells_.cell_of_entity(world(), e, i, j)) return;
     const bool isRoot = world().info(e).streamedCell;
-    ImGui::TextDisabled("%s %d,%d%s", isRoot ? "Cell root of" : "Cell", i, j, cells_.is_dirty(i, j) ? " (unsaved changes)" : "");
+    ImGui::TextDisabled("%s %d,%d%s", isRoot ? "Cell root of" : "Cell", i, j,
+                        cells_.is_dirty(i, j) ? " (unsaved changes)" : "");
     std::int32_t ti = 0, tj = 0;
     if (!isRoot && cells_.destination_of(world(), e, ti, tj) && (ti != i || tj != j)) {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Its position is in cell %d,%d: Save moves it there.", ti, tj);
-        tip("The entity keeps its id and components. Save writes it into the file of the cell its position is in (the cell is loaded, "
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Its position is in cell %d,%d: Save moves it there.", ti,
+                           tj);
+        tip("The entity keeps its id and components. Save writes it into the file of the cell its position is in (the "
+            "cell is loaded, "
             "or made and listed in the index when the index has none there).");
     }
 }
@@ -151,8 +155,9 @@ void Editor::draw_cells_panel() {
         return;
     }
     if (play_ != PlayState::Edit) {
-        ImGui::TextWrapped("The game is running: it streams the cells by distance. Stop it to edit cells (the ones you had loaded "
-                           "come back).");
+        ImGui::TextWrapped(
+            "The game is running: it streams the cells by distance. Stop it to edit cells (the ones you had loaded "
+            "come back).");
         ImGui::End();
         return;
     }
@@ -161,8 +166,9 @@ void Editor::draw_cells_panel() {
             ImGui::TextColored(kStatusFailed, "The streamed world's index cannot be read:");
             ImGui::TextWrapped("%s", cells_.error().c_str());
         } else {
-            ImGui::TextWrapped("This scene has no StreamedWorld. Add one (its `world` names a *.world.json) or cut a scene into cells "
-                               "with world.split_cells (docs/BIG_WORLDS.md, \"Editing a streamed world\").");
+            ImGui::TextWrapped(
+                "This scene has no StreamedWorld. Add one (its `world` names a *.world.json) or cut a scene into cells "
+                "with world.split_cells (docs/BIG_WORLDS_STREAMING.md, \"Editing a streamed world\").");
         }
         if (ImGui::Button("Read the index again")) cells_.refresh(world(), true);
         at_track("cells:reread");
@@ -172,16 +178,19 @@ void Editor::draw_cells_panel() {
     }
     const WorldIndex& idx = cells_.index();
     ImGui::TextWrapped("%s: %s, cells of %.4g m, %d in the index.", cells_.index_path().c_str(),
-                       idx.dimension == WorldDimension::D3 ? "3D (cells on x and z)" : "2D (cells on x and y)", idx.cellSize,
-                       int(idx.cells.size()));
-    ImGui::TextWrapped("Nothing streams here: only the cells you load are in the scene. %d loaded, %d with unsaved changes.",
-                       cells_.loaded_count(), cells_.dirty_count());
-    tip("Edit mode never loads a cell by distance. Play streams them as the game does and Stop puts the ones you loaded back.");
+                       idx.dimension == WorldDimension::D3 ? "3D (cells on x and z)" : "2D (cells on x and y)",
+                       idx.cellSize, int(idx.cells.size()));
+    ImGui::TextWrapped(
+        "Nothing streams here: only the cells you load are in the scene. %d loaded, %d with unsaved changes.",
+        cells_.loaded_count(), cells_.dirty_count());
+    tip("Edit mode never loads a cell by distance. Play streams them as the game does and Stop puts the ones you "
+        "loaded back.");
 
     ImGui::SetNextItemWidth(90);
     ImGui::DragInt("##radius", &cellsUi_.radiusCells, 0.1f, 0, 8, "%d cells out");
     at_track("cells:radius");
-    tip("How far around the camera 'Load around the view' goes, in cells (0 = the cell under the camera). The editor loads at most 64 "
+    tip("How far around the camera 'Load around the view' goes, in cells (0 = the cell under the camera). The editor "
+        "loads at most 64 "
         "cells at a time and 256 in all.");
     ImGui::SameLine();
     if (ImGui::Button("Load around the view")) {
@@ -204,7 +213,8 @@ void Editor::draw_cells_panel() {
     if (ImGui::Button("Save cells")) cells_save(false, 0, 0);
     at_track("cells:save", cells_.any_dirty());
     ImGui::EndDisabled();
-    tip("Write each cell with unsaved changes to its own file (and the index when a cell was added or its height bounds grew). An "
+    tip("Write each cell with unsaved changes to its own file (and the index when a cell was added or its height "
+        "bounds grew). An "
         "entity whose position is now in another cell moves to that cell's file. Save in the toolbar does this too.");
     ImGui::SameLine();
     ImGui::Checkbox("Show the grid", &cellsUi_.overlay);
@@ -353,7 +363,8 @@ void Editor::draw_cells_overlay(ImDrawList* dl, Renderer& r, const std::function
         if ((front[0] && front[1] && front[2] && front[3]) && (row.loaded || row.dirty))
             dl->AddConvexPolyFilled(p, 4, state_color(row, 28));
         for (int k = 0; k < 4; ++k)
-            if (front[k] && front[(k + 1) % 4]) dl->AddLine(p[k], p[(k + 1) % 4], state_color(row, row.loaded ? 230 : 110), thick);
+            if (front[k] && front[(k + 1) % 4])
+                dl->AddLine(p[k], p[(k + 1) % 4], state_color(row, row.loaded ? 230 : 110), thick);
         if (front[0] && front[1] && front[2] && front[3] && (row.loaded || focus)) {
             const ImVec2 c((p[0].x + p[2].x) * 0.5f, (p[0].y + p[2].y) * 0.5f);
             char label[48];

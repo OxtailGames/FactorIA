@@ -291,6 +291,35 @@ commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so t
 - **Errors.** A refused start (no mesh to light, a bad option, a manifest outside the project, a bake already running) or a failed one (a file
   that is open in another program cannot be replaced on Windows) is shown in the panel with what to change; nothing is half written.
 
+## Cells panel
+
+View > Cells edits the cells of a streamed world (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"). It works when the open scene has a
+`StreamedWorld` whose index can be read, in Edit mode: while the game plays it only says so.
+
+- **Nothing streams in Edit mode.** The engine is paused, so no anchor loads or unloads a cell: a cell is in the scene only when you load it, and an
+  edited cell is never lost by the distance to the camera. The editor has no free camera, so "around the view" means around the scene's camera
+  (the one the viewport draws through).
+- **The list** shows every loaded cell and the nearest ones of the index (at most 200 rows, nearest first): the cell, its state (not loaded, loaded with
+  its entity count, unsaved, "(new)" when Save will add it to the index) and the distance to it. Load puts the cell in the scene under its root entity
+  `cell_<i>_<j>`; Unload removes it (a cell with unsaved changes asks: Save and unload, Discard changes and unload, Cancel); Select selects the root,
+  which the Hierarchy and Inspector then show and the grid draws thicker.
+- **Load around the view** loads the cells within N cells of the camera (the drag box, 0 to 8; 0 is the cell under the camera), nearest first. One click loads at
+  most 64 cells and says how many more were in range; at most 256 cells are loaded at once. **Unload clean** unloads every loaded cell without unsaved changes.
+  **Read the index again** reads the index file again (a tool changed it); the loaded cells stay loaded.
+- **Save cells** writes each unsaved cell to its own file, and the index only when a cell was added or a cell's height bounds grew; the toolbar's Save and
+  Ctrl+S do the same, together with the open scene. An entity whose position is now in another cell is written into that cell (see "Editing a streamed
+  world": no command is needed for it). A failure (a path outside the write rules, a cell file that is not in the index) changes nothing and the panel
+  says why.
+- **Show the grid** draws the cells in the viewport on the plane of the world: green loaded, orange with unsaved changes (the label gets a `*`), grey not
+  loaded; the selected entity's cell is thicker. The Inspector says "Cell i,j" for an entity in a loaded cell, with the unsaved mark, and "Save moves it
+  there" when its position is in another cell.
+- **Undo** works across cells: the editor's snapshots include the loaded cells, and undoing back to the saved state clears the unsaved mark. **Play** streams
+  by distance as the game does and **Stop** brings the cells you had loaded back, with their changes.
+
+**Autotest.** Section W2 writes a 2D world of three cells into the project, loads the one under the camera and checks that nothing else streams, edits an
+entity (only its cell turns unsaved), saves (only that file is written, not the index), moves an entity across the border and saves (it moves to the other
+cell's file), plays (the game streams by distance) and stops (the same cells are back, clean).
+
 ## Scene settings panel
 
 View > Scene settings opens a window with the settings of the open scene, the ones the file keeps under `settings` and the

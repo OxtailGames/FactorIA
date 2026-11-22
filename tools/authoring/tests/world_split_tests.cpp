@@ -1,5 +1,5 @@
 // M75.3c: world.split_cells cuts a scene into a streamed world (index, cells, persistent scene) and world.merge_cells puts it back
-// (docs/BIG_WORLDS.md, "Editing a streamed world"). The round trip keeps every entity and component with its id; the output is
+// (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"). The round trip keeps every entity and component with its id; the output is
 // deterministic; the write rules of the caller apply; a streamer that loads the cells makes the same entities as the source.
 // No sleeps and no wall-clock asserts: the waits are frame loops with a cap far above what they need.
 #include <doctest.h>
@@ -32,8 +32,9 @@ struct Project {
     Project() {
         authoring::install();
         dir = fs::make_temp_dir("fa_worldsplit").value();
-        write("factoria.json",
-              R"({"format":"factoria.project/1","name":"Split","id":"com.example.wsplit","mainScene":"scenes/town.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Split","id":"com.example.wsplit","mainScene":"scenes/town.scene.json",
                   "display":{"width":320,"height":180}})");
     }
     ~Project() {
@@ -85,12 +86,11 @@ Json town_scene() {
     manager["tags"] = Json::array({"global"});
     Json tree = entity("tree", 200, 1, 10);
     tree["components"]["Light"] = Json::object({{"type", "Point"}, {"range", 12}});
-    return Json::object({{"format", "factoria.scene/1"},
-                         {"settings", Json::object({{"gravity2D", Json::array({0, -9.81})},
-                                                    {"gravity3D", Json::array({0, -3, 0})}})},
-                         {"entities", Json::array({ground, cam, tree, entity("edge", 128, 0, 0), sun,
-                                                   entity("rock", -5, 3, 300), hud, manager,
-                                                   entity("far", -128, 0, -0.5)})}});
+    return Json::object(
+        {{"format", "factoria.scene/1"},
+         {"settings", Json::object({{"gravity2D", Json::array({0, -9.81})}, {"gravity3D", Json::array({0, -3, 0})}})},
+         {"entities", Json::array({ground, cam, tree, entity("edge", 128, 0, 0), sun, entity("rock", -5, 3, 300), hud,
+                                   manager, entity("far", -128, 0, -0.5)})}});
 }
 
 void write_town(const Project& p) { p.write("scenes/town.scene.json", town_scene().dump(1)); }
@@ -109,10 +109,13 @@ Json call_error(Engine& e, const std::string& name, const Json& args) {
     return r.error;
 }
 
-std::string text_of(const Json& error) { return error.value("message", std::string()) + " " + error.value("hint", std::string()); }
+std::string text_of(const Json& error) {
+    return error.value("message", std::string()) + " " + error.value("hint", std::string());
+}
 
 Json split_args(const std::string& out = "worlds/town.world.json", bool overwrite = false) {
-    return Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", out}, {"overwrite", overwrite}});
+    return Json::object(
+        {{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", out}, {"overwrite", overwrite}});
 }
 
 // Every entity of a scene file by id (children too), for a comparison that ignores the order of the roots.
@@ -146,7 +149,8 @@ TEST_CASE("world.split_cells: puts each root entity whole in its cell, the globa
     CHECK(info->description.find("persistent") != std::string::npos);
     REQUIRE(e.commands().info("world.merge_cells") != nullptr);
 
-    const Json dry = call(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"dryRun", true}}));
+    const Json dry = call(e, "world.split_cells",
+                          Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"dryRun", true}}));
     CHECK(dry["written"] == 0);
     CHECK(dry["world"] == "scenes/town.world.json");  // the default: next to the scene, named after it
     CHECK_FALSE(stdfs::exists(p.dir / "scenes/town.world.json"));
@@ -199,14 +203,14 @@ TEST_CASE("world.split_cells: puts each root entity whole in its cell, the globa
 
     // Deterministic: again with `overwrite` gives the same bytes; without it the call is refused and changes nothing
     std::string before;
-    for (const char* f : {"worlds/town.world.json", "worlds/town_persistent.scene.json", "worlds/town_cells/0_0.scene.json",
-                          "worlds/town_cells/1_0.scene.json"})
+    for (const char* f : {"worlds/town.world.json", "worlds/town_persistent.scene.json",
+                          "worlds/town_cells/0_0.scene.json", "worlds/town_cells/1_0.scene.json"})
         before += p.read(f);
     CHECK(call_error(e, "world.split_cells", split_args())["code"] == "exists");
     call(e, "world.split_cells", split_args("worlds/town.world.json", true));
     std::string after;
-    for (const char* f : {"worlds/town.world.json", "worlds/town_persistent.scene.json", "worlds/town_cells/0_0.scene.json",
-                          "worlds/town_cells/1_0.scene.json"})
+    for (const char* f : {"worlds/town.world.json", "worlds/town_persistent.scene.json",
+                          "worlds/town_cells/0_0.scene.json", "worlds/town_cells/1_0.scene.json"})
         after += p.read(f);
     CHECK(before == after);
     // and into another folder: the same cells, the same bytes
@@ -223,11 +227,14 @@ TEST_CASE("world.merge_cells: the round trip gives back every entity and compone
     REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
     call(e, "world.split_cells", split_args());
 
-    const Json dry = call(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}, {"dryRun", true}}));
+    const Json dry = call(
+        e, "world.merge_cells",
+        Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}, {"dryRun", true}}));
     CHECK(dry["written"] == 0);
     CHECK_FALSE(stdfs::exists(p.dir / "scenes/merged.scene.json"));
 
-    const Json m = call(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}}));
+    const Json m = call(e, "world.merge_cells",
+                        Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}}));
     CHECK(m["entities"] == 9);
     CHECK(m["persistentEntities"] == 4);
     CHECK(m["filesRead"] == 6);
@@ -240,15 +247,20 @@ TEST_CASE("world.merge_cells: the round trip gives back every entity and compone
     CHECK(a.size() == 10);
     CHECK(a == b);  // the same ids, components, tags, names and children, to the last value
     // The first ones are the persistent scene's, then the cells in index order
-    CHECK(ids_of(merged) == std::vector<std::string>{"cam", "sun", "hud", "manager", "far", "ground", "tree", "edge", "rock"});
+    CHECK(ids_of(merged) ==
+          std::vector<std::string>{"cam", "sun", "hud", "manager", "far", "ground", "tree", "edge", "rock"});
 
     // Merging again with `overwrite` gives the same bytes; without it the call is refused
     const std::string once = p.read("scenes/merged.scene.json");
-    CHECK(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}}))["code"] == "exists");
-    call(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}, {"overwrite", true}}));
+    CHECK(call_error(e, "world.merge_cells",
+                     Json::object({{"world", "worlds/town.world.json"},
+                                   {"out", "scenes/merged.scene.json"}}))["code"] == "exists");
+    call(e, "world.merge_cells",
+         Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/merged.scene.json"}, {"overwrite", true}}));
     CHECK(p.read("scenes/merged.scene.json") == once);
     // and splitting the merged scene gives the same cells as the first split
-    call(e, "world.split_cells", Json::object({{"scene", "scenes/merged.scene.json"}, {"cellSize", 128}, {"out", "again/town.world.json"}}));
+    call(e, "world.split_cells",
+         Json::object({{"scene", "scenes/merged.scene.json"}, {"cellSize", 128}, {"out", "again/town.world.json"}}));
     for (const char* cell : {"0_0", "1_0", "-1_2", "-1_-1"})
         CHECK(p.read(std::string("again/town_cells/") + cell + ".scene.json") ==
               p.read(std::string("worlds/town_cells/") + cell + ".scene.json"));
@@ -263,37 +275,68 @@ TEST_CASE("world.split_cells: errors teach, with the place and the fix, and writ
     REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
     auto written = [&] { return stdfs::exists(p.dir / "worlds"); };
 
-    CHECK(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/none.scene.json"}, {"cellSize", 128}}))["code"] == "not_found");
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}}))).find("cellSize") != std::string::npos);
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 0.01}}))).find("cellSize") != std::string::npos);
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"dimension", "4d"}}))).find("dimension") != std::string::npos);
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", "worlds/town.json"}}))).find(".world.json") != std::string::npos);
-    CHECK(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", "../x.world.json"}}))["code"] == "path_outside_root");
-    CHECK(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", ".factoria/save/x.world.json"}}))["code"] == "managed_path_denied");
+    CHECK(call_error(e, "world.split_cells",
+                     Json::object({{"scene", "scenes/none.scene.json"}, {"cellSize", 128}}))["code"] == "not_found");
+    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}})))
+              .find("cellSize") != std::string::npos);
+    CHECK(text_of(call_error(e, "world.split_cells",
+                             Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 0.01}})))
+              .find("cellSize") != std::string::npos);
+    CHECK(
+        text_of(call_error(e, "world.split_cells",
+                           Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"dimension", "4d"}})))
+            .find("dimension") != std::string::npos);
+    CHECK(
+        text_of(call_error(e, "world.split_cells",
+                           Json::object(
+                               {{"scene", "scenes/town.scene.json"}, {"cellSize", 128}, {"out", "worlds/town.json"}})))
+            .find(".world.json") != std::string::npos);
+    CHECK(call_error(e, "world.split_cells",
+                     Json::object({{"scene", "scenes/town.scene.json"},
+                                   {"cellSize", 128},
+                                   {"out", "../x.world.json"}}))["code"] == "path_outside_root");
+    CHECK(call_error(e, "world.split_cells",
+                     Json::object({{"scene", "scenes/town.scene.json"},
+                                   {"cellSize", 128},
+                                   {"out", ".factoria/save/x.world.json"}}))["code"] == "managed_path_denied");
     CHECK_FALSE(written());
 
     // The source scene is never the output, whatever `overwrite` says
     p.write("scenes/town_persistent.scene.json", town_scene().dump(1));
-    const Json clash = call_error(e, "world.split_cells", Json::object({{"scene", "scenes/town_persistent.scene.json"}, {"cellSize", 128}, {"out", "scenes/town.world.json"}, {"overwrite", true}}));
+    const Json clash = call_error(e, "world.split_cells",
+                                  Json::object({{"scene", "scenes/town_persistent.scene.json"},
+                                                {"cellSize", 128},
+                                                {"out", "scenes/town.world.json"},
+                                                {"overwrite", true}}));
     CHECK(text_of(clash).find("never changes it") != std::string::npos);
 
     // A floating origin: the positions are not absolute
     Json shifted = town_scene();
     shifted["origin"] = Json::array({1000000, 0, 0});
     p.write("scenes/shifted.scene.json", shifted.dump(1));
-    const Json origin = call_error(e, "world.split_cells", Json::object({{"scene", "scenes/shifted.scene.json"}, {"cellSize", 128}}));
+    const Json origin =
+        call_error(e, "world.split_cells", Json::object({{"scene", "scenes/shifted.scene.json"}, {"cellSize", 128}}));
     CHECK(text_of(origin).find("scenes/shifted.scene.json/origin") != std::string::npos);
     CHECK(text_of(origin).find("world.rebase") != std::string::npos);
 
     // Nothing to put in a cell
-    p.write("scenes/ui.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array({Json::object({{"id", "cam"}, {"components", Json::object({{"Camera", Json::object()}})}})})}}).dump(1));
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/ui.scene.json"}, {"cellSize", 128}}))).find("no entity to put in a cell") != std::string::npos);
+    p.write(
+        "scenes/ui.scene.json",
+        Json::object({{"format", "factoria.scene/1"},
+                      {"entities", Json::array({Json::object(
+                                       {{"id", "cam"}, {"components", Json::object({{"Camera", Json::object()}})}})})}})
+            .dump(1));
+    CHECK(text_of(
+              call_error(e, "world.split_cells", Json::object({{"scene", "scenes/ui.scene.json"}, {"cellSize", 128}})))
+              .find("no entity to put in a cell") != std::string::npos);
 
     // An entity so far away that the index cannot hold its cell names its place in the file
     Json faraway = town_scene();
     faraway["entities"].push_back(entity("moon", 5e9, 0, 0));
     p.write("scenes/faraway.scene.json", faraway.dump(1));
-    CHECK(text_of(call_error(e, "world.split_cells", Json::object({{"scene", "scenes/faraway.scene.json"}, {"cellSize", 128}}))).find("scenes/faraway.scene.json/entities/9") != std::string::npos);
+    CHECK(text_of(call_error(e, "world.split_cells",
+                             Json::object({{"scene", "scenes/faraway.scene.json"}, {"cellSize", 128}})))
+              .find("scenes/faraway.scene.json/entities/9") != std::string::npos);
     CHECK_FALSE(written());
 
     // The write rules of the caller: a read-only client may ask with dryRun but not write
@@ -301,7 +344,9 @@ TEST_CASE("world.split_cells: errors teach, with the place and the fix, and writ
         CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
         CommandCallerScope mcp(CommandCaller::Mcp);
         CHECK(call_error(e, "world.split_cells", split_args())["code"] == "capability_denied");
-        CHECK(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.scene.json"}}))["code"] == "capability_denied");
+        CHECK(call_error(e, "world.merge_cells",
+                         Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.scene.json"}}))["code"] ==
+              "capability_denied");
     }
     CHECK_FALSE(written());
     e.shutdown();
@@ -315,26 +360,42 @@ TEST_CASE("world.merge_cells: errors teach, and a cell reference across a border
     REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
     call(e, "world.split_cells", split_args());
 
-    CHECK(text_of(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}}))).find("out") != std::string::npos);
-    CHECK(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/none.world.json"}, {"out", "scenes/m.scene.json"}}))["code"] != "");
-    CHECK(text_of(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "worlds/town_cells/0_0.scene.json"}, {"overwrite", true}}))).find("never changes them") != std::string::npos);
-    CHECK(text_of(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.json"}}))).find(".scene.json") != std::string::npos);
-    CHECK(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "../m.scene.json"}}))["code"] == "path_outside_root");
+    CHECK(
+        text_of(call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}}))).find("out") !=
+        std::string::npos);
+    CHECK(call_error(e, "world.merge_cells",
+                     Json::object({{"world", "worlds/none.world.json"}, {"out", "scenes/m.scene.json"}}))["code"] !=
+          "");
+    CHECK(text_of(call_error(e, "world.merge_cells",
+                             Json::object({{"world", "worlds/town.world.json"},
+                                           {"out", "worlds/town_cells/0_0.scene.json"},
+                                           {"overwrite", true}})))
+              .find("never changes them") != std::string::npos);
+    CHECK(text_of(call_error(e, "world.merge_cells",
+                             Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.json"}})))
+              .find(".scene.json") != std::string::npos);
+    CHECK(call_error(e, "world.merge_cells",
+                     Json::object({{"world", "worlds/town.world.json"}, {"out", "../m.scene.json"}}))["code"] ==
+          "path_outside_root");
 
     // The same id in two cell files
     Json dup = Json::parse(p.read("worlds/town_cells/-1_2.scene.json"));
     dup["entities"][0]["id"] = "tree";
     p.write("worlds/town_cells/-1_2.scene.json", dup.dump(1));
-    const Json dupe = call_error(e, "world.merge_cells", Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.scene.json"}}));
+    const Json dupe = call_error(e, "world.merge_cells",
+                                 Json::object({{"world", "worlds/town.world.json"}, {"out", "scenes/m.scene.json"}}));
     CHECK(text_of(dupe).find("'tree'") != std::string::npos);
     CHECK(text_of(dupe).find("/entities/0") != std::string::npos);
     CHECK_FALSE(stdfs::exists(p.dir / "scenes/m.scene.json"));
 
     // A reference to an entity of another cell
     Json scene = town_scene();
-    scene["entities"][0]["components"]["Script"] = Json::object({{"path", "scripts/x.ts"}, {"props", Json::object({{"target", "rock"}})}});
+    scene["entities"][0]["components"]["Script"] =
+        Json::object({{"path", "scripts/x.ts"}, {"props", Json::object({{"target", "rock"}})}});
     p.write("scenes/ref.scene.json", scene.dump(1));
-    const Json r = call(e, "world.split_cells", Json::object({{"scene", "scenes/ref.scene.json"}, {"cellSize", 128}, {"out", "ref/town.world.json"}}));
+    const Json r =
+        call(e, "world.split_cells",
+             Json::object({{"scene", "scenes/ref.scene.json"}, {"cellSize", 128}, {"out", "ref/town.world.json"}}));
     REQUIRE(r["warnings"].size() == 1);
     const std::string w = r["warnings"][0].get<std::string>();
     CHECK(w.find("'ground'") != std::string::npos);
@@ -346,7 +407,8 @@ TEST_CASE("world.merge_cells: errors teach, and a cell reference across a border
 TEST_CASE("world.split_cells: a 2D scene is cut on the XY plane and merges back") {
     Project p;
     Json scene = Json::object({{"format", "factoria.scene/1"}, {"entities", Json::array()}});
-    for (const auto& [id, x, y] : std::vector<std::tuple<std::string, double, double>>{{"a", 5, 5}, {"b", 70, 5}, {"c", 5, -70}, {"d", 5, 300}, {"e", -3, 60}}) {
+    for (const auto& [id, x, y] : std::vector<std::tuple<std::string, double, double>>{
+             {"a", 5, 5}, {"b", 70, 5}, {"c", 5, -70}, {"d", 5, 300}, {"e", -3, 60}}) {
         Json en = entity(id, x, y, 0);
         en["components"]["Sprite"] = Json::object();
         scene["entities"].push_back(en);
@@ -355,7 +417,11 @@ TEST_CASE("world.split_cells: a 2D scene is cut on the XY plane and merges back"
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(p.config("scenes/town.scene.json"), nullptr, &err), err);
-    const Json r = call(e, "world.split_cells", Json::object({{"scene", "scenes/town.scene.json"}, {"cellSize", 64}, {"dimension", "2d"}, {"out", "w/side.world.json"}}));
+    const Json r = call(e, "world.split_cells",
+                        Json::object({{"scene", "scenes/town.scene.json"},
+                                      {"cellSize", 64},
+                                      {"dimension", "2d"},
+                                      {"out", "w/side.world.json"}}));
     CHECK(r["dimension"] == "2d");
     CHECK(r["cells"] == 5);
     const Json index = Json::parse(p.read("w/side.world.json"));
@@ -385,13 +451,19 @@ TEST_CASE("world.split_cells: the streamer loads the cells as the entities of th
     call(e, "world.split_cells", split_args());
     // The persistent scene plus a StreamedWorld that keeps every cell loaded
     Json persistent = Json::parse(p.read("worlds/town_persistent.scene.json"));
-    persistent["entities"].push_back(Json::object({{"id", "streamer"}, {"components", Json::object({{"StreamedWorld", Json::object({{"world", "worlds/town.world.json"}, {"keepLoaded", true}, {"maxAppliesPerFrame", 16}, {"maxLoadsInFlight", 8}})}})}}));
+    persistent["entities"].push_back(
+        Json::object({{"id", "streamer"},
+                      {"components", Json::object({{"StreamedWorld", Json::object({{"world", "worlds/town.world.json"},
+                                                                                   {"keepLoaded", true},
+                                                                                   {"maxAppliesPerFrame", 16},
+                                                                                   {"maxLoadsInFlight", 8}})}})}}));
     p.write("worlds/town_persistent.scene.json", persistent.dump(1));
     call(e, "scene.load", Json::object({{"path", "worlds/town_persistent.scene.json"}}));
     for (int f = 0; f < 600; ++f) {
         e.step(1);
         const Json s = call(e, "world.stream_status");
-        if (f > 2 && s["pending"].empty() && s["cellsQueued"].get<int>() == 0 && s["cellsUnloading"].get<int>() == 0) break;
+        if (f > 2 && s["pending"].empty() && s["cellsQueued"].get<int>() == 0 && s["cellsUnloading"].get<int>() == 0)
+            break;
     }
     const Json original = town_scene();
     std::map<std::string, Json> ids;

@@ -27,22 +27,25 @@ struct CellProject {
     Engine* engine = &engineStorage;
     CellProject() {
         dir = fs::make_temp_dir("fa_celledit").value();
-        write("factoria.json",
-              R"({"format":"factoria.project/1","name":"Cells","id":"com.example.cells","mainScene":"scenes/main.scene.json",
+        write(
+            "factoria.json",
+            R"({"format":"factoria.project/1","name":"Cells","id":"com.example.cells","mainScene":"scenes/main.scene.json",
                   "display":{"width":320,"height":180}})");
         write("scenes/main.scene.json",
               R"({"format":"factoria.scene/1","entities":[
                   {"id":"cam","components":{"Camera":{},"Transform":{"position":[0,5,0]}}},
                   {"id":"streamer","components":{"StreamedWorld":{"world":"worlds/w.world.json"}}}]})");
-        write("worlds/w.world.json", R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
+        write("worlds/w.world.json",
+              R"({"format":"factoria.world/1","version":1,"dimension":"3d","cellSize":100,"origin":[0,0],"cells":[
                   {"coord":[0,0],"scene":"worlds/w_cells/0_0.scene.json","bounds":{"min":[0,0,0],"max":[100,10,100]}},
                   {"coord":[1,0],"scene":"worlds/w_cells/1_0.scene.json","bounds":{"min":[100,0,0],"max":[200,10,100]}}]})");
         write("worlds/w_cells/0_0.scene.json",
               R"({"format":"factoria.scene/1","entities":[
                   {"id":"a","components":{"Transform":{"position":[10,1,10]}}},
                   {"id":"a2","components":{"Transform":{"position":[20,1,10]}}}]})");
-        write("worlds/w_cells/1_0.scene.json",
-              R"({"format":"factoria.scene/1","entities":[{"id":"b","components":{"Transform":{"position":[150,2,20]}}}]})");
+        write(
+            "worlds/w_cells/1_0.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"b","components":{"Transform":{"position":[150,2,20]}}}]})");
         EngineConfig c;
         c.projectDir = dir.generic_string();
         c.headless = true;

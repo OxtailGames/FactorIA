@@ -104,8 +104,8 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
                 "\", \"version\": 1, \"dimension\": \"3d\", \"cellSize\": 128, \"origin\": [0, 0], \"cells\": []}.");
         return finish();
     }
-    static const std::vector<std::string> topKeys = {"format",   "version", "dimension", "cellSize",
-                                                     "origin",   "cells",   "persistent"};
+    static const std::vector<std::string> topKeys = {"format", "version", "dimension", "cellSize",
+                                                     "origin", "cells",   "persistent"};
     for (auto it = json.begin(); it != json.end(); ++it) {
         const std::string& k = it.key();
         if (std::find(topKeys.begin(), topKeys.end(), k) != topKeys.end()) continue;
@@ -170,8 +170,10 @@ Result<WorldIndex> parse_world_index(const Json& json, std::string_view sourceNa
         const Json& p = json["persistent"];
         auto norm = p.is_string() ? fs::normalize_checked(p.get<std::string>()) : Result<std::string>(std::string());
         if (!p.is_string() || p.get<std::string>().empty())
-            add(issues, true, "/persistent", "\"persistent\" must be a project-relative scene path, got " + describe_json_value(p),
-                "Example: \"persistent\": \"worlds/town_main.scene.json\", the scene that holds what stays loaded; or leave it out.");
+            add(issues, true, "/persistent",
+                "\"persistent\" must be a project-relative scene path, got " + describe_json_value(p),
+                "Example: \"persistent\": \"worlds/town_main.scene.json\", the scene that holds what stays loaded; or "
+                "leave it out.");
         else if (!norm)
             add(issues, true, "/persistent", norm.error().message, norm.error().hint);
         else

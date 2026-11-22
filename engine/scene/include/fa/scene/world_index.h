@@ -59,7 +59,7 @@ struct WorldIndex {
     // The scene that holds what is not in any cell (the global entities and the scene's settings): "" = none. The streamer ignores
     // it; world.merge_cells and the editor's Cells panel read it. world.split_cells writes it.
     std::string persistent;
-    std::vector<WorldCell> cells;         // sorted by (j, i): the order every list and every tie-break uses
+    std::vector<WorldCell> cells;  // sorted by (j, i): the order every list and every tie-break uses
     // The cell with this coordinate, or null.
     const WorldCell* find(std::int32_t i, std::int32_t j) const;
     // The distance (on the plane) from the point (a, b) to the bounds of `cell`: 0 inside them.
