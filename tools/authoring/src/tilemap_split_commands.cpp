@@ -39,6 +39,22 @@ std::string project_path(const std::string& raw, const char* what) {
     return norm.value();
 }
 
+// A file this command writes (or, in a dry run, would write): the caller's write rules decide (writeProject, inside the
+// project, not .git/ or .factoria/, a symlinked folder that leaves the project, an absolute path only with WriteAnywhere).
+// A dry run writes nothing, so it needs no writeProject but is judged by the same path rules.
+std::string write_path(const std::string& raw, const char* what, bool dryRun) {
+    if (raw.empty())
+        fail(std::string("`") + what + "` is empty.", "Use a project-relative path such as worlds/level.world.json.");
+    if (!dryRun) return resolve_caller_project_path(raw, "tilemap.split_cells");
+    auto judged =
+        fs::resolve_for_write(raw, fs::WriteRoot::Project, caller_capabilities().has(Capability::WriteAnywhere));
+    if (!judged.ok()) {
+        const std::string code(fs::path_error_code(judged.error()));
+        throw CommandError(code.empty() ? "invalid_argument" : code, judged.error().message, judged.error().hint);
+    }
+    return fs::project_spelling(judged.value());
+}
+
 double number_at(const Json& v, std::size_t i, double fallback) {
     return v.is_array() && i < v.size() && v[i].is_number() ? v[i].get<double>() : fallback;
 }
@@ -82,14 +98,16 @@ Json split_cells(Engine::Impl&, const Json& args) {
     const bool overwrite = args.value("overwrite", false);
     std::string indexPath;
     if (args.contains("out") && args["out"].is_string()) {
-        indexPath = project_path(args["out"].get<std::string>(), "out");
+        indexPath = write_path(args["out"].get<std::string>(), "out", dryRun);
         if (!ends_with(indexPath, kIndexSuffix))
             fail("out '" + indexPath + "' does not end in " + kIndexSuffix + ".",
                  "Name the index like worlds/level.world.json; the chunk scenes go in a folder next to it "
                  "(worlds/level_cells/).");
     } else {
-        indexPath = ends_with(scenePath, ".scene.json") ? scenePath.substr(0, scenePath.size() - 11) + kIndexSuffix
-                                                        : scenePath + kIndexSuffix;
+        indexPath =
+            write_path(ends_with(scenePath, ".scene.json") ? scenePath.substr(0, scenePath.size() - 11) + kIndexSuffix
+                                                           : scenePath + kIndexSuffix,
+                       "out", dryRun);
     }
     const std::string cellDir = indexPath.substr(0, indexPath.size() - std::string(kIndexSuffix).size()) + "_cells";
 
@@ -161,8 +179,20 @@ Json split_cells(Engine::Impl&, const Json& args) {
                  "' is isometric: its cells are diamonds, which do not line up on a square grid of chunks.",
              "Split only orthogonal maps. Cut an isometric map by hand into several Tilemap entities.");
     Tilemap tm;
-    tm.width = fields.value("width", 0);
-    tm.height = fields.value("height", 0);
+    for (const char* key : {"width", "height"}) {
+        if (!fields.contains(key)) continue;
+        if (!fields[key].is_number_integer())
+            fail(pick->pointer + "/components/Tilemap/" + key + " of Tilemap '" + baseId +
+                     "' must be an integer, got " + fields[key].dump() + ".",
+                 std::string("Write ") + key + " as a whole number of tiles, for example 64.");
+        const std::int64_t n = std::clamp<std::int64_t>(fields[key].get<std::int64_t>(), 0, 1 << 20);
+        (key[0] == 'w' ? tm.width : tm.height) = int(n);
+    }
+    if (fields.contains("tileSize") && !(fields["tileSize"].is_array() && fields["tileSize"].size() == 2 &&
+                                         fields["tileSize"][0].is_number() && fields["tileSize"][1].is_number()))
+        fail(pick->pointer + "/components/Tilemap/tileSize of Tilemap '" + baseId + "' must be [width, height], got " +
+                 fields["tileSize"].dump() + ".",
+             "Write tileSize as two numbers, for example [16, 16].");
     if (fields.contains("tileSize")) {
         tm.tileSize.x = float(number_at(fields["tileSize"], 0, 16));
         tm.tileSize.y = float(number_at(fields["tileSize"], 1, 16));
@@ -240,7 +270,8 @@ Json split_cells(Engine::Impl&, const Json& args) {
             c.minY = cellMinY;
             c.maxX = std::min(cellMinX + double(c.w) * tile, cellMinX + cellSize);
             c.maxY = std::min(cellMinY + double(c.h) * tile, cellMinY + cellSize);
-            c.scene = cellDir + "/" + std::to_string(i) + "_" + std::to_string(j) + ".scene.json";
+            c.scene =
+                write_path(cellDir + "/" + std::to_string(i) + "_" + std::to_string(j) + ".scene.json", "out", dryRun);
             plans.push_back(std::move(c));
         }
     }
@@ -274,6 +305,16 @@ Json split_cells(Engine::Impl&, const Json& args) {
                  "internal");
     }
 
+    {  // the command promises never to change the source scene, whatever `overwrite` says
+        std::string clash;
+        if (fs::path_from_utf8(indexPath) == fs::path_from_utf8(scenePath)) clash = indexPath;
+        for (const ChunkPlan& c : plans)
+            if (clash.empty() && fs::path_from_utf8(c.scene) == fs::path_from_utf8(scenePath)) clash = c.scene;
+        if (!clash.empty())
+            fail("'" + clash + "' is the scene being split: the split never changes it.",
+                 "Pass another \"out\" (for example worlds/level.world.json) so the index and the chunks go to new "
+                 "files.");
+    }
     std::vector<std::string> clashes;
     if (!overwrite) {
         if (fs::exists(indexPath)) clashes.push_back(indexPath);

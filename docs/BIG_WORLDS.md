@@ -306,10 +306,14 @@ the rest.
   (default: the scene's name with `.world.json`) and the chunks to `<index name>_cells/<i>_<j>.scene.json`; `dryRun` lists them
   without writing; a second run over files that exist is refused unless `overwrite` is true. The result lists the files, the
   cell grid, `emptyCellsSkipped` and `notes`.
-- Cell `[i, j]` covers `origin + (i, j) * cellSize` on x and y; the map's top-left corner is on a cell corner (the index `origin`
-  is rounded to it). A cell with no tile at all is not written. Each chunk holds one Tilemap entity (the same name, tileset,
-  tile size, `solidTiles`, `terrains`, layers and other fields as the source) at the cell's top-left corner, with the tiles of
-  its square only (flip and rotation flags kept). Chunks of the last row and column are cut short, not padded.
+- Cell `[i, j]` covers `origin + (i, j) * cellSize` on x and y, counted from the BOTTOM-left corner of the map: the index
+  `origin` is that corner (the Tilemap's position minus its height), nothing is rounded, and when the map does not divide by
+  `cellSize` the top row and the right column of cells are the ones cut short, not padded. A cell with no tile at all is not
+  written. Each chunk holds one Tilemap entity (the same name, tileset, tile size, `solidTiles`, `terrains`, layers and other
+  fields as the source) at the cell's top-left corner, with the tiles of its square only (flip and rotation flags kept).
+- Files: the index and the chunks are written under the caller's write rules (project files only, never `.git/` or
+  `.factoria/`, a folder that is a symlink out of the project is refused, an absolute path only for a caller that may write
+  anywhere), and never over the source scene, `overwrite` or not.
 - The command is deterministic: the same scene and arguments give the same bytes. It never changes the source scene. Chunk files
   of an earlier split with more cells are not deleted: remove them by hand.
 - Rendering: chunks are separate Tilemap entities at exact multiples of the tile size, so tiles line up with no seam or gap.

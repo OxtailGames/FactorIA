@@ -274,7 +274,7 @@ TEST_CASE("tilemap.split_cells: writes the index and one chunk per cell, determi
     CHECK(wrong["message"].get<std::string>().find("ground") != std::string::npos);
     CHECK(call_error(e, "tilemap.split_cells",
                      Json::object({{"scene", "scenes/level.scene.json"}, {"out", "../x.world.json"}}))["code"] ==
-          "invalid_argument");
+          "path_outside_root");
 
     // a map with rectangular tiles, a scaled one and a scene without a map
     Json rect = map_entity("ground", 0, 0, 2, 2, {1, 1, 1, 1});
@@ -453,4 +453,64 @@ TEST_CASE("tilemap.split_cells: a body slides over the borders between chunks wi
             e.shutdown();
         }
     }
+}
+
+TEST_CASE(
+    "tilemap.split_cells: the files it writes follow the caller's write rules and never replace the source scene") {
+    Project p;
+    prepare_level(p);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config("scenes/level.scene.json"), nullptr, &err), err);
+    auto code_of = [&](const std::string& out, bool dryRun = false, bool overwrite = false) {
+        auto r = e.commands().call("tilemap.split_cells", Json::object({{"scene", "scenes/level.scene.json"},
+                                                                        {"cellSize", 16},
+                                                                        {"out", out},
+                                                                        {"dryRun", dryRun},
+                                                                        {"overwrite", overwrite}}));
+        return r.ok ? std::string("ok") : r.error.value("code", std::string());
+    };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        for (bool dry : {false, true}) {
+            INFO("dryRun " << dry);
+            CHECK(code_of(".factoria/a.world.json", dry) == "managed_path_denied");
+            CHECK(code_of(".git/x.world.json", dry) == "managed_path_denied");
+            CHECK(code_of((p.dir.parent_path() / "fa_split_outside.world.json").generic_string(), dry) ==
+                  "absolute_path_denied");
+            CHECK(code_of("../fa_split_escape.world.json", dry) == "path_outside_root");
+        }
+        CHECK_FALSE(stdfs::exists(p.dir / ".factoria" / "a.world.json"));
+        CHECK_FALSE(stdfs::exists(p.dir / ".git" / "x.world.json"));
+        CHECK(code_of("worlds/ok.world.json") == "ok");
+    }
+
+    // a folder that is a symlink out of the project is refused (skipped where symlinks cannot be made)
+    auto outside = fs::make_temp_dir("fa_tilesplit_out");
+    REQUIRE(outside.ok());
+    std::error_code ec;
+    stdfs::create_directory_symlink(outside.value(), p.dir / "linked", ec);
+    if (!ec) {
+        CHECK(code_of("linked/a.world.json") != "ok");
+        CHECK(code_of("linked/a.world.json", true) != "ok");
+        CHECK(stdfs::is_empty(outside.value()));
+    }
+    stdfs::remove_all(outside.value(), ec);
+
+    // the source scene is never replaced, even with overwrite
+    const std::string before = p.read("scenes/level.scene.json");
+    CHECK(code_of("scenes/level.scene.json", false, true) != "ok");  // not a .world.json: refused
+    CHECK(p.read("scenes/level.scene.json") == before);
+    p.write("scenes/level.world.json", "{}");
+    const Json clash =
+        call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/level.world.json"}, {"overwrite", true}}));
+    CHECK(clash.value("code", std::string()) != "");
+    CHECK(p.read("scenes/level.world.json") == "{}");
+
+    // a Tilemap with a width that is not a number teaches with the pointer
+    p.write(
+        "scenes/bad.scene.json",
+        R"({"format":"factoria.scene/1","entities":[{"id":"m","components":{"Tilemap":{"width":"wide","height":2,"tiles":[1,1]}}}]})");
+    const Json bad = call_error(e, "tilemap.split_cells", Json::object({{"scene", "scenes/bad.scene.json"}}));
+    CHECK(bad.dump().find("Tilemap/width") != std::string::npos);
 }

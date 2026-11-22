@@ -197,6 +197,8 @@ void Physics2D::shutdown() {
     order_.clear();
     lastWorld_ = nullptr;
     lastGravity_ = {1e30f, 1e30f};
+    seamSig_ = 0;
+    seamsInUse_ = false;
     inited_ = false;
 }
 
@@ -214,6 +216,8 @@ void Physics2D::reset() {
     order_.clear();
     lastWorld_ = nullptr;
     lastGravity_ = {1e30f, 1e30f};
+    seamSig_ = 0;
+    seamsInUse_ = false;
 }
 
 void Physics2D::ensure_world(World& world) {
@@ -471,8 +475,10 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
     sd.enableSensorEvents = false;
     sd.enableContactEvents = true;
     sd.enableHitEvents = true;
-    sd.enablePreSolveEvents =
-        true;  // pre_solve drops the contacts along a chunk border (update_tile_seams); the flag is read when a contact is made
+    // pre_solve drops the contacts along a chunk border (update_tile_seams). Box2D reads this flag when a contact is
+    // CREATED, and a neighbouring chunk can stream in while a body already touches this box, so the flag is on for every
+    // tile box (one cheap callback per tile contact per step) instead of only once a second map exists.
+    sd.enablePreSolveEvents = true;
     TileBody::Box box;
     box.c0 = c0;
     box.c1 = c1;
@@ -821,9 +827,10 @@ void Physics2D::update_tile_seams() {
                         if (std::fabs(gx - std::round(gx)) > 1e-3 || std::fabs(gy - std::round(gy)) > 1e-3) continue;
                         const double fc = (x - double(n->pos.x)) / double(n->tw),
                                      fr = (double(n->pos.y) - y) / double(n->th);
-                        if (fc < 0.0 || fr < 0.0) continue;
+                        if (!std::isfinite(fc) || !std::isfinite(fr) || fc < 0.0 || fr < 0.0 || fc >= double(n->cols) ||
+                            fr >= double(n->rows))
+                            continue;
                         const int c = int(fc), r = int(fr);
-                        if (c >= n->cols || r >= n->rows) continue;
                         if (n->boxAt[std::size_t(r) * std::size_t(n->cols) + std::size_t(c)] != 0u) return true;
                     }
                     return false;

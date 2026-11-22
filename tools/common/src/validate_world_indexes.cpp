@@ -89,7 +89,7 @@ void check_tilemap_chunks(const std::string& rel, const WorldIndex& index, std::
             if (!e.is_object() || !e.contains("components") || !e["components"].is_object() ||
                 !e["components"].contains("Tilemap") || !e["components"]["Tilemap"].is_object())
                 continue;
-            Json f = e["components"]["Tilemap"];
+            const Json& f = e["components"]["Tilemap"];
             const Json empty = Json::object();
             const Json& tr = e["components"].contains("Transform") && e["components"]["Transform"].is_object()
                                  ? e["components"]["Transform"]
