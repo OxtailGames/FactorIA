@@ -122,8 +122,9 @@ TEST_CASE("thermal erosion: a spike spreads into a cone no steeper than the talu
 
 namespace {
 
-// One pass at a time: the steepest slope never rises above the initial one (it may wobble a little while it falls) and
-// no height leaves the initial range (up to float rounding).
+// One pass at a time: every cell ends within the min/max of its 3 x 3 neighbourhood of the previous pass (the promise of
+// erode_thermal, 1e-3 margin), and no height leaves the initial range. The slope checks are what these three shapes do
+// at talus 20 on a 21 x 21 grid, not a promise: slopes only tend to fall.
 void check_no_overshoot(std::vector<float> v, int w, int h, float strength, int passes, const char* what) {
     float lo0 = 1e9f, hi0 = -1e9f;
     for (float x : v) lo0 = std::min(lo0, x), hi0 = std::max(hi0, x);
@@ -135,17 +136,31 @@ void check_no_overshoot(std::vector<float> v, int w, int h, float strength, int 
     float slope = slope0;
     for (int it = 0; it < passes; ++it) {
         INFO(what << ", strength " << strength << ", pass " << it);
+        const std::vector<float> prev = v;
         auto r = erode_thermal(view(v, w, h), p);
         REQUIRE(r.ok());
         const float next = max_slope(v, w, h, 1.0f);
         CHECK(next <= slope0 * 1.0001f);
         if (it == 0) CHECK(next < slope0 * 0.9f);  // the first pass already flattens the worst slope
         slope = next;
-        for (float x : v) {
-            REQUIRE(x <= hi0 + 1e-3f);
-            REQUIRE(x >= lo0 - 1e-3f);
-        }
+        for (int j = 0; j < h; ++j)
+            for (int i = 0; i < w; ++i) {
+                float lo = 1e9f, hi = -1e9f;
+                for (int dj = -1; dj <= 1; ++dj)
+                    for (int di = -1; di <= 1; ++di) {
+                        const int x = i + di, y = j + dj;
+                        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                        const float q = prev[std::size_t(y) * w + x];
+                        lo = std::min(lo, q), hi = std::max(hi, q);
+                    }
+                const float now = v[std::size_t(j) * w + i];
+                REQUIRE(now <= hi + 1e-3f);
+                REQUIRE(now >= lo - 1e-3f);
+                REQUIRE(now <= hi0 + 1e-3f);
+                REQUIRE(now >= lo0 - 1e-3f);
+            }
     }
+    // 60 passes of strength >= 0.5 on a 21 x 21 grid at talus 20 spread each shape out over most of the grid.
     CHECK(slope < slope0 * 0.25f);
 }
 
@@ -177,7 +192,7 @@ TEST_CASE("thermal erosion: a pit, a spike and a checkerboard never overshoot, w
     auto r = erode_thermal(view(pit, w, h), p);
     REQUIRE(r.ok());
     CHECK(pit[10 * w + 10] <= 50.0f + 1e-3f);
-    CHECK(pit[10 * w + 10] > 20.0f);
+    CHECK(pit[10 * w + 10] > 20.0f);  // talus 35, strength 0.5: the 8 donors offer ~100 each, so it is ~half filled
     CHECK(std::fabs(r->volumeAfter - r->volumeBefore) < 1e-2);
 }
 

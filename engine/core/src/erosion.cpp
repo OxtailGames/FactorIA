@@ -159,10 +159,10 @@ Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalE
             "Erode the terrain in tiles with a margin of a few cells, or resample it to fewer samples.");
     if (auto r = check_finite(field, "erode_thermal"); !r) return r.error();
 
-    std::vector<float> moved, esum, other;  // ratio, accept, the next heights
+    std::vector<float> ratioBuf, acceptBuf, other;  // give per unit of excess, share accepted, the next heights
     try {
-        moved.assign(std::size_t(cells), 0.0f);
-        esum.assign(std::size_t(cells), 0.0f);
+        ratioBuf.assign(std::size_t(cells), 0.0f);
+        acceptBuf.assign(std::size_t(cells), 0.0f);
         other.assign(std::size_t(cells), 0.0f);
     } catch (const std::bad_alloc&) {
         return make_error(
@@ -189,8 +189,8 @@ Result<ErosionResult> erode_thermal(const HeightfieldView& field, const ThermalE
     // receivers take, so the volume is kept and no cell leaves the height range of its 3 x 3 neighbourhood.
     float* src = field.heights.data();
     float* dst = other.data();
-    float* ratio = moved.data();
-    float* accept = esum.data();
+    float* ratio = ratioBuf.data();
+    float* accept = acceptBuf.data();
     std::vector<double> rowMoved(std::size_t(h), 0.0);
     double movedTotal = 0;
     for (int it = 0; it < params.iterations; ++it) {

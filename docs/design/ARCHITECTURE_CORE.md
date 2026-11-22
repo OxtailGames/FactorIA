@@ -157,11 +157,14 @@ is deliberately untouched: its outputs are baked into fixtures.
   Tileable noise (a wrapping period) is not offered; tile by origin instead.
 - **Erosion.** A `HeightfieldView` (`span<float>`, width, height, cellSize in metres) is changed in place and an
   `ErosionResult` reports the work done, the volume before and after (`sum of heights * cellSize^2`) and the volume moved.
-  `erode_thermal(field, ThermalErosionParams{iterations, talusAngle, strength})` is a Jacobi step in three passes (what each cell
-  offers to its lower neighbours, how much of its inflow each receiver accepts, then the transfers), run on the jobs system in
-  rows: thread-count independent. A receiver accepts at most half the way up to its lowest donor and donors lose only what
-  was accepted, so no height leaves the range of its 3 x 3 neighbourhood (a pit or a spike never overshoots, the steepest slope
-  never rises above the initial one) and the total height is conserved (nothing leaves the grid). `erode_hydraulic(field, HydraulicErosionParams, ErosionMasks)` is the
+  `erode_thermal(field, ThermalErosionParams{iterations, talusAngle, strength})` is a Jacobi step in three passes (what
+  each cell offers to its lower neighbours, how much of its inflow each receiver accepts, then the transfers), run on
+  the jobs system in rows: thread-count independent. A receiver accepts at most half the way up to its lowest donor and
+  donors lose only what was accepted. What holds: the sum of the heights is kept (up to float rounding; nothing leaves
+  the grid), and every cell ends a pass within the range of its 3 x 3 neighbourhood of the previous pass, so a 1-cell
+  pit or spike does not overshoot (tested). Slopes tend to fall, but there is no bound per pass and none on the
+  steepest slope.
+  `erode_hydraulic(field, HydraulicErosionParams, ErosionMasks)` is the
   droplet model (inertia, capacity, deposition, erosion, evaporation, gravity, brush `radius`, `maxLifetime`). It is SERIAL on
   purpose: droplets change the heights the next droplet reads, so a split over threads would make the result depend on the
   order they run; droplets come from a PCG stream seeded with `seed`. A droplet drops what it carries when it ends, so the
