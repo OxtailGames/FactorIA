@@ -101,19 +101,20 @@ The schema is `schemas/world.schema.json`.
 - `scene` is a project-relative scene file. `sizeBytes` is optional (a hint for the debug view).
 - Cells are listed in any order; the engine sorts them by `[j, i]` and uses that order to break every tie.
 
-`factoria validate` and the loader check the index when it is first needed and refuse it with every problem found (the first
+`factoria validate` (the command `project.validate`) checks every `*.world.json` of the project, every cell's scene file included however big the index is, and the
+streamer checks the index when it first needs it; either refuses it with every problem found (the first
 eight in the message, then "and N more"): each one has the file, the JSON pointer (`worlds/main.world.json#/cells/4/bounds/max`),
 what is wrong and how to fix it. Two cells with the same `coord` name both entries; a scene file that does not exist says
 "Did you mean" with the files that do; bounds outside the cell say which axis and what the cell covers. A wrong index loads
 nothing and `world.stream_status` shows the text in `lastError`; it is read again only when the `StreamedWorld.world` path
-changes. An index of more than 4096 cells is not checked file by file when it is read (a cell whose file is missing then fails
-when it is loaded, and is reported the same way).
+changes. The streamer does not check the files of an index of more than 4096 cells when it reads it (a cell whose file is missing then
+fails when it is loaded and is reported the same way); `factoria validate` always checks them all.
 
 ### The component `StreamedWorld`
 
 Put it on one entity of the main scene. `world` is the path of the index; `enabled` (default true) turns streaming off, and
 everything loaded unloads; `maxLoadsInFlight` (default 2, 1 to 16) is how many cells load at the same time; `maxAppliesPerFrame`
-(default 1, 1 to 64) is how many cells are added to or removed from the world per frame; `keepLoaded` loads every cell whatever
+(default 1, 1 to 64) is how many cells are added to or removed from the world per frame; `keepLoaded` (a debug aid: it costs O(cells) per fixed tick) loads every cell whatever
 the anchors say; `cameraLoadRadius` and `cameraUnloadRadius` make the active camera an anchor (0, the default, means it is not:
 put a `StreamingAnchor` on the player instead; an unload radius of 0 means 1.25 times the load radius). Only the first enabled
 `StreamedWorld` of the scene counts, and a second one is a warning in the log.
@@ -131,7 +132,8 @@ Every fixed tick the streamer reads the anchors (every enabled `StreamingAnchor`
 - the wanted cells are started in the order of the highest `priority` of the anchors that want them, then the smallest distance,
   then `[j, i]`; at most `maxLoadsInFlight` at a time (a cell counts as in flight from the start of its load until it is applied);
 - a load that is queued or running for a cell that is no longer kept is cancelled, and its result is thrown away; a cell that
-  fails to load is not tried again until it has left the wanted set.
+  fails to load (a missing or broken file) is tried again after 120 fixed ticks while it is still wanted, at once when it has left
+  the wanted set and come back, and `lastError` of `world.stream_status` clears when that cell loads well.
 
 ### How a cell is loaded
 

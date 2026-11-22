@@ -90,6 +90,8 @@ std::vector<WorldStreamer::Anchor> WorldStreamer::gather_anchors(const Settings&
         if (!a.enabled || !world_.active_in_hierarchy(e)) return;
         Anchor an;
         absolute_plane_position(index_, world_.world_position(e), an.a, an.b);
+        if (!std::isfinite(an.a) || !std::isfinite(an.b))
+            return;  // NaN or infinite position (a script's bug): it loads nothing
         an.loadRadius = std::max(0.0, double(a.loadRadius));
         an.unloadRadius = std::max(an.loadRadius, double(a.unloadRadius));
         an.priority = a.priority;
@@ -113,7 +115,7 @@ std::vector<WorldStreamer::Anchor> WorldStreamer::gather_anchors(const Settings&
             an.loadRadius = double(s.cameraLoad);
             an.unloadRadius = s.cameraUnload > s.cameraLoad ? double(s.cameraUnload) : double(s.cameraLoad) * 1.25;
             an.priority = 0;
-            out.push_back(an);
+            if (std::isfinite(an.a) && std::isfinite(an.b)) out.push_back(an);
         }
     }
     return out;
@@ -136,6 +138,7 @@ void WorldStreamer::load_index(const std::string& path) {
     indexPath_ = path;
     failedPath_.clear();
     lastError_.clear();
+    lastErrorCell_.clear();
     cells_.assign(index_.cells.size(), CellState{});
     minI_ = std::numeric_limits<std::int64_t>::max();
     maxI_ = std::numeric_limits<std::int64_t>::min();
@@ -226,13 +229,20 @@ void WorldStreamer::do_apply(std::size_t idx) {
     opts.parent = root;
     opts.streamedCell = true;
     const LoadReport report = load_scene(world_, *st.doc, cell.scene, opts);
+    bool hadError = false;
     for (const LoadMessage& m : report.messages) {
         if (m.severity == LoadMessage::Severity::Error) {
+            hadError = true;
+            lastErrorCell_ = cell.id();
             lastError_ = m.to_string();
             FA_WARN("stream", "{}", m.to_string());
         } else {
             FA_WARN("stream", "{}", m.to_string());
         }
+    }
+    if (!hadError && lastErrorCell_ == cell.id()) {  // the cell that last failed loads fine now: the error is over
+        lastError_.clear();
+        lastErrorCell_.clear();
     }
     st.root = root;
     st.entities = count_subtree(world_, root) - 1;
@@ -295,6 +305,8 @@ void WorldStreamer::reset() {
     indexPath_.clear();
     failedPath_.clear();
     lastError_.clear();
+    lastErrorCell_.clear();
+    tick_ = 0;
     settings_ = Settings{};
     minI_ = 0;
     maxI_ = -1;
@@ -307,6 +319,7 @@ void WorldStreamer::reset() {
 }
 
 void WorldStreamer::update() {
+    ++tick_;
     settings_ = read_settings();
     const Settings& s = settings_;
     if (!s.found || s.world.empty()) {  // no streamed world (any more): what is loaded goes
@@ -384,8 +397,10 @@ void WorldStreamer::update() {
             case State::Unloaded: break;
         }
     }
+    // A failed cell is tried again once it has left the wanted set, or after kRetryTicks fixed ticks while it is still wanted (a
+    // count, not a time: the same run retries on the same tick on every machine). Another index path forgets every failure at once.
     for (std::size_t idx : std::vector<std::size_t>(failed_.begin(), failed_.end()))
-        if (!eval_of(idx).want) {
+        if (!eval_of(idx).want || tick_ - cells_[idx].failedAtTick >= std::uint64_t(kRetryTicks)) {
             cells_[idx].failed = false;
             failed_.erase(idx);
         }
@@ -420,8 +435,10 @@ void WorldStreamer::update() {
                                BackgroundLoader::Origin::Tool, nullptr);
         if (!r) {
             st.failed = true;
+            st.failedAtTick = tick_;
             failed_.insert(q.idx);
             set_state(q.idx, State::Unloaded);
+            lastErrorCell_ = cell.id();
             lastError_ = "cell " + cell.id() + ": " + r.error().message;
             FA_WARN("stream", "{} {}", lastError_, r.error().hint);
             continue;
@@ -453,8 +470,10 @@ void WorldStreamer::apply(std::vector<BackgroundLoader::CellResult>& results, in
         st.bytes = r.bytes;
         if (!r.error.empty() || !r.scene) {
             st.failed = true;
+            st.failedAtTick = tick_;
             failed_.insert(found);
             st.job = 0;
+            lastErrorCell_ = index_.cells[found].id();
             lastError_ =
                 "cell " + index_.cells[found].id() + ": " + r.error + (r.hint.empty() ? std::string() : " " + r.hint);
             FA_WARN("stream", "{}", lastError_);
