@@ -115,7 +115,7 @@ void Editor::draw_export_window() {
         ImGui::SameLine();
         ImGui::TextColored(kWarn, "Platform settings have unsaved changes: an export uses the saved ones.");
     }
-    if (dirty_) {
+    if (dirty()) {
         ImGui::TextColored(kWarn, "The scene has unsaved changes: the export packages the version on disk.");
         ImGui::SameLine();
         ImGui::BeginDisabled(play_ != PlayState::Edit);

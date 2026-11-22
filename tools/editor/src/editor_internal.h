@@ -57,6 +57,7 @@
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
 #include "ai_asset_approval.h"
+#include "cell_edit.h"
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
@@ -222,7 +223,12 @@ public:
     void install_command_overrides();
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);  // keepUndo: Ctrl+Z brings back what was on screen before
-    void restore_scene(const Json& snapshot);
+    // `withCells` false: the cells carried in the snapshot ("$cells") are not put back (Play streams them by distance and suspends the
+    // editor's cells); true: they come back, and the cells loaded since the snapshot stay as they are (cell_edit.h).
+    void restore_scene(const Json& snapshot, bool withCells = true);
+    // snapshot_scene plus the cells loaded for editing, under "$cells" (snapshot_scene leaves streamed cells out): what the undo stack,
+    // Play and the AI's revert keep. restore_scene reads it back.
+    Json snapshot_state();
     void
     reset_feel_choices();  // feel.reduceMotion / reducedEffects back to following the system (a Play session starts and ends)
 
@@ -273,8 +279,12 @@ public:
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
     // Returns true when it pushed a new snapshot entry (false: coalesced into the last one, or not in edit mode).
     bool begin_edit(const std::string& key);
-    void mark_dirty() { dirty_ = true; }
-    bool dirty() const { return dirty_; }
+    void mark_dirty() {
+        dirty_ = true;
+        cells_.note_edit();
+    }
+    // Unsaved changes: the open scene, or a cell of a streamed world that is loaded for editing (Cells panel).
+    bool dirty() const { return dirty_ || cells_.any_dirty(); }
     void undo();
     void redo();
     // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
@@ -745,6 +755,32 @@ public:
     void lightmap_poll();
     LightmapUi lightmap_;
     bool showLightmap_ = false;
+
+    // Cells panel (cells_panel.cpp; View > Cells): editing a streamed world (docs/BIG_WORLDS.md, "Editing a streamed world"). `cells_` is the
+    // model (cell_edit.h): which cells are loaded as editable entities, which are dirty, Save. The panel lists the cells nearest the view,
+    // loads / unloads / selects them, and the viewport draws their grid (cells_overlay) in the colours of the list. Edit mode only: Play
+    // streams by distance and the editor's cells are put back at Stop.
+    struct CellsUi {
+        int radiusCells = 1;      // "Load around": how many cells out from the camera's cell
+        bool overlay = true;      // draw the grid in the viewport
+        std::int32_t askI = 0, askJ = 0;  // the dirty cell the "unload?" question is about
+        bool ask = false;
+        std::string status;       // the last result line of the panel
+        std::vector<CellRow> rows;  // the list, rebuilt when the view cell or the state changes
+        std::int64_t rowsKey = INT64_MIN;
+        std::int32_t focusI = 0, focusJ = 0;
+        bool hasFocus = false;
+    };
+    void draw_cells_panel();
+    void draw_cells_overlay(ImDrawList* dl, Renderer& r, const std::function<ImVec2(Vec3)>& project);
+    void cells_refresh_rows();  // cellsUi_.rows: the loaded cells and the nearest ones of the index, when the view or the state changed
+    bool cells_view_point(double& a, double& b);  // the camera's position on the world's plane (absolute metres)
+    bool cells_load_around_view(std::string* message);
+    bool cells_save(bool only, std::int32_t i, std::int32_t j);
+    void cells_inspector_line(Entity e);  // "Cell: 1,0" under the entity's name (inspector_panel.cpp)
+    CellEdit cells_;
+    CellsUi cellsUi_;
+    bool showCells_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -1879,6 +1915,7 @@ public:
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
+    void at_section_W2(AtScript& at);  // autotest_cells.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp
