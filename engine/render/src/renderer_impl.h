@@ -31,6 +31,7 @@
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "renderer_env.h"
+#include "renderer_lod.h"
 #include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
@@ -506,6 +507,7 @@ struct Renderer::Impl {
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
+    LodFades lodFades;  // the levels of detail the cameras picked and the cross-fades running (renderer_lod.h)
     InstanceParamCache instanceParams;  // the packed per-instance material params of each entity (mesh_batch.h)
     struct JobPlan {
         // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a

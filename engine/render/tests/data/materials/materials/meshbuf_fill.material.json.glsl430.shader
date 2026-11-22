@@ -1,6 +1,6 @@
 {
   "format": "factoria.shader/1",
-  "engine": "0.33.0",
+  "engine": "0.34.0",
   "template": "60177e0de1a42674d2e25fce0459f055d4bbaa0faf939ebaf036f3e7d4d67c34",
   "slang": "glsl430",
   "params": [

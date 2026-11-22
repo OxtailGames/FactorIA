@@ -147,6 +147,73 @@ Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, 
     return {probe_snap(p.x), probe_snap(p.y), probe_snap(p.z)};
 }
 
+// The LodGroups (M75.1): for each active group, which meshes sit under each of its children, and the sphere around all of them (the
+// whole subtree, whichever child is drawn, so the screen size does not change when the level does). Runs after the boxes and matrices of
+// the meshes are known.
+void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
+    // Entity index -> index in meshes_ (kNoMesh = none): a flat table the scene keeps between builds, no hashing. A stale entity (the
+    // slot was reused) is told apart by the entity the mesh holds.
+    constexpr std::uint32_t kNoMesh = UINT32_MAX;
+    std::uint32_t slots = 0;
+    for (const SceneMesh& sm : meshes_) slots = std::max(slots, sm.entity.index + 1);
+    meshOf_.assign(slots, kNoMesh);
+    for (std::size_t i = 0; i < meshes_.size(); ++i) meshOf_[meshes_[i].entity.index] = std::uint32_t(i);
+    const auto mesh_of = [&](Entity x) {
+        if (x.index >= meshOf_.size() || meshOf_[x.index] == kNoMesh) return kNoMesh;
+        return meshes_[meshOf_[x.index]].entity == x ? meshOf_[x.index] : kNoMesh;
+    };
+    world.each<LodGroup>([&](Entity e, LodGroup& g) {
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
+        SceneLodGroup& sg = lodGroups_.emplace_back();
+        sg.entity = e;
+        sg.group = &g;
+        sg.origin = world.drawn_matrix(e).translation();
+    });
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> links;  // (mesh index, chain entry)
+    std::vector<Entity> stack;
+    for (std::size_t gi = 0; gi < lodGroups_.size(); ++gi) {
+        SceneLodGroup& sg = lodGroups_[gi];
+        const std::vector<Entity>& kids = world.children(sg.entity);
+        sg.children = int(kids.size());
+        Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+        bool any = false;
+        for (std::size_t ci = 0; ci < kids.size(); ++ci) {
+            const std::uint32_t child = ci <= std::size_t(kMaxLodThresholds) ? std::uint32_t(ci) : 15u;
+            stack.assign(1, kids[ci]);
+            while (!stack.empty()) {
+                const Entity x = stack.back();
+                stack.pop_back();
+                if (const std::uint32_t found = mesh_of(x); found != kNoMesh) {
+                    const SceneMesh& sm = meshes_[found];
+                    links.emplace_back(found, (std::uint32_t(gi) << 4) | child);
+                    for (int c = 0; c < 8; ++c) {
+                        const Vec3 p =
+                            sm.model.transform_point({(c & 1) ? sm.bmax.x : sm.bmin.x, (c & 2) ? sm.bmax.y : sm.bmin.y,
+                                                      (c & 4) ? sm.bmax.z : sm.bmin.z});
+                        lo = min(lo, p);
+                        hi = max(hi, p);
+                    }
+                    any = true;
+                }
+                for (Entity k : world.children(x)) stack.push_back(k);
+            }
+        }
+        if (any) {
+            sg.radius = 0.5f * length(hi - lo);
+        }
+    }
+    std::stable_sort(links.begin(), links.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    lodChains_.reserve(links.size());
+    for (std::size_t i = 0; i < links.size();) {
+        SceneMesh& sm = meshes_[links[i].first];
+        sm.chainFirst = std::uint32_t(lodChains_.size());
+        std::size_t j = i;
+        for (; j < links.size() && links[j].first == links[i].first; ++j) lodChains_.push_back(links[j].second);
+        sm.chainCount = std::uint32_t(j - i);
+        i = j;
+    }
+}
+
 void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
                         const std::vector<ProbeVolume>* probeVolumes) {
     meshes_.clear();
@@ -326,6 +393,11 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     });
     if (wholeWorld) hashes_.end_frame();
 
+    lodGroups_.clear();
+    lodChains_.clear();
+    anyLods_ = false;
+    if (world.any<LodGroup>()) build_lod_groups(world, scopeRoot);
+
     // The sort keys, once for every camera: ranks of names and values over the whole scene (a rebuilt table, so nothing
     // accumulates across frames). The lod levels are ranked too, for the cameras that swap them in.
     fields_.resize(meshes_.size());
@@ -336,6 +408,7 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
                       sm.entity,     sm.anim,  sm.material,           sm.paramsHash,
                       sm.colorsHash, sm.flash, sm.lm.mesh != nullptr, sm.probeKey};
         if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
+        anyLods_ = true;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;
             const auto m = e.find("mesh");

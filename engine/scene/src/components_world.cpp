@@ -452,11 +452,15 @@ void register_world_components(TypeRegistry& r) {
          "LodGroup",
          "The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The "
          "entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from "
-         "thresholds[i] on; only the child of the current level is drawn. With hlodProxy set, the whole group is drawn "
-         "as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world). The "
-         "units of every threshold are set by `mode`. No effect yet: M75.1 draws it (docs/BIG_WORLDS.md, \"Levels of "
-         "detail\"); the "
-         "fields are saved and checked today.",
+         "thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the "
+         "meshes of the other children and their descendants are skipped; lights, particles and the rest of a "
+         "skipped child are not touched). The camera of the main view chooses the "
+         "level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for "
+         "its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy "
+         "set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a "
+         "cell of a streamed world): the proxy has no effect yet, a later M75 package draws it. The units of every "
+         "threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS.md, \"Levels of "
+         "detail\").",
          "3D")
         .enum_field(
             "mode", &LodGroup::mode, {"distance", "screenSize"},
@@ -465,16 +469,20 @@ void register_world_components(TypeRegistry& r) {
             "(every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in "
             "perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is "
             "a fraction, so a threshold means the same at every resolution; it does change with the field of "
-            "view, the zoom and the size of the object.")
+            "view, the zoom and the size of the object. The distance d is the one to the group entity's origin.")
         .field("thresholds", &LodGroup::thresholds,
                "One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode "
                "distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions "
                "0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the "
                "last children unused. [] (default) = the first child is always drawn.")
         .range(0, 100000)
-        .field("crossFade", &LodGroup::crossFade,
-               "Seconds a switch between two levels fades over (a dithered cross-fade, no pop). 0 (default) = a hard "
-               "switch. 0..5.")
+        .field(
+            "crossFade", &LodGroup::crossFade,
+            "Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are "
+            "drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh "
+            "whose material is a full shader or a custom material that is not alphaMode \"clip\", or that has "
+            "subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See "
+            "MeshRenderer.lodCrossFade.")
         .range(0, 5)
         .asset_field("hlodProxy", &LodGroup::hlodProxy, "mesh",
                      "Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of "
