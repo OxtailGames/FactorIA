@@ -168,7 +168,7 @@ edit in memory.
 
 ### Editing foliage in the editor
 
-View > Foliage tool ([docs/editor/EDITOR_PANELS.md](editor/EDITOR_PANELS.md#foliage-tool)) is the brush of `foliage.paint` on the selected
+View > Foliage tool ([docs/editor/EDITOR_FOLIAGE.md](editor/EDITOR_FOLIAGE.md#foliage-tool)) is the brush of `foliage.paint` on the selected
 Foliage, on the terrain of its `ScatterRule.terrain` (else its own `Terrain3D`, else its parent's). The stamps of a stroke are sent as a few
 `foliage.paint {points}` pieces, the first without `continueStroke` and the next ones with it, so a stroke is ONE step of the Foliage's
 history and ONE editor undo entry (`foliage.undo` / `foliage.redo`), pushed at the release. What a piece costs is the rewrite of the whole
@@ -271,7 +271,9 @@ added to `renderStats.meshes`; each (mesh, LOD) batch is one entry of `meshBatch
 metre), `minSpacing`, `slopeRange` (degrees), `heightRange` and `scaleRange`, `alignToNormal` (0..1), `layerMask` (bit mask of the
 terrain layers it grows on, -1 = any), `seed` (the same rule and seed give the same instances) and `terrain` (the entity with the
 `Terrain`; empty = this entity or its parent). `foliage.scatter` writes into ONE `Foliage` entity: it sets its `meshes` to all the
-meshes of the rule and fills the instances file with their indices. ### Foliage commands
+meshes of the rule and fills the instances file with their indices.
+
+### Foliage commands
 
 They live in `fa_authoring` (the editor, the CLI and MCP have them; a shipped game does not) and write the instances file with
 `write_foliage`, so the renderer reloads it by itself. The editor's brush (View > Foliage tool, "Editing foliage in the editor" below)
