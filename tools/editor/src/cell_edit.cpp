@@ -74,6 +74,8 @@ void CellEdit::reset() {
     pending_ = false;
     suspended_ = false;
     indexDirty_ = false;
+    touched_.clear();
+    sweepLeft_ = 0;
 }
 
 const WorldCell* CellEdit::find_cell(const Key& k) const { return index_.find(k.i, k.j); }
@@ -255,21 +257,72 @@ Entity CellEdit::root_of(std::int32_t i, std::int32_t j) const {
 }
 
 // ------------------------------------------------------------------------------------------------ dirty
+void CellEdit::note_edit(const World& world, Entity e) {
+    if (slots_.empty()) return;
+    if (e.is_null() || !world.alive(e)) {
+        pending_ = true;  // gone: which cell it was in is not known
+        return;
+    }
+    std::int32_t i = 0, j = 0;
+    if (cell_of_entity(world, e, i, j)) touched_.insert({i, j});
+    sweepLeft_ = slots_.size();  // an entity outside every cell can still have been moved into one
+}
+
 void CellEdit::update(World& world, bool busy) {
-    if (!pending_ || suspended_ || busy) return;
+    if (suspended_ || busy) return;
+    if (!pending_ && touched_.empty() && sweepLeft_ == 0) return;
+    const bool all = pending_;
     pending_ = false;
+    const std::uint64_t emptyHash = fnv1a(Json::array().dump());
     std::vector<Key> gone;
     for (auto& [k, s] : slots_) {
-        if (s.root.is_null() || !world.alive(s.root)) {
-            gone.push_back(k);  // its root was deleted: the cell is closed, its file is unchanged
+        if (s.rootGone) {
+            s.current = emptyHash;  // nothing to read: the cell is empty until Undo brings its entities back
             continue;
         }
-        s.current = fingerprint(world, s.root);
+        if (s.root.is_null() || !world.alive(s.root)) {
+            gone.push_back(k);
+            continue;
+        }
+        if (all) s.current = fingerprint(world, s.root);
     }
     for (const Key& k : gone) {
-        warnings_ =
-            "The root entity of cell " + key_text(k) + " was deleted: the cell is closed and its file is unchanged.";
-        slots_.erase(k);
+        Slot& s = slots_[k];
+        if (s.isNew || s.current != s.baseline) {
+            // Unsaved changes of a cell whose root was deleted: keep the cell, empty, as unsaved. Save writes it empty, Undo
+            // brings the entities back; nothing is dropped silently.
+            s.root = Entity{};
+            s.rootGone = true;
+            s.current = emptyHash;
+            warnings_ = "The root entity of cell " + key_text(k) +
+                        " was deleted while the cell had unsaved changes: the cell is "
+                        "now empty and unsaved. Save writes it empty; Undo brings it back.";
+        } else {
+            warnings_ = "The root entity of cell " + key_text(k) +
+                        " was deleted: the cell is closed and its file is unchanged.";
+            slots_.erase(k);
+        }
+    }
+    if (all) {
+        touched_.clear();
+        sweepLeft_ = 0;
+        return;
+    }
+    for (const Key& k : touched_) {
+        auto it = slots_.find(k);
+        if (it != slots_.end() && !it->second.rootGone && !it->second.root.is_null())
+            it->second.current = fingerprint(world, it->second.root);
+    }
+    touched_.clear();
+    if (sweepLeft_ > 0 && !slots_.empty()) {  // one more cell of the lap
+        auto it = slots_.upper_bound(sweepAfter_);
+        if (it == slots_.end()) it = slots_.begin();
+        sweepAfter_ = it->first;
+        if (!it->second.rootGone && !it->second.root.is_null())
+            it->second.current = fingerprint(world, it->second.root);
+        --sweepLeft_;
+    } else {
+        sweepLeft_ = 0;
     }
 }
 
@@ -351,6 +404,7 @@ std::vector<CellRow> CellEdit::rows(const World& world, double a, double b, std:
         }
         r.loaded = true;
         r.dirty = s.isNew || s.current != s.baseline;
+        r.rootGone = s.rootGone;
         r.entities = s.root.is_null() || !world.alive(s.root) ? 0 : std::int64_t(world.children(s.root).size());
         out.push_back(std::move(r));
     }
@@ -386,7 +440,9 @@ Json CellEdit::capture(World& world) {
     Json out = Json::object();
     if (suspended_) return out;
     for (auto& [k, s] : slots_)
-        if (!s.root.is_null() && world.alive(s.root))
+        if (s.rootGone)
+            out[key_text(k)] = Json::array();  // deleted root: the cell is empty in the snapshot too
+        else if (!s.root.is_null() && world.alive(s.root))
             out[key_text(k)] = entities_json(world, s.root, PrefabSave::Marks);
     return out;
 }
@@ -423,6 +479,8 @@ void CellEdit::restore(World& world, const Json& snap, const Json& keep) {
         if (!place(world, k, s, entities, &err)) {
             warnings_ = err;
             failed.push_back(k);
+        } else {
+            s.rootGone = false;
         }
     }
     for (const Key& k : failed) slots_.erase(k);
@@ -512,6 +570,44 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
     }
     if (std::string bad = allowed(indexPath_, "The index"); !bad.empty()) return fail(bad + " Nothing was saved.");
 
+    // The index this save implies must be valid BEFORE anything in memory changes (the cells that are loaded or made, the re-file): a
+    // coordinate out of range, too many cells or a bad path fails here and leaves the editor exactly as it was.
+    const bool d3 = index_.dimension == WorldDimension::D3;
+    auto new_cell = [&](const Key& k, const std::string& scene, bool haveY, double minY, double maxY) {
+        WorldCell n;
+        n.i = k.i;
+        n.j = k.j;
+        n.scene = scene;
+        const double a0 = index_.originA + double(k.i) * index_.cellSize,
+                     b0 = index_.originB + double(k.j) * index_.cellSize;
+        if (d3) {
+            n.boundsMin = Vec3{float(a0), float(haveY ? minY : 0.0), float(b0)};
+            n.boundsMax = Vec3{float(a0 + index_.cellSize), float(haveY ? maxY : 0.0), float(b0 + index_.cellSize)};
+        } else {
+            n.boundsMin = Vec3{float(a0), float(b0), 0.0f};
+            n.boundsMax = Vec3{float(a0 + index_.cellSize), float(b0 + index_.cellSize), 0.0f};
+        }
+        return n;
+    };
+    {
+        WorldIndex probe = index_;
+        bool addsCell = false;
+        for (const Key& k : writeSet) {
+            if (find_cell(k)) continue;
+            auto it = slots_.find(k);
+            probe.cells.push_back(new_cell(k, it != slots_.end() ? it->second.scene : new_cell_path(k), false, 0, 0));
+            addsCell = true;
+        }
+        if (addsCell) {
+            WorldIndexOptions opts;
+            opts.checkFiles = false;
+            auto checked = parse_world_index(world_index_to_json(probe), indexPath_, opts);
+            if (!checked.ok())
+                return fail("The index would be invalid after this save: " + checked.error().message + " (" +
+                            checked.error().hint + ") Nothing was saved; the entities stay where they are.");
+        }
+    }
+
     // 3. The cells that receive entities are loaded (or made).
     std::vector<Key> added;
     for (const Key& t : targets) {
@@ -552,19 +648,19 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
     std::map<Key, Json> docs;
     WorldIndex next = index_;
     bool indexChange = false;
-    const bool d3 = index_.dimension == WorldDimension::D3;
     for (const Key& k : writeSet) {
         auto it = slots_.find(k);
-        if (it == slots_.end() || it->second.root.is_null()) continue;
+        if (it == slots_.end() || (it->second.root.is_null() && !it->second.rootGone)) continue;
         Slot& s = it->second;
         Json file = s.top;
         if (!file.is_object()) file = Json::object();
         if (!file.contains("format")) file["format"] = kSceneFormat;
-        file["entities"] = entities_json(world, s.root, PrefabSave::Keep);
-        // The bounds only grow: the plane rectangle is the cell's own, the height widens to what its entities need.
+        file["entities"] = s.rootGone ? Json::array() : entities_json(world, s.root, PrefabSave::Keep);
+        // The plane rectangle is the cell's own and never changes; the height range is recomputed from the cell's entities (a cell
+        // without any keeps the range it has).
         double minY = 0, maxY = 0;
         bool haveY = false;
-        if (d3)
+        if (d3 && !s.rootGone)
             for (Entity c : world.children(s.root)) {
                 const double y = world.absolute_position(c).y;
                 minY = haveY ? std::min(minY, y) : y;
@@ -574,28 +670,23 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         WorldCell* wc = nullptr;
         for (WorldCell& c : next.cells)
             if (c.i == k.i && c.j == k.j) wc = &c;
+        const std::int64_t bytes = std::int64_t(dump_scene_json(file).size());
         if (!wc) {
-            WorldCell n;
-            n.i = k.i;
-            n.j = k.j;
-            n.scene = s.scene;
-            const double a0 = next.originA + double(k.i) * next.cellSize,
-                         b0 = next.originB + double(k.j) * next.cellSize;
-            if (d3) {
-                n.boundsMin = Vec3{float(a0), float(haveY ? minY : 0.0), float(b0)};
-                n.boundsMax = Vec3{float(a0 + next.cellSize), float(haveY ? maxY : 0.0), float(b0 + next.cellSize)};
-            } else {
-                n.boundsMin = Vec3{float(a0), float(b0), 0.0f};
-                n.boundsMax = Vec3{float(a0 + next.cellSize), float(b0 + next.cellSize), 0.0f};
-            }
-            n.sizeBytes = std::int64_t(dump_scene_json(file).size());
+            WorldCell n = new_cell(k, s.scene, haveY, minY, maxY);
+            n.sizeBytes = bytes;
             next.cells.push_back(std::move(n));
             indexChange = true;
-        } else if (d3 && haveY && (float(minY) < wc->boundsMin.y || float(maxY) > wc->boundsMax.y)) {
-            wc->boundsMin.y = std::min(wc->boundsMin.y, float(minY));
-            wc->boundsMax.y = std::max(wc->boundsMax.y, float(maxY));
-            if (wc->sizeBytes >= 0) wc->sizeBytes = std::int64_t(dump_scene_json(file).size());
-            indexChange = true;
+        } else {
+            if (d3 && haveY && (float(minY) != wc->boundsMin.y || float(maxY) != wc->boundsMax.y)) {
+                wc->boundsMin.y = float(minY);
+                wc->boundsMax.y = float(maxY);
+                indexChange = true;
+            }
+            // sizeBytes is a hint the index may not list (-1); when it does, it follows the file just written.
+            if (wc->sizeBytes >= 0 && wc->sizeBytes != bytes) {
+                wc->sizeBytes = bytes;
+                indexChange = true;
+            }
         }
         docs[k] = std::move(file);
     }
@@ -632,6 +723,15 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         s.baseline = s.current;
         s.isNew = false;
         rep.written.push_back(s.scene);
+    }
+    for (auto it = slots_.begin(); it != slots_.end();) {
+        if (it->second.rootGone && it->second.current == it->second.baseline && !it->second.isNew) {
+            rep.notes.push_back("Cell " + key_text(it->first) +
+                                " was written empty (its root entity had been deleted) and is closed.");
+            it = slots_.erase(it);
+        } else {
+            ++it;
+        }
     }
     if (writeIndex) {
         index_ = next;
