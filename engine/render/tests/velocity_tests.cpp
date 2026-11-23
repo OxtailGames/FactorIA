@@ -18,10 +18,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include "fa/core/engine_version.h"
+#include "fa/core/log.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/foliage.h"
 #include "fa/scene/impostor.h"
@@ -251,7 +254,10 @@ TEST_CASE("velocity: the layout of the previous model's attributes follows the s
     CHECK(prepass_prev_attr(true, true, e) == -1);
     buf.bufferInst = true;
     CHECK(prepass_prev_attr(true, true, buf) == -1);
-    CHECK(kVelocitySkinJoints == 32);  // two palettes of 3 x 32 rows fill the 192 vec4 of the skin block
+    // The previous palette is an image of 192 texels a skinned draw (the 64 joints of the loader, 3 texels each), in rows of the same width as
+    // the light data image whose pool writes it, and the shader reads texel t at (t & 1023, t >> 10).
+    CHECK(kPrevPaletteTexels == 3 * kMaxSkinJoints);
+    CHECK(kPrevPaletteWidth == 1024);
     // Only the temporal antialiasing asks for it, and only a frame that draws it.
     CHECK(post_effect_needs_velocity(PostEffect::TemporalAA));
     CHECK_FALSE(post_effect_needs_velocity(PostEffect::Ssao));
@@ -812,32 +818,163 @@ TEST_CASE("velocity: a skinned mesh holds the motion of its pose, of its entity,
     }
 }
 
-TEST_CASE("velocity: a skin of more than 32 joints keeps the sentinel, never a wrong vector") {
+// A skin of `joints` joints whose "Tip" is the last one (render/tests/data/make_skinned_two_bone.py): the vertices of the upper rings read a
+// joint far past the 32nd. The "Slide" clip moves the whole column by 1 m between two poses, the entity stays: the vector of a point of the
+// column is that motion, whichever ring (Root alone, the blend, Tip alone) the point is nearest to.
+void check_big_skin(const char* file, std::size_t joints) {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    install_file_from_repo("engine/render/tests/data/skinned_forty_joints.gltf", "assets/rig.gltf");
+    install_file_from_repo(file, "assets/rig.gltf");
     Own o(g);
     REQUIRE_MESSAGE(o.ok, o.error);
     World w;
     const Entity cam = add_camera(w, {0, 1, 5});
     const Entity rig = add_rig(w, "Slide");
     update_animators(w, 0.0f);
-    REQUIRE(w.get<Animator>(rig)->palette.size() > std::size_t(kVelocitySkinJoints));
+    REQUIRE(w.get<Animator>(rig)->palette.size() == joints);
     o.frame(w);
     update_animators(w, 0.6f);
     o.frame(w);
     const Mat4 vp = matrix_of(o, cam);
     const Vel v = read_vel(o);
-    int x, y;
-    pixel_of(vp, {1.0f, 1.0f, -0.25f}, x, y);
-    CHECK(v.none(x, y));  // drawn (the prepass wrote its depth, the picture shows it) but with no motion of its own
-    // The same pixel of a frame without the skin is the sky's sentinel too, so check that the column is really there.
-    int lit = 0;
-    for (int dy = -4; dy <= 4; dy += 4)
-        for (int dx = -4; dx <= 4; dx += 4) lit += v.none(x + dx, y + dy) ? 1 : 0;
-    CHECK(lit == 9);
-    const Image img = o.draw(w);
-    CHECK(img.pixel(x, y).r > 0.5f);
+    for (const float y : {0.3f, 1.0f, 1.7f}) {
+        const Vec3 at{1.0f, y, -0.25f};
+        const Vec2 want = front_face_motion(vp, {1, 0, 0}, at);
+        int x, py;
+        pixel_of(vp, at, x, py);
+        CAPTURE(y);
+        REQUIRE_FALSE(v.none(x, py));  // a vector, not the sentinel
+        CHECK(std::fabs(want.x) > 0.05f);
+        CHECK(v.at(x, py).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+        CHECK(v.at(x, py).y == doctest::Approx(want.y).epsilon(0.0).scale(1.0).epsilon(0.003));
+    }
+    // The picture itself is the skinned one: the column is where the pose puts it.
+    int x, py;
+    pixel_of(vp, {1.0f, 1.0f, -0.25f}, x, py);
+    CHECK(o.draw(w).pixel(x, py).r > 0.5f);
+}
+
+TEST_CASE("velocity: a skin of 40 joints has real vectors (the palette of the frame before is read from an image, not "
+          "a uniform block)") {
+    check_big_skin("engine/render/tests/data/skinned_forty_joints.gltf", 40);
+}
+
+TEST_CASE("velocity: a skin of 64 joints has real vectors, with the joint of the upper rings at index 63") {
+    check_big_skin("engine/render/tests/data/skinned_sixty_four_joints.gltf", 64);
+}
+
+TEST_CASE("velocity: a skinned mesh of 64 joints draws the same picture with and without the velocity image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_sixty_four_joints.gltf", "assets/rig.gltf");
+    Own on(g, true), off(g, false);
+    REQUIRE_MESSAGE(on.ok, on.error);
+    REQUIRE_MESSAGE(off.ok, off.error);
+    render::renderer_force_post_effects(
+        on.r, 1u << int(PostEffect::Ssao));  // `off` draws the prepass too, so only the second attachment differs
+    render::renderer_force_post_effects(off.r, 1u << int(PostEffect::Ssao));
+    auto run = [&](Own& o) {
+        World w;
+        add_camera(w, {0, 1, 5});
+        add_rig(w, "Slide");
+        update_animators(w, 0.0f);
+        o.frame(w);
+        update_animators(w, 0.6f);
+        return o.draw(w);
+    };
+    const Image a = run(on);
+    const Image b = run(off);
+    REQUIRE(a.rgba.size() == b.rgba.size());
+    CHECK(a.rgba == b.rgba);
+    render::renderer_force_post_effects(on.r, 0);
+    render::renderer_force_post_effects(off.r, 0);
+}
+
+namespace {
+// The warnings the engine logged (category "render") while alive.
+struct RenderWarnings {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    RenderWarnings()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level != LogLevel::Warn || e.category != "render") return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~RenderWarnings() { remove_log_sink(id); }
+    RenderWarnings(const RenderWarnings&) = delete;
+    RenderWarnings& operator=(const RenderWarnings&) = delete;
+    int count(const char* needle) const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        int n = 0;
+        for (const std::string& m : shared->lines) n += m.find(needle) != std::string::npos ? 1 : 0;
+        return n;
+    }
+};
+}  // namespace
+
+TEST_CASE("velocity: a GPU with no RG16F target makes no velocity image and no prepass for it, warns once, and the TAA "
+          "reprojects from the camera") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    RenderWarnings warnings;
+    auto has = [](Own& o, const char* needle) {
+        const FrameGraph* gr = renderer_frame_graph(o.r);
+        REQUIRE(gr != nullptr);
+        for (const std::string& n : gr->order_names())
+            if (n.find(needle) != std::string::npos) return true;
+        return false;
+    };
+    std::vector<float> px;
+    int vw = 0, vh = 0;
+    std::string err;
+    {
+        // The temporal antialiasing asks for the velocity (and, for its depth reprojection, for the prepass): the prepass is drawn with one
+        // attachment, the effect runs with its history, and nothing reads a velocity image.
+        Own o(g, true);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        RendererTestAccess::force_no_velocity_target(o.r, true);
+        World w;
+        const Entity cam = add_camera(w, {0, 0, 10});
+        const Entity cube = add_cube(w, {0, 0, 0});
+        camera_post(w, cam).temporalAAEnabled = true;
+        for (int f = 1; f <= 4; ++f) {
+            w.advance_clock(1.0 / 60.0);
+            move_to(w, cube, {0.05f * float(f), 0, 0});
+            o.frame(w);
+        }
+        CHECK(has(o, "taa-resolve"));
+        CHECK(RendererTestAccess::taa_used_history(o.r, cam));
+        CHECK(has(o, "prepass"));
+        CHECK_FALSE(has(o, "velocity-probe"));
+        CHECK_FALSE(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 1);  // one warning for the four frames
+        // The same renderer with the target back: the image exists, and no second warning.
+        RendererTestAccess::force_no_velocity_target(o.r, false);
+        w.advance_clock(1.0 / 60.0);
+        o.frame(w);
+        CHECK(has(o, "velocity-probe"));
+        CHECK(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 1);
+    }
+    {
+        // Nothing but the velocity asks (the test hook): there is no reason for a prepass, so none is drawn.
+        Own o(g, true);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        RendererTestAccess::force_no_velocity_target(o.r, true);
+        World w;
+        add_camera(w, {0, 0, 10});
+        add_cube(w, {0, 0, 0});
+        o.frame(w);
+        o.frame(w);
+        CHECK_FALSE(has(o, "prepass"));
+        CHECK_FALSE(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 2);  // one a renderer
+    }
 }
 
 TEST_CASE("velocity: a material's vertex() runs for the previous position with the game time of the frame before") {

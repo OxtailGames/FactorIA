@@ -5,16 +5,20 @@ Ring 0 is weighted to Root, ring 1 half and half, ring 2 to Tip. Clips (buffer e
   Bend    LINEAR rotation of Tip about Z, 0 -> 90 degrees over 1 s.
   Slide   STEP translation of Root: x = 0 (t 0), 1 (t 0.5), 2 (t 1).
   Spline  CUBICSPLINE translation of Tip from (0,1,0) to (0,2,0) over 1 s, out tangent of key 0 = (1,0,0).
-Run: python make_skinned_two_bone.py  (the scene tests check the numbers against hand-computed values). Also writes skinned_forty_joints.gltf: the same column with a skin of 40 joints (M76-P1b).
+Run: python make_skinned_two_bone.py  (the scene tests check the numbers against hand-computed values). Also writes skinned_forty_joints.gltf and
+skinned_sixty_four_joints.gltf (M76-P1b, P1c): the same column with a skin of 40 and of 64 joints, the most the loader takes. The joints in
+between carry no vertex and "Tip" is the LAST joint of the skin (index 39 and 63), so the vertices of the upper rings read a joint far past
+the first 32 of the palette.
 """
 import base64, json, math, struct, pathlib
 
 def build(extra):
+    tip = extra + 1  # index of "Tip" in the skin: after Root and the joints that carry nothing
     pos, jnt, wgt = [], [], []
     for ring, y in enumerate((0.0, 1.0, 2.0)):
         for x, z in ((-.25, -.25), (.25, -.25), (.25, .25), (-.25, .25)):
             pos.append((x, y, z))
-            jnt.append((0, 0, 0, 0) if ring == 0 else (0, 1, 0, 0) if ring == 1 else (1, 0, 0, 0))
+            jnt.append((0, 0, 0, 0) if ring == 0 else (0, tip, 0, 0) if ring == 1 else (tip, 0, 0, 0))
             wgt.append((1, 0, 0, 0) if ring != 1 else (.5, .5, 0, 0))
     idx = []
     for r in range(2):
@@ -52,8 +56,9 @@ def build(extra):
     ja = acc(add(b"".join(struct.pack("<4B", *j) for j in jnt), 34962), 5121, 12, "VEC4")
     wa = acc(add(b"".join(struct.pack("<4f", *w) for w in wgt), 34962), 5126, 12, "VEC4")
     ia = acc(add(b"".join(struct.pack("<H", i) for i in idx), 34963), 5123, len(idx), "SCALAR")
-    ibm = acc(add(f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) + f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1)
-                   + f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) * extra), 5126, 2 + extra, "MAT4")
+    ibm = acc(add(f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+                   + f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) * extra
+                   + f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1)), 5126, 2 + extra, "MAT4")
     t01 = acc(add(f(0, 1)), 5126, 2, "SCALAR", min=[0], max=[1])
     bend = acc(add(f(0, 0, 0, 1, 0, 0, s, s)), 5126, 2, "VEC4")
     t3 = acc(add(f(0, .5, 1)), 5126, 3, "SCALAR", min=[0], max=[1])
@@ -68,7 +73,7 @@ def build(extra):
                   {"name": "Root", "children": [2] + [3 + i for i in range(extra)]},
                   {"name": "Tip", "translation": [0, 1, 0]}] + [{"name": "Extra%d" % i} for i in range(extra)],
         "meshes": [{"name": "Column", "primitives": [{"attributes": {"POSITION": pa, "JOINTS_0": ja, "WEIGHTS_0": wa}, "indices": ia}]}],
-        "skins": [{"name": "Rig", "joints": [1, 2] + [3 + i for i in range(extra)], "inverseBindMatrices": ibm, "skeleton": 1}],
+        "skins": [{"name": "Rig", "joints": [1] + [3 + i for i in range(extra)] + [2], "inverseBindMatrices": ibm, "skeleton": 1}],
         "animations": [
             {"name": "Bend", "samplers": [{"input": t01, "output": bend, "interpolation": "LINEAR"}],
              "channels": [{"sampler": 0, "target": {"node": 2, "path": "rotation"}}]},
@@ -85,9 +90,8 @@ def build(extra):
 
 
 here = pathlib.Path(__file__).parent
-# The rig of the tests (two joints) and the same column with a skin of 40 joints (38 of them carry no vertex), one more than the 32 the
-# motion vectors of a skinned mesh can keep a previous palette for (render_internal.h kVelocitySkinJoints).
-for name, extra in (("skinned_two_bone.gltf", 0), ("skinned_forty_joints.gltf", 38)):
+# The rig of the tests (two joints) and the same column with a skin of 40 and of 64 joints (all but two carry no vertex).
+for name, extra in (("skinned_two_bone.gltf", 0), ("skinned_forty_joints.gltf", 38), ("skinned_sixty_four_joints.gltf", 62)):
     out = here / name
     out.write_text(json.dumps(build(extra), indent=1))
     print("wrote", out)
