@@ -221,8 +221,7 @@ with its JSON pointer, and nothing is written. `model.game_ready {path, lodChain
 
 Skinned meshes are refused: the simplifier moves and removes vertices and the skin weights would not follow, so `model.generate_lods`
 on the `.glb` of a rig says so and points at the static model (`rig.bake` reads it); a `.glb` that no model document baked is
-refused with `model.import_clean` as the way to make a document of it. Only the screen-size LOD of the renderer (P1a) draws the chain
-by `screenSize`; until then `lodMode: "screenSize"` entries are saved and checked, not yet selected.
+refused with `model.import_clean` as the way to make a document of it. The renderer's screen-size LOD (P1a) selects the chain's levels by `screenSize`.
 
 ## Occlusion (M75.2)
 
@@ -370,8 +369,9 @@ It is conservative like the CPU path, with the costs of one frame of latency:
 - A picture taken with `screenshot` or `render.capture` of a camera makes no pyramid and uses none (the depth picture of a frame
   comes back when the next frame begins, which a capture never reaches): the Occluders cull it, it never reuses, replaces or ages
   the pyramid of the game's camera, and `render.occlusion` keeps showing the last frame's numbers.
-- A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps (up to 6 per frame): the limit is
-  48 steps whatever `fixedHz` is, so a 240 Hz project does not draw everything on every frame.
+- A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps. The engine's loop runs at most
+  5 per frame (the rest of a backlog is dropped); the clock allows for 6 per frame, so the limit is 48 steps whatever `fixedHz` is,
+  and a 240 Hz project does not draw everything on every frame.
 - **Not culled**: shadow passes (a hidden mesh still casts its shadow), orthographic cameras (they keep the CPU Occluders),
   a camera view's picture and a capture of a camera, reflection probe, GI and light-probe captures, and sprites, 2D, particles
   and UI as for the CPU path. `showTags` and `hideTags` are applied before the test, and a LOD or HLOD pick is made first, so the

@@ -159,8 +159,8 @@ struct RenderStats {
     // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
     // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
     int sceneCopies = 0;
-    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. Each is zero until the package named on it draws
-    // something (game.render_stats, perf.measure and the budgets of perf.check read them).
+    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. Each is zero while its feature is not in use
+    // (no Occluder, no Terrain, no Foliage...) (game.render_stats, perf.measure and the budgets of perf.check read them).
     int occluders =
         0;  // M75.2: Occluder entities rasterised into the occlusion depth buffer (0 with no enabled Occluder)
     int occlusionTests =

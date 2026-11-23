@@ -172,7 +172,7 @@ void register_postprocess_component(TypeRegistry& r) {
                "Switches the bloom on: a glow around bright pixels. Cost: "
                "a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider "
                "bloomRadius) and one "
-               "composite pass over the frame; see docs/RENDERING.md for the measured cost.")
+               "composite pass over the frame; see docs/rendering/RENDERING_POSTPROCESS.md for what the effects cost.")
         .field("bloomIntensity", &PostProcess::bloomIntensity,
                "Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none).")
         .range(0, 10)
