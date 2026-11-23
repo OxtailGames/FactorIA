@@ -41,7 +41,8 @@ enum class SsaoQuality : std::int32_t { Low, Medium, High, Ultra };
 // The effects of the stack in the canonical ORDER they run in, written once. Everything up to Bloom works on scene-linear HDR
 // colour (before the tonemap); Tonemap brings it to the display range; the rest work on the display-referred picture.
 // Why this order: ambient occlusion, reflections, fog and sun shafts belong to the lighting of the scene; the exposure scales
-// the lit scene before any effect that depends on how bright it is; depth of field and the blurs (motion, radial) act on the
+// the lit scene before any effect that depends on how bright it is; the temporal antialiasing resolves the jittered frames of
+// the lit, exposed HDR picture before anything blurs it (a blur before it would be smeared by the history); depth of field and the blurs (motion, radial) act on the
 // scene before the lens effects (distortion, chromatic aberration) and the bloom, which glows from what the lens shows; the
 // tonemap and the colour grading make the picture; vignette, sharpen, outline, pixelate and posterize are then looks drawn on
 // the finished picture; grain goes over everything but the colour filter, which stays the LAST pass (the accessibility filter
@@ -52,6 +53,7 @@ enum class PostEffect : std::int32_t {
     Fog,
     SunShafts,
     Exposure,
+    TemporalAA,
     DepthOfField,
     MotionBlur,
     RadialBlur,
@@ -73,11 +75,27 @@ inline constexpr int kPostEffectCount = int(PostEffect::Count);
 
 // The name of each effect, in canonical order: the prefix of its PostProcess fields and the name `render.supports` and the
 // postprocess.* commands use.
-inline constexpr std::array<std::string_view, kPostEffectCount> kPostEffectOrder = {
-    "ssao",         "ssr",        "fog",          "sunShafts",      "exposure",
-    "depthOfField", "motionBlur", "radialBlur",   "lensDistortion", "chromaticAberration",
-    "bloom",        "tonemap",    "colorGrading", "vignette",       "sharpen",
-    "outline",      "pixelate",   "posterize",    "filmGrain",      "colorFilter"};
+inline constexpr std::array<std::string_view, kPostEffectCount> kPostEffectOrder = {"ssao",
+                                                                                    "ssr",
+                                                                                    "fog",
+                                                                                    "sunShafts",
+                                                                                    "exposure",
+                                                                                    "temporalAA",
+                                                                                    "depthOfField",
+                                                                                    "motionBlur",
+                                                                                    "radialBlur",
+                                                                                    "lensDistortion",
+                                                                                    "chromaticAberration",
+                                                                                    "bloom",
+                                                                                    "tonemap",
+                                                                                    "colorGrading",
+                                                                                    "vignette",
+                                                                                    "sharpen",
+                                                                                    "outline",
+                                                                                    "pixelate",
+                                                                                    "posterize",
+                                                                                    "filmGrain",
+                                                                                    "colorFilter"};
 
 constexpr std::string_view post_effect_name(PostEffect e) { return kPostEffectOrder[std::size_t(e)]; }
 // True for the effects that run on scene-linear HDR colour (up to and including the bloom), false after the tonemap.
@@ -212,6 +230,17 @@ struct PostProcess {
     float depthOfFieldNearBlur = 6.0f;    // largest blur in design pixels in front of the focus
     float depthOfFieldFarBlur = 8.0f;     // largest blur in design pixels behind the focus
     bool depthOfFieldBokeh = true;        // true: a disc blur where bright points become discs; false: a smooth blur
+
+    // --- temporalAA: antialiasing from the frames before (M76) -------------------------------------------------------------------
+    // Planned (M76-P2): stored and blended today, drawn by a later package (render.supports temporalAA says "planned (M76)").
+    bool temporalAAEnabled = false;
+    float temporalAAFeedback =
+        0.9f;  // 0.5..0.98: the share of the picture taken from the history (higher = smoother, ghosts more)
+    float temporalAASharpen = 0.25f;  // 0..1: sharpening that gives back what the history blur takes away
+    float temporalAAVarianceGamma =
+        1.0f;  // 0.5..2: how far the history may stray from the neighbours before it is clipped
+    float temporalAAReactiveScale =
+        1.0f;  // 0..4: how much the reactive mask (particles, fast objects) shortens the history
 
     // --- motionBlur: smear from the camera's movement (from depth) ---------------------------------------------------------------
     bool motionBlurEnabled = false;

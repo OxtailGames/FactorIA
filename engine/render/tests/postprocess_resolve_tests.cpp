@@ -416,6 +416,18 @@ TEST_CASE("custom post passes: the display-referred places parse, the ones that 
     }
 }
 
+TEST_CASE("custom post passes: the temporal antialiasing (M76) is no place, and the message names the ones that are") {
+    for (const char* name : {"before:temporalAA", "after:temporalAA"}) {
+        INFO(name);
+        auto bad = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE_FALSE(bad.ok());
+        CHECK(bad.error().message.find("/p/position") != std::string::npos);
+        CHECK(bad.error().hint.find("is not a place") != std::string::npos);
+        CHECK(bad.error().hint.find("temporal antialiasing") != std::string::npos);
+        CHECK(bad.error().hint.find("before:depthOfField") != std::string::npos);
+    }
+}
+
 TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in order; an unreadable entry is reported") {
     Scene s;
     s.world.add<PostProcess>(s.cam);
@@ -575,8 +587,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the 5 planned rows of M76 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + 5 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -666,7 +678,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
             continue;
         }
         CHECK_FALSE(supported(full, std::string(e).c_str(), &why));
-        CHECK(why == "planned (M71)");
+        CHECK(why == (e == "temporalAA" ? "planned (M76)" : "planned (M71)"));  // M76-P0 plans temporalAA
     }
     // hdrOutput can never exist where there is no HDR swapchain; the answer names the backend, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gl), "hdrOutput", &why));
@@ -675,6 +687,33 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name.
+TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
+    const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
+    for (const char* name : {"motionVectors", "spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
+        CAPTURE(name);
+        const int i = find_feature(name);
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        REQUIRE(feature_table()[std::size_t(i)].planned != nullptr);
+        CHECK(std::string(feature_table()[std::size_t(i)].planned) == "M76");
+        std::string why;
+        CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
+        CHECK(why == "planned (M76)");
+    }
+    const unsigned metalBit = 1u << int(FeatureBackend::Metal);
+    CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
+    CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
+    CHECK((feature_table()[std::size_t(find_feature("temporalUpscaler"))].backends & (1u << int(FeatureBackend::Gl))) !=
+          0);
+    // The effect row of the temporal antialiasing: planned for M76, not drawn, and no engine row of the same name.
+    std::string why;
+    CHECK_FALSE(supported(full, "temporalAA", &why));
+    CHECK(why == "planned (M76)");
+    CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].kind == FeatureKind::Effect);
+    CHECK(((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) == 0);
 }
 
 // (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)

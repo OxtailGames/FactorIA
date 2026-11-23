@@ -1016,10 +1016,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, "
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
-         "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage) or effect "
+         "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
+         "all planned: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only), dynamicResolution; "
+         "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
-         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, and temporalAA, planned for M76); "
+         "`backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
          "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
@@ -1176,6 +1179,75 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             return I.renderer->light_probes_report(I.world, e);
         });
+
+    I.commands.add(
+        {"render.upscaler",
+         "Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.",
+         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, auto), "
+         "`quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no "
+         "argument it returns the setting; with any of the three it changes those and keeps the rest. Returns "
+         "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
+         "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
+         "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
+         "It only stores and reports: the renderer draws every mode as \"stretch\" (effectiveMode) until the packages "
+         "that draw the others land, so the picture does not change yet. The start value is factoria.json "
+         "\"render\": {\"upscaler\": {...}}; window.upscaler in scripts is the same setting. A wrong name or number "
+         "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
+         "graphics=false too (the value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), auto (the best this GPU can draw)."},
+               "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"],"description":"How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height."},
+               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "quality", "sharpness"}, "render.upscaler");
+            const render::UpscalerSettings before = I.self->upscaler();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_upscaler(a, "render.upscaler");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.upscaler with no argument to read the setting.");
+                changed = I.self->upscaler() != before;
+            }
+            const render::UpscalerSettings now = I.self->upscaler();
+            Json out = render::upscaler_to_json(now);
+            out["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(now)));
+            out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
+            out["changed"] = changed;
+            return out;
+        });
+
+    // graphics.preset and graphics.detect: the names, arguments and docs are fixed here (M76-P0); the package that builds them (P6a)
+    // replaces the handler and keeps the rest. Until then each fails with `not_built` and changes nothing (the M75 pattern).
+    for (const char* name : {"graphics.preset", "graphics.detect"}) {
+        const bool preset = std::string_view(name) == "graphics.preset";
+        const std::string cmd = name;
+        I.commands.add(
+            {name,
+             preset ? "Apply a graphics preset (low, medium, high, ultra) to the render settings of the game."
+                    : "Measure this device and pick the graphics preset that suits it.",
+             preset ? std::string("Will set the settings a graphics options menu offers (render scale, upscaler, "
+                                  "shadows, ambient occlusion, "
+                                  "antialiasing ...) to the values of the preset `name`: low, medium, high or ultra "
+                                  "(custom = what the game "
+                                  "set itself; it cannot be applied). Result: {preset, changes}. Example: "
+                                  "graphics.preset {\"name\":\"high\"}")
+                    : std::string("Will read the device (game.device: GPU backend, memory, tier) and answer the preset "
+                                  "that suits it, "
+                                  "without changing anything. Result: {preset, reason}. Example: graphics.detect {}"),
+             preset ? parse_schema(R"({"type":"object","properties":{
+               "name":{"type":"string","enum":["low","medium","high","ultra"],"description":"The preset to apply (case does not matter)."}},"required":["name"]})")
+                    : parse_schema(R"({"type":"object","properties":{}})"),
+             !preset, "game"},
+            [cmd](const Json&) -> Json {
+                throw CommandError("not_built", cmd + " is not built yet: it is planned for M76.",
+                                   "The graphics presets are built by M76 (docs/UPSCALING.md). Until then set the "
+                                   "settings one by one: "
+                                   "window.renderScale, window.upscaler or render.upscaler, and the PostProcess "
+                                   "fields. Nothing was changed.");
+            });
+    }
 
     I.commands.add(
         {"render.output",
@@ -1348,6 +1420,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.upscaler", capability_sets::changes_state()},
+                                                 {"graphics.preset", capability_sets::changes_state()},
+                                                 {"graphics.detect", capability_sets::reads()},
                                                  {"render.material_cost", capability_sets::reads()},
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},

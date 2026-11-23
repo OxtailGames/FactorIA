@@ -44,6 +44,7 @@ const PostProcess& postprocess_neutral() {
         p.fogHeightDensity = 0.0f;
         p.sunShaftsIntensity = 0.0f;
         p.radialBlurIntensity = 0.0f;
+        p.temporalAASharpen = 0.0f;
         return p;
     }();
     return neutral;
@@ -56,7 +57,8 @@ void register_postprocess_component(TypeRegistry& r) {
          "grain, lens "
          "distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, "
          "reflections, fog, sun "
-         "shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's "
+         "shafts, radial blur, temporal antialiasing, colour filter), every one off by default. On the entity of a "
+         "Camera it is that camera's "
          "own stack. "
          "On any other entity it is a VOLUME: shape \"global\" applies to every camera, \"box\", \"circle\" (2D, x and "
          "y) and "
@@ -69,10 +71,12 @@ void register_postprocess_component(TypeRegistry& r) {
          "switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, "
          "vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named "
          "`<effect><Parameter>`. "
-         "The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, "
+         "The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, temporalAA, depthOfField, motionBlur, "
+         "radialBlur, "
          "lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, "
          "outline, "
-         "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; "
+         "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn except temporalAA "
+         "(planned, M76); "
          "render.supports {\"feature\": \"<effect>\"} says whether this backend and GPU can run it (an effect "
          "needs float targets, a depth image or both) and why not. The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
@@ -435,6 +439,32 @@ void register_postprocess_component(TypeRegistry& r) {
         .field("ssaoRadius", &PostProcess::ssaoRadius,
                "Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it.")
         .range(0.01f, 20)
+
+        // temporalAA
+        .field("temporalAAEnabled", &PostProcess::temporalAAEnabled,
+               "Switches the temporal antialiasing on: the camera is shaken by a sub-pixel amount every frame and the "
+               "frames are blended into a clean, smooth edge (it also resolves a render scale or an upscaler of "
+               "render.upscaler, M76). Planned (M76): the fields are stored and blended today, and nothing is drawn "
+               "yet (render.supports temporalAA says \"planned (M76)\" and postprocess.set reports it in notDrawn). It "
+               "runs on the lit HDR picture after the exposure and before the depth of field, one history per camera.")
+        .field("temporalAAFeedback", &PostProcess::temporalAAFeedback,
+               "Only used when temporalAAEnabled. 0.5..0.98: the share of the picture taken from the frames before. "
+               "Higher is smoother and ghosts more behind moving things; 0.9 is the usual choice.")
+        .range(0.5f, 0.98f)
+        .field("temporalAASharpen", &PostProcess::temporalAASharpen,
+               "Only used when temporalAAEnabled. 0..1: sharpening that gives back the detail the blend of frames "
+               "softens.")
+        .range(0, 1)
+        .field(
+            "temporalAAVarianceGamma", &PostProcess::temporalAAVarianceGamma,
+            "Only used when temporalAAEnabled. 0.5..2: how far the history colour may differ from the colours around "
+            "the pixel before it is clipped to them. Lower removes ghosts and flickers more, higher keeps more "
+            "detail.")
+        .range(0.5f, 2)
+        .field("temporalAAReactiveScale", &PostProcess::temporalAAReactiveScale,
+               "Only used when temporalAAEnabled. 0..4: how strongly things that change too fast to follow (particles, "
+               "fast objects, flashes) shorten the history there; 0 ignores them, 1 is the default.")
+        .range(0, 4)
 
         // depthOfField
         .field("depthOfFieldEnabled", &PostProcess::depthOfFieldEnabled,

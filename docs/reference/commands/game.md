@@ -371,6 +371,30 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 | `press` | array | no | Actions/keys to press first. |
 | `release` | array | no | Actions/keys to release first. |
 
+## `graphics.detect`
+
+Not released yet (on main after 0.35.2).
+
+Measure this device and pick the graphics preset that suits it.
+
+Capabilities: read
+
+Will read the device (game.device: GPU backend, memory, tier) and answer the preset that suits it, without changing anything. Result: {preset, reason}. Example: graphics.detect {}
+
+## `graphics.preset` (modifies state)
+
+Not released yet (on main after 0.35.2).
+
+Apply a graphics preset (low, medium, high, ultra) to the render settings of the game.
+
+Capabilities: read, state
+
+Will set the settings a graphics options menu offers (render scale, upscaler, shadows, ambient occlusion, antialiasing ...) to the values of the preset `name`: low, medium, high or ultra (custom = what the game set itself; it cannot be applied). Result: {preset, changes}. Example: graphics.preset {"name":"high"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string ["low","medium","high","ultra"] | yes | The preset to apply (case does not matter). |
+
 ## `input.record` (modifies state)
 
 Since 0.3.0.
@@ -605,11 +629,29 @@ Capabilities: read
 
 Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw is false with the status "planned (<milestone>)" (the lighting of M73 is, until each part lands): this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
 
-`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, 2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the big-world rows of M75: lodCrossFade, hlod, impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++. The whole list also has `limits` {maxTextureSize, maxArrayLayers, maxArrayTextureSize}: the sizes this GPU reports (the Terrain's heightmap, layers, splat maps and holes must fit them).
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets), engine (linearColor, hdrOutput, and the lighting rows of M73: clusteredLights, areaLights, lightCookies, iesProfiles, cascadedShadows, pointShadows, spotShadows, contactShadows, environmentMap, reflectionProbes, physicalSky, lightmaps, lightProbes, volumetricFog, decals, subsurface, realtimeGI, clearCoat, sheen, anisotropy, transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, 2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the big-world rows of M75: lodCrossFade, hlod, impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, all planned: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only), dynamicResolution; temporalAA is the effect row of the same name) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, and temporalAA, planned for M76); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (<milestone>)" for an engine feature or effect the renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, lightCookies, iesProfiles, lightmaps, lightProbes, reflectionProbes, volumetricFog, subsurface and transmission are drawn), or one sentence that names the backend or the missing GPU capability. hdrOutput is true when the display the window showed its last frame on can show HDR in an encoding the renderer writes (EDR on Metal, scRGB or HDR10 on D3D11), whatever the scene asks; its status otherwise says why (the display or the OS setting); render.output says what the window shows. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++. The whole list also has `limits` {maxTextureSize, maxArrayLayers, maxArrayTextureSize}: the sizes this GPU reports (the Terrain's heightmap, layers, splat maps and holes must fit them).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, float32Targets, linearColor, hdrOutput, a lighting feature of M73 such as cascadedShadows, or a post effect such as bloom or ssao). Omitted: every feature. |
+
+## `render.upscaler` (modifies state)
+
+Not released yet (on main after 0.35.2).
+
+Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.
+
+Capabilities: read, state
+
+The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, auto), `quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no argument it returns the setting; with any of the three it changes those and keeps the rest. Returns {mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler {"mode":"auto","quality":"balanced"}
+
+It only stores and reports: the renderer draws every mode as "stretch" (effectiveMode) until the packages that draw the others land, so the picture does not change yet. The start value is factoria.json "render": {"upscaler": {...}}; window.upscaler in scripts is the same setting. A wrong name or number fails with `invalid_argument`, the valid values and a "did you mean", and changes nothing. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `mode` | string ["stretch","spatial","temporal","metalfx","auto"] | no | stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), auto (the best this GPU can draw). |
+| `quality` | string ["native","quality","balanced","performance","ultraPerformance"] | no | How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height. |
+| `sharpness` | number | no | Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1. |
 
 ## `vfx.budget`
 

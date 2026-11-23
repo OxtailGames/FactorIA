@@ -247,6 +247,7 @@ struct Engine::Impl {
     void apply_project_settings();
     std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
     std::optional<bool> appliedProjectMirrorRtl;             // the project's ui.mirrorRtl last applied
+    std::optional<render::UpscalerSettings> appliedProjectUpscaler;  // the project's render.upscaler last applied (M76)
     float appliedProjectUiScale = -1.0f;  // the project's ui.scale last applied; -1 before the first time
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
     // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.

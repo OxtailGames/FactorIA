@@ -201,7 +201,21 @@ struct Renderer::Impl {
         Mat4 before;  // what a second job of the same camera in the same frame reprojects from (`hadBefore`)
         bool hadBefore = false;
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
+        // M76: what the camera DREW with last frame (viewProj above is the unjittered one, the matrix every reprojection of the
+        // effects uses): the viewProj with the sub-pixel jitter and the jitter in render pixels (0 when the camera did not jitter),
+        // and the same two for `before`. The temporal antialiasing and upscaler resolve the history with them.
+        Mat4 jittered;
+        Vec2 jitterPx{0, 0};
+        Mat4 beforeJittered;
+        Vec2 beforeJitterPx{0, 0};
     };
+    // M76: the sub-pixel jitter (fa/scene/jitter.h). A camera is jittered when its stack has TemporalAA on AND the renderer draws that
+    // effect (render_features.cpp effect_drawn: nothing yet, so no camera jitters today); `jitterForce` (RendererTestAccess::
+    // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
+    // before the effect is drawn.
+    int jitterForce = 0;
+    UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
+    int jitter_phases(const CameraInfo& ci) const;
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,

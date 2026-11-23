@@ -4406,6 +4406,21 @@ NATIVE(renderScaleSet) {  // "" or the reason it did not happen
     return JS_NewString(ctx, err.c_str());
 }
 
+NATIVE(upscalerGet) {  // {mode, quality, sharpness, effectiveMode, scale}
+    SETUP;
+    const render::UpscalerSettings s = I->host->upscaler();
+    Json j = render::upscaler_to_json(s);
+    j["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(s)));
+    j["scale"] = std::round(double(render::upscaler_quality_scale(s.quality)) * 1000.0) / 1000.0;
+    return I->from_json(j);
+}
+
+NATIVE(upscalerSet) {  // "" or the reason it did not happen
+    SETUP;
+    const std::string err = I->host->set_upscaler(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    return JS_NewString(ctx, err.c_str());
+}
+
 NATIVE(
     testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
     SETUP;
@@ -5589,6 +5604,8 @@ const Reg kRegs[] = {
     R(renderScaleGet, 0),
     R(renderStatsNow, 0),
     R(renderScaleSet, 1),
+    R(upscalerGet, 0),
+    R(upscalerSet, 1),
     R(storageGet, 2),
     R(storageIsEncrypted, 1),
     R(storageSet, 4),

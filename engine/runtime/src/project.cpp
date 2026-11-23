@@ -90,17 +90,25 @@ Json ProjectSettings::to_json() const {
     physics["fixedHz"] = fixedHz;
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
-    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f) {
+    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{}) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
-        render["interpolation"] = renderInterpolation;
+        if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
+            render["interpolation"] = renderInterpolation;
+        else
+            render.erase("interpolation");
         if (renderInterpolationSnapDistance > 0.0f)
             render["interpolationSnapDistance"] = renderInterpolationSnapDistance;
         else
             render.erase("interpolationSnapDistance");
+        if (upscaler != render::UpscalerSettings{})
+            render["upscaler"] = render::upscaler_to_json(upscaler);
+        else
+            render.erase("upscaler");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
+        j["render"].erase("upscaler");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -643,6 +651,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
+        if (auto up = it->find("upscaler"); up != it->end() && !up->is_null()) {
+            Result<render::UpscalerSettings> parsed =
+                render::parse_upscaler_settings(*up, at("/render/upscaler"), render::UpscalerSettings{});
+            if (!parsed.ok()) return parsed.error();
+            s.upscaler = parsed.value();
+        }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
         if (!it->is_object())
@@ -1013,6 +1027,33 @@ constexpr const char* kSchemaText =
           "minimum": 0,
           "default": 0,
           "description": "With interpolation: a fixed step that moves an entity farther than this many world units (pixels in 2D) is a jump and is drawn without blending. 0 (default) = no limit; use entity.teleport() for known jumps."
+)JSON"
+    R"JSON(        },
+        "upscaler": {
+          "type": "object",
+          "description": "How the picture drawn at a lower resolution reaches the screen (M76, docs/UPSCALING.md). A game-wide setting that scripts change at run time with window.upscaler and the command render.upscaler. M76 stores and reports it; every mode still draws as \"stretch\" until the renderer learns the others.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "default": "stretch",
+              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
+            },
+            "quality": {
+              "type": "string",
+              "enum": ["native", "quality", "balanced", "performance", "ultraPerformance"],
+              "default": "native",
+              "description": "How much smaller than the output the frame is drawn: native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultraPerformance 1/3 of the output's width and height. Default native."
+            },
+            "sharpness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.5,
+              "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            }
+          }
         }
       }
     },

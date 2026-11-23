@@ -31,6 +31,7 @@ This page has the render targets, the depth and normals prepass, capture and HDR
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
 - [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [The post-processing stack](rendering/RENDERING_POSTPROCESS.md): bloom, exposure, tonemap, colour grading, lens effects, colour filter, the LUT, and the commands, looks and panel that read and change the stack.
+- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect and the graphics presets (settings only for now: nothing draws yet).
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets

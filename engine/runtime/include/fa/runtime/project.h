@@ -36,6 +36,7 @@
 #include "fa/core/types.h"
 #include "fa/scene/ui_tooltip.h"
 #include "fa/render/renderer.h"
+#include "fa/render/upscaler.h"
 
 namespace fa {
 
@@ -122,6 +123,9 @@ struct ProjectSettings {
     // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
+    // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
+    // window.upscaler. Stored and reported only: the renderer draws every mode as "stretch" until the packages that draw the others land.
+    render::UpscalerSettings upscaler;
     FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();
     Json inputSchemes = Json::
