@@ -26,6 +26,7 @@
 #include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_taa.h"
 #include "renderer_volumetric.h"
 #include "subsurface.h"
 #include "transient_targets.h"
@@ -178,6 +179,9 @@ struct PostPlan {
     SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
+    // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has
+    // no TemporalAA, the frame is not one of the game's or the renderer cannot draw it.
+    TaaPlan taa;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
     // The volumetric fog of this camera (renderer_volumetric.h): the march is declared in the camera's own job (it reads the shadow atlas of that job), the apply pass
