@@ -32,7 +32,13 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   until the upscalers land (docs/UPSCALING.md).
 - New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): they answer `not_built`.
 - New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
-  (planned M76).
+  (`motionVectors` is drawn, see below; the others are planned M76).
+- Motion vectors: the depth prepass can write the motion of every pixel (RG16F, `uvPrev - uvCurr` from the unjittered matrices) as a
+  second attachment, for static and moving meshes, instances, terrain, foliage and impostors (a floating-origin shift and a camera cut
+  are no motion). Skinned meshes, custom `vertex()` materials, particles and sprites come in a later package. It is written only when
+  something asks (the new debug view, or the temporal antialiasing once it draws); otherwise frames are bit-identical. New debug view
+  `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
+  grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".
 - Renderer: the projection of the drawn picture can be jittered (Halton 2,3, 8 phases) and keeps the previous frame's
   jittered matrices; culling, picking and every query use the unjittered ones. Nothing jitters while no effect needs it,
   so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_POST.md.

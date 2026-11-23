@@ -58,7 +58,9 @@ struct RendererTestAccess;
 // Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
 // the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`). With the depth pyramid
 // (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
+// MotionVectors (M76) paints the per-pixel motion vectors the prepass writes (direction as hue, magnitude as brightness, grey where no mesh
+// wrote one), over the picture, with the prepass drawn only for it.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)

@@ -381,8 +381,10 @@ std::vector<FeatureDef> build_table() {
          "A per-pixel motion image (RG16F at the render resolution: where each pixel was in the previous frame, from "
          "unjittered matrices) written by the opaque meshes, the terrain, the foliage and the impostors, and read by "
          "the temporal antialiasing and the temporal upscaler; where nothing wrote it the camera's own motion is "
-         "rebuilt from the depth. Planned (M76 P1a).",
-         "M76"},
+         "rebuilt from the depth. Written in the depth prepass as a second attachment only when something reads it "
+         "(the debug view render.debug_view \"motionVectors\"); skinned meshes, a material's vertex(), particles "
+         "and sprites do not write it yet (M76 P1b).",
+         nullptr},
         {"spatialUpscaler", "",
          "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
          "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "

@@ -1329,7 +1329,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
-         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "`motionVectors` paints the per-pixel motion image the prepass "
+                                                   "writes for temporal antialiasing (the direction "
+         "of the motion as a hue, its length as the brightness, black = still, grey = no mesh wrote a vector: the sky, "
+         "skinned meshes, particles, sprites); it turns that image on while it is shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
@@ -1337,21 +1340,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao, cascades or occlusion (with a "
+         "`view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in) or occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth       ? "depth"
-                       : v == DebugView::Normals   ? "normals"
-                       : v == DebugView::Ao        ? "ao"
-                       : v == DebugView::Cascades  ? "cascades"
-                       : v == DebugView::Occlusion ? "occlusion"
-                                                   : "none";
+                return v == DebugView::Depth           ? "depth"
+                       : v == DebugView::Normals       ? "normals"
+                       : v == DebugView::Ao            ? "ao"
+                       : v == DebugView::Cascades      ? "cascades"
+                       : v == DebugView::Occlusion     ? "occlusion"
+                       : v == DebugView::MotionVectors ? "motionVectors"
+                                                       : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -1363,12 +1367,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             const DebugView previous = I.renderer->debug_view();
             if (set)
-                I.renderer->set_debug_view(wanted == "depth"       ? DebugView::Depth
-                                           : wanted == "normals"   ? DebugView::Normals
-                                           : wanted == "ao"        ? DebugView::Ao
-                                           : wanted == "cascades"  ? DebugView::Cascades
-                                           : wanted == "occlusion" ? DebugView::Occlusion
-                                                                   : DebugView::None);
+                I.renderer->set_debug_view(wanted == "depth"           ? DebugView::Depth
+                                           : wanted == "normals"       ? DebugView::Normals
+                                           : wanted == "ao"            ? DebugView::Ao
+                                           : wanted == "cascades"      ? DebugView::Cascades
+                                           : wanted == "occlusion"     ? DebugView::Occlusion
+                                           : wanted == "motionVectors" ? DebugView::MotionVectors
+                                                                       : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 
