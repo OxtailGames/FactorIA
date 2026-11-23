@@ -367,12 +367,13 @@ It is conservative like the CPU path, with the costs of one frame of latency:
 - Up to 8 cameras per frame keep a pyramid, in the order their jobs are declared; the others are not culled by it. Each camera that
   has one asks for its own readback, which flushes the GPU's queue once (a `glFlush` on OpenGL, a `Flush` of the immediate context on
   D3D11, one more command buffer on Metal), so several cameras cost several flushes: a split-screen game pays one per player.
-- A picture taken with `screenshot` or `render.capture` of a camera has a pyramid of its own, forgotten when the capture ends: it
-  never reuses, replaces or ages the pyramid of the game's camera, and `render.occlusion` keeps showing the last frame's numbers.
+- A picture taken with `screenshot` or `render.capture` of a camera makes no pyramid and uses none (the depth picture of a frame
+  comes back when the next frame begins, which a capture never reaches): the Occluders cull it, it never reuses, replaces or ages
+  the pyramid of the game's camera, and `render.occlusion` keeps showing the last frame's numbers.
 - A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps (up to 6 per frame): the limit is
   48 steps whatever `fixedHz` is, so a 240 Hz project does not draw everything on every frame.
 - **Not culled**: shadow passes (a hidden mesh still casts its shadow), orthographic cameras (they keep the CPU Occluders),
-  a camera view's picture (unless it has its own post-processing), reflection probe, GI and light-probe captures, and sprites, 2D, particles
+  a camera view's picture and a capture of a camera, reflection probe, GI and light-probe captures, and sprites, 2D, particles
   and UI as for the CPU path. `showTags` and `hideTags` are applied before the test, and a LOD or HLOD pick is made first, so the
   box tested is the one of the level drawn. The floating origin rebases the pyramid's poses with the world.
 

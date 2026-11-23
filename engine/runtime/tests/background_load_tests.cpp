@@ -728,6 +728,13 @@ TEST_CASE("background load: an HLOD proxy that is missing or vanishes fails the 
         REQUIRE_FALSE(missing.ok());
         CHECK(missing.error().message.find("hlod.load: file 'assets/m9.glb' does not exist") == 0);
         CHECK(missing.error().hint.find("world.bake_cell_hlods") != std::string::npos);
+        CHECK(missing.error().message.find("Valid:") != std::string::npos);  // the folder was listed for the suggestion
+        // A retry nobody reads (suggest false) builds no suggestion: same error, no listing, no trailing space.
+        auto quiet = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets/m9.glb"}, std::nullopt,
+                                  BackgroundLoader::Origin::Tool, nullptr, false);
+        REQUIRE_FALSE(quiet.ok());
+        CHECK(quiet.error().message == "hlod.load: file 'assets/m9.glb' does not exist.");
+        CHECK(quiet.error().hint == missing.error().hint);
         auto folder = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets"}, std::nullopt,
                                    BackgroundLoader::Origin::Tool, nullptr);
         REQUIRE_FALSE(folder.ok());

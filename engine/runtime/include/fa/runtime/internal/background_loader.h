@@ -116,9 +116,10 @@ public:
 
     // Starts a job. Checks the paths at once: a missing file is an error with "did you mean" (nothing starts). `trace`:
     // the engine's load trace (null: none); an async scene load opens its entry there. Starting an async scene load
-    // cancels the async scene loads before it (the last request wins).
+    // cancels the async scene loads before it (the last request wins). `suggest` false: a missing file's error carries no "did
+    // you mean" list (it needs a recursive folder listing; the HLOD proxy retries that nobody reads pass false).
     Result<int> start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props, Origin origin,
-                      LoadTrace* trace);
+                      LoadTrace* trace, bool suggest = true);
     // Stops a running job (its update, cancelled, comes with the next tick) or gives a finished job's warm files back.
     // False when the id is unknown.
     bool cancel(int id, LoadTrace* trace);

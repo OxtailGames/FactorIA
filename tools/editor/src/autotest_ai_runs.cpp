@@ -350,7 +350,13 @@ void Editor::at_section_Q(AtScript& at) {
             return;
         }
         atQFake_ = fake.make_preferred().string();
-        atQArgv_ = (stdfs::temp_directory_path() / "fa_autotest_q_argv.txt").string();
+        // One file per run of the autotest: a fixed name was shared by two autotests running at once on a machine (two checkouts, a
+        // loaded CI runner), and the other's invocations counted as this one's ("the orchestrator ran twice (3)").
+        atQArgv_ = (stdfs::temp_directory_path() /
+                    ("fa_autotest_q_argv_" +
+                     std::to_string(std::chrono::system_clock::now().time_since_epoch().count() / 1000) + "_" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".txt"))
+                       .string();
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
         {
