@@ -7,6 +7,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
+#include "fa/render/renderer.h"
 #include "fa/runtime/project.h"
 
 using namespace fa;
@@ -24,7 +25,8 @@ std::string project_text(const std::string& renderBlock) {
            renderBlock + "\n}";
 }
 
-const char* kScene = R"({ "format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ] })";
+const char* kScene =
+    R"({ "format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ] })";
 
 struct TempProject {
     stdfs::path dir;
@@ -65,7 +67,8 @@ TEST_CASE("project: render.upscaler loads, round-trips and defaults to stretch")
     CHECK(s->upscaler == render::UpscalerSettings{});
     CHECK_FALSE(s->to_json().contains("render"));
 
-    TempProject set("set", R"(, "render": { "upscaler": { "mode": "temporal", "quality": "balanced", "sharpness": 0.8 } })");
+    TempProject set("set",
+                    R"(, "render": { "upscaler": { "mode": "temporal", "quality": "balanced", "sharpness": 0.8 } })");
     auto t = load_project(set.path());
     REQUIRE_MESSAGE(t.ok(), t.error().message);
     CHECK(t->upscaler.mode == render::UpscalerMode::Temporal);
@@ -74,6 +77,7 @@ TEST_CASE("project: render.upscaler loads, round-trips and defaults to stretch")
     auto j = t->to_json();
     CHECK(j["render"]["upscaler"]["mode"] == "temporal");
     CHECK(j["render"]["upscaler"]["quality"] == "balanced");
+    CHECK_FALSE(j["render"].contains("interpolation"));  // only what is not the default is written
 }
 
 TEST_CASE("project: a wrong render.upscaler teaches with the JSON pointer") {
@@ -141,8 +145,7 @@ TEST_CASE("window.upscaler reads and sets the same settings from a script") {
     CHECK(r.result["mode"] == "spatial");
     CHECK(r.result["quality"] == "ultraPerformance");
     CHECK(eval(e, "window.upscaler.scale").get<double>() == doctest::Approx(1.0 / 3.0).epsilon(0.001));
-    auto bad = e.commands().call("script.eval",
-                                 Json::object({{"code", "window.upscaler = { quality: 'ultra' }"}}));
+    auto bad = e.commands().call("script.eval", Json::object({{"code", "window.upscaler = { quality: 'ultra' }"}}));
     CHECK_FALSE(bad.ok);
     CHECK(eval(e, "window.upscaler.quality") == "ultraPerformance");
     e.shutdown();
@@ -158,6 +161,21 @@ TEST_CASE("the project's upscaler is applied when the engine starts") {
     CHECK(r.result["mode"] == "metalfx");
     CHECK(r.result["quality"] == "native");
     CHECK(r.result["effectiveMode"] == "stretch");
+    // The renderer is created after the project settings are applied: it must hold the project's value too.
+    REQUIRE(e.renderer() != nullptr);
+    {
+        CHECK(e.renderer()->upscaler().mode == render::UpscalerMode::MetalFx);
+        CHECK(e.renderer()->upscaler().quality == render::UpscalerQuality::Native);
+        // And a later change reaches it.
+        r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"spatial"})"));
+        REQUIRE(r.ok);
+        CHECK(e.renderer()->upscaler().mode == render::UpscalerMode::Spatial);
+    }
+    // A wrong value names the caller that was used.
+    r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"spatail"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("render.upscaler") != std::string::npos);
+    CHECK(r.error.dump().find("window.upscaler") == std::string::npos);
     e.shutdown();
 }
 

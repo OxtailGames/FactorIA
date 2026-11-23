@@ -1204,7 +1204,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             const render::UpscalerSettings before = I.self->upscaler();
             bool changed = false;
             if (a.is_object() && !a.empty()) {
-                const std::string err = I.self->set_upscaler(a);
+                const std::string err = I.self->set_upscaler(a, "render.upscaler");
                 if (!err.empty())
                     throw CommandError("invalid_argument", err,
                                        "Call render.upscaler with no argument to read the setting.");

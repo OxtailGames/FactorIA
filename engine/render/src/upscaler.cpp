@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "fa/core/strings.h"
-#include "fa/render/graphics_preset.h"
 
 namespace fa::render {
 
@@ -51,8 +50,9 @@ Result<int> read_name(const Json& j, std::string_view where, const char* key, co
 
 Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view where, const UpscalerSettings& base) {
     if (!j.is_object())
-        return make_error(std::string(where) + ": expected an object like {\"mode\": \"spatial\", \"quality\": \"balanced\", "
-                                                "\"sharpness\": 0.5}, got " +
+        return make_error(std::string(where) +
+                              ": expected an object like {\"mode\": \"spatial\", \"quality\": \"balanced\", "
+                              "\"sharpness\": 0.5}, got " +
                               describe_json_value(j),
                           "Every key is optional: mode, quality, sharpness.");
     static const std::vector<std::string> keys = {"mode", "quality", "sharpness"};
@@ -83,14 +83,6 @@ Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view
         s.sharpness = float(d);
     }
     return s;
-}
-
-std::optional<GraphicsPreset> parse_graphics_preset(std::string_view name) {
-    std::string lower(name);
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    for (int i = 0; i < kGraphicsPresetCount; ++i)
-        if (kGraphicsPresetNames[std::size_t(i)] == lower) return GraphicsPreset(i);
-    return std::nullopt;
 }
 
 }  // namespace fa::render

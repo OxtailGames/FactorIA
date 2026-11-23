@@ -92,7 +92,10 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{}) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
-        render["interpolation"] = renderInterpolation;
+        if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
+            render["interpolation"] = renderInterpolation;
+        else
+            render.erase("interpolation");
         if (renderInterpolationSnapDistance > 0.0f)
             render["interpolationSnapDistance"] = renderInterpolationSnapDistance;
         else

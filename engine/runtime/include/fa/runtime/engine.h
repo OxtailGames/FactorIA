@@ -304,7 +304,8 @@ public:
     float default_ui_scale() const override;      // the ui.scale of factoria.json
     double render_scale() const override;         // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
-    std::string set_upscaler(const Json& value) override;  // window.upscaler / render.upscaler: also the renderer's
+    std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
+        override;  // window.upscaler / render.upscaler: also the renderer's
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values

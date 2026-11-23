@@ -980,6 +980,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             if (config.shaderCompiler)
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
+            I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
@@ -1673,8 +1674,8 @@ std::string Engine::set_render_scale(double scale) {
     return hold_render_scale(scale, &err) ? std::string() : err;
 }
 
-std::string Engine::set_upscaler(const Json& value) {
-    std::string err = ScriptHost::set_upscaler(value);
+std::string Engine::set_upscaler(const Json& value, const std::string& where) {
+    std::string err = ScriptHost::set_upscaler(value, where);
     if (err.empty() && impl_->renderer) impl_->renderer->set_upscaler(upscaler());
     return err;
 }

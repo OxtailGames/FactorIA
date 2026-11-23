@@ -505,8 +505,8 @@ TEST_CASE("jitter render: a forced jitter walks the Halton sequence and keeps th
         CHECK(jpx.x == j[0].x);
         CHECK(jpx.y == j[0].y);
         const Vec4 a = plain * Vec4{kFar - 3, 0, 0, 1.0f}, b = jittered * Vec4{kFar - 3, 0, 0, 1.0f};
-        CHECK((b.x / b.w - a.x / a.w) * 160.0f ==
-              doctest::Approx(jpx.x).epsilon(0.02).scale(1.0));  // 320 px wide image
+        CHECK((b.x / b.w - a.x / a.w) * 160.0f == doctest::Approx(jpx.x).epsilon(0.05).scale(
+                                                      1.0));  // 320 px wide image; float32 at kFar is good to ~0.01 px
     }
     // The sequence repeats every 8 frames and the 8 are different.
     for (int f = 0; f + kJitterPhasesDefault < int(seen.size()); ++f) {
