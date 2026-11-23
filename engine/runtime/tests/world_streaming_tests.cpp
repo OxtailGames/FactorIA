@@ -828,7 +828,8 @@ TEST_CASE(
     e.step(5);
     s = call(e, "world.stream_status");
     CHECK(s["hlodProxiesFailed"].get<int>() == 0);
-    for (const Json& c : call(e, "world.cells")["cells"])
+    const Json cells = call(e, "world.cells");  // a named copy: a range-for over a temporary's subscript dangles
+    for (const Json& c : cells["cells"])
         if (c["id"] == "1,2") CHECK(c["proxy"] == "none");
     e.shutdown();
 }
