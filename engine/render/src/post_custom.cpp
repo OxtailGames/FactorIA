@@ -81,9 +81,12 @@ std::string why_refused(std::string_view side, std::string_view effect) {
                " is not a place: the depth of field and the motion blur are drawn together, so a custom pass goes "
                "before the depth of field (\"before:depthOfField\") or after the motion blur (\"after:motionBlur\").";
     if (e == PostEffect::TemporalAA)
-        return at + " is not a place: the temporal antialiasing (M76) is not drawn yet and a custom pass would be "
-                    "jittered by it or smeared by its history. A custom pass goes before the depth of field "
-                    "(\"before:depthOfField\") or after the bloom (\"after:bloom\").";
+        return at + " is not a place: the temporal antialiasing resolves the jittered picture with its history, so a "
+                    "custom pass "
+                    "before it would be jittered and one after it would be blended with the frames before. A custom "
+                    "pass goes "
+                    "before the depth of field (\"before:depthOfField\", after the antialiasing) or after the bloom "
+                    "(\"after:bloom\").";
     if (post_effect_is_hdr(e) && side == "after" && e != PostEffect::Bloom)
         return at + " is not a place: the exposure, the lens effects and the radial blur run fused in the final pass, "
                     "after the bloom. A custom pass goes before them, e.g. \"before:tonemap\" (or \"after:bloom\").";

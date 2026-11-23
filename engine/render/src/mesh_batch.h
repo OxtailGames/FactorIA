@@ -74,6 +74,10 @@ struct MeshItem {
     // An instance of a Foliage (renderer_foliage.h): its `lodFade` is the distance fade (a share of the screen pattern that stays, not a
     // cross-fade), so the pass counts it as foliage, not as a LOD cross-fade, and it never shares a batch with a mesh that is not one.
     bool foliage = false;
+    // M76: the model matrix this entity had the frame before (the motion vectors of the prepass), when the renderer kept it (`hasPrev`);
+    // the item's own model otherwise (no motion of its own). Set by cull_and_batch, only for a camera that asks for the velocity image.
+    Mat4 prevModel;
+    bool hasPrev = false;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
@@ -235,11 +239,17 @@ struct MeshBatch {
     std::uint32_t instanceVec4 = 0, mainExtra = 0;
 };
 
+// The first three rows of a model matrix: what the prepass reads as the previous model of an instance (kPrevModelBuffer).
+PrevModelRows prev_model_rows(const Mat4& m);
+
 // Groups `items` (sorted in place by material when `sortByMaterial`, otherwise kept in order and only neighbours merge:
 // blended meshes stay far-to-near).
 // The casters (`casts`, one run per bit of castMask) go to shadowMats and, as ShadowRun entries in `runs` (null = not kept), per batch.
+// `prevMats` (null = not kept): the previous model of every visible item (MeshItem::prevModel, its own model when it has none), at the
+// same index as its entry of mainMats minus what the earlier calls put there: the caller passes it for the first call only.
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runs = nullptr);
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runs = nullptr,
+                   std::vector<PrevModelRows>* prevMats = nullptr);
 
 // The packed per-instance params (pack_instance_params) of each entity, kept between frames: 10 000 instances of one
 // material must not run the param lookup 10 000 times per frame and camera. An entry is valid while the material is the

@@ -48,8 +48,9 @@ QualityResolved resolve_quality(GraphicsPreset preset, const FeatureEnv& env) {
     }
     // The atlas is one image: no larger than the GPU's largest texture.
     if (env.maxTextureSize > 0 && q.shadowAtlasSize > env.maxTextureSize) {
-        r.capped.push_back({"shadowAtlasSize", Json(q.shadowAtlasSize), Json(env.maxTextureSize),
-                            "this GPU's largest 2D texture is " + std::to_string(env.maxTextureSize) + " texels a side"});
+        r.capped.push_back(
+            {"shadowAtlasSize", Json(q.shadowAtlasSize), Json(env.maxTextureSize),
+             "this GPU's largest 2D texture is " + std::to_string(env.maxTextureSize) + " texels a side"});
         q.shadowAtlasSize = env.maxTextureSize;
     }
     q.shadowTileSize = std::min(q.shadowTileSize, q.shadowAtlasSize);

@@ -105,7 +105,8 @@ GpuInfo query_gpu_info() {
 #if defined(SOKOL_D3D11)
     if (ID3D11Device* dev = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()))) {
         IDXGIDevice* dxgiDevice = nullptr;
-        if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice))) && dxgiDevice) {
+        if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice))) &&
+            dxgiDevice) {
             IDXGIAdapter* adapter = nullptr;
             if (SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) && adapter) {
                 DXGI_ADAPTER_DESC desc{};

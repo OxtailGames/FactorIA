@@ -71,18 +71,23 @@ TEST_CASE("graphics presets: Low, Medium, High, Ultra are monotone on every knob
         const std::vector<double> now = quality_knob_levels(graphics_preset_table(p).limits);
         REQUIRE(now.size() == names.size());
         for (std::size_t i = 0; i < names.size(); ++i)
-            CHECK_MESSAGE(now[i] >= prev[i], names[i], " of ", graphics_preset_name(p), " is below the preset before it");
+            CHECK_MESSAGE(now[i] >= prev[i], names[i], " of ", graphics_preset_name(p),
+                          " is below the preset before it");
         prev = now;
     }
     // Each knob changes somewhere between Low and Ultra: a table that left one at its default everywhere would be dead.
     const std::vector<double> low = quality_knob_levels(graphics_preset_table(GraphicsPreset::Low).limits);
-    for (std::size_t i = 0; i < names.size(); ++i) CHECK_MESSAGE(prev[i] > low[i], names[i], " never changes between low and ultra");
+    for (std::size_t i = 0; i < names.size(); ++i)
+        CHECK_MESSAGE(prev[i] > low[i], names[i], " never changes between low and ultra");
+    // Ultra and Custom limit nothing and write no upscaler: nothing of the game's own look is touched (the pixel test of the Engine, in
+    // engine/runtime/tests, compares them with the upscaler merged in).
     CHECK(graphics_preset_table(GraphicsPreset::Ultra).limits == QualityLimits{});
     CHECK(graphics_preset_table(GraphicsPreset::Custom).limits == QualityLimits{});
+    CHECK_FALSE(graphics_preset_table(GraphicsPreset::Ultra).upscaler.has_value());
     CHECK_FALSE(graphics_preset_table(GraphicsPreset::Custom).upscaler.has_value());
-    // Every named preset sets the upscaler to auto and gets less scaling the higher it is.
+    // Low, Medium and High set the upscaler to auto, with less scaling the higher the preset is.
     float last = 0.0f;
-    for (GraphicsPreset p : {GraphicsPreset::Low, GraphicsPreset::Medium, GraphicsPreset::High, GraphicsPreset::Ultra}) {
+    for (GraphicsPreset p : {GraphicsPreset::Low, GraphicsPreset::Medium, GraphicsPreset::High}) {
         const auto& up = graphics_preset_table(p).upscaler;
         REQUIRE(up.has_value());
         CHECK(up->mode == UpscalerMode::Auto);
@@ -90,7 +95,7 @@ TEST_CASE("graphics presets: Low, Medium, High, Ultra are monotone on every knob
         CHECK(scale > last);
         last = scale;
     }
-    CHECK(last == 1.0f);
+    CHECK(last < 1.0f);
 }
 
 TEST_CASE("graphics presets: the JSON of the limits names every knob once and round-trips the names") {
@@ -108,7 +113,8 @@ TEST_CASE("graphics presets: the JSON of the limits names every knob once and ro
         REQUIRE(parse_graphics_preset(n).has_value());
         CHECK(int(*parse_graphics_preset(n)) == i);
     }
-    CHECK(quality_limits_to_json(QualityLimits{}) == quality_limits_to_json(graphics_preset_table(GraphicsPreset::Ultra).limits));
+    CHECK(quality_limits_to_json(QualityLimits{}) ==
+          quality_limits_to_json(graphics_preset_table(GraphicsPreset::Ultra).limits));
 }
 
 TEST_CASE("graphics presets: every limit of every preset is inside what the backends support, and the cap says why") {
@@ -116,14 +122,16 @@ TEST_CASE("graphics presets: every limit of every preset is inside what the back
         FeatureBackend b;
         FeatureEnv env;
     };
-    const std::vector<B> backends = {{FeatureBackend::D3d11, env_of(FeatureBackend::D3d11, true, true, true, true)},
-                                     {FeatureBackend::Metal, env_of(FeatureBackend::Metal, true, true, true, true)},
-                                     {FeatureBackend::Gl, env_of(FeatureBackend::Gl, true, true, true, true)},
-                                     {FeatureBackend::Gles3, env_of(FeatureBackend::Gles3, true, true, true, false)},
-                                     {FeatureBackend::WebGl2, env_of(FeatureBackend::WebGl2, false, false, false, false, false)}};
+    const std::vector<B> backends = {
+        {FeatureBackend::D3d11, env_of(FeatureBackend::D3d11, true, true, true, true)},
+        {FeatureBackend::Metal, env_of(FeatureBackend::Metal, true, true, true, true)},
+        {FeatureBackend::Gl, env_of(FeatureBackend::Gl, true, true, true, true)},
+        {FeatureBackend::Gles3, env_of(FeatureBackend::Gles3, true, true, true, false)},
+        {FeatureBackend::WebGl2, env_of(FeatureBackend::WebGl2, false, false, false, false, false)}};
     for (const B& be : backends) {
         for (int i = 0; i < kGraphicsPresetCount; ++i) {
-            if (GraphicsPreset(i) == GraphicsPreset::Custom) continue;  // no limit at all: nothing to cap, the scene decides
+            if (GraphicsPreset(i) == GraphicsPreset::Custom)
+                continue;  // no limit at all: nothing to cap, the scene decides
             const QualityResolved r = resolve_quality(GraphicsPreset(i), be.env);
             CHECK(r.gpu);
             const QualityLimits& q = r.limits;
@@ -172,7 +180,8 @@ TEST_CASE("graphics presets: every limit of every preset is inside what the back
     CHECK_FALSE(none.gpu);
     CHECK(none.capped.empty());
     CHECK(none.limits == graphics_preset_table(GraphicsPreset::High).limits);
-    CHECK(resolve_graphics_preset_uncapped(GraphicsPreset::Low).limits == graphics_preset_table(GraphicsPreset::Low).limits);
+    CHECK(resolve_graphics_preset_uncapped(GraphicsPreset::Low).limits ==
+          graphics_preset_table(GraphicsPreset::Low).limits);
     // The atlas is no larger than the GPU's largest texture.
     FeatureEnv small = env_of(FeatureBackend::Gles3, true, true, true, false);
     small.maxTextureSize = 2048;
@@ -197,8 +206,8 @@ TEST_CASE("graphics presets: a limit lowers the post stack of a camera and never
     REQUIRE(full.has(PostEffect::Ssao));
     PostStack low = full;
     apply_quality_limits(low, graphics_preset_table(GraphicsPreset::Low).limits);
-    for (PostEffect e : {PostEffect::Ssao, PostEffect::Ssr, PostEffect::MotionBlur, PostEffect::DepthOfField, PostEffect::TemporalAA,
-                         PostEffect::SunShafts})
+    for (PostEffect e : {PostEffect::Ssao, PostEffect::Ssr, PostEffect::MotionBlur, PostEffect::DepthOfField,
+                         PostEffect::TemporalAA, PostEffect::SunShafts})
         CHECK_FALSE(low.has(e));
     PostStack medium = full;
     apply_quality_limits(medium, graphics_preset_table(GraphicsPreset::Medium).limits);
@@ -240,12 +249,13 @@ TEST_CASE("gpu info: classify_gpu names the vendor and finds the software raster
     CHECK(of("Something unheard of").vendor == "other");
     CHECK(of("").vendor.empty());
     CHECK_FALSE(of("NVIDIA GeForce RTX 4070").software);
-    for (const char* sw : {"llvmpipe (LLVM 19.1.1, 256 bits)", "Microsoft Basic Render Driver", "SwiftShader Device", "softpipe",
-                           "Microsoft Basic Render Driver WARP"})
+    for (const char* sw : {"llvmpipe (LLVM 19.1.1, 256 bits)", "Microsoft Basic Render Driver", "SwiftShader Device",
+                           "softpipe", "Microsoft Basic Render Driver WARP"})
         CHECK_MESSAGE(of(sw).software, sw);
     CHECK(of("llvmpipe (LLVM 19.1.1, 256 bits)", "Mesa").vendor == "mesa");
     const Json j = of("llvmpipe").to_json();
-    for (const char* k : {"backend", "name", "vendor", "driver", "memoryMB", "unifiedMemory", "software"}) CHECK_MESSAGE(j.contains(k), k);
+    for (const char* k : {"backend", "name", "vendor", "driver", "memoryMB", "unifiedMemory", "software"})
+        CHECK_MESSAGE(j.contains(k), k);
 }
 
 TEST_CASE("gpu info: the suggestion follows the benchmark, and the machine caps it") {
@@ -398,4 +408,56 @@ TEST_CASE("gpu benchmark on a GPU: bounded, leaves the preset and the world alon
     const GpuBenchmark nb = run_gpu_benchmark(none, info);
     CHECK_FALSE(nb.ran);
     CHECK_FALSE(nb.why.empty());
+}
+
+TEST_CASE("graphics presets on a GPU: without soft shadows a PCSS sun is drawn with the PCF filter, as the local "
+          "lights are") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!g.renderer.supports("cascadedShadows")) {
+        MESSAGE("cascadedShadows is not supported on this GPU: the test did not run");
+        return;
+    }
+    World w;
+    Entity cam = make(w, "cam", {0, 6, 9});
+    w.get<Transform>(cam)->rotation = {-30, 0, 0};
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    w.settings().ambientLight = Color{0.1f, 0.1f, 0.12f, 1};
+    w.settings().shadowCascades = 1;
+    w.settings().shadowDistance = 30;
+    Entity ground = make(w, "ground", {0, -0.5f, 0});
+    w.get<Transform>(ground)->scale = {20, 1, 20};
+    auto& gm = w.add<MeshRenderer>(ground);
+    gm.mesh = "plane";
+    gm.color = Color::hex(0xc8c8c8);
+    Entity pillar = make(w, "pillar", {-1, 3.5f, 0});
+    w.get<Transform>(pillar)->scale = {0.6f, 6, 0.6f};
+    auto& pm = w.add<MeshRenderer>(pillar);
+    pm.mesh = "cube";
+    pm.color = Color::hex(0xd0d0d0);
+    Entity sun = make(w, "sun", {0, 5, 0});
+    w.get<Transform>(sun)->rotation = {-50, 35, 0};
+    auto& l = w.add<Light>(sun);
+    l.type = LightType::Directional;
+    l.castShadows = true;
+    l.shadowSoftness = 4;
+    l.shadowFilter = ShadowFilter::Pcf;
+    g.renderer.set_quality(QualityLimits{});
+    g.draw(w);
+    const Image pcf = g.draw(w);
+    l.shadowFilter = ShadowFilter::Pcss;
+    g.draw(w);
+    const Image pcss = g.draw(w);
+    CHECK(differing(pcf, pcss) > 20);  // the filter is visible in this scene
+    QualityLimits noSoft;
+    noSoft.softShadows = false;
+    g.renderer.set_quality(noSoft);
+    g.draw(w);
+    const Image limited = g.draw(w);
+    CHECK(differing(limited, pcf) == 0);  // the limit turns the PCSS sun into the PCF one
+    g.renderer.set_quality(QualityLimits{});
+    g.draw(w);
+    CHECK(differing(g.draw(w), pcss) == 0);  // and lifting it brings the scene's own filter back
 }

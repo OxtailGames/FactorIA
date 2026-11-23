@@ -21,13 +21,15 @@ class Renderer;
 namespace fa::render {
 
 struct GpuInfo {
-    std::string backend = "none";  // Renderer::backend_name(): "glcore", "gles3", "d3d11", "metal", "dummy"; "none" = no renderer
-    std::string name;              // the adapter or the renderer string the API gives ("" = unknown)
-    std::string vendor;            // "nvidia", "amd", "intel", "apple", "arm", "qualcomm", "microsoft", "mesa", "other" ("" = unknown)
-    std::string driver;            // GL_VERSION or the like ("" = the API does not say)
-    std::int64_t memoryMB = 0;     // video memory in MB where the API gives it (0 = unknown)
-    bool unifiedMemory = false;    // the GPU shares the memory of the CPU (Apple silicon)
-    bool software = false;         // a CPU rasteriser (llvmpipe, SwiftShader, WARP): never a good sign for a preset
+    std::string backend =
+        "none";        // Renderer::backend_name(): "glcore", "gles3", "d3d11", "metal", "dummy"; "none" = no renderer
+    std::string name;  // the adapter or the renderer string the API gives ("" = unknown)
+    std::string
+        vendor;  // "nvidia", "amd", "intel", "apple", "arm", "qualcomm", "microsoft", "mesa", "other" ("" = unknown)
+    std::string driver;          // GL_VERSION or the like ("" = the API does not say)
+    std::int64_t memoryMB = 0;   // video memory in MB where the API gives it (0 = unknown)
+    bool unifiedMemory = false;  // the GPU shares the memory of the CPU (Apple silicon)
+    bool software = false;       // a CPU rasteriser (llvmpipe, SwiftShader, WARP): never a good sign for a preset
 
     Json to_json() const;
 };
@@ -41,11 +43,11 @@ void classify_gpu(GpuInfo& info, std::string_view vendorString = {});
 GpuInfo query_gpu_info();
 
 struct GpuBenchmark {
-    bool ran = false;          // false: nothing was drawn (no GPU, a software renderer, a failed capture); `why` says
-    std::string why;           // set when !ran
-    int samples = 0;           // timed captures
-    double frameMs = 0.0;      // the median of the timed captures, 0.1 ms
-    double totalMs = 0.0;      // the whole benchmark including the warm-up (pipelines are made then), 0.1 ms
+    bool ran = false;      // false: nothing was drawn (no GPU, a software renderer, a failed capture); `why` says
+    std::string why;       // set when !ran
+    int samples = 0;       // timed captures
+    double frameMs = 0.0;  // the median of the timed captures, 0.1 ms
+    double totalMs = 0.0;  // the whole benchmark including the warm-up (pipelines are made then), 0.1 ms
     int width = 0, height = 0;
 
     Json to_json() const;
@@ -62,7 +64,7 @@ GpuBenchmark run_gpu_benchmark(Renderer& renderer, const GpuInfo& info);
 
 // The preset a machine suggests: from the benchmark (a time per picture of the fixed scene), capped by what the machine is.
 struct DeviceClass {
-    std::string tier = "medium";        // game.device().tier: "low", "medium" or "high"
+    std::string tier = "medium";         // game.device().tier: "low", "medium" or "high"
     std::string formFactor = "desktop";  // "desktop", "tablet" or "phone"
     bool handheld = false;               // a phone, a tablet or a Steam Deck
 };

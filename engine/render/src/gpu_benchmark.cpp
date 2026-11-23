@@ -42,7 +42,8 @@ Entity build_scene(World& w) {
             w.get<Transform>(e)->position = {float(x - 6) * 3.0f, 1.0f, float(z - 8) * 3.0f};
             MeshRenderer& m = w.add<MeshRenderer>(e);
             m.mesh = (x + z) % 2 == 0 ? "sphere" : "cube";
-            m.color = Color{0.3f + 0.05f * float(x % 8), 0.4f + 0.04f * float(z % 10), 0.8f - 0.04f * float(x % 10), 1.0f};
+            m.color =
+                Color{0.3f + 0.05f * float(x % 8), 0.4f + 0.04f * float(z % 10), 0.8f - 0.04f * float(x % 10), 1.0f};
             m.metallic = float(x % 4) * 0.3f;
             m.roughness = 0.2f + float(z % 4) * 0.2f;
         }
@@ -154,7 +155,8 @@ PresetSuggestion suggest_graphics_preset(const GpuInfo& gpu, const GpuBenchmark&
         reason = std::format("the benchmark scene took {:.1f} ms per picture", bench.frameMs);
     } else {
         // Nothing was drawn (no GPU to measure, or the benchmark could not run): the class of the machine decides.
-        p = device.tier == "high" ? GraphicsPreset::High : (device.tier == "low" ? GraphicsPreset::Low : GraphicsPreset::Medium);
+        p = device.tier == "high" ? GraphicsPreset::High
+                                  : (device.tier == "low" ? GraphicsPreset::Low : GraphicsPreset::Medium);
         reason = "no benchmark (" + bench.why + "); the device tier is " + device.tier;
     }
     const auto cap = [&](GraphicsPreset most, const std::string& why) {

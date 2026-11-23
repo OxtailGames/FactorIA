@@ -36,7 +36,10 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"temporalAA", "",
      "Temporal antialiasing (M76): the camera is jittered by a sub-pixel amount and the frames are blended with the "
      "history, clipped to the neighbours and reprojected with the motion vectors (or the camera's own motion where "
-     "there are none). Planned: not drawn yet."},
+     "there are none), then sharpened. Two fragment passes at the render resolution on every backend, after the sun "
+     "shafts and before the depth of field; asks for the depth prepass. Where the GPU cannot render to half-float "
+     "images the history is 8 bits per channel (no depth to reject uncovered surfaces, colours above 1 clipped in the "
+     "history), with a note in the log. Not drawn for the cameras of a CameraView, a render target or a capture."},
     {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
     {"radialBlur", "",
@@ -70,8 +73,8 @@ constexpr bool effect_rows_in_order() {
 static_assert(effect_rows_in_order(),
               "kEffectRows: one row per effect, in the order (and with the name) of kPostEffectOrder");
 
-// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof): every effect of kPostEffectOrder
-// today but temporalAA (M76, drawn by P2). An effect added to the order without a drawing pass is left out here and is listed as
+// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof/taa): every effect of kPostEffectOrder.
+// An effect added to the order without a drawing pass is left out here and is listed as
 // planned (effect_planned_in) until it is drawn.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
@@ -79,11 +82,12 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
-           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
+           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
+           e == PostEffect::TemporalAA;
 }
 
 // The milestone an effect that is not drawn yet is planned for.
-constexpr const char* effect_planned_in(PostEffect e) { return e == PostEffect::TemporalAA ? "M76" : "M71"; }
+constexpr const char* effect_planned_in(PostEffect) { return "M71"; }
 
 }  // namespace
 
@@ -381,13 +385,16 @@ std::vector<FeatureDef> build_table() {
          "A per-pixel motion image (RG16F at the render resolution: where each pixel was in the previous frame, from "
          "unjittered matrices) written by the opaque meshes, the terrain, the foliage and the impostors, and read by "
          "the temporal antialiasing and the temporal upscaler; where nothing wrote it the camera's own motion is "
-         "rebuilt from the depth. Planned (M76 P1a).",
-         "M76"},
+         "rebuilt from the depth. Written in the depth prepass as a second attachment only when something reads it "
+         "(the debug view render.debug_view \"motionVectors\"); skinned meshes, a material's vertex(), particles "
+         "and sprites do not write it yet (M76 P1b).",
+         nullptr},
         {"spatialUpscaler", "",
          "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
-         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "
-         "resolution. Needs no float targets, every backend. Planned (M76 P3b).",
-         "M76"},
+         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen (fragment passes, never compute), "
+         "the HUD drawn at the output resolution. Needs no float targets, every GPU backend. Pixel-perfect games "
+         "keep the plain nearest scaling.",
+         nullptr},
         {"temporalUpscaler", "half",
          "The temporal upscaler (render.upscaler mode \"temporal\"): the jittered frames of a lower resolution are "
          "accumulated into a picture of the output resolution (the temporal antialiasing as the resolve). A fragment "

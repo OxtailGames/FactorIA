@@ -310,6 +310,9 @@ public:
     // graphics_preset({"name": "high"}) applies it; an error is put in *error and nothing changes.
     Json graphics_preset(const Json& args, std::string* error) override;
     Json graphics_detect(std::string* error) override;
+    render::UpscalerMode effective_upscaler_mode()
+        const override;  // the renderer's: what draws, pixel art is stretch; with no renderer, what a GPU would draw
+    render::UpscalerCaps upscaler_caps() const override;  // no renderer: pixelArt from the project's scale mode
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values

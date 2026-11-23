@@ -41,7 +41,7 @@ namespace {
 //   gi2d (qual, res)      off     low .25 medium .5  high 1
 //   lightScale            0.5     0.75    1       1
 //   realtimeGiProbes      2       4       8       32
-//   upscaler (auto)       perf.   balanced quality native
+//   upscaler (auto)       perf.   balanced quality the game's own
 GraphicsPresetTable make_table(GraphicsPreset p) {
     GraphicsPresetTable t;
     QualityLimits& q = t.limits;
@@ -137,8 +137,7 @@ GraphicsPresetTable make_table(GraphicsPreset p) {
             t.upscaler = UpscalerSettings{UpscalerMode::Auto, UpscalerQuality::Quality, 0.5f};
             break;
         case GraphicsPreset::Ultra:
-            t.upscaler = UpscalerSettings{UpscalerMode::Auto, UpscalerQuality::Native, 0.5f};
-            break;  // every limit at its default: the game as its author made it
+            break;  // every limit at its default and no upscaler of its own: the game as its author made it, the picture of `custom`
         case GraphicsPreset::Custom: break;
     }
     return t;

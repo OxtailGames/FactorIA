@@ -69,9 +69,23 @@ struct RendererTestAccess {
     // M76: jitter every camera with `phases` (0 = back to the rule: only a stack with TemporalAA on that the renderer draws), so a test
     // or the pass that turns TemporalAA on can run the jitter before the effect is drawn.
     static void force_jitter(Renderer& r, int phases);
+    // M76: every camera asks for the velocity image (as the effects that read it will), and the frame keeps a copy of the last camera's.
+    // read_velocity gives that copy after a frame: `out` = w * h * 4 floats (RGBA, top row first), rg = uvPrev - uvCurr or 1024. False + `error`
+    // when no frame drew one (the GPU makes no RG16F image, or no opaque mesh was drawn).
+    static void force_velocity(Renderer& r, bool on);
+    static bool read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
     // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
     static std::vector<Vec2> last_jitter(Renderer& r);
     static int ldr_cut_format(Renderer& r);
+    // M76-P2: the temporal antialiasing (renderer_taa.h): the history images alive, whether `camera`'s last resolve blended with its history,
+    // how often a history was started, the format of the histories (sg_pixel_format as an int), whether the renderer gave the effect up, and
+    // 8-bit histories as a GPU without half-float targets has.
+    static int taa_images(Renderer& r);
+    static bool taa_used_history(Renderer& r, Entity camera);
+    static int taa_resets(Renderer& r);
+    static int taa_format(Renderer& r);
+    static bool taa_unavailable(Renderer& r);
+    static void taa_force_rgba8(Renderer& r, bool force);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);

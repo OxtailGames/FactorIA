@@ -125,7 +125,7 @@ struct ProjectSettings {
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
     // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
-    // window.upscaler. Stored and reported only: the renderer draws every mode as "stretch" until the packages that draw the others land.
+    // window.upscaler. The renderer draws "stretch" and "spatial"; the other modes report what draws instead (effectiveMode).
     render::UpscalerSettings upscaler;
     // "render": {"graphicsPreset": "high"} (M76-P6a, docs/UPSCALING.md "Graphics presets"): the preset a run starts with. custom (default) = none.
     render::GraphicsPreset graphicsPreset = render::GraphicsPreset::Custom;
