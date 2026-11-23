@@ -91,6 +91,7 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     ci.invViewProj = ci.viewProj.inverse();
     ci.drawProj = ci.proj;  // the probes are never jittered (M76)
     ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     ci.queryViewProj = projGl * ci.view;
     ci.queryInvViewProj = ci.queryViewProj.inverse();
     ci.clear = true;

@@ -455,26 +455,44 @@ TEST_CASE("floating origin render: a capture before any frame follows the rebase
 
 // ---- M76: the jitter of the drawn matrices and what the renderer keeps of it --------------------------------------------------------------------
 
-TEST_CASE(
-    "jitter render: no camera jitters until the renderer draws TemporalAA, even with the effect on in the stack") {
+TEST_CASE("jitter render: a camera jitters only while its stack has TemporalAA on (the renderer draws it)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g);
     REQUIRE_MESSAGE(o.ok, o.error);
     Far s;
-    camera_post(s.w, s.cam).temporalAAEnabled = true;
+    // Effect off: the matrices of today.
     o.frame(s.w, 3);
-    const std::vector<Vec2> j = RendererTestAccess::last_jitter(o.r);
-    REQUIRE(j.size() == 1);
-    CHECK(j[0].x == 0.0f);
-    CHECK(j[0].y == 0.0f);
+    {
+        const std::vector<Vec2> j = RendererTestAccess::last_jitter(o.r);
+        REQUIRE(j.size() == 1);
+        CHECK(j[0].x == 0.0f);
+        CHECK(j[0].y == 0.0f);
+        Mat4 plain, jittered;
+        Vec2 jpx{9, 9};
+        REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plain));
+        REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jittered, jpx));
+        CHECK(jpx.x == 0.0f);
+        CHECK(jpx.y == 0.0f);
+        for (int i = 0; i < 16; ++i) CHECK(jittered.m[i] == plain.m[i]);
+    }
+    // Effect on: the cameras are jittered and the jittered matrix is not the plain one.
+    camera_post(s.w, s.cam).temporalAAEnabled = true;
+    bool moved = false;
+    for (int f = 0; f < 4; ++f) {
+        o.frame(s.w);
+        const std::vector<Vec2> j = RendererTestAccess::last_jitter(o.r);
+        REQUIRE(j.size() == 1);
+        moved = moved || j[0].x != 0.0f || j[0].y != 0.0f;
+    }
+    CHECK(moved);
     Mat4 plain, jittered;
-    Vec2 jpx{9, 9};
+    Vec2 jpx;
     REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plain));
     REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jittered, jpx));
-    CHECK(jpx.x == 0.0f);
-    CHECK(jpx.y == 0.0f);
-    for (int i = 0; i < 16; ++i) CHECK(jittered.m[i] == plain.m[i]);  // jitter 0: the matrices of today
+    bool differs = false;
+    for (int i = 0; i < 16; ++i) differs = differs || jittered.m[i] != plain.m[i];
+    CHECK(differs);
 }
 
 TEST_CASE("jitter render: a forced jitter walks the Halton sequence and keeps the previous jittered matrix") {

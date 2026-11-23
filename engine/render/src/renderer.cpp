@@ -109,12 +109,14 @@ void DebugDraw::clear() {
     impl_->texts.clear();
 }
 
-// The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on and the renderer draws that
-// effect (post_drawn_mask: none yet), or a test / pass forced it (jitterForce).
-int Renderer::Impl::jitter_phases(const CameraInfo& ci) const {
+// The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on, the renderer draws that effect
+// (post_drawn_mask), the camera is one of the game's frame (`mainFrameCamera`: a CameraView, a render-target camera and a capture draw
+// no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
+// forced it (jitterForce).
+int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
-    const bool on = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
-                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0;
+    const bool on = mainFrameCamera && ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
+                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && taa.ready() && !taa.unavailable();
     return on ? kJitterPhasesDefault : 0;
 }
 
@@ -150,7 +152,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     }
     // The sub-pixel jitter of the temporal passes, on the DRAWN matrices only (CameraGeometry::apply_jitter): the frame index is the count of
     // the game's frames, so a run draws the same jitter on every machine. The size is the camera's image in render pixels.
-    if (const int phases = jitter_phases(ci); phases > 0) {
+    if (const int phases = jitter_phases(ci, viewSize == nullptr); phases > 0) {
         const float wPx = viewSize ? viewSize->x : float(physW) * ci.viewport.w;
         const float hPx = viewSize ? viewSize->y : float(physH) * ci.viewport.h;
         ci.apply_jitter(jitter_offset_pixels(postSerial, phases), wPx, hPx);
@@ -468,6 +470,7 @@ void Renderer::shutdown() {
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
+        im.taa.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -1088,6 +1091,17 @@ int RendererTestAccess::post_history_attempts(Renderer& r) {
 
 void RendererTestAccess::set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     if (r.impl_) r.impl_->beforeFrameGraph = std::move(hook);
+}
+
+int RendererTestAccess::taa_images(Renderer& r) { return r.impl_ ? r.impl_->taa.history_image_count() : 0; }
+bool RendererTestAccess::taa_used_history(Renderer& r, Entity camera) {
+    return r.impl_ && r.impl_->taa.last_used_history(camera.bits());
+}
+int RendererTestAccess::taa_resets(Renderer& r) { return r.impl_ ? r.impl_->taa.resets() : 0; }
+int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
+bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
+void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
+    if (r.impl_) r.impl_->taa.force_rgba8(force);
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {

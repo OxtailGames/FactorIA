@@ -746,6 +746,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // Temporal antialiasing (renderer_taa.h): the matrices that reproject the history and what decides whether it still holds. The scene's
+        // identity (a load or a reload drops the history) is hashed only for a camera that asks for the effect.
+        if (fr.cam.postStack) {
+            const bool wantsTaa = fr.cam.postStack->has(PostEffect::TemporalAA);
+            const std::uint64_t taaScene =
+                wantsTaa ? std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation()
+                         : 0;
+            pp.taa = make_taa_plan(fr.cam, *fr.cam.postStack, framePost, !taa.unavailable(), camKey, postSerial,
+                                   taaScene, originShifts, pp.prevViewProj, pp.prevValid);
+        }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
         // that did not is left out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
@@ -773,6 +783,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             std::uint32_t drop = 0;
             if (!pp.sceneFx.dof) drop |= 1u << int(PostEffect::DepthOfField);
             if (!pp.sceneFx.motion) drop |= 1u << int(PostEffect::MotionBlur);
+            if (!pp.taa.on)
+                drop |=
+                    1u << int(PostEffect::TemporalAA);  // a frame that cannot resolve (a capture) needs no depth for it
             drop &= ~forceEffects;
             if ((pp.readMask & drop) != 0) {
                 pp.readMask &= ~drop;
@@ -926,11 +939,14 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx = sceneColorFx ||
-                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
-                             c->postPlan.vol.on || c->postPlan.sss.on) &&
-                            c->doPrepass) ||
-                           c->postPlan.custom.any_hdr();
+            sceneColorFx =
+                sceneColorFx ||
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                  c->postPlan.vol.on || c->postPlan.sss.on) &&
+                 c->doPrepass) ||
+                c->postPlan.taa
+                    .on ||  // the antialiasing works on the scene colour: the HUD goes over it, never through it
+                c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -3863,7 +3879,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 if (sky.mat && sky.mat == ctx.skyPlannedMat)
                     std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
             }
-            draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
+            // The sky and the panorama are drawn with the jitter of the meshes (the temporal antialiasing resolves them like everything else);
+            // the environment bake and everything that asks where a pixel is in the world keep the unjittered matrices.
+            draw_sky(*this, sky, fr.cam.drawInvViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
 
@@ -4521,6 +4539,20 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    // Temporal antialiasing of every camera (renderer_taa.h): the jittered picture resolved with its history, over the camera's rectangle of
+    // the scene colour, after the sun shafts (and the custom passes "after:ssr", which are in it) and before the depth of field. The camera's
+    // history lives in the TaaFx: a camera that is not planned a frame loses it.
+    if (framePost) taa.sweep(postSerial);
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.taa.on) continue;
+        const BloomTarget taaDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        taa.add_passes(graph, gpu, c->postPlan.taa, c->postPlan.rect, physW, physH, game, gameTarget.texView, taaDst,
+                       c->postPlan.prepass, c->postPlan.velocity, PrepassRef{}, assets->white()->view, &stats.drawCalls,
+                       c->plan.name);
     }
     custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.

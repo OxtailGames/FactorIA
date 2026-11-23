@@ -1021,7 +1021,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
-         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, and temporalAA, planned for M76); "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, temporalAA); "
          "`backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "

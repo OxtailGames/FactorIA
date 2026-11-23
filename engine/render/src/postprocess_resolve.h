@@ -66,10 +66,11 @@ struct PostTrace {
 
 // What an effect reads from the prepass (renderer_draw.cpp, "prepass"; ARCHITECTURE_RENDERING.md, "PostProcess"): the linear view-space
 // depth of the opaque 3D meshes, and their view-space normals. Pure tables, so the gating of the prepass is testable without a GPU. The
-// outline needs both (depth and normal edges), fog and sun shafts and depth of field and motion blur the depth, ssao and ssr both.
+// outline needs both (depth and normal edges), fog and sun shafts, depth of field, motion blur and the temporal antialiasing the depth, ssao and ssr both.
 constexpr bool post_effect_needs_depth(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
-           e == PostEffect::DepthOfField || e == PostEffect::MotionBlur || e == PostEffect::Outline;
+           e == PostEffect::DepthOfField || e == PostEffect::MotionBlur || e == PostEffect::Outline ||
+           e == PostEffect::TemporalAA;
 }
 constexpr bool post_effect_needs_normals(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Outline;

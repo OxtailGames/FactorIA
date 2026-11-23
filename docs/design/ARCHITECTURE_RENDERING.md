@@ -412,6 +412,10 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
 - **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
   `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
   the design size and include the HUD.
+- **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_POST.md,
+  "Temporal antialiasing"), before the stage; the stage then brings the resolved picture to the design size like any other, with the
+  same HUD rule (`hudAfterBloom` counts the effect). The temporal upscaler of M76-P4 will do both in one pass with `TaaFx::resolve`
+  (history at the output size).
 - **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter) while the stage applies; freed by
   `set_upscale_stage(false)` and `destroy_targets`. The pipelines for the output formats are created the first time the stage
   draws, so the first frame after turning it on can hitch once. If the output image cannot be created the stage is skipped for
