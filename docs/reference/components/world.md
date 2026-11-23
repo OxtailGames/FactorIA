@@ -23,7 +23,7 @@ Turns this scene into a streamed world: `world` names an index file (<name>.worl
 
 Not released yet (on main after 0.34.0).
 
-Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "Streaming").
+Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. Streaming (M75.3): see docs/BIG_WORLDS_STREAMING.md, "Streaming".
 
 | Field | Type | Default | Description |
 |---|---|---|---|

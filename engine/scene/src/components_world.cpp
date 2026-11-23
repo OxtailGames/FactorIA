@@ -516,8 +516,8 @@ void register_world_components(TypeRegistry& r) {
          "A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a "
          "hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the "
          "objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: "
-         "give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS_LOD.md, "
-         "\"Occlusion\"); the fields are saved and checked today.",
+         "give the entity a MeshRenderer to see it. The culling (M75.2) is described in docs/BIG_WORLDS_LOD.md, "
+         "\"Occlusion\".",
          "3D")
         .enum_field("shape", &Occluder::shape, {"box", "mesh"},
                     "box (default): the box `size` and `center`. mesh: the triangles of `mesh` (or of the entity's "
@@ -585,9 +585,9 @@ void register_world_components(TypeRegistry& r) {
          "Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the "
          "`world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, "
          "those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A "
-         "scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming "
-         "(docs/BIG_WORLDS_STREAMING.md, "
-         "\"Streaming\").",
+         "scene with no anchor loads every cell. Streaming (M75.3): see "
+         "docs/BIG_WORLDS_STREAMING.md, "
+         "\"Streaming\".",
          "World")
         .field("loadRadius", &StreamingAnchor::loadRadius,
                "Metres: a cell whose bounds are nearer than this to the anchor is loaded. Measured on the plane of the "

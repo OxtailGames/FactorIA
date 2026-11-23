@@ -1,4 +1,4 @@
-// Editing a streamed world in the editor (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"; docs/editor/EDITOR_PANELS.md, "Cells panel").
+// Editing a streamed world in the editor (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"; docs/editor/EDITOR_PANELS_WORLD.md, "Cells panel").
 //
 // The open scene holds a StreamedWorld; its index (<name>.world.json) lists the cells, each its own scene file. In Edit mode the engine
 // is paused, so the streamer never loads or unloads by distance: the editor loads the cells the user picks (or the ones around the
