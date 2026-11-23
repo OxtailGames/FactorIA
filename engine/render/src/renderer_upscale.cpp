@@ -102,7 +102,9 @@ void Renderer::Impl::stretch_upscale(const UpscaleInput& in, Target& out) {
     b.views[VIEW_blit_tex] = in.color;
     b.samplers[SMP_blit_smp] = gpu.sampler(in.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear);
     sg_apply_bindings(&b);
-    blit_blit_vs_params_t u{};  // flip stays 0: the output image is stored like the game image
+    blit_blit_vs_params_t
+        u{};  // a copy between two render targets: the storage layout is kept, so flip is 1 on OpenGL (bottom-up)
+    u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};  // encode 0: copied as it is
     apply_uniforms(UB_blit_blit_fs_params, fu);
@@ -163,6 +165,10 @@ void Renderer::Impl::spatial_upscale(const UpscaleInput& in, Target& out) {
         b.views[VIEW_upscale_spatial_tex] = src;
         b.samplers[SMP_upscale_spatial_smp] = gpu.sampler(SamplerKind::Nearest);
         sg_apply_bindings(&b);
+        upscale_spatial_spatial_vs_params_t vu{};
+        vu.flip[0] =
+            gpu.is_gl() ? 1.0f : 0.0f;  // both passes read and write render targets: the storage layout is kept
+        apply_uniforms(UB_upscale_spatial_spatial_vs_params, vu);
         if (prog == render::SpatialUpscaler::Prog::Edge) {
             upscale_spatial_upscale_edge_params_t u{};
             u.src[0] = float(srcW);

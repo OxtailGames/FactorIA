@@ -286,3 +286,38 @@ TEST_CASE("render.upscaler on a pixel-perfect display: the quality still sets th
     CHECK(s.result["height"] == 90);
     e.shutdown();
 }
+
+TEST_CASE("without a renderer effectiveMode is what a GPU would draw: pixel perfect is stretch, smooth scaling follows "
+          "the setting") {
+    const char* spatial = R"(, "render": { "upscaler": { "mode": "spatial", "quality": "quality" } })";
+    {
+        TempProject p("nogpu_pixel", spatial, "pixelPerfect");
+        EngineConfig c = cfg(p);
+        c.graphics = false;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        REQUIRE(e.renderer() == nullptr);
+        auto r = e.commands().call("render.upscaler", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["mode"] == "spatial");
+        CHECK(r.result["effectiveMode"] == "stretch");
+        CHECK(eval(e, "window.upscaler.effectiveMode") == "stretch");
+    }
+    {
+        TempProject p("nogpu_fit", spatial, "fit");
+        EngineConfig c = cfg(p);
+        c.graphics = false;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        REQUIRE(e.renderer() == nullptr);
+        auto r = e.commands().call("render.upscaler", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["effectiveMode"] == "spatial");
+        CHECK(eval(e, "window.upscaler.effectiveMode") == "spatial");
+        r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["effectiveMode"] == "stretch");
+    }
+}

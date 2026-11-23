@@ -94,7 +94,7 @@ struct Pattern {
 
 // How wide an edge is: the pixels in the 10..90 % band of the picture's own range per crossing of the middle (horizontal runs).
 struct EdgeStat {
-    double width = 0.0;     // pixels in the band per crossing
+    double width = 0.0;  // pixels in the band per crossing
     int crossings = 0;
     float overshoot = 0.0f;  // how far any pixel goes past [kBg, kFg], in 0..1
 };
@@ -177,7 +177,8 @@ struct SoftPattern {
     }
 };
 
-TEST_CASE("spatial upscaler: at 0.5 a diagonal edge and thin strokes are sharper than the bilinear stretch, with no ringing") {
+TEST_CASE("spatial upscaler: at 0.5 a diagonal edge and thin strokes are sharper than the bilinear stretch, with no "
+          "ringing") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -271,7 +272,8 @@ TEST_CASE("spatial upscaler: at scale 1 it is the sharpen alone, and nothing at 
     CHECK(max_diff(stretch, plain) == 0);
 }
 
-TEST_CASE("spatial upscaler: the quality presets draw at the expected sizes, scaled by the player's scale and floored at 0.25") {
+TEST_CASE("spatial upscaler: the quality presets draw at the expected sizes, scaled by the player's scale and floored "
+          "at 0.25") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -283,16 +285,19 @@ TEST_CASE("spatial upscaler: the quality presets draw at the expected sizes, sca
         int w, h;  // the size the game is drawn at (the image of a capture without the stage)
     };
     const Case cases[] = {
-        {1.0f, render::UpscalerQuality::Native, 320, 180},       {1.0f, render::UpscalerQuality::Quality, 213, 120},
-        {1.0f, render::UpscalerQuality::Balanced, 188, 106},     {1.0f, render::UpscalerQuality::Performance, 160, 90},
+        {1.0f, render::UpscalerQuality::Native, 320, 180},
+        {1.0f, render::UpscalerQuality::Quality, 213, 120},
+        {1.0f, render::UpscalerQuality::Balanced, 188, 106},
+        {1.0f, render::UpscalerQuality::Performance, 160, 90},
         {1.0f, render::UpscalerQuality::UltraPerformance, 107, 60},
-        {0.5f, render::UpscalerQuality::Performance, 80, 45},    // 0.25: the floor itself
+        {0.5f, render::UpscalerQuality::Performance, 80, 45},       // 0.25: the floor itself
         {0.5f, render::UpscalerQuality::UltraPerformance, 80, 45},  // 0.167 would be below the floor
     };
     for (const Case& c : cases) {
         CAPTURE(c.windowScale);
         CAPTURE(render::upscaler_quality_name(c.quality));
-        const render::UpscaleScalePlan plan = render::plan_upscale_scale(c.windowScale, c.quality, render::UpscalerMode::Spatial, Renderer::kMinRenderScale);
+        const render::UpscaleScalePlan plan = render::plan_upscale_scale(
+            c.windowScale, c.quality, render::UpscalerMode::Spatial, Renderer::kMinRenderScale);
         render::UpscalerSettings s;
         s.mode = render::UpscalerMode::Spatial;
         s.quality = c.quality;
@@ -311,7 +316,8 @@ TEST_CASE("spatial upscaler: the quality presets draw at the expected sizes, sca
     }
 }
 
-TEST_CASE("spatial upscaler: stretch is the same picture whatever the quality or the sharpness say, and pixel art stays nearest") {
+TEST_CASE("spatial upscaler: stretch is the same picture whatever the quality or the sharpness say, and pixel art "
+          "stays nearest") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -352,4 +358,68 @@ TEST_CASE("spatial upscaler: stretch is the same picture whatever the quality or
     const Image one = own.draw(p.w);
     CHECK(own.drawn_passes("upscale") == 0);
     CHECK(one.width == 320);
+}
+
+// A bright square in the top-left corner of a dark picture (world y is up). A render target is stored bottom-up on OpenGL, so every pass
+// that copies one render target into another must flip there (flip of blit.glsl): a pass that does not shows the picture upside down.
+namespace {
+struct Marker {
+    World w;
+    Marker() {
+        Entity cam = make(w, "cam");
+        w.add<Camera>(cam).clearColor = Color(0.1f, 0.1f, 0.1f, 1);
+        Entity m = make(w, "marker", {-110, 55, 0});
+        auto& s = w.add<Shape2D>(m);
+        s.size = {80, 50};
+        s.color = Color(0.9f, 0.9f, 0.9f, 1);
+    }
+};
+
+// Mean red of a block of the picture, as a fraction of its size (so any output size works).
+float block_mean(const Image& img, float fx0, float fy0, float fx1, float fy1) {
+    const int x0 = int(fx0 * float(img.width)), x1 = int(fx1 * float(img.width));
+    const int y0 = int(fy0 * float(img.height)), y1 = int(fy1 * float(img.height));
+    double sum = 0.0;
+    int n = 0;
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x) {
+            sum += double(img.pixel(x, y).r);
+            ++n;
+        }
+    return n > 0 ? float(sum / n) : 0.0f;
+}
+
+// The marker is bright in the top-left block and the other three corners are dark.
+void check_marker_top_left(const Image& img, const char* what) {
+    INFO(what);
+    CHECK(block_mean(img, 0.05f, 0.06f, 0.25f, 0.2f) > 0.6f);
+    CHECK(block_mean(img, 0.75f, 0.06f, 0.95f, 0.2f) < 0.3f);  // top-right
+    CHECK(block_mean(img, 0.05f, 0.8f, 0.25f, 0.94f) < 0.3f);  // bottom-left
+    CHECK(block_mean(img, 0.75f, 0.8f, 0.95f, 0.94f) < 0.3f);  // bottom-right
+}
+}  // namespace
+
+TEST_CASE("spatial upscaler: the picture keeps its orientation through the stretch and every spatial pass") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Marker m;
+    check_marker_top_left(own.draw(m.w), "without the stage");
+    // Stretch at 0.5: one copy between render targets.
+    own.setup(0.5f, render::UpscalerMode::Stretch);
+    check_marker_top_left(own.draw(m.w), "stretch");
+    CHECK(own.drawn_passes("upscale") == 1);
+    // Spatial at 0.5 with a sharpness: the edge pass into the intermediate target, then the sharpen pass.
+    own.setup(0.5f, render::UpscalerMode::Spatial, 0.8f);
+    check_marker_top_left(own.draw(m.w), "spatial, edge and sharpen");
+    const int bothCalls = own.r.stats(false).drawCalls;
+    // The edge pass alone (sharpness 0).
+    own.setup(0.5f, render::UpscalerMode::Spatial, 0.0f);
+    check_marker_top_left(own.draw(m.w), "spatial, edge only");
+    CHECK(own.r.stats(false).drawCalls == bothCalls - 1);  // the sharpen pass is the one that is missing
+    // The sharpen pass alone (scale 1).
+    own.setup(1.0f, render::UpscalerMode::Spatial, 1.0f);
+    check_marker_top_left(own.draw(m.w), "spatial, sharpen only");
+    CHECK(own.drawn_passes("upscale") == 1);
 }

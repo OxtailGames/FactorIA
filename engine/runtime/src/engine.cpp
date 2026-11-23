@@ -1725,6 +1725,12 @@ render::UpscalerMode Engine::effective_upscaler_mode() const {
     return impl_->renderer ? impl_->renderer->effective_upscaler_mode() : ScriptHost::effective_upscaler_mode();
 }
 
+render::UpscalerCaps Engine::upscaler_caps() const {
+    render::UpscalerCaps caps;  // no renderer: what a GPU would draw, so only the scale mode matters
+    caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
+    return caps;
+}
+
 void Engine::device_overridden(const Json& device) {
     MusicDeviceProfile music;
     music.formFactor = device.value("formFactor", std::string("desktop"));

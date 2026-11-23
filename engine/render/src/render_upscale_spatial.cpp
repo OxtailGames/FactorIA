@@ -23,10 +23,12 @@ bool SpatialUpscaler::ready() {
             s = {};
         }
         state_ = -1;
-        FA_ERROR("render",
-                 "The spatial upscaler is unavailable: its shaders failed to compile for this graphics backend (see the sokol "
-                 "log lines above). The picture is scaled with the plain stretch instead. Hint: update the graphics driver "
-                 "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set render.upscaler mode to \"stretch\".");
+        FA_ERROR(
+            "render",
+            "The spatial upscaler is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol "
+            "log lines above). The picture is scaled with the plain stretch instead. Hint: update the graphics driver "
+            "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set render.upscaler mode to \"stretch\".");
         return false;
     }
     state_ = 1;
@@ -65,8 +67,6 @@ void SpatialUpscaler::release() {
     state_ = 0;
 }
 
-float SpatialUpscaler::sharpen_weight(float sharpness) {
-    return std::clamp(sharpness, 0.0f, 1.0f) * 0.18f;
-}
+float SpatialUpscaler::sharpen_weight(float sharpness) { return std::clamp(sharpness, 0.0f, 1.0f) * 0.18f; }
 
 }  // namespace fa::render

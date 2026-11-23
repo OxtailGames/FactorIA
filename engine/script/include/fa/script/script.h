@@ -262,8 +262,13 @@ public:
     // default only keeps it, for hosts without a renderer.
     virtual render::UpscalerSettings upscaler() const { return upscaler_; }
     // The mode that really draws (what `window.upscaler.effectiveMode` and render.upscaler report): the setting's mode where this backend
-    // can draw it, stretch for pixel art. The default is what a GPU would draw for the setting, for hosts without a renderer.
-    virtual render::UpscalerMode effective_upscaler_mode() const { return render::effective_upscaler_mode(upscaler()); }
+    // can draw it, stretch for pixel art. The default, for hosts without a renderer, is what a GPU would draw for the setting: the same
+    // render::effective_upscaler_mode with upscaler_caps() (pixel art asks for stretch; the default caps say a GPU can draw spatial).
+    virtual render::UpscalerMode effective_upscaler_mode() const {
+        return render::effective_upscaler_mode(upscaler(), upscaler_caps());
+    }
+    // What the display asks for when no renderer decides: pixelArt is true for a pixel-perfect scale mode. Engine overrides it.
+    virtual render::UpscalerCaps upscaler_caps() const { return {}; }
     // `where` names the caller in the error ("window.upscaler" for a script, "render.upscaler" for the command).
     virtual std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler") {
         auto r = render::parse_upscaler_settings(value, where, upscaler_);

@@ -353,7 +353,7 @@ public:
     const render::UpscalerSettings& upscaler() const;
     render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
     render::UpscalerMode
-    effective_upscaler_mode() const;  // the mode that draws now; "stretch" without a renderer or a GPU
+    effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised
     float render_scale() const;       // the scale set by set_render_scale (1 before)
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
