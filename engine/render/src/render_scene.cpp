@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <unordered_map>
+#include <utility>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "render_jobs.h"
 
@@ -147,6 +150,140 @@ Vec3 probe_point(const World& world, const MeshRenderer& mr, const Mat4& model, 
     return {probe_snap(p.x), probe_snap(p.y), probe_snap(p.z)};
 }
 
+// The LodGroups (M75.1): for each active group, which meshes sit under each of its children, and the sphere around all of them (the
+// whole subtree, whichever child is drawn, so the screen size does not change when the level does). Runs after the boxes and matrices of
+// the meshes are known.
+void RenderScene::build_lod_groups(World& world, Entity scopeRoot) {
+    // Entity index -> index in meshes_ (kNoMesh = none): a flat table the scene keeps between builds, no hashing. A stale entity (the
+    // slot was reused) is told apart by the entity the mesh holds.
+    constexpr std::uint32_t kNoMesh = UINT32_MAX;
+    std::uint32_t slots = 0;
+    for (const SceneMesh& sm : meshes_) slots = std::max(slots, sm.entity.index + 1);
+    meshOf_.assign(slots, kNoMesh);
+    proxyOf_.assign(slots, kNoMesh);
+    std::vector<std::uint32_t> proxies;  // indices in meshes_ of the HLOD proxy meshes, in the order of the groups
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        if (meshes_[i].hlodProxy) {
+            proxyOf_[meshes_[i].entity.index] = std::uint32_t(i);
+            proxies.push_back(std::uint32_t(i));
+        } else {
+            meshOf_[meshes_[i].entity.index] = std::uint32_t(i);
+        }
+    }
+    const auto mesh_of = [&](Entity x) {
+        if (x.index >= meshOf_.size() || meshOf_[x.index] == kNoMesh) return kNoMesh;
+        return meshes_[meshOf_[x.index]].entity == x ? meshOf_[x.index] : kNoMesh;
+    };
+    const auto proxy_of = [&](Entity x) {
+        if (x.index >= proxyOf_.size() || proxyOf_[x.index] == kNoMesh) return kNoMesh;
+        return meshes_[proxyOf_[x.index]].entity == x ? proxyOf_[x.index] : kNoMesh;
+    };
+    world.each<LodGroup>([&](Entity e, LodGroup& g) {
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
+        SceneLodGroup& sg = lodGroups_.emplace_back();
+        sg.entity = e;
+        sg.group = &g;
+        sg.origin = world.drawn_matrix(e).translation();
+    });
+    // The proxy meshes were gathered in the order of the groups (add_hlod_proxies): each belongs to the group of its entity.
+    for (std::size_t gi = 0, p = 0; gi < lodGroups_.size() && p < proxies.size(); ++gi) {
+        if (meshes_[proxies[p]].entity != lodGroups_[gi].entity) continue;
+        meshes_[proxies[p]].hlodGroup = std::uint32_t(gi) + 1;
+        lodGroups_[gi].proxy = true;
+        ++p;
+    }
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> links;  // (mesh index, chain entry)
+    std::vector<Entity> stack;
+    for (std::size_t gi = 0; gi < lodGroups_.size(); ++gi) {
+        SceneLodGroup& sg = lodGroups_[gi];
+        const std::vector<Entity>& kids = world.children(sg.entity);
+        sg.children = int(kids.size());
+        Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+        bool any = false;
+        for (std::size_t ci = 0; ci < kids.size(); ++ci) {
+            const std::uint32_t child = ci <= std::size_t(kMaxLodThresholds) ? std::uint32_t(ci) : 15u;
+            stack.assign(1, kids[ci]);
+            while (!stack.empty()) {
+                const Entity x = stack.back();
+                stack.pop_back();
+                if (const std::uint32_t found = mesh_of(x); found != kNoMesh) {
+                    const SceneMesh& sm = meshes_[found];
+                    links.emplace_back(found, (std::uint32_t(gi) << 4) | child);
+                    for (int c = 0; c < 8; ++c) {
+                        const Vec3 p =
+                            sm.model.transform_point({(c & 1) ? sm.bmax.x : sm.bmin.x, (c & 2) ? sm.bmax.y : sm.bmin.y,
+                                                      (c & 4) ? sm.bmax.z : sm.bmin.z});
+                        lo = min(lo, p);
+                        hi = max(hi, p);
+                    }
+                    any = true;
+                }
+                // The proxy of a group nested under this child is a mesh of this child too (it goes when the child does); it adds no
+                // bounds (the nested group's own children are in the subtree).
+                if (const std::uint32_t nested = proxy_of(x); nested != kNoMesh)
+                    links.emplace_back(nested, (std::uint32_t(gi) << 4) | child);
+                for (Entity k : world.children(x)) stack.push_back(k);
+            }
+        }
+        if (any) {
+            sg.radius = 0.5f * length(hi - lo);
+        }
+    }
+    std::stable_sort(links.begin(), links.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    lodChains_.reserve(links.size());
+    for (std::size_t i = 0; i < links.size();) {
+        SceneMesh& sm = meshes_[links[i].first];
+        sm.chainFirst = std::uint32_t(lodChains_.size());
+        std::size_t j = i;
+        for (; j < links.size() && links[j].first == links[i].first; ++j) lodChains_.push_back(links[j].second);
+        sm.chainCount = std::uint32_t(j - i);
+        i = j;
+    }
+}
+
+// The HLOD proxies (M75 P1d): for each active LodGroup with an hlodProxy and an hlodThreshold, one more mesh of the scene, drawn with the group's
+// matrix like any MeshRenderer (so its box, material, lightmap-less lighting, probes and sort key come from the one gather). Whether a camera
+// draws it is decided per frame from the group's pick (hlod_proxy_shown). A proxy that cannot be read is not added, so the group draws its
+// children as before, and says so once. Costs a set lookup per LodGroup with a proxy; the file is looked for on disk (a stat) once per path
+// until an asset reloads, never once per frame.
+void RenderScene::add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot) {
+    world.each<LodGroup>([&](Entity e, LodGroup& g) {
+        if (g.hlodProxy.empty() || !(g.hlodThreshold > 0.0f)) return;
+        if (!entity_active_in_scope(world, scopeRoot, e)) return;
+        // A proxy file that does not exist is reported once per path by the one message below (it names the first group and what to do), and
+        // Assets::mesh then stays quiet about it. Any other failure (a file that does not parse, a path that is not a model) is the one
+        // error Assets::mesh logs, with its cause.
+        const std::string ext = fs::extension(g.hlodProxy);
+        if (hlodCheckedGen_ != assets.reload_generation()) {
+            hlodChecked_.clear();
+            hlodCheckedGen_ = assets.reload_generation();
+        }
+        bool missing = false;
+        if ((ext == ".glb" || ext == ".gltf") && hlodChecked_.insert(g.hlodProxy).second) {
+            ++hlodChecks_;
+            missing = !fs::exists(fs::normalize(g.hlodProxy));
+        }
+        if (missing)
+            assets.note_failure(
+                "mesh", g.hlodProxy,
+                std::format("LodGroup.hlodProxy '{}' of entity '{}' (and of every other group that names it): the file "
+                            "does not exist, so the groups draw their children as before.",
+                            g.hlodProxy, world.id_of(e)),
+                "bake the proxy again with world.bake_hlod (its apply argument sets LodGroup.hlodProxy) or fix the "
+                "path; a model is a project-relative .glb.");
+        const MeshAsset* mesh = assets.mesh(g.hlodProxy);
+        if (!mesh || mesh->placeholder) return;
+        MeshRenderer& r = hlodRenderers_.emplace_back();
+        r.mesh = g.hlodProxy;
+        r.lodCrossFade = 0.0f;
+        r.lightmapScale = 0.0f;  // no lightmap was baked for it
+        SceneMesh& sm = meshes_.emplace_back();
+        sm.mr = &r;
+        sm.entity = e;
+        sm.hlodProxy = true;
+    });
+}
+
 void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
                         const std::vector<ProbeVolume>* probeVolumes) {
     meshes_.clear();
@@ -163,7 +300,10 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         SceneMesh& sm = meshes_.emplace_back();
         sm.mr = &mr;
         sm.entity = e;
+        sm.streamProxy = std::as_const(world).info(e).streamedProxy;
     });
+    hlodRenderers_.clear();
+    if (world.any<LodGroup>()) add_hlod_proxies(world, assets, scopeRoot);
 
     // The asset lookups stay on this thread (a mesh, texture or material may be loaded), and so do the cache entries (a map
     // that grows); the jobs below only read the assets and write their own items and entries. Every active MeshRenderer is
@@ -208,7 +348,8 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             static const std::string kCube = "cube";  // not a std::string made for every entity of every frame
             assets.lightmap_use(*lightmaps, world.id_of(sm.entity), *sm.mesh, mr.mesh.empty() ? kCube : mr.mesh, sm.lm);
         }
-        sm.hasLods = !mr.lods.empty();
+        sm.hasLods =
+            !mr.lods.empty() || (!mr.impostor.empty() && mr.impostorDistance > 0.0f);  // the impostor is a level too
         sm.liveTextures = Assets::is_target_id(mr.texture) || Assets::is_target_id(mr.normalMap);
         const bool params = sm.material && mr.materialParams.is_object() && !mr.materialParams.empty();
         const bool colors = mr.materialColors.is_object() && !mr.materialColors.empty();
@@ -326,6 +467,11 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     });
     if (wholeWorld) hashes_.end_frame();
 
+    lodGroups_.clear();
+    lodChains_.clear();
+    anyLods_ = false;
+    if (world.any<LodGroup>()) build_lod_groups(world, scopeRoot);
+
     // The sort keys, once for every camera: ranks of names and values over the whole scene (a rebuilt table, so nothing
     // accumulates across frames). The lod levels are ranked too, for the cameras that swap them in.
     fields_.resize(meshes_.size());
@@ -335,7 +481,9 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         fields_[i] = {sm.mesh,       sm.tex,   sm.normalTex,          sm.mr,
                       sm.entity,     sm.anim,  sm.material,           sm.paramsHash,
                       sm.colorsHash, sm.flash, sm.lm.mesh != nullptr, sm.probeKey};
-        if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
+        if (!sm.hasLods) continue;
+        anyLods_ = true;
+        if (!sm.mr->lods.is_array()) continue;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;
             const auto m = e.find("mesh");

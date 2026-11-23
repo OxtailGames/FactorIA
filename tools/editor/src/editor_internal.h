@@ -52,16 +52,20 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/light_probes.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
 #include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/qr.h"
 #include "fa/tooling/self_update.h"
 #include "fa/tooling/tooling.h"
 #include "ai_asset_approval.h"
+#include "cell_edit.h"
 #include "ai_chat.h"
 #include "ai_runs.h"
 #include "ai_usage.h"
 #include "anim3d_ui.h"
 #include "anim_ui.h"
+#include "foliage_ui.h"
+#include "terrain_ui.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
@@ -222,7 +226,14 @@ public:
     void install_command_overrides();
     bool save_scene_now();
     void reload_scene_from_disk(bool keepUndo = false);  // keepUndo: Ctrl+Z brings back what was on screen before
-    void restore_scene(const Json& snapshot);
+    // `withCells` false: the cells carried in the snapshot ("$cells") are not put back (Play streams them by distance and suspends the
+    // editor's cells); true: they come back, and the cells loaded since the snapshot stay as they are (cell_edit.h). `withCells`
+    // false is also the start of Play: the terrains with edits are held in playTerrains_ and the game gets copies; true after that
+    // (Stop) puts the held ones back, the game's copies are dropped.
+    void restore_scene(const Json& snapshot, bool withCells = true);
+    // snapshot_scene plus the cells loaded for editing, under "$cells" (snapshot_scene leaves streamed cells out): what the undo stack,
+    // Play and the AI's revert keep. restore_scene reads it back.
+    Json snapshot_state();
     void
     reset_feel_choices();  // feel.reduceMotion / reducedEffects back to following the system (a Play session starts and ends)
 
@@ -273,8 +284,22 @@ public:
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
     // Returns true when it pushed a new snapshot entry (false: coalesced into the last one, or not in edit mode).
     bool begin_edit(const std::string& key);
-    void mark_dirty() { dirty_ = true; }
-    bool dirty() const { return dirty_; }
+    void mark_dirty() {
+        dirty_ = true;
+        note_cells_edit();
+    }
+    // Tells the cells (cell_edit.h) which loaded cell an edit may have changed: the cells of the selected entities (and `extraId`, an
+    // entity a command names), so the dirty check hashes those first and the others one per frame. With nothing to name it checks
+    // every cell. Undo, Redo and snapshots always check every cell.
+    void note_cells_edit(const std::string& extraId = std::string());
+    // Unsaved changes of the scene file or of a cell of a streamed world loaded for editing (Cells panel). Terrain data not written
+    // yet is not counted here: has_unsaved_work() adds it.
+    bool dirty() const { return dirty_ || cells_.any_dirty(); }
+    // Unsaved edits (scene or cells), or a Terrain has samples, holes or splat weights not written yet (they are not in the scene file):
+    // what closing, reloading and opening another scene ask about.
+    bool has_unsaved_work();        // dirty() or has_unsaved_terrain()
+    bool has_unsaved_terrain();     // a Terrain has samples, holes or splat weights not written yet
+    void forget_unsaved_terrain();  // "Discard and quit": the terrains count as written, so closing does not ask again
     void undo();
     void redo();
     // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
@@ -284,6 +309,13 @@ public:
     // the plan undo_inverse.h built before it ran (docs/EDITOR.md, "Undo entries").
     bool push_command_entry(const std::string& key, std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse,
                             CoalesceMode mode = CoalesceMode::Replace);
+    // Removes the oldest undo entries of terrain `id` whose step the terrain's own history let go (editor_app.cpp).
+    void drop_terrain_entries_past_history(const std::string& id);
+    // The foliage counterpart (editor_app.cpp): after_command hands every foliage.* result to note_foliage_result, which takes the
+    // undo and redo rows of steps the foliage history lost out of both lists (`all`: every foliage command of `id`).
+    void note_foliage_result(const Json& args, const CommandResult& r);
+    void drop_foliage_rows(const std::string& id, bool all, std::uint64_t historyId, std::uint64_t lost,
+                           const std::string& why);
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
@@ -745,6 +777,33 @@ public:
     void lightmap_poll();
     LightmapUi lightmap_;
     bool showLightmap_ = false;
+
+    // Cells panel (cells_panel.cpp; View > Cells): editing a streamed world (docs/BIG_WORLDS_STREAMING.md, "Editing a streamed world"). `cells_` is the
+    // model (cell_edit.h): which cells are loaded as editable entities, which are dirty, Save. The panel lists the cells nearest the view,
+    // loads / unloads / selects them, and the viewport draws their grid (cells_overlay) in the colours of the list. Edit mode only: Play
+    // streams by distance and the editor's cells are put back at Stop.
+    struct CellsUi {
+        int radiusCells = 1;              // "Load around": how many cells out from the camera's cell
+        bool overlay = true;              // draw the grid in the viewport
+        std::int32_t askI = 0, askJ = 0;  // the dirty cell the "unload?" question is about
+        bool ask = false;
+        std::string status;         // the last result line of the panel
+        std::vector<CellRow> rows;  // the list, rebuilt when the view cell or the state changes
+        std::int64_t rowsKey = INT64_MIN;
+        std::int32_t focusI = 0, focusJ = 0;
+        bool hasFocus = false;
+    };
+    void draw_cells_panel();
+    void draw_cells_overlay(ImDrawList* dl, Renderer& r, const std::function<ImVec2(Vec3)>& project);
+    void
+    cells_refresh_rows();  // cellsUi_.rows: the loaded cells and the nearest ones of the index, when the view or the state changed
+    bool cells_view_point(double& a, double& b);  // the camera's position on the world's plane (absolute metres)
+    bool cells_load_around_view(std::string* message);
+    bool cells_save(bool only, std::int32_t i, std::int32_t j);
+    void cells_inspector_line(Entity e);  // "Cell: 1,0" under the entity's name (inspector_panel.cpp)
+    CellEdit cells_;
+    CellsUi cellsUi_;
+    bool showCells_ = false;
     // Music panel (music_panel.cpp, music_mixer_panel.cpp; View > Music, or a double click on a *.song.json in the Project panel): a song as a
     // piano roll, a drum grid, an arrangement and a mixer, played by the same transport a game's entity.music uses (an intensity slider fades
     // the layers, a section can be looped). The rules are in music_model.h: every edit it keeps is a command call (music.edit, music.arpeggio,
@@ -803,6 +862,33 @@ public:
     Entity bone_skin_entity();
     SkinBox sprite_local_box(Entity e);  // the rectangle a Sprite covers in its own space, as the renderer lays it out
     BoneUi bone_;
+    // Terrain tool (terrain_tool.cpp; View > Terrain tool): sculpt, paint and cut holes in the selected Terrain with a brush in the
+    // viewport. A stroke is applied live and is ONE undo step ([terrain.redo] / [terrain.undo] command entry) pushed at the release.
+    void draw_terrain_tool_panel();
+    bool
+    terrain_tool_active();  // the panel is open, a mode is picked and the selected entity has a Terrain3D (edit mode)
+    bool terrain_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);  // true when the click was taken
+    void terrain_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    bool terrain_stroke_active() const;
+    void terrain_stroke_begin(Entity e, Vec2 at);
+    bool terrain_stroke_flush();
+    void terrain_stroke_end();
+    void terrain_stroke_cancel();
+    TerrainUi terrain_;
+    // Foliage tool (foliage_tool.cpp; View > Foliage tool): add or erase the instances of the selected Foliage with the same brush. A
+    // stroke is sent as a few foliage.paint pieces (rate-limited: each rewrites the whole instances file) and is ONE undo step
+    // ([foliage.redo] / [foliage.undo]) pushed at the release.
+    void draw_foliage_tool_panel();
+    bool
+    foliage_tool_active();  // the panel is open, a mode is picked and the selected Foliage has a terrain (edit mode)
+    bool foliage_tool_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);  // true when the click was taken
+    void foliage_tool_draw(ImDrawList* dl, Renderer& r, ImVec2 imgMin, ImVec2 size);
+    bool foliage_stroke_active() const;
+    void foliage_stroke_begin(Entity e, Vec2 at);
+    bool foliage_stroke_flush(bool final);
+    void foliage_stroke_end();
+    void foliage_stroke_cancel();
+    FoliageUi foliage_;
     // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
     void draw_project_panel();
     void draw_project_tile(const BrowserFile& f, ImVec2 size);
@@ -1087,6 +1173,14 @@ public:
     std::function<bool()> slicedJob_;
     std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
+    // The terrains with unsaved edits or history that Play started with, held as they were (a terrain of the game world is a copy
+    // of each, with no history): Stop gives these back, so what the game did to a terrain never reaches the editor.
+    struct HeldTerrain {
+        std::string id, heightmap;
+        std::shared_ptr<TerrainHeights> heights;
+    };
+    std::vector<HeldTerrain> playTerrains_;
+    bool playHoldsTerrain_ = false;
     Selection selection_;
     UndoStack undo_, redo_;
     std::string lastEditKey_;
@@ -1198,7 +1292,7 @@ public:
     bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false,
          showProject_ = true;
-    bool showAnimation_ = false, showBoneTools_ = false;
+    bool showAnimation_ = false, showBoneTools_ = false, showTerrainTool_ = false, showFoliageTool_ = false;
     bool showLevelGen_ = false;
     LevelGenSession levelGen_;
     LevelGenOptions levelGenOpt_;
@@ -1879,6 +1973,9 @@ public:
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
+    void at_section_T3(AtScript& at);  // autotest_terrain.cpp
+    void at_section_F3(AtScript& at);  // autotest_foliage.cpp
+    void at_section_W2(AtScript& at);  // autotest_cells.cpp
     void at_section_R3(AtScript& at);
     void at_section_A3(AtScript& at);
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp

@@ -133,6 +133,11 @@ UndoEntry UndoEntry::command(std::vector<UndoCommand> fwd, std::vector<UndoComma
     return e;
 }
 
+void UndoEntry::refresh_bytes() {
+    if (kind == Kind::Command)
+        bytes = add_sat(sizeof(UndoEntry), add_sat(commands_bytes(forward), commands_bytes(inverse)));
+}
+
 bool UndoEntry::is_special(const char* key) const {
     return kind == Kind::Special && data.is_object() && data.contains(key);
 }

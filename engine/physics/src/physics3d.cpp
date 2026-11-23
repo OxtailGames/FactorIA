@@ -12,6 +12,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <unordered_set>
 
 #include "fa/core/jobs.h"
@@ -710,8 +711,22 @@ void Physics3D::sync(World& world) {
     for (Entity e : ents) {
         RigidBody3D* rb = world.get<RigidBody3D>(e);
         Collider3D* col = world.get<Collider3D>(e);
+        const bool ownCollider = col != nullptr;  // enabled or not
         if (col && !col->enabled)
             col = nullptr;  // a disabled collider is as good as absent: no queries, contacts or bake
+        // A Terrain with `collision` on is its own heightfield collider (static, from the same heights it draws): no Collider3D or
+        // Heightfield3D needed. An entity with a Collider3D of its own keeps that one, and when that one is disabled the entity
+        // has no collider at all (disabling a collider must never switch another one on). The stand-in is only built for a
+        // terrain, not for every entity of the sync.
+        std::optional<Collider3D> terrainCollider;
+        const Terrain3D* terrain = nullptr;
+        if (!ownCollider)
+            if (const Terrain3D* t = std::as_const(world).get<Terrain3D>(e); t && t->collision) {
+                terrain = t;
+                terrainCollider.emplace();
+                terrainCollider->shape = ColliderShape3D::Heightfield;
+                col = &*terrainCollider;
+            }
         CharacterController3D* cc = world.get<CharacterController3D>(e);
         Joint3D* jt = world.get<Joint3D>(e);
         if ((!rb && !col && !cc) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
@@ -772,7 +787,26 @@ void Physics3D::sync(World& world) {
                     "static level geometry (a moving body has no inside to push out of). Use shape \"convex\" for a "
                     "moving body, or build it from several boxes/capsules, or set the RigidBody3D type to static.",
                     world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
-            else if (col->shape == ColliderShape3D::Heightfield) {
+            else if (col->shape == ColliderShape3D::Heightfield && terrain) {
+                std::string why;
+                const std::shared_ptr<fa::TerrainHeights> heights = world.terrain().heights(world, e, &why);
+                if (!isStatic)
+                    problem = std::format("entity '{}' has a Terrain with collision on and a {} RigidBody3D. A terrain "
+                                          "is static ground. Set the "
+                                          "RigidBody3D type to static, or remove the RigidBody3D.",
+                                          world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
+                else if (!heights)
+                    problem = why.empty() ? std::format("entity '{}': the Terrain has no heights to collide with",
+                                                        world.id_of(e))
+                                          : why;
+                else {
+                    if (!b.hf) b.hf = std::make_shared<HeightfieldShape>();
+                    HeightfieldEdit edit;
+                    problem = update_heightfield(*b.hf, world.id_of(e), *terrain, *heights, edit);
+                    if (problem.empty() && edit.changed && existed) fieldEdits.push_back({key, edit});
+                    if (problem.empty() && edit.boundsChanged) b.boxStale = true;
+                }
+            } else if (col->shape == ColliderShape3D::Heightfield) {
                 Heightfield3D* grid = world.get<Heightfield3D>(e);
                 if (!isStatic)
                     problem = std::format(

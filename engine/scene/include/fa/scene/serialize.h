@@ -74,6 +74,10 @@ struct LoadReport {
 struct SceneLoadOptions {
     bool additive = false;  // false: world.clear() first and apply settings
     Entity parent;          // additive loads may parent all roots under this entity
+    // The load is a streamed cell (engine/runtime world_streamer.h): `parent` is the cell's root entity (EntityInfo::streamedCell).
+    // An entity reference inside it resolves to the cell's own entities or to entities outside every streamed cell; one that
+    // names an entity of another cell, or an id that exists nowhere, is a warning (the field stays empty), never an error.
+    bool streamedCell = false;
 };
 
 // Scenes
@@ -123,9 +127,12 @@ Json snapshot_scene(const World& world);
 // (world.spawn, world.spawnPrefab) are NOT written unless includeSpawned: the script builds them again on load, so saving
 // them duplicates them. `skipped` (may be null) reports what was left out. An entity that a prefab made is written as
 // {"id", "prefab", only the differences from the prefab} (PrefabSave::Keep), so a later change of the prefab file still
-// reaches the scene; `prefabsExpanded` (may be null) lists the instances that had to be written inline instead.
+// reaches the scene; `prefabsExpanded` (may be null) lists the instances that had to be written inline instead. The terrain
+// files that terrain.sculpt... edited are written after the scene (save_all_terrain_files); `writeAnywhere` is the caller's
+// WriteAnywhere permission for their paths (otherwise they must lie inside the project).
 Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned = false,
-                             SpawnedSkip* skipped = nullptr, std::vector<PrefabExpanded>* prefabsExpanded = nullptr);
+                             SpawnedSkip* skipped = nullptr, std::vector<PrefabExpanded>* prefabsExpanded = nullptr,
+                             bool writeAnywhere = false);
 
 // Text of a scene or prefab document as written to disk: 2-space indent, with the short arrays of scalars on one line
 // (vectors, colors, rects, tags, solidTiles; long ones wrap at about 100 columns) and a Tilemap's flat `tiles` array

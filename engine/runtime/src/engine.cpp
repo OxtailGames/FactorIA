@@ -291,6 +291,9 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.on_scene_load();
     physics.reset();
+    if (streamer)
+        streamer
+            ->reset();  // the cells of the old scene go with it; their loads stop and nothing is applied to the new one
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
     currentScene = path;
@@ -340,6 +343,7 @@ bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sour
     take_scene_props(false);
     audio.on_scene_load();
     physics.reset();
+    if (streamer) streamer->reset();
     const std::string keptPath = world.scene_path();
     if (loadTrace) loadTrace->scene_started(keptPath.empty() ? std::string(sourceName) : keptPath);
     LoadReport report = fa::load_scene(world, scene, sourceName);
@@ -375,14 +379,20 @@ BackgroundLoader::Budget Engine::Impl::load_budget() {
 }
 
 void Engine::Impl::tick_background_loads() {
-    if (!loader || !loader->active()) {
+    BackgroundLoader::Frame f;
+    const bool loaderBusy = loader && loader->active();
+    if (loaderBusy) {
+        const bool loading = loader->loading();
+        f = loader->tick(renderer.get(), &audio, load_budget());
+        if (loading && recorder.recording())
+            recorder.load_units(frame, f.units);  // a replay takes the same units per frame
+    } else {
         replayLoadUnits.reset();
-        return;
     }
-    const bool loading = loader->loading();
-    const BackgroundLoader::Frame f = loader->tick(renderer.get(), &audio, load_budget());
-    if (loading && recorder.recording())
-        recorder.load_units(frame, f.units);  // a replay takes the same units per frame
+    // The cells of a streamed world: the loader's finished cell jobs are added to the world now (within the streamer's budget).
+    // Every frame, also when idle: it resets the per-frame counters of world.stream_status.
+    if (streamer) streamer->apply(f.cells, f.units);
+    if (!loaderBusy) return;
     for (const BackgroundLoader::SceneReady& ready :
          f.scenes) {  // its files are ready: the switch happens at the end of this frame
         if (pendingTraceTag != 0 && loadTrace) loadTrace->load_cancelled(pendingTraceTag);
@@ -688,6 +698,12 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             update_sprite_animators(world, float(fixedDt * scale));
             world.particles().update(world, float(fixedDt * scale));
         }
+        // Floating origin: the end of the fixed step is where the origin may move, after everything that moves things ran and
+        // before the events are dispatched, so a script hears `originShifted` in the step that rebased.
+        auto_rebase_origin();
+        if (streamer)
+            streamer
+                ->update();  // the cells to load and unload around the StreamingAnchors, from where they are after the rebase
         {
             ProfSystemScope prof(ProfSystem::ScriptsEvents);
             scripts.dispatch_events();
@@ -793,6 +809,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         if (startedHere) {  // init failed after the pool started: its jobs end, then its reference goes back
             if (I.loader) I.loader->stop(nullptr);
             if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+            I.streamer.reset();
             I.loader.reset();
             I.jobOwner.close();
             jobScope.reset();
@@ -851,6 +868,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.commands.set_job_owner(&I.jobOwner);
         // Background loading: its IO thread runs only when the pool has worker threads (fa/core/background_io.h).
         I.loader = std::make_unique<BackgroundLoader>(&I.jobOwner, I.traceOwner);
+        I.streamer =
+            std::make_unique<WorldStreamer>(I.world, *I.loader);  // the cells of a StreamedWorld (world_streamer.h)
     }
     // Screenshots the engine named itself (game.screenshot without a path) pile up over a long session: drop the old ones.
     if (!dir.empty()) prune_screenshots(stdfs::path(dir));
@@ -1127,6 +1146,7 @@ void Engine::shutdown() {
         // this engine's jobs, which the wait below sees through. Their results are thrown away.
         if (I.loader) I.loader->stop(nullptr);
         if (auto w = I.jobOwner.wait(); !w) FA_ERROR("engine", "{}", w.error().to_string());
+        I.streamer.reset();
         I.loader.reset();
         I.jobOwner.close();
     }
@@ -1342,11 +1362,23 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
         }
     } guard{I, scale != I.heldScale};
     if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
-    if (I.renderStale) I.draw(I.lastRenderDt);                 // OnDemand: draw the state of the current frame
+    const bool canDraw = !I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0);
+    if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
-    else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0))
+    else if (canDraw)
         I.draw(0.0);
+    // The terrain's layer pictures and the foliage's meshes are built by jobs and adopted by the next draw: a capture right after
+    // a load waits for them and draws again, so the picture is the finished one (not the neutral layers). Three rounds at most:
+    // a reload that keeps arriving does not hold a screenshot.
+    // The same rule as the draw above: a game window presents its own frames (the next one adopts the jobs), and a capture asked from
+    // inside a frame never draws in the middle of it.
+    for (int round = 0; canDraw && round < 3 && (I.renderer->terrain_loading() || I.renderer->foliage_loading());
+         ++round) {
+        I.renderer->wait_terrain_loaded();
+        I.renderer->wait_foliage_loaded();
+        I.draw(0.0);
+    }
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
     return true;

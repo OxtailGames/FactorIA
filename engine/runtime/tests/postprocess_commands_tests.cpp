@@ -390,9 +390,11 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
     if (!r.ok) {
         CHECK(r.error["code"] == "unavailable");  // graphics=false: no GPU to ask
     } else {
-        CHECK(r.result["features"].size() ==
-              39 + std::size_t(
-                       kPostEffectCount));  // 8 capabilities and engine features, 21 lighting rows of M73, 10 of M74
+        CHECK(
+            r.result["features"].size() ==
+            47 +
+                std::size_t(
+                    kPostEffectCount));  // 8 capabilities and engine features, 21 lighting rows of M73, 10 of M74, 8 of M75
         r = c.call("render.supports", Json::parse(R"({"feature":"bloom"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["feature"] == "bloom");

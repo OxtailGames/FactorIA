@@ -174,6 +174,10 @@ public:
     std::size_t trail_pool_points() const { return trailPool_.size(); }
     int trails_in_use() const { return trailsInUse_; }
 
+    // Moves everything the sim keeps in world space by -offset: the particles, their trails, the emitter trail and the emitter's last
+    // position (so emitterVel_ does not jump). The caller decides whether this emitter simulates in world space.
+    void shift(Vec3 offset);
+
     bool empty() const { return particles.empty(); }
     // Live particles of a group (after the last step).
     int live(int group) const { return group >= 0 && group < int(counts_.size()) ? counts_[std::size_t(group)] : 0; }

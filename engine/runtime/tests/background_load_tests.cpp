@@ -716,6 +716,56 @@ TEST_CASE("background load: a loader without a job pool gives the same frames as
     fs::set_project_root(oldRoot);
 }
 
+TEST_CASE("background load: an HLOD proxy that is missing or vanishes fails the job with its own name and hint") {
+    // No pool: the scan runs inside tick() on this thread, so the file can be removed after start() and before the scan.
+    TempProject p("hlodgone");
+    const stdfs::path oldRoot = fs::project_root();
+    fs::set_project_root(p.dir);
+    {
+        BackgroundLoader loader(nullptr, LoadTrace::kNoOwner);
+        auto missing = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets/m9.glb"}, std::nullopt,
+                                    BackgroundLoader::Origin::Tool, nullptr);
+        REQUIRE_FALSE(missing.ok());
+        CHECK(missing.error().message.find("hlod.load: file 'assets/m9.glb' does not exist") == 0);
+        CHECK(missing.error().hint.find("world.bake_cell_hlods") != std::string::npos);
+        CHECK(missing.error().message.find("Valid:") != std::string::npos);  // the folder was listed for the suggestion
+        // A retry nobody reads (suggest false) builds no suggestion: same error, no listing, no trailing space.
+        auto quiet = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets/m9.glb"}, std::nullopt,
+                                  BackgroundLoader::Origin::Tool, nullptr, false);
+        REQUIRE_FALSE(quiet.ok());
+        CHECK(quiet.error().message == "hlod.load: file 'assets/m9.glb' does not exist.");
+        CHECK(quiet.error().hint == missing.error().hint);
+        auto folder = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets"}, std::nullopt,
+                                   BackgroundLoader::Origin::Tool, nullptr);
+        REQUIRE_FALSE(folder.ok());
+        CHECK(folder.error().message.find("hlod.load:") == 0);
+        auto preload = loader.start(BackgroundLoader::Kind::Assets, {"assets/m9.glb"}, std::nullopt,
+                                    BackgroundLoader::Origin::Tool, nullptr);
+        REQUIRE_FALSE(preload.ok());
+        CHECK(preload.error().message.find("assets.preload: file") == 0);
+
+        auto id = loader.start(BackgroundLoader::Kind::HlodLoad, {"assets/m1.glb"}, std::nullopt,
+                               BackgroundLoader::Origin::Tool, nullptr);
+        REQUIRE(id.ok());
+        std::error_code ec;
+        stdfs::remove(p.dir / "assets/m1.glb", ec);
+        REQUIRE_FALSE(ec);
+        std::vector<BackgroundLoader::CellResult> results;
+        for (int f = 0; f < 50 && results.empty(); ++f) {
+            BackgroundLoader::Frame fr = loader.tick(nullptr, nullptr, BackgroundLoader::Budget{});
+            for (BackgroundLoader::CellResult& r : fr.cells) results.push_back(std::move(r));
+        }
+        REQUIRE(results.size() == 1);
+        CHECK(results[0].proxy);
+        CHECK(results[0].id == id.value());
+        CHECK(results[0].error.find("file vanished") != std::string::npos);
+        CHECK_FALSE(results[0].hint.empty());
+        loader.stop(nullptr);
+    }
+    fs::unwarm_all();
+    fs::set_project_root(oldRoot);
+}
+
 TEST_CASE("background load: cancel() in the frame an async scene load's files were ready stops the switch") {
     ScopedEnv env("FA_JOB_THREADS", nullptr);
     TempProject p("samecancel");

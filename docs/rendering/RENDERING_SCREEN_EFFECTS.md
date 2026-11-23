@@ -1,5 +1,5 @@
 Part of [RENDERING.md](../RENDERING.md): the camera effects the post pass draws for a moment. The post-processing stack they are drawn with is
-described there, in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
+described on [RENDERING_POSTPROCESS.md](RENDERING_POSTPROCESS.md), in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
 
 # Rendering: transient screen effects
 

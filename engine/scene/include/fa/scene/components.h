@@ -20,6 +20,7 @@
 #include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 #include "fa/core/utf8.h"
+#include "fa/scene/components_world.h"
 #include "fa/scene/skeleton.h"
 
 namespace fa {
@@ -38,6 +39,13 @@ struct EntityInfo {
     // Not serialized and not reflected: set on entities a script created at runtime (world.spawn, world.spawnPrefab).
     // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
     bool scriptSpawned = false;
+    // Not serialized and not reflected: true on the root entity of a streamed cell (engine/runtime world_streamer.h). The cell's
+    // content is its own file: scene.save and snapshots leave the whole subtree out. (The editor shows the cells apart from the scene in its Cells panel.)
+    bool streamedCell = false;
+    // Not serialized and not reflected: true on the entity the streamer makes to draw the HLOD proxy of a streamed cell that is not loaded
+    // (engine/runtime world_streamer.h, M75 P1e). It is transient: scene.save and snapshots leave it out, the streamer makes and
+    // destroys it, and the renderer counts its mesh in renderStats.hlodProxies.
+    bool streamedProxy = false;
     // Not serialized and not reflected: where the entity came from when a prefab made it. `prefab` is the project-relative
     // path of the prefab on the ROOT of an instance (a scene entry {"prefab": ...}, scene.spawn or instantiate_prefab) and
     // empty everywhere else. `fromPrefab` is true on the root of an instance and on every entity the prefab's own content
@@ -96,6 +104,9 @@ struct Camera {
     Json showTags =
         Json::array();  // non-empty: only entities that have one of these tags (or a parent that has) are drawn
     Json hideTags = Json::array();  // entities that have one of these tags (or a parent that has) are not drawn
+    // false: this camera ignores the OcclusionArea / OcclusionPortal culling (a minimap, a top-down or editor-style view that sits
+    // outside the building and must still see every room). The Occluders and the depth pyramid still apply.
+    bool areaCulling = true;
 };
 
 // The texture id of the render target `name` ("target:book"): what MeshRenderer.texture, a material texture, Sprite.texture,
@@ -1157,6 +1168,12 @@ struct MeshRenderer {
     Color subsurfaceColor{1.0f, 0.4f, 0.25f, 1.0f};  // M73.5: the spread of each colour channel, relative to the radius
     bool receiveDecals = true;                       // M73.5b: Decal components project onto this mesh
     std::int32_t decalLayer = 0;  // M73.5b: 0..15, the layer a Decal's `layers` mask is tested against
+    // The fields below belong to the big worlds of M75 (docs/BIG_WORLDS.md): read, written and validated today, drawn by the
+    // package named in each doc string. Their defaults keep the LOD of every scene made before M75.
+    LodMode lodMode = LodMode::Distance;  // M75.1: what the thresholds of `lods` and `impostorDistance` measure
+    float lodCrossFade = 0.0f;            // M75.1: seconds a switch between two LODs fades over; 0 = a hard switch
+    std::string impostor;           // M75.1: the baked impostor atlas (*.impostor.json) drawn from impostorDistance on
+    float impostorDistance = 0.0f;  // M75.1: where the impostor replaces the last LOD (unit: lodMode); 0 = never
 };
 // M73.5b: a texture projected onto the 3D meshes inside the box of the entity (docs/rendering/RENDERING_DECALS_FOG.md,
 // "Decals"). The box is the entity's world transform applied to the cube [-0.5, 0.5]^3; the decal projects along the
@@ -1676,6 +1693,11 @@ enum class SkyModel : std::int32_t { Gradient, Physical };
 // docs/rendering/RENDERING_DECALS_FOG.md, "Volumetric fog and light shafts").
 enum class VolumetricQuality : std::int32_t { Low, Medium, High };
 
+// SceneSettings.occlusionMode: which occlusion culling the 3D cameras use (M75.2, docs/BIG_WORLDS.md, "Occlusion"). Cpu = the Occluder
+// entities rasterised on the CPU (the default); Gpu = a hierarchical depth image of the last frame, read back with one frame of latency
+// (needs compute shaders; a backend without them uses Cpu, with one warning); Auto = Gpu where the backend has compute shaders, else Cpu.
+enum class OcclusionMode : std::int32_t { Cpu, Gpu, Auto };
+
 // Scene-wide settings (stored in the scene file under "settings").
 struct SceneSettings {
     Color ambientLight{0.25f, 0.25f, 0.3f, 1.0f};
@@ -1727,6 +1749,8 @@ struct SceneSettings {
     float volumetricAmbient = 1.0f;        // how much of ambientLight the fog scatters
     float volumetricDistance = 100.0f;     // metres from the camera the medium extends to
     VolumetricQuality volumetricQuality = VolumetricQuality::Medium;
+    OcclusionMode occlusionMode =
+        OcclusionMode::Cpu;  // M75.2: cpu (Occluder entities), gpu (Hi-Z of the last frame) or auto
 };
 
 // Registers every component above (plus SceneSettings as a reflected type)

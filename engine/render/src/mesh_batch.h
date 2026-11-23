@@ -16,6 +16,17 @@
 
 namespace fa::render {
 
+struct TerrainDraw;
+struct ImpostorDraw;
+
+// The sort key of every node of a Terrain (renderer_terrain.cpp): after any key a scene's items get, so they follow the scene's own
+// batches and, the sort being stable, stay in the order they were gathered (one terrain after the other). Without it one terrain made
+// the whole frame's items "unkeyed" and sorted with the slow comparator.
+inline constexpr std::uint64_t kTerrainSortKey = ~std::uint64_t(0);
+// The sort key of every instance of a Foliage (renderer_foliage.cpp), just before the terrain's for the same reason: the renderer hands
+// them over grouped by mesh, so the stable sort by (key, lod fade) leaves each mesh and fade step together as one draw.
+inline constexpr std::uint64_t kFoliageSortKey = ~std::uint64_t(0) - 1;
+
 // One MeshRenderer entity, gathered for this frame.
 struct MeshItem {
     MeshAsset* mesh = nullptr;
@@ -41,6 +52,10 @@ struct MeshItem {
     std::uint64_t sortKey = 0;  // SortKeyTable: the order of the material fields as one integer (valid when `keyed`)
     bool keyed = false;         // sortKey is set; an unkeyed item is ordered by the comparator (build_batches)
     bool noCull = false;        // never frustum-culled: a mesh material with buffers and no MeshRenderer.instanceBounds
+    // The LOD cross-fade of the item (M75.1, lod_fade_amount): 0 = none, +a = a level fading in, -a = a level fading out; the shader
+    // dithers with it (mesh_common.glsl fa_lod_dither). Items with different values never share a draw; the shadow pass ignores it.
+    float lodFade = 0.0f;
+    bool hlod = false;  // the HLOD proxy mesh of a LodGroup (M75 P1d; RenderStats::hlodProxies counts the ones drawn)
     // Lit by a baked lightmap (M73.4a): drawn with `lm.mesh->parts` and the page rectangle of its entity, so never batched with another.
     LightmapUse lm;
     // Baked light probes (M73.4d): the SH the item receives instead of the sky ambient (null = none; points into the RenderScene)
@@ -49,6 +64,16 @@ struct MeshItem {
     std::uint64_t probeKey = 0;  // also folds in `refl`: items that reflect other probes never share a draw either
     // The reflection probes the item reflects (M73-P3c, probe_select.h): up to two, with their shares of the light; none = the sky.
     ProbePick refl;
+    // A node of a Terrain (renderer_terrain.h): the draw it belongs to (its material block and textures) and the eight floats of
+    // instance data the terrain program reads (first column, first row, step, level, morph start and end).
+    const TerrainDraw* terrain = nullptr;
+    // A card of an impostor (renderer_impostor.h, M75-P1c): the draw it belongs to (its material block and textures). `terrainNode` holds ITS eight
+    // floats of instance data then: the centre of the atlas in the world, the radius of its square, the rotation world -> model (x, y, z, w).
+    const ImpostorDraw* impostor = nullptr;
+    std::array<float, 8> terrainNode{};
+    // An instance of a Foliage (renderer_foliage.h): its `lodFade` is the distance fade (a share of the screen pattern that stays, not a
+    // cross-fade), so the pass counts it as foliage, not as a LOD cross-fade, and it never shares a batch with a mesh that is not one.
+    bool foliage = false;
 };
 
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else

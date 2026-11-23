@@ -349,9 +349,14 @@ declare module "factoria" {
      */
     position: Vec3;
     /**
-     * World-space position (get/set).
+     * World-space position (get/set). With a floating origin (factoria.json floatingOrigin) it is relative to the world's current origin, so its value changes by -offset when the origin shifts: use absolutePosition for a place that must stay the same.
      */
     worldPosition: Vec3;
+    /**
+     * The world position in double precision, from the world's fixed zero: game.origin + worldPosition. It does not change when a floating-origin rebase shifts the origin (the entity did not move in the world), so keep this, not worldPosition, when a script remembers a place across frames (a waypoint, a spawn point, a saved position). To use it again: subtract game.origin and write the result to worldPosition. Without a floating origin it equals worldPosition. Example: const home = player.absolutePosition;
+     * @since 0.35.0
+     */
+    readonly absolutePosition: [number, number, number];
     /**
      * Live view of a component, or null if the entity lacks it.
      */
@@ -591,7 +596,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them). ui.scale and ui.textScale send ui.scale and ui.textScale with data { value, previous } and no source when the interface scale or the text size changes. A streamed world (StreamedWorld, docs/BIG_WORLDS_STREAMING.md) sends cellLoaded with data { world, id, coord: [i, j], scene, entities, bytes } and the cell's root entity as `source` once the cell is in the world, and cellUnloaded with data { world, id, coord, scene, entities } and no source when it leaves.
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -2620,6 +2625,16 @@ declare module "factoria" {
      * factoria.json contents.
      */
     readonly project: Readonly<Json>;
+    /**
+     * The world's origin as [x, y, z] doubles: [0, 0, 0] until a floating-origin rebase moved it (factoria.json floatingOrigin, or the world.rebase command). The positions the scripts read (worldPosition, a Transform.position of a root) are relative to it; entity.absolutePosition adds it back. Example: const abs = [p.x + game.origin[0], p.y + game.origin[1], p.z + game.origin[2]].
+     * @since 0.35.0
+     */
+    readonly origin: [number, number, number];
+    /**
+     * Listens for the floating origin moving (factoria.json floatingOrigin when the player or the camera gets far from the zero, or the world.rebase command). fn gets { offset, origin }: offset is how far the origin moved, in doubles (every position of a root entity, the physics, the audio and the particles already moved by -offset when fn runs) and origin is the new origin. Fires once per rebase, on the fixed step that rebased. Positions a script keeps in variables (a Vec3 copied from worldPosition, a waypoint list, a timer's target) are NOT shifted: subtract offset from them here, or keep entity.absolutePosition and convert when you use it. Running tweens of a root entity's position follow the shift on their own. Listeners end with the scene, like world.on. Example: game.on("originShifted", ({ offset }) => { waypoint.x -= offset[0]; waypoint.y -= offset[1]; waypoint.z -= offset[2]; });
+     * @since 0.3.0
+     */
+    on(event: "originShifted", fn: (shift: { readonly offset: readonly [number, number, number]; readonly origin: readonly [number, number, number] }) => void): () => void;
     readonly screenSize: Vec2;
     /**
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
@@ -6299,6 +6314,11 @@ declare module "factoria" {
      * @since 0.12.0
      */
     hideTags: any;
+    /**
+     * Whether this camera is culled by the OcclusionArea / OcclusionPortal rooms (default true): with true a mesh in a room is drawn only when a chain of open portals the camera sees leads to it from the camera's own area. A camera that is not inside the building (outside every area, the area 0) draws none of its rooms, which is wrong for a minimap, a top-down overview or a render-target camera that shows the interior: set false there and it draws every room in its view (only the frustum, the Occluders and the depth pyramid cull it). No effect when the scene has no enabled OcclusionArea.
+     * @since 0.35.0
+     */
+    areaCulling: boolean;
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -7742,7 +7762,7 @@ declare module "factoria" {
      */
     materialColors: any;
     /**
-     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. Returns a plain-object COPY; assign a new value to write.
+     * Lower-detail meshes the renderer swaps in with distance, an array ordered from the nearest: [{"mesh": "assets/models/lamp.lod1.glb", "distance": 12}, {"mesh": "assets/models/lamp.lod2.glb", "distance": 30}]. From the camera distance (metres, between the camera and the entity's origin) of an entry on, that mesh is drawn instead of `mesh`; farther entries win. `mesh` itself is the full-detail one. `model.bake` writes these files and the prefab that sets this field when a model document has gameReady.lods (docs/MODELING.md). An entry that is not an object with a `mesh` string and a `distance` number is ignored. Colliders and picking keep using `mesh`. Entities that differ only in their LOD are drawn in the batch of the mesh they show. With lodMode "screenSize" an entry takes {"mesh": ..., "screenSize": 0.25} instead of `distance`: the screen size 0..1 (see lodMode: the bounding sphere's diameter over the height of the view at that distance), below which that mesh replaces the one before it (entries ordered from the largest screenSize to the smallest). The camera of the main view chooses the level, and the shadows and the probe and GI captures draw the level it chose; a split-screen camera chooses for its own view. With lodCrossFade above 0 the switch fades (see lodCrossFade). Returns a plain-object COPY; assign a new value to write.
      * @since 0.16.0
      */
     lods: any;
@@ -7865,6 +7885,26 @@ declare module "factoria" {
      * @since 0.33.0
      */
     decalLayer: number;
+    /**
+     * What the thresholds of `lods` and `impostorDistance` measure. distance (default): metres between the camera and the entity's origin, as every scene made before M75 has it. screenSize: the diameter of the mesh's world-space bounding sphere divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. A fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. The distance d is the one to the entity's origin; the sphere's diameter is the diagonal of the mesh's box (the full-detail mesh) times the entity's largest scale. Drawn by the 3D renderer.
+     * @since 0.35.0
+     */
+    lodMode: "distance" | "screenSize";
+    /**
+     * Seconds a switch between two LODs (and to the impostor) fades over, as a dithered cross-fade, so the change does not pop. 0 (default) = a hard switch. 0..5. During the fade both levels are drawn, each on a complementary screen-space dither (two draws of the entity; renderStats.lodCrossFades counts them), so a mesh fades by dissolving, with no blending and no sorting. A mesh switches at once, with no fade, when its material is a full shader, a custom material that is not alphaMode "clip" (only the engine's own program and a clip material have the dither), or when it has subsurface scattering. The shadow passes draw the new level only. An entity that is fading is drawn on its own, outside the instanced batch of its mesh. The fade lasts lodCrossFade seconds of the frame delta and is never part of the simulation; going back to the first level during a fade turns it round where it stands. `renderer.supports` lodCrossFade is true on every backend.
+     * @since 0.35.0
+     */
+    lodCrossFade: number;
+    /**
+     * Project-relative path of a baked impostor (a *.impostor.json that `model.bake_impostor` writes next to its atlas): a ring of pictures of the model that a camera-facing quad shows from impostorDistance on, for trees and other things that are far away. "" (default) = none. A missing or invalid file warns once and the last LOD keeps drawing. See docs/BIG_WORLDS_LOD.md, "Impostors". (asset path: any)
+     * @since 0.35.0
+     */
+    impostor: string;
+    /**
+     * Where the impostor takes over from the last LOD, in the unit of lodMode: metres for distance, a screen fraction 0..1 for screenSize (the impostor is drawn when the mesh covers LESS than this). 0 (default) = never. Needs impostor; with impostor empty it is ignored and `factoria validate` warns. 0..100000. The switch cross-fades with the last LOD over lodCrossFade seconds.
+     * @since 0.35.0
+     */
+    impostorDistance: number;
   }
   /**
    * A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z rotated by the Transform), point and spot lights shine from the entity's position, an area light from a rectangle, disc or tube around it. A view lights with up to 1024 lights at once (32 of them directional): each fragment reads only the lights of its cluster. The fields after castShadows belong to the lighting of M73; the doc string of each says whether the renderer draws it yet (docs/rendering/RENDERING_LIGHTING.md).
@@ -11468,7 +11508,7 @@ declare module "factoria" {
      */
     exposureAdaptationSpeed: number;
     /**
-     * Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
+     * Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/rendering/RENDERING_POSTPROCESS.md for what the effects cost.
      * @since 0.31.0
      */
     bloomEnabled: boolean;
@@ -11944,6 +11984,373 @@ declare module "factoria" {
     customPasses: any;
   }
   /**
+   * The levels of detail of a model made of several meshes, and the far-away stand-in of a whole area. The entity's CHILDREN are the levels: child 0 is the most detailed and child i + 1 replaces child i from thresholds[i] on; only the meshes in the subtree of the child of the current level are drawn (the meshes of the other children and their descendants are skipped; lights, particles and the rest of a skipped child are not touched). The camera of the main view chooses the level; the shadows and the probe and GI captures draw the level it chose, a split-screen camera chooses for its own view. A child's own MeshRenderer.lods switch with no fade while the group fades. With hlodProxy set, the whole group is drawn as that one mesh beyond hlodThreshold (a hierarchical LOD: one draw for a cell of a streamed world): the proxy is drawn with the group's matrix, with the same cross-fade as a level switch, casts the shadow, and the children are skipped (world.bake_hlod makes the mesh). A proxy that cannot be read leaves the children drawn, with one warning. The proxy of a streamed cell that is not loaded is not drawn. The units of every threshold are set by `mode`. Drawn since M75.1 by the 3D renderer (docs/BIG_WORLDS_LOD.md, "Levels of detail").
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface LodGroupComponent {
+    /**
+     * What thresholds and hlodThreshold measure. distance (default): metres between the camera and the entity's origin. screenSize: the diameter of the world-space bounding sphere of the whole group (every child) divided by the height of the view at that distance (2 * d * tan(fovY / 2) in perspective, 2 * orthoSize in orthographic): 1 = as tall as the screen, 0.1 = a tenth of it. It is a fraction, so a threshold means the same at every resolution; it does change with the field of view, the zoom and the size of the object. The distance d is the one to the group entity's origin.
+     * @since 0.35.0
+     */
+    mode: "distance" | "screenSize";
+    /**
+     * One number for each child but the first: thresholds[i] is where child i + 1 replaces child i. In mode distance they grow (metres, nearest first: [15, 40, 90]); in mode screenSize they shrink (fractions 0..1: [0.5, 0.2, 0.05]). At most 8 numbers, each above 0. Fewer numbers than children leave the last children unused. [] (default) = the first child is always drawn. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.35.0
+     */
+    get thresholds(): Float32Array;
+    set thresholds(value: Float32Array | readonly number[]);
+    /**
+     * Seconds a switch between two levels fades over (a dithered cross-fade, no pop): both subtrees are drawn, each on a complementary screen-space dither, and the shadow passes draw the new one only. A mesh whose material is a full shader or a custom material that is not alphaMode "clip", or that has subsurface scattering, switches at once. 0 (default) = a hard switch. 0..5. See MeshRenderer.lodCrossFade.
+     * @since 0.35.0
+     */
+    crossFade: number;
+    /**
+     * Project-relative path of the one mesh (a baked low-poly merge of the group) drawn instead of every child beyond hlodThreshold, in the local space of this entity (the group's matrix is applied). "" (default) = no proxy. The children stop being drawn, in the main pass and in the shadows, and their draw calls with them; the proxy casts the shadow. world.bake_hlod writes it. (asset path: mesh)
+     * @since 0.35.0
+     */
+    hlodProxy: string;
+    /**
+     * Where the proxy takes over, in the unit of `mode`: metres from the camera in mode distance, a screen fraction 0..1 below which the proxy is drawn in mode screenSize, measured on the group's whole bounds like thresholds. It should be beyond the last thresholds entry (the farthest child level), so the proxy replaces the last level and not a nearer one. Needs hlodProxy; 0 (default) with a proxy is an error.
+     * @since 0.35.0
+     */
+    hlodThreshold: number;
+  }
+  /**
+   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. The culling (M75.2) is described in docs/BIG_WORLDS_LOD.md, "Occlusion".
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface OccluderComponent {
+    /**
+     * box (default): the box `size` and `center`. mesh: the triangles of `mesh` (or of the entity's MeshRenderer.mesh when `mesh` is empty); keep it low-poly, under about 200 triangles.
+     * @since 0.35.0
+     */
+    shape: "box" | "mesh";
+    /**
+     * Box shape: metres along the entity's local axes before Transform.scale, each above 0. Default [1, 1, 1]. Make it a little smaller than the visible solid, so nothing visible is ever hidden.
+     * @since 0.35.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * Box shape: where the box's centre is, in metres from the entity's origin along its local axes. Default [0, 0, 0].
+     * @since 0.35.0
+     */
+    get center(): Vec3;
+    set center(value: Vec3Like);
+    /**
+     * Mesh shape: the mesh that is rasterised, a primitive name or a model path. "" (default) = the entity's MeshRenderer.mesh. Ignored by the box shape. (asset path: mesh)
+     * @since 0.35.0
+     */
+    mesh: string;
+    /**
+     * false = this occluder hides nothing. Default true.
+     * @since 0.35.0
+     */
+    enabled: boolean;
+  }
+  /**
+   * A room of an interior, for portal culling (M75.2): a mesh whose world bounds touch this box belongs to the area (and also to area 0, "outside", unless its bounds lie wholly inside one box), and is drawn in the main pass only when one of its areas is reached: the camera is in it, or a chain of open OcclusionPortal entities in view leads to it. Area 0 is an area like any other. The camera starts in every area whose box holds it, and in both sides of every open portal whose box holds it. A scene with no OcclusionArea draws everything as usual. Shadows and Foliage are not culled. renderStats.portalsVisited and meshesCulledByArea count it (docs/BIG_WORLDS_LOD.md, "Areas and portals").
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface OcclusionAreaComponent {
+    /**
+     * Metres along the entity's local axes before Transform.scale, each above 0. Default [10, 4, 10].
+     * @since 0.35.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * 1..65535: the id that OcclusionPortal.areaA and areaB name (0 is outside every area and is not valid here: the area is ignored with a warning). Two boxes with the same id count as one area (a room of several boxes). Default 1.
+     * @since 0.35.0
+     */
+    areaId: number;
+  }
+  /**
+   * An opening between two OcclusionArea rooms (M75.2; a door, a window, an archway): what is seen through it from the first room is drawn in the second. The opening is a box of `size` centred on the entity; its -Z side faces areaA and its +Z side areaB. The camera's view walks (the same from both sides: areaA and areaB are informative) through the open portals whose box is in view, narrowing to each portal's screen rectangle. A portal with open false (a shut door) lets nothing through (docs/BIG_WORLDS_LOD.md, "Areas and portals").
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface OcclusionPortalComponent {
+    /**
+     * Metres along the entity's local axes before Transform.scale: width, height and depth of the opening's box, each above 0. Default [2, 2, 0.2].
+     * @since 0.35.0
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * The OcclusionArea.areaId on the entity's -Z side; 0 (default) = outside every area. An id that no OcclusionArea has is reported once in the log and the portal connects nothing.
+     * @since 0.35.0
+     */
+    areaA: number;
+    /**
+     * The OcclusionArea.areaId on the entity's +Z side; 0 (default) = outside every area. A portal with areaA equal to areaB does nothing.
+     * @since 0.35.0
+     */
+    areaB: number;
+    /**
+     * true (default) = the portal lets the view through. false = shut (a closed door): the areas behind it are hidden. A script opens and closes it at run time.
+     * @since 0.35.0
+     */
+    open: boolean;
+  }
+  /**
+   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. Streaming (M75.3): see docs/BIG_WORLDS_STREAMING.md, "Streaming".
+   * 
+   * Category: World
+   * @since 0.35.0
+   */
+  export interface StreamingAnchorComponent {
+    /**
+     * Metres: a cell whose bounds are nearer than this to the anchor is loaded. Measured on the plane of the streamed world: x and z for a world index whose dimension is "3d", x and y for "2d". Distances use absolute positions (the floating origin plus the local position), so a rebase of the floating origin never changes what is loaded. 1..1000000. Default 256.
+     * @since 0.35.0
+     */
+    loadRadius: number;
+    /**
+     * Metres: a loaded cell whose bounds are farther than this from every anchor is unloaded. Must be above loadRadius (the gap keeps a cell on the border from flickering). 1..1000000. Default 320.
+     * @since 0.35.0
+     */
+    unloadRadius: number;
+    /**
+     * -100..100: when two anchors want cells loaded, the anchor with the higher priority gets its cells first. Default 0.
+     * @since 0.35.0
+     */
+    priority: number;
+    /**
+     * false = this anchor loads nothing and keeps nothing loaded.
+     * @since 0.35.0
+     */
+    enabled: boolean;
+  }
+  /**
+   * Turns this scene into a streamed world: `world` names an index file (<name>.world.json: the cell size and, for each cell, its bounds and its scene file). The engine loads the cells near the enabled StreamingAnchor entities on the IO thread (a BackgroundLoader job per cell, several at once), adds each to the scene under a root entity named "cell i,j" and, when the anchors move away, destroys that root. Put it on ONE entity (the first enabled one is used). The cells' files are separate from this scene: scene.save never writes them. `world.cells` and `world.stream_status` say what is loaded; scripts hear the game events `cellLoaded` and `cellUnloaded` (world.on("cellLoaded", (data, root) => ...); docs/BIG_WORLDS_STREAMING.md, "Streaming").
+   * 
+   * Category: World
+   * @since 0.35.0
+   */
+  export interface StreamedWorldComponent {
+    /**
+     * Project-relative path of the world index, a *.world.json file. Read once when the scene starts (or when this field changes). "" (default) = nothing is streamed. (asset path: any)
+     * @since 0.35.0
+     */
+    world: string;
+    /**
+     * true (default) = cells load around the anchors. false = no cell loads and the loaded ones are unloaded.
+     * @since 0.35.0
+     */
+    enabled: boolean;
+    /**
+     * 1..16: how many cells are read at once; the rest wait, nearest to the highest-priority anchor first. Each cell is a BackgroundLoader job, so its files also share the frame's load budget (project loadBudgetMs; headless runs and tests count 4 units a frame). Default 2.
+     * @since 0.35.0
+     */
+    maxLoadsInFlight: number;
+    /**
+     * 1..64: how many cells are added to the scene, plus cells removed from it, in one frame, on the main thread (a cell with thousands of entities costs milliseconds to add; unloads go first). Counts cells only: the frame's load budget limits the reading, not this. Default 1.
+     * @since 0.35.0
+     */
+    maxAppliesPerFrame: number;
+    /**
+     * Debug: true loads every cell and never unloads one, whatever the anchors say (to look at the whole world). It costs O(cells) per fixed tick, so leave it off in a game with a big index. Default false.
+     * @since 0.35.0
+     */
+    keepLoaded: boolean;
+    /**
+     * Metres, 0..1000000. Above 0 the active camera (the one with the lowest depth) is an anchor with this load radius and priority 0, besides the StreamingAnchor entities. Default 0: the camera is not an anchor.
+     * @since 0.35.0
+     */
+    cameraLoadRadius: number;
+    /**
+     * Metres, 0..1000000: the unload radius of the camera anchor; must be above cameraLoadRadius. 0 (default) = 1.25 times cameraLoadRadius.
+     * @since 0.35.0
+     */
+    cameraUnloadRadius: number;
+    /**
+     * Metres, 0..1000000: a cell that is NOT loaded and lies within this distance of an anchor (or of the camera anchor) draws its HLOD proxy, the simplified mesh its index entry names ("hlod", written by world.bake_cell_hlods), so the horizon is not empty beyond the load radius. The proxy goes the frame the cell's entities appear and returns when they unload; it is a transient entity ("hlod i,j"): never saved. A cell's own hlod.maxDistance can only shorten this range. Proxies are read in the background; at most 512 are prepared at once (the nearest cells). It must exceed the load radius to show anything. 0 (default) = no proxy is drawn.
+     * @since 0.35.0
+     */
+    hlodDistance: number;
+  }
+  /**
+   * A large landscape: a heightmap drawn as a mesh that coarsens with distance, painted with up to 8 material layers weighted by splat maps, with holes (caves, wells) and an automatic collider. It covers `size` metres centred on the entity. `terrain.create` makes one with its files, `terrain.sculpt`, `terrain.paint` and `terrain.holes` edit them. The renderer draws the heightmap as a quadtree of tiles (one 33 x 33 patch instanced per tile, coarser with distance, morphed so no crack shows), lit and shadowed like a MeshRenderer: each pixel blends the layers (albedo, normal map, roughness, metallic, normalScale, tileSize) by the weights of the splat maps (no map = layers[0] everywhere; a layer without a texture is a neutral grey), the holes are cut out of the surface, its shadow and its collider, and a ray passes through them. `render.supports` lists the limits of the GPU ("limits"). docs/BIG_WORLDS_TERRAIN.md, "Terrain (M75.5)".
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface TerrainComponent {
+    /**
+     * Project-relative 16-bit greyscale PNG or .r16 file (raw little-endian 16-bit): black is the lowest sample, white (65535) is heightScale metres higher. A .r16 file is square: its side is sqrt(bytes / 2) samples (1025 x 1025 is 2 101 250 bytes). The heightmap's resolution and `size` are independent: a 1025-sample map over 2048 m gives a sample every 2 m, stretched over `size`. "" (default) = a flat terrain at heightOffset. (asset path: any)
+     * @since 0.35.0
+     */
+    heightmap: string;
+    /**
+     * [x, z] metres the heightmap covers, centred on the entity, before Transform.scale; each above 0 and at most 100000. Default [512, 512].
+     * @since 0.35.0
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Metres of height of a white heightmap sample, 0..100000. Default 100.
+     * @since 0.35.0
+     */
+    heightScale: number;
+    /**
+     * Metres added to every height after the scale (the height of a black sample), -100000..100000. Default 0.
+     * @since 0.35.0
+     */
+    heightOffset: number;
+    /**
+     * Array of at most 2 project-relative RGBA PNG paths (each its own size, 16 to 4096 a side): channel c (r, g, b, a) of map m weights layers[4 * m + c]. [] (default) = no painting, layer 0 covers the whole terrain. Drawn: the weights of the 8 channels are normalised to add up to 1 at every pixel and blended bilinearly. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.35.0
+     */
+    splatMaps: any;
+    /**
+     * Array of at most 8 material layers: {"albedo": "terrain/grass.png", "normal": "terrain/grass_n.png", "tileSize": 4, "roughness": 0.9, "metallic": 0, "normalScale": 1}. `albedo` (required) and `normal` are project-relative textures; `tileSize` is the metres one repeat of the textures covers (default 4, above 0); roughness and metallic 0..1 (defaults 0.9 and 0); normalScale 0..4 (default 1). All the albedo textures must share one size (at most 4096 x 4096), and so must all the normal textures: the layers are packed into texture arrays (8 layers of separate textures would need more than the 16 sampler pairs a shader stage can read). A size that differs from the first layer's is an error naming both sizes ("/layers/3/albedo"); a texture that is missing or unreadable is said once and that layer stays a neutral grey (albedo) or flat (normal). Mipmaps are made. [] (default) = a plain grey terrain. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.35.0
+     */
+    layers: any;
+    /**
+     * Project-relative greyscale PNG with one pixel per CELL of the terrain (the heightmap's samples - 1 a side, so a 513-sample terrain has a 512 x 512 mask; other sizes are resampled nearest): where a pixel is 128 or more the terrain is cut open (no surface, no shadow, no collider; a ray, a ball or a character passes through; `terrain_sample` and `terrain_height_at` report no ground there): a cave mouth, a well. At a coarse level of detail a hole is decided per quad of cells, so a far hole can be a little larger or smaller. terrain.holes cuts and fills them and writes this file (255 = hole). "" (default) = no holes. (asset path: texture)
+     * @since 0.35.0
+     */
+    holes: string;
+    /**
+     * Multiplier of the distances where the terrain coarsens, measured in the terrain's own space (before Transform.scale): 2 = every level of detail reaches twice as far, so more and finer tiles are drawn; below 1 the finest level is not drawn at 0.5, the two finest at 0.25 (a coarser terrain at any distance). 0.1..4. Default 1.
+     * @since 0.35.0
+     */
+    lodQuality: number;
+    /**
+     * Cast shadows from shadow-casting lights. Tiles outside the camera still cast: the cascades see the whole terrain, at the levels of detail the camera chose. Default true.
+     * @since 0.35.0
+     */
+    castShadows: boolean;
+    /**
+     * true (default) = the terrain is a static physics body made from the heights it draws (a ray and a falling body meet the same surface, triangle for triangle), and a sculpt moves it. It needs no Collider3D; an entity that has its own Collider3D keeps that one. A RigidBody3D that is not static on the entity is refused. false = visual only. The collider copies the heights as 32-bit floats: 67 MB at 4097 x 4097 samples.
+     * @since 0.35.0
+     */
+    collision: boolean;
+  }
+  /**
+   * Thousands of copies of a few meshes (grass, flowers, rocks) drawn with GPU instancing from a data file of positions, rotations, scales and mesh indices, with wind, a fade-out and LODs. `foliage.paint` and `foliage.scatter` write the file, `foliage.clear` empties it. One entity holds up to 16 meshes (every instance picks one by index): use several entities for kinds that need different settings (wind, fade). The renderer (M75.6) reads the file in the background and draws what it holds as soon as it is loaded (the format, the culling and the limits: docs/BIG_WORLDS_TERRAIN.md, "Foliage"). `foliage.undo` and `foliage.redo` step back and forward through the last edits of the three (an in-memory history).
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface FoliageComponent {
+    /**
+     * Array of 1..16 meshes, each a primitive name or a project-relative model path (its LODs are used): ["assets/models/grass.glb", "assets/models/flower.glb"]. The instances file stores, for every instance, the index of its mesh in this array, so reordering the array changes which mesh each instance shows; an index past the end makes the file invalid. `foliage.scatter` writes all the meshes of its rule here. Default ["cube"]. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.35.0
+     */
+    meshes: any;
+    /**
+     * Project-relative data file with the instances (position, yaw, scale, mesh index and up direction of each; little-endian, versioned, up to 2000000 instances, docs/BIG_WORLDS_TERRAIN.md). Loaded in the background and again when the file changes on disk; a missing or invalid file draws nothing and is reported once. "" (default) = no instances, nothing drawn. (asset path: any)
+     * @since 0.35.0
+     */
+    instances: string;
+    /**
+     * 0..1: the share of the instances that are drawn, thinned out in a fixed pseudo-random order by instance index (a quality setting: lowering it only removes instances and raising it brings the same ones back, so nothing flickers). Default 1.
+     * @since 0.35.0
+     */
+    density: number;
+    /**
+     * Metres the top of an instance sways in the wind, 0..10; the base stays put (the mesh is sheared in its height, so a flat mesh sways its top edge). The phase depends on the instance position. 0 (default) = no wind.
+     * @since 0.35.0
+     */
+    windStrength: number;
+    /**
+     * Swings per second of the wind sway, 0..20. Default 0.5.
+     * @since 0.35.0
+     */
+    windFrequency: number;
+    /**
+     * Metres from the camera beyond which an instance uses the next LOD of its mesh: for `meshes[i]` = "assets/models/grass.glb" the file `assets/models/grass.lod1.glb` (the name the model LOD chain bake gives its first level); without that file the instance keeps its mesh. 0.1..100000. Default 40.
+     * @since 0.35.0
+     */
+    lodDistance: number;
+    /**
+     * Metres from the camera where instances start to fade out (a dithered fade in 8 steps), 0..100000. Default 80.
+     * @since 0.35.0
+     */
+    fadeStart: number;
+    /**
+     * Metres from the camera beyond which instances are not drawn at all; above fadeStart. 0..100000. Default 100.
+     * @since 0.35.0
+     */
+    fadeEnd: number;
+    /**
+     * Whether the instances cast shadows. false (default): grass seldom needs them and they cost a lot.
+     * @since 0.35.0
+     */
+    castShadows: boolean;
+  }
+  /**
+   * The recipe `foliage.scatter` follows to fill the Foliage of this entity (or of the entity named by `terrain`'s) with instances: which meshes, how dense, on which slopes, heights and painted layers. The result depends only on the rule, the seed and the terrain, so the same rule scatters the same instances. The rule does nothing by itself; foliage.scatter runs it and foliage.paint takes its placement rules (M75.6, docs/BIG_WORLDS_TERRAIN.md, "Foliage").
+   * 
+   * Category: 3D
+   * @since 0.35.0
+   */
+  export interface ScatterRuleComponent {
+    /**
+     * Array of at most 16 {"mesh": path, "weight": number}: the meshes to scatter and their relative chances (weight above 0, default 1). The path is a primitive name or a model path. [] (default) = nothing to scatter. Returns a plain-object COPY; assign a new value to write.
+     * @since 0.35.0
+     */
+    meshes: any;
+    /**
+     * Instances per square metre of ground, 0..100. Default 0.1 (one per 10 square metres).
+     * @since 0.35.0
+     */
+    density: number;
+    /**
+     * Metres kept between two instances (a tree's crown); 0 (default) = they may touch. 0..1000.
+     * @since 0.35.0
+     */
+    minSpacing: number;
+    /**
+     * [min, max] degrees of the ground's slope where instances grow (0 is flat, 90 a wall), 0..90, min at most max. Default [0, 45].
+     * @since 0.35.0
+     */
+    get slopeRange(): Vec2;
+    set slopeRange(value: Vec2Like);
+    /**
+     * [min, max] metres of the ground's height (world y) where instances grow, min at most max. Default [-100000, 100000] (everywhere).
+     * @since 0.35.0
+     */
+    get heightRange(): Vec2;
+    set heightRange(value: Vec2Like);
+    /**
+     * [min, max] of the random uniform scale of an instance, each above 0, min at most max. Default [0.8, 1.2].
+     * @since 0.35.0
+     */
+    get scaleRange(): Vec2;
+    set scaleRange(value: Vec2Like);
+    /**
+     * 0..1: how far an instance leans to the ground's normal. 0 (default) = upright, 1 = its up is the normal (moss on a cliff).
+     * @since 0.35.0
+     */
+    alignToNormal: number;
+    /**
+     * Bit mask of the Terrain.layers the ground must be painted with for an instance to grow (bit 0 = layer 0 ... bit 7 = layer 7); -1 (default) = anywhere. -1..255.
+     * @since 0.35.0
+     */
+    layerMask: number;
+    /**
+     * The random seed: the same rule and seed give the same instances. Default 1.
+     * @since 0.35.0
+     */
+    seed: number;
+    /**
+     * The entity with the Terrain to scatter on. Empty (default) = this entity's Terrain, or its parent's.
+     * @since 0.35.0
+     */
+    get terrain(): Entity | null;
+    set terrain(value: EntityLike);
+  }
+  /**
    * Scene-wide settings stored under "settings" in the scene file: lighting, fog, gravity and background music.
    * 
    * Category: Scene
@@ -12164,6 +12571,11 @@ declare module "factoria" {
      */
     volumetricQuality: "low" | "medium" | "high";
     /**
+     * Which occlusion culling the 3D cameras use (docs/BIG_WORLDS_LOD.md, "Occlusion"): cpu (default) = the Occluder entities are rasterised on the CPU into a small depth buffer and the meshes behind them are left out of the picture; gpu = the opaque meshes of the last frame (their depth and normal prepass) are reduced to a hierarchical depth image by a compute shader, read back without waiting, and every mesh is tested against it, so the Occluders are not needed and a mesh hides what is behind it. The depth is one frame old (a mesh that comes out from behind another can show one frame late, a camera cut draws everything for a frame) and the camera draws the prepass every frame: it costs one more pass over the opaque meshes, so use it for scenes with thousands of meshes behind buildings and hills. A camera culled this way does not use the Occluders. Where the backend has no compute shaders (GLES3, WebGL2, macOS OpenGL; render.supports occlusionGpu says no) gpu falls back to cpu with one warning and auto to cpu silently. Perspective cameras only (an orthographic one keeps the cpu culling); a camera that draws into a CameraView, a render target or a capture is not culled by the pyramid (the Occluders cull it), and a reflection probe's or realtime GI capture never is. Shadows are never culled by it.
+     * @since 0.35.0
+     */
+    occlusionMode: "cpu" | "gpu" | "auto";
+    /**
      * The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The renderer loads it with the scene and reloads it when a file changes; an entity listed in it (and with MeshRenderer.receiveGI) is lit by the baked irradiance instead of the ambient light, and lights with mode baked stop lighting it. "" (default) = no lightmap. A missing or invalid manifest is reported (render.assets) and the scene is drawn without it. docs/rendering/RENDERING_LIGHTMAPS.md. (asset path: any)
      * @since 0.33.0
      */
@@ -12229,13 +12641,22 @@ declare module "factoria" {
     Chart: ChartComponent;
     Script: ScriptComponent;
     PostProcess: PostProcessComponent;
+    LodGroup: LodGroupComponent;
+    Occluder: OccluderComponent;
+    OcclusionArea: OcclusionAreaComponent;
+    OcclusionPortal: OcclusionPortalComponent;
+    StreamingAnchor: StreamingAnchorComponent;
+    StreamedWorld: StreamedWorldComponent;
+    Terrain: TerrainComponent;
+    Foliage: FoliageComponent;
+    ScatterRule: ScatterRuleComponent;
     SceneSettings: SceneSettingsComponent;
   }
   /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any; areaCulling?: boolean };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; emissive?: ColorLike; emissiveIntensity?: number; emissiveMap?: string; lightLayers?: number; rimColor?: ColorLike; rimIntensity?: number; rimWidth?: number; normalFrom?: "file" | "sprite" | "height"; heightMap?: string; normalStrength?: number; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array; material?: string; materialParams?: any; instances?: number };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
@@ -12253,7 +12674,7 @@ declare module "factoria" {
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; material?: string; materialParams?: any };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean; lightLayers?: number; emissive?: ColorLike; emissiveIntensity?: number; material?: string; materialParams?: any };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number; material?: string; materialParams?: any };
-    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any; instances?: number; instanceBounds?: number; lightmapScale?: number; contributeGI?: boolean; receiveGI?: boolean; probeAnchor?: EntityLike; clearcoat?: number; clearcoatRoughness?: number; sheenColor?: ColorLike; sheenRoughness?: number; anisotropy?: number; anisotropyRotation?: number; specular?: number; ior?: number; transmission?: number; thickness?: number; attenuationColor?: ColorLike; attenuationDistance?: number; subsurface?: number; subsurfaceRadius?: number; subsurfaceColor?: ColorLike; receiveDecals?: boolean; decalLayer?: number; lodMode?: "distance" | "screenSize"; lodCrossFade?: number; impostor?: string; impostorDistance?: number };
     Light: { type?: "directional" | "point" | "spot" | "area"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean; innerAngle?: number; shape?: "rectangle" | "disc" | "tube"; size?: Vec2Like; cookie?: string; ies?: string; shadowResolution?: number; shadowBias?: number; shadowNormalBias?: number; shadowFilter?: "pcf" | "hard" | "pcss"; shadowSoftness?: number; shadowDistance?: number; mode?: "realtime" | "baked" | "mixed"; volumetric?: number; contactShadowLength?: number };
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
     ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
@@ -12291,7 +12712,16 @@ declare module "factoria" {
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; material?: string; materialParams?: any; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
     PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingHueShift?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteCenter?: Vec2Like; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; filmGrainLuminanceResponse?: number; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; lensDistortionCenter?: Vec2Like; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number; customPasses?: any };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; lightmaps?: string };
+    LodGroup: { mode?: "distance" | "screenSize"; thresholds?: Float32Array; crossFade?: number; hlodProxy?: string; hlodThreshold?: number };
+    Occluder: { shape?: "box" | "mesh"; size?: Vec3Like; center?: Vec3Like; mesh?: string; enabled?: boolean };
+    OcclusionArea: { size?: Vec3Like; areaId?: number };
+    OcclusionPortal: { size?: Vec3Like; areaA?: number; areaB?: number; open?: boolean };
+    StreamingAnchor: { loadRadius?: number; unloadRadius?: number; priority?: number; enabled?: boolean };
+    StreamedWorld: { world?: string; enabled?: boolean; maxLoadsInFlight?: number; maxAppliesPerFrame?: number; keepLoaded?: boolean; cameraLoadRadius?: number; cameraUnloadRadius?: number; hlodDistance?: number };
+    Terrain: { heightmap?: string; size?: Vec2Like; heightScale?: number; heightOffset?: number; splatMaps?: any; layers?: any; holes?: string; lodQuality?: number; castShadows?: boolean; collision?: boolean };
+    Foliage: { meshes?: any; instances?: string; density?: number; windStrength?: number; windFrequency?: number; lodDistance?: number; fadeStart?: number; fadeEnd?: number; castShadows?: boolean };
+    ScatterRule: { meshes?: any; density?: number; minSpacing?: number; slopeRange?: Vec2Like; heightRange?: Vec2Like; scaleRange?: Vec2Like; alignToNormal?: number; layerMask?: number; seed?: number; terrain?: EntityLike };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number; skyMaterial?: string; skyMaterialParams?: any; shadowCascades?: number; shadowCascadeSplit?: number; shadowCascadeBlend?: number; shadowDistance?: number; shadowAtlasSize?: number; contactShadows?: boolean; environmentMap?: string; environmentIntensity?: number; environmentRotation?: number; environmentBackground?: boolean; skyModel?: "gradient" | "physical"; skySunSize?: number; skyTurbidity?: number; skyGroundAlbedo?: ColorLike; skyExposure?: number; skyTintsSun?: boolean; cloudCoverage?: number; cloudDensity?: number; cloudAltitude?: number; cloudWind?: Vec2Like; volumetricFog?: boolean; volumetricDensity?: number; volumetricHeightBase?: number; volumetricHeightFalloff?: number; volumetricAnisotropy?: number; volumetricAmbient?: number; volumetricDistance?: number; volumetricQuality?: "low" | "medium" | "high"; occlusionMode?: "cpu" | "gpu" | "auto"; lightmaps?: string };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
@@ -12895,10 +13325,10 @@ declare module "factoria:test" {
      */
     setDevice(overrides: { formFactor?: "desktop" | "phone" | "tablet"; gpuBackend?: string; memoryGB?: number; tier?: "low" | "medium" | "high"; steamDeck?: boolean; handheld?: boolean }): void;
     /**
-     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
+     * What the renderer drew in the picture now, drawing a frame first when none has been drawn since the last change (a headless test may not have drawn one; game.state().renderStats stays zero until a frame is drawn). triangles and lights (the 3D lights, up to 1024 of the most relevant, 32 of them directional) count the main pass (lightsDropped are the ones over those limits, lightsCulled the local lights whose range is outside the view; lightClusters is the clusters of the view, lightClusterEntries the light-list entries they hold, lightMaxPerCluster the longest list, lightClusterClipped the entries lost to the limits of 128 lights per cluster and 524288 entries per view: 0 is normal; decals the Decal components drawn, decalsDropped those left out: over 256 per view, or a texture that is unreadable or does not fit the atlas; decalClusterClipped the decal-list entries lost to 32 per cluster and 131072 per view: 0 is normal; volumetricCameras the cameras that drew the volumetric fog, volumetricLights the lights whose shafts they drew and volumetricLightsDropped the lights with Light.volumetric above 0 that the quality setting left out), lights2d the Light2D lights shading 2D visuals (at most 256: directional first, then the point lights that reach the camera view; lights2dDropped are the ones left out; lights2dShadowed the ones given a shadow, castShadows, at most 32; sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that call fa_scene_color made, at most 8 per camera: 0 when nothing reads it; terrainTiles the Terrain tiles drawn in the main pass and terrainTriangles their triangles, also counted in triangles but not in meshes; occluders, occlusionTests and meshesOccluded count the CPU occlusion culling of M75.2 (the Occluders rasterised, the meshes tested, the ones hidden; 0 with no enabled Occluder); portalsVisited (the distinct open OcclusionPortals the camera's walk went through) and meshesCulledByArea (the meshes left out because no chain of open portals leads to their area) count the area and portal culling (0 with no enabled OcclusionArea); lodCrossFades counts the meshes drawn as one level of a dithered LOD cross-fade, over every camera (an entity fading from one level to another counts two); hlodProxies the HLOD proxy meshes drawn (a LodGroup past its hlodThreshold draws its hlodProxy instead of its children; and the proxy of a streamed cell that is not loaded); impostors the cards of MeshRenderer.impostor drawn in the main pass, counted in impostors and not in meshes; foliageInstances the instances of Foliage drawn in the main pass (they are counted here and not in meshes) and foliageInstancesCulled the instances left out of the picture (outside the view, behind an Occluder, beyond fadeEnd, or past the 262144 a camera takes at once; one kept only for the shadow maps counts too; both 0 with no Foliage)), shadowCasters the meshes drawn into the shadow map, sortKeyFallbacks how many times since the renderer started the 3D scene (a frame, or a capture of one entity) had more distinct meshes, textures or materials than a sort key holds, so its opaque meshes were sorted by the slower comparator (same picture; 0 is normal; it only grows), textureMB the GPU texture memory, width and height the size of the picture (design size * window.renderScale). The numbers perf.measure records and perf.check budgets. Throws without graphics. Example: expect(game.renderStats().triangles).toBeLessThan(200000).
      * @since 0.3.0
      */
-    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
+    renderStats(): { drawCalls: number; sprites: number; shapes: number; textGlyphs: number; particles: number; meshes: number; meshesCulled: number; meshBatches: number; triangles: number; views: number; shadowCasters: number; lights: number; lightsDropped: number; lightsCulled: number; lightClusters: number; lightClusterEntries: number; lightClusterClipped: number; lightMaxPerCluster: number; decals: number; decalsDropped: number; decalClusterClipped: number; volumetricCameras: number; volumetricLights: number; volumetricLightsDropped: number; lights2d: number; lights2dDropped: number; lights2dShadowed: number; sceneCopies: number; occluders: number; occlusionTests: number; meshesOccluded: number; portalsVisited: number; meshesCulledByArea: number; lodCrossFades: number; hlodProxies: number; impostors: number; terrainTiles: number; terrainTriangles: number; foliageInstances: number; foliageInstancesCulled: number; materials: number; materialFallbacks: string[]; sortKeyFallbacks: number; textureMB: number; width: number; height: number; renderScale: number };
     /**
      * Pretends the player's system has these accessibility settings: game.accessibility follows at once. Keys left out are the defaults (textScale 1, the others false); textScale is clamped to 0.5 - 4. An unknown key (with a suggestion), a non-boolean or a textScale that is not a number above 0 throws. Reset to the defaults before every test. Example: game.setAccessibility({ textScale: 1.5, reduceMotion: true }).
      * @since 0.2.0

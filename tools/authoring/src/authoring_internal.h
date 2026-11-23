@@ -41,4 +41,19 @@ void register_project_secret_commands(
 
 void register_probe_commands(Engine& engine, Engine::Impl& impl);  // probe_commands.cpp: probe.bake
 
+// big_world_commands.cpp: registers the big-world authoring commands (terrain3d_commands.cpp, foliage_commands.cpp).
+void register_big_world_commands(Engine& engine, Engine::Impl& impl);
+// tilemap_split_commands.cpp: tilemap.split_cells (a tilemap cut into the chunk cells of a streamed 2D world).
+void register_tilemap_split_commands(Engine& engine, Engine::Impl& impl);
+// world_split_commands.cpp: world.split_cells, world.merge_cells (a scene cut into the cells of a streamed world and back).
+void register_world_split_commands(Engine& engine, Engine::Impl& impl);
+// hlod_commands.cpp: world.bake_hlod (the merged, simplified proxy mesh of a LodGroup), world.bake_cell_hlods (one proxy per cell
+// of a world index).
+void register_hlod_commands(Engine& engine, Engine::Impl& impl);
+// terrain3d_commands.cpp: terrain.create, terrain.sculpt, terrain.paint, terrain.holes, terrain.generate, terrain.save,
+// terrain.undo, terrain.redo.
+void register_terrain3d_commands(Engine& engine, Engine::Impl& impl);
+// foliage_commands.cpp: foliage.scatter, foliage.paint, foliage.clear, foliage.undo, foliage.redo (called by register_big_world_commands).
+void register_foliage_commands(Engine& engine, Engine::Impl& impl);
+
 }  // namespace fa

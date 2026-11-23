@@ -838,11 +838,14 @@ std::string backend_dialect(sg_backend backend);
 // shader is not made). The desc points into `program`, which must outlive it.
 // A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them
 // with the shader).
+// `materialTextures` names the material's textures, so the too-many-texture-pairs error tells them from the engine's.
 Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
-                                            const int* workgroup = nullptr);
+                                            const int* workgroup = nullptr,
+                                            const std::vector<std::string>* materialTextures = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
 Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
-                                              const int* workgroup = nullptr);
+                                              const int* workgroup = nullptr,
+                                              const std::vector<std::string>* materialTextures = nullptr);
 
 // Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
 // A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
@@ -1078,6 +1081,7 @@ struct CameraInfo : CameraGeometry {
     bool studio =
         false;  // Camera.lighting == studio: the camera's own rig instead of the scene's lights, ambient, sky and fog
     float studioIntensity = 1.0f;  // Camera.studioIntensity after clamping
+    bool areaCulling = true;  // Camera.areaCulling: the OcclusionArea / OcclusionPortal culling applies to this camera
     // A reflection probe capture with ReflectionProbe.clear = color: the picture's background is clearColor, no sky is drawn behind the
     // meshes (the meshes are still lit by the sky). Only the probe captures set it.
     bool noSky = false;
@@ -1529,11 +1533,13 @@ public:
     // vertex buffers 3, 4 and 5 at the attributes after the matrix (and the joints). The shader id decides the
     // pipeline: a material's programs and its extras change together, so the key does not name them.
     // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
+    // `lod` = the built-in program (no `shader`) of a draw that cross-fades between two levels of detail: mesh_lod / mesh_skin_lod, the
+    // programs with the dither's discard (mesh_common.glsl fa_lod_dither). A custom material dithers inside its own alphaMode "clip".
     sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false);
+                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false, bool lod = false);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}, bool glass = false) {
-        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass);
+                              MeshExtras extras = {}, bool glass = false, bool lod = false) {
+        return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass, lod);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
@@ -1569,8 +1575,11 @@ public:
     // shader cannot be made.
     // `cullFront`: the BACK faces are drawn instead of the front ones, double-sided or not (the realtime GI's distance pictures: a probe
     // whose first hit is a back face is inside geometry).
+    // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
+    // the prepass with the dither); it declares the slots of prepass_program().
     sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false);
+                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
+                                 bool lod = false);
     sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
                                  MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
@@ -1822,6 +1831,8 @@ public:
     sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
         blitKeepShader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
+    sg_shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
+        prepassSkinLodShader_{};  // made on the first fade
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
     sg_shader colorfilter_shader_{};
     sg_shader post_shader_{};
@@ -1911,6 +1922,8 @@ private:
 sg_image make_image(const sg_image_desc& desc);
 // The same for a cube image (SG_IMAGETYPE_CUBE): the OpenGL ES fix goes through the cube target.
 sg_image make_cube_image(const sg_image_desc& desc);
+// The same for an array image (SG_IMAGETYPE_ARRAY: the layers of a Terrain), through the array target.
+sg_image make_array_image(const sg_image_desc& desc);
 
 // One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
 // MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game
@@ -2016,6 +2029,37 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
 bool storage_image_loadable(sg_pixel_format format, std::string* why);
 // The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
 bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
+
+// GPU->CPU readback of the start of a storage buffer WITHOUT waiting (the Hi-Z culling, renderer_hiz.cpp): a small ring of staging
+// buffers. request() queues a copy of the first `bytes` bytes of `buffer` behind the work submitted so far and returns the slot it
+// uses; poll() hands the bytes over once the GPU has finished the copy, and never blocks unless `wait` is set (a headless frame
+// waits so its result does not depend on the GPU's speed). The work that wrote the buffer must have been committed (sg_commit)
+// before request(): on Metal the copy is a blit on the queue after sokol's command buffer. Needs the GPU's storage buffers (no
+// GLES3): `supported()` says so. Not thread safe: the render thread only.
+// What a request costs the frame: GL a glFlush (the fence must be submitted to be signalled), D3D11 a Flush of the immediate context
+// (the staging copy and its event query must be submitted), Metal one more command buffer committed behind sokol's. They are per request,
+// so a frame with several cameras that use the depth pyramid flushes once per camera: the price of reading each camera's cells without
+// waiting, bounded by the 8 cameras per frame that keep a pyramid (hiz.h).
+class AsyncBufferRead {
+public:
+    static constexpr int kSlots = 4;
+    AsyncBufferRead();
+    ~AsyncBufferRead();
+    AsyncBufferRead(const AsyncBufferRead&) = delete;
+    AsyncBufferRead& operator=(const AsyncBufferRead&) = delete;
+    static bool supported();
+    // The slot, or -1: every slot is still in flight (error stays empty: ask again later), or the copy failed (error says why).
+    int request(sg_buffer buffer, std::size_t bytes, std::string* error);
+    // True when the slot's copy has finished: `out` holds its bytes and the slot is free again. False: not done yet (or the slot is
+    // unused); with `wait` it returns after the GPU finished (bounded: a GPU that does not answer in seconds gives up, false).
+    bool poll(int slot, std::vector<std::uint8_t>& out, bool wait);
+    // Frees a slot without reading it (the copy may still be running; its staging buffer is reused only when it is done).
+    void release(int slot);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 // Debug draw storage.
 struct DebugLine {

@@ -50,11 +50,14 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
             r = engine_->commands().call(name, args);
             after_command(name, args, r);
             if (r.ok) {
-                // plan->noop: the call left the scene as it was: no step, nothing to save
+                // plan->noop (set by the builder or by the finisher, which knows the result): the call left the scene as it was:
+                // no step, nothing to save
                 if (!plan->noop) {
-                    if (finish_undo_plan(world(), name, *plan, r.result)) {
-                        push_command_entry(key, std::move(plan->forward), std::move(plan->inverse),
-                                           CoalesceMode::Merge);
+                    const bool finished = finish_undo_plan(world(), name, *plan, r.result);
+                    if (finished) {
+                        if (!plan->noop)
+                            push_command_entry(key, std::move(plan->forward), std::move(plan->inverse),
+                                               CoalesceMode::Merge);
                     } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
                         dirty_ = true;
                         redo_.clear();  // the edit happened: a redo list from before it no longer applies
@@ -308,6 +311,8 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
     ImGui::PopID();
 }
 
+// The HLOD proxies of a streamed world (EntityInfo::streamedProxy: "hlod i,j", made and destroyed by the streamer, never saved) are
+// not listed: nothing a user could edit there would last.
 void Editor::draw_hierarchy_panel() {
     ImGui::SetNextWindowSize(ImVec2(300, 360), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Hierarchy", &showHierarchy_)) {
@@ -335,10 +340,10 @@ void Editor::draw_hierarchy_panel() {
     ImGui::BeginChild("##tree", ImVec2(0, 0), ImGuiChildFlags_None);
     if (hierFilter_.empty()) {
         for (Entity r : w.roots())
-            if (w.alive(r)) draw_hierarchy_node(r, hierFilter_);
+            if (w.alive(r) && !w.info(r).streamedProxy) draw_hierarchy_node(r, hierFilter_);
     } else {
         for (Entity e : w.entities())
-            if (w.alive(e) && tree_matches(hierFilter_, w.info(e).name, w.id_of(e)))
+            if (w.alive(e) && !w.info(e).streamedProxy && tree_matches(hierFilter_, w.info(e).name, w.id_of(e)))
                 draw_hierarchy_node(e, hierFilter_);
     }
 

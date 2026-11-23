@@ -142,6 +142,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     };
     if (!initialized()) return fail("Renderer is not initialized");
     Impl& im = *impl_;
+    im.watch_world_if_free(world);  // a capture before the first frame still follows the world's floating origin
     const Rect& r = spec.rect;
     if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) || !std::isfinite(r.h) || !(r.w > 0.0f) ||
         !(r.h > 0.0f))
@@ -177,6 +178,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
+    ci.areaCulling = false;  // a picture of a rectangle of the world (seen from outside): every room in it is drawn
     return im.capture_view(world, std::move(ci), w, h, spec.scale, spec.subject, 1, false, 0, true, out, error);
 }
 
@@ -192,6 +194,7 @@ bool Renderer::capture_camera(World& world, const CameraCapture& spec, Image& ou
     };
     if (!initialized()) return fail("Renderer is not initialized");
     Impl& im = *impl_;
+    im.watch_world_if_free(world);
     if (!world.alive(spec.camera) || !world.get<Camera>(spec.camera))
         return fail("the entity is not a Camera of this world: pass an entity that has a Camera component");
     if (spec.width < 1 || spec.height < 1 || spec.width > kMaxWorldCaptureSide || spec.height > kMaxWorldCaptureSide)
@@ -220,13 +223,20 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         return false;
     };
     sync_color_space(world);  // the picture is made in the world's colour space
+    portalGather.valid =
+        false;  // the world may have changed since the frame: the capture gathers its rooms again, and drops them
 
     settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
     const RenderStats savedStats = stats;
+    // What render.occlusion and the debug views report is the frame's, not the capture's (the capture's culling adds to them).
+    const HizShown savedHizShown = hizShown;
+    const OcclusionShown savedOcclusionShown = occlusionShown;
     const std::vector<const MaterialAsset*> savedMaterialsCounted = materialsCounted;
     const std::uint32_t savedMaterialResolves = assets->material_resolves();
     auto restore = [&]() {
         stats = savedStats;
+        hizShown = savedHizShown;
+        occlusionShown = savedOcclusionShown;
         materialsCounted = savedMaterialsCounted;
         assets->set_material_resolves(savedMaterialResolves);
         assets->drop_material_cache();  // the capture's lookups are not the next frame's
@@ -242,6 +252,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         restore();
         viewTargets.erase(kKey);
         if (withCustom) customPost.release_history_of(historyCamera);
+        portalGather.valid = false;
     };
     for (int frame = 0; frame < frames; ++frame) {
         ramps.begin_frame();

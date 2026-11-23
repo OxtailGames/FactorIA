@@ -2006,6 +2006,27 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 | `dryRun` | boolean | no | List what would be baked and why, and write nothing. Default false. |
 | `overwrite` | boolean | no | Replace a file at the output that no model document baked. Default false. |
 
+## `model.bake_impostor` (modifies state)
+
+Since 0.35.0.
+
+Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.
+
+Capabilities: read, state, writeProject
+
+Draws `model` (a .glb or .gltf, or a .model.json: its baked .glb) from views x views directions with a CPU rasterizer (orthographic, no GPU) and writes, next to the model, `<name>.impostor.json` (the atlas data), `<name>.impostor.png` (colour with alpha) and `<name>.impostor.normal.png` (model-space normals, so the quad is lit like the model). `resolution` is the side of the whole atlas in pixels (default 1024, at most 4096). Then set MeshRenderer.impostor and impostorDistance: the renderer draws the card from there on (docs/BIG_WORLDS_LOD.md, "Impostors"). Example: model.bake_impostor {"model":"assets/models/tree.glb","views":8,"mode":"hemiOctahedral"}.
+
+Frames cover a sphere around the model, so one frame size fits every direction. `mode` octahedral (default) covers every direction; hemiOctahedral only the upper half (y >= 0), with twice the angular resolution: for trees, rocks and buildings that are seen from above. Each frame gets resolution / views pixels, at least 8. Same model and arguments give the same files on one build (the bytes can differ between platforms and compilers). Transparent materials are cut out at alpha 0.5. A model of more than 4 million triangles, or whose triangles x views x views is above 400 million, is refused: bake from a lower LOD (model.generate_lods). Existing files of an earlier bake are replaced; others need `overwrite`. `apply` also sets MeshRenderer.impostor of the entities of the loaded scene that draw the model, the .glb or the .model.json given (one scene.get_entity per MeshRenderer of the scene, one scene.set_component per entity; the scene file is not saved: set the field in the scene to keep it). The editor's undo reverts those scene changes but never the three files written (delete them, or bake again). A long bake reports its progress by row of frames and stops, writing nothing, when the request is cancelled. Result: {file, albedo, normal, mode, views, frameSize, resolution, radius, triangles, applied?, warnings?}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model to bake: a project-relative .glb or .gltf, or the .model.json whose .glb it is. Path the command reads. |
+| `views` | integer | no | Frames per side of the atlas: views x views directions. Default 8. |
+| `resolution` | integer | no | Pixels of the whole atlas side; one frame is resolution / views (at least 8). Default 1024. |
+| `mode` | string ["octahedral","hemiOctahedral"] | no | octahedral: every direction. hemiOctahedral: only from above (y >= 0), twice the resolution. Default "octahedral". |
+| `apply` | boolean | no | Set MeshRenderer.impostor of the loaded scene's entities that draw the model (not saved). Default false. |
+| `overwrite` | boolean | no | Replace files at the output paths that no earlier bake of this command wrote. Default false. |
+
 ## `model.bake_maps` (modifies state)
 
 Since 0.16.0.
@@ -2134,18 +2155,45 @@ Capabilities: read, writeProject
 
 Reads or changes the `gameReady` settings of a model document (docs/MODELING.md, "Game-ready models"), then bakes. `origin`: keep, center, bottom or bottom_center (where the model's origin sits). `merge`: true joins submeshes with the same material (fewer draw calls) and welds identical vertices. `lods`: a list (at most 4) of {ratio (fraction of triangles to keep), triangles (at most that many), error (largest surface movement in metres), distance (metres from which the game draws it; automatic: the model's largest dimension times 4, 8, 16, 32)}; made with meshoptimizer, each submesh simplified with its border locked, so parts stay apart. `collider`: {shape: none, box, sphere, capsule, convex or decomposed (V-HACD), maxHulls, maxVertices, resolution, part, radius, height}. `platforms`: which budgets to check (desktop 100000 triangles / 16 draw calls, mobile 20000 / 8, web 40000 / 10). Each value you give replaces that setting as a whole (null removes it back to its default; `clear` removes them all). Example: {"path":"assets/models/tree.model.json","origin":"bottom_center","merge":true,"lods":[{"ratio":0.5},{"ratio":0.15}],"collider":{"shape":"convex"}}
 
-`collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
+`lodChain`: an automatic chain by screen size instead of `lods` (not both; null removes it): {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight} (docs/BIG_WORLDS_LOD.md, "Automatic LOD chain"). `collider.part` fits the collider to the submeshes of that named part only (a pine's "trunk", so the canopy does not block; it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and `collider.height` (capsule, total) are metres that replace the fitted value. The result is checked before anything is written, then the bake writes <name>.glb, <name>.lod1.glb..., <name>.collider.glb (or collider1.glb... for a decomposition) and <name>.prefab.json (a MeshRenderer with `lods` and a Collider3D; a decomposed collider is one static child collider per piece), all recorded in assets.json. With no setting given nothing is written and the result reports the triangles of every LOD against each platform, the collider's fit and the warnings.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | The model document, project-relative, under assets/, ending in .model.json. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
 | `origin` | string ["keep","center","bottom","bottom_center"] | no | Where the model's origin sits. |
 | `merge` | boolean | no | Join submeshes with the same material and weld identical vertices (left out: unchanged). |
-| `lods` | array | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
+| `lods` | any | no | LOD1.. as {ratio, triangles, error, distance}; replaces the list. |
+| `lodChain` | any | no | An automatic LOD chain drawn by screen size instead of `lods` (not both): {enabled, levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight}; replaces the setting, null removes it (model.generate_lods sets it with defaults). |
 | `collider` | object | no | {shape: none\|box\|sphere\|capsule\|convex\|decomposed, maxHulls, maxVertices, resolution, part, radius, height}. |
 | `platforms` | array | no | Budgets to check: desktop, mobile, web. |
 | `clear` | boolean | no | Remove every game-ready setting first. Default false. |
 | `bake` | boolean | no | Bake after writing. Default true. |
+| `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
+
+## `model.generate_lods` (modifies state)
+
+Since 0.35.0.
+
+Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.
+
+Capabilities: read, writeProject
+
+Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS_LOD.md, "Automatic LOD chain"): `levels` (1..7) simplified copies of the mesh, deterministic (meshoptimizer), each keeping `ratios[i]` of the triangles of the level above (default 0.5) within `errors[i]` metres (`maxError` for all), drawn when the model covers less than `screenSizes[i]` of the view (default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, 0.008). Writes the settings into the document, then bakes <name>.lodN.glb and <name>.prefab.json whose MeshRenderer has lodMode screenSize and {mesh, screenSize} entries. Levels that would have fewer than `minTriangles` triangles are skipped with a note. `model` is the .model.json or the .glb it baked to; skinned meshes (a rig's .glb) are refused. Seams between parts are always kept; `lockBorder` also locks open edges; `normalWeight` and `uvWeight` make a collapse that smears normals or UVs cost more. `dryRun` only reports. Result: {levels: [{level, file, triangles, error, screenSize}], notes}. Example: model.generate_lods {"model":"assets/models/rock.model.json","levels":3}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `model` | string | yes | The model document (.model.json) or the .glb it baked to, project-relative. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `levels` | integer | no | How many lower levels to make. Default 3. |
+| `ratios` | array | no | Per level, the share of the level above's triangles it keeps (default 0.5 each). |
+| `errors` | array | no | Per level, the most the surface may move in metres (0 = no limit). |
+| `maxError` | number | no | The same limit for every level, metres. Exclusive with errors. |
+| `screenSizes` | array | no | Per level, falling: the screen size below which the level is drawn. |
+| `minTriangles` | integer | no | A level with fewer triangles, and the ones after it, is not made. Default 32. |
+| `lockBorder` | boolean | no | Open edges (borders of the surface) do not move; the seams between parts are kept either way. Default true. |
+| `normalWeight` | number | no | How much bending a normal costs a collapse. Default 1.0. |
+| `uvWeight` | number | no | How much smearing a UV seam costs a collapse. Default 0.5. |
+| `dryRun` | boolean | no | Only report what would be made; write nothing. Default false. |
+| `bake` | boolean | no | Bake the .glb, the LOD files and the prefab after writing the settings. Default true. |
 | `overwrite` | boolean | no | Replace a .glb that no model document baked. Default false. |
 
 ## `model.import_clean` (modifies state)
@@ -2180,6 +2228,7 @@ Takes the mesh `source` (project-relative; assets.generate_model and assets.impo
 | `remeshVoxel` | number | no | Remesh: the cell size in metres instead of remeshCells (0 = use remeshCells). Default 0.0. |
 | `unwrap` | string ["auto","always","never"] | no | Unwrap with xatlas into the document's uv section: auto (when the mesh has no uvs or was remeshed), always or never. Default "auto". |
 | `texelsPerUnit` | number | no | Texels per metre of the unwrap (default the project's style guide, else 128). |
+| `lodChain` | any | no | true, or an object like gameReady.lodChain (levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, uvWeight): make an automatic LOD chain with the bake (<name>_clean.lodN.glb and a prefab with screen-size LODs; docs/BIG_WORLDS_LOD.md, "Automatic LOD chain"). Skinned meshes are not read, so the chain is of the static mesh. |
 | `bake` | boolean | no | Bake the document to its .glb. Default true. |
 
 ## `model.info`

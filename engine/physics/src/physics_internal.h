@@ -87,6 +87,9 @@ public:
     static bool pre_solve(b2ShapeId a, b2ShapeId b, b2Manifold* m, void* ctx);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
+    // The world's origin moved (World::rebase ran): every Box2D body moves by -offset (world units; Box2D works in metres) with its
+    // sleeping state, velocity and contacts kept (physics2d.cpp).
+    void origin_shifted(World& world, Vec3 offset);
 
 private:
     struct LocalShape {
@@ -122,6 +125,9 @@ private:
         std::uint64_t entity = 0;
         bool trigger = false;
         bool oneWay = false;
+        // A tile box with sides that lie against the solid tiles of ANOTHER Tilemap (a chunk border): bit 0 = -x, 1 = +x, 2 = +y,
+        // 3 = -y. pre_solve drops the contacts that push along such a side (update_tile_seams).
+        std::uint8_t seams = 0;
     };
 
     static std::uint64_t shape_key(b2ShapeId id) {
@@ -163,6 +169,7 @@ private:
             b2ShapeId shape = b2_nullShapeId;
             std::uint64_t key = 0;  // shape_key(shape)
             Rect rect;  // AABB relative to the map's position (for debug: the map may move after the box was made)
+            std::uint8_t seams = 0;  // ShapeInfo::seams as last set by update_tile_seams
             bool alive = false;
         };
         std::vector<Box> boxes;                // by id; a removed box stays (alive = false) until its id is reused
@@ -171,6 +178,10 @@ private:
             boxAt;  // cols x rows (4 bytes per cell): id + 1 of the box holding the cell, 0 = none
         Vec3 pos;
         float rotZ = 0;
+        bool ortho =
+            false;  // an orthogonal map: its cells are the squares tw x th (world units, scaled) from `pos` (top-left, +y up)
+        bool active = true;  // the body is enabled (the entity is active in the hierarchy)
+        float tw = 0, th = 0;
         std::uint64_t seen = 0;
         int fullScans = 0;            // times every cell had to be compared (no edit list explained the change)
         std::int64_t boxesBuilt = 0;  // boxes made since the body was made, the first build included
@@ -205,6 +216,13 @@ private:
     std::unordered_set<std::uint64_t> jointWarned_;       // entities whose broken Joint2D was already reported
     std::unordered_map<std::uint64_t, Body> bodies_;
     std::unordered_map<std::uint64_t, TileBody> tiles_;
+    // Chunk borders (update_tile_seams): a Tilemap cut into chunks, one Tilemap entity each, has a seam at every border: the corner
+    // of a box that ends there is a ghost vertex that catches a body sliding along the flat floor. A box side that lies against
+    // solid tiles of another tilemap is marked in ShapeInfo::seams and pre_solve drops the contacts that push along it.
+    void update_tile_seams();
+    std::uint64_t seamSig_ =
+        0;                     // what the last update_tile_seams looked at: when it is the same, nothing is recomputed
+    bool seamsInUse_ = false;  // some box has a seam: pre_solve looks for them
     std::unordered_map<std::uint64_t, ShapeInfo> shapes_;
     std::vector<std::uint64_t> deadNow_, deadPrev_;
     std::uint64_t stepCounter_ = 0;
@@ -293,6 +311,10 @@ public:
     Json nav_info(World& world);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
+    // The world's origin moved (World::rebase ran: the Transforms are already shifted): moves every position the 3D world keeps by
+    // -offset, so bodies, contacts, joints, the broad phase and the navigation grids agree with the Transforms again and nothing
+    // wakes, rebuilds or re-bakes (physics3d_origin.cpp).
+    void origin_shifted(World& world, Vec3 offset);
 
 private:
     static constexpr int kMaxPts = 4;  // contact points of a manifold (reduced to at most 4: see reduce_manifold)

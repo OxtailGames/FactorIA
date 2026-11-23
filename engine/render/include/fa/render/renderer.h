@@ -54,7 +54,10 @@ struct RendererTestAccess;
 
 // What the renderer shows instead of the game picture, to check the depth and normal prepass and the ambient occlusion
 // (Renderer::set_debug_view). Ao paints the occlusion as a grey over the picture, drawn with the camera's own settings or the defaults.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades };
+// Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
+// the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`). With the depth pyramid
+// (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -156,6 +159,31 @@ struct RenderStats {
     // Copies of the picture made for Water2D, DistortionZone2D and sprite materials that call fa_scene_color() (M74.4), summed over the cameras of
     // the frame; 0 when nothing reads the picture drawn so far: such a frame makes no copy and holds no image.
     int sceneCopies = 0;
+    // Big worlds (M75, docs/BIG_WORLDS.md), summed over the cameras of the frame. Each is zero while its feature is not in use
+    // (no Occluder, no Terrain, no Foliage...) (game.render_stats, perf.measure and the budgets of perf.check read them).
+    int occluders =
+        0;  // M75.2: Occluder entities rasterised into the occlusion depth buffer (0 with no enabled Occluder)
+    int occlusionTests =
+        0;  // M75.2: meshes tested against that buffer, or against the depth pyramid (occlusionMode gpu, M75.2b)
+    int meshesOccluded =
+        0;  // M75.2: of meshesCulled, the MeshRenderer entities proved hidden behind occluders or the pyramid (still drawn into shadow maps)
+    int portalsVisited =
+        0;  // M75.2: distinct open OcclusionPortals the camera's walk went through, summed over the cameras (0 with no enabled OcclusionArea)
+    int meshesCulledByArea =
+        0;  // M75.2: meshes left out of the main pass because no chain of open portals leads to their area (also in meshesCulled)
+    int lodCrossFades =
+        0;  // M75.1: meshes drawn in the main view as one level of a dithered LOD cross-fade, summed over the cameras (a fading
+            // entity counts 2; probe and GI captures do not count)
+    int hlodProxies =
+        0;  // M75 P1d: HLOD proxy meshes drawn in the main view (LodGroup.hlodProxy past hlodThreshold, one fading out counts too;
+    // and, P1e, the proxy of a streamed cell that is not loaded)
+    int impostors =
+        0;  // M75-P1c: cards of MeshRenderer.impostor drawn in the main pass (not in `meshes`; a fading card counts)
+    int terrainTiles = 0;      // M75.5: Terrain tiles drawn in the main pass (after the LOD selection and the culling)
+    int terrainTriangles = 0;  // M75.5: triangles of those tiles (also in `triangles`; the tiles are not in `meshes`)
+    int foliageInstances = 0;  // M75.6: Foliage instances drawn (after the density, the fade and the culling)
+    int foliageInstancesCulled =
+        0;  // M75.6: Foliage instances left out by the frustum, the occlusion or the fade distance
     // Subsurface scattering (M73.5), summed over the cameras of the frame.
     int subsurfaceCameras =
         0;  // cameras that scattered the light of MeshRenderer.subsurface (0 when none could: no prepass, no RGBA16F)
@@ -512,6 +540,23 @@ public:
     // not loaded yet; {} before init().
     Json material_cost(const MeshRenderer& mr);
     std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+    // What the Terrain textures cost the GPU work since the renderer started (a test looks at them; not a stat of the picture): the height
+    // textures sent whole, the rectangles of them a sculpt re-sent, the layer and control arrays built, the sub-rectangles of the splat maps
+    // a repaint re-sent (`splatRects`) and the layer decoding jobs started (`layerLoads`).
+    struct TerrainUploads {
+        std::uint64_t whole = 0, rects = 0, arrays = 0, splatRects = 0, layerLoads = 0, holesWhole = 0, holesRects = 0;
+    };
+    TerrainUploads terrain_uploads() const;
+    // The Terrain layer pictures (albedo and normal arrays) are decoded off the main thread, like the Foliage files: a terrain draws its
+    // layers neutral (or with the pictures it had, for a reload) until the frame after the decode adopts them. A test or a capture that
+    // needs them in the picture waits here, then renders once more.
+    bool terrain_loading() const;
+    void wait_terrain_loaded();
+    // The Foliage instances files (M75.6): they are read off the main thread, and a frame draws what is ready. A test or a capture that needs
+    // them in the picture waits here, then renders once more (that frame adopts them).
+    bool foliage_loading() const;
+    void wait_foliage_loaded();
+    std::uint64_t foliage_loads() const;  // files read since the renderer was made
 
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; docs/PERFORMANCE.md, "Background
     // loading"). The renderer prepares the files it draws from off the main thread: an IoQueue item reads the file and a
@@ -572,6 +617,14 @@ public:
     // as <prefix>-emission.png, <prefix>-occluders.png and <prefix>-distance.png and the report lists them in "files"; a failure is in "error".
     // Reads the GPU back (a command, never the frame). Empty object before init().
     Json gi2d_field(std::string_view savePrefix = {}, std::string_view job = {});
+    // The occlusion culling of the last frame (Occluder; docs/BIG_WORLDS_LOD.md, "Occlusion"): the report of the `render.occlusion` command
+    // {supported, debugView, active, limits, camera, width, height, occluders, triangles, coveredCells, tests, hidden}. `active` is false
+    // (and the rest left out) when no camera of the last frame had an enabled Occluder. With `savePath` (a UTF-8 path of a .png) the
+    // depth buffer of the last camera that had occluders is written as a grey picture (black = no occluder; the nearer, the brighter) and
+    // listed in "file"; a failure is in "error". A CPU read: no GPU involved. Empty object before init(). "gpu" holds what the depth pyramid
+    // did (mode, supported, active, camera, width, height, levels, coveredCells, ageFrames, tests, hidden, testResults, ...); with no
+    // Occluder buffer `savePath` writes the pyramid's mip `level` there instead (0 = 256 cells across).
+    Json occlusion_report(std::string_view savePath = {}, int level = 0);
     // How far the grid of the RealtimeGI `grid` is, from the renderer's own counters (no GPU read-back, so the editor may call it every frame):
     // `known` is false before the grid was drawn or while it is not valid. Probes are captured in index order the first time, so the probes
     // below `captured` have a picture (exact unless a capture failed and is being retried).

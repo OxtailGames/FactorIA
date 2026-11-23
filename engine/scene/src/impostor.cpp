@@ -1,0 +1,199 @@
+#include "fa/scene/impostor.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace fa {
+
+namespace {
+
+float sign_of(float v) { return v < 0.0f ? -1.0f : 1.0f; }
+
+bool inside_project(const std::string& p) {
+    if (p.empty() || p[0] == '/' || p[0] == '\\' || (p.size() > 1 && p[1] == ':') || p.find('\\') != std::string::npos)
+        return false;
+    for (std::size_t from = 0; from <= p.size();) {
+        const std::size_t slash = p.find('/', from);
+        const std::size_t end = slash == std::string::npos ? p.size() : slash;
+        if (p.compare(from, end - from, "..") == 0) return false;
+        from = end + 1;
+    }
+    return true;
+}
+
+}  // namespace
+
+const char* impostor_mode_name(ImpostorMode m) {
+    return m == ImpostorMode::HemiOctahedral ? "hemiOctahedral" : "octahedral";
+}
+
+bool impostor_mode_from_name(const std::string& s, ImpostorMode& out) {
+    if (s == "octahedral") {
+        out = ImpostorMode::Octahedral;
+        return true;
+    }
+    if (s == "hemiOctahedral") {
+        out = ImpostorMode::HemiOctahedral;
+        return true;
+    }
+    return false;
+}
+
+namespace {
+Vec3 impostor_decode(ImpostorMode mode, float u, float v) {
+    float x, y, z;
+    if (mode == ImpostorMode::HemiOctahedral) {
+        x = (u + v) * 0.5f;
+        z = (u - v) * 0.5f;
+        y = 1.0f - std::fabs(x) - std::fabs(z);
+    } else {
+        x = u;
+        z = v;
+        y = 1.0f - std::fabs(u) - std::fabs(v);
+        if (y < 0.0f) {  // the lower half is folded over the corners
+            x = (1.0f - std::fabs(v)) * sign_of(u);
+            z = (1.0f - std::fabs(u)) * sign_of(v);
+        }
+    }
+    return normalize(Vec3{x, y, z});
+}
+}  // namespace
+
+Vec3 impostor_direction(ImpostorMode mode, int views, int i, int j) {
+    const float last = float(std::max(views - 1, 1));
+    return impostor_decode(mode, float(i) / last * 2.0f - 1.0f, float(j) / last * 2.0f - 1.0f);
+}
+
+void impostor_encode(ImpostorMode mode, Vec3 d, float& u, float& v) {
+    if (mode == ImpostorMode::HemiOctahedral) {
+        const float l1 = std::fabs(d.x) + std::fabs(d.z) + std::max(d.y, 0.0f);
+        if (!(l1 > 1e-8f)) {
+            u = v = 0.0f;
+            return;
+        }
+        const float px = d.x / l1, pz = d.z / l1;
+        u = std::clamp(px + pz, -1.0f, 1.0f);
+        v = std::clamp(px - pz, -1.0f, 1.0f);
+        return;
+    }
+    const float l1 = std::fabs(d.x) + std::fabs(d.y) + std::fabs(d.z);
+    if (!(l1 > 1e-8f)) {
+        u = v = 0.0f;
+        return;
+    }
+    float px = d.x / l1, pz = d.z / l1;
+    if (d.y < 0.0f) {
+        const float qx = (1.0f - std::fabs(pz)) * sign_of(px), qz = (1.0f - std::fabs(px)) * sign_of(pz);
+        px = qx;
+        pz = qz;
+    }
+    u = std::clamp(px, -1.0f, 1.0f);
+    v = std::clamp(pz, -1.0f, 1.0f);
+}
+
+void impostor_basis(Vec3 d, Vec3& right, Vec3& up) {
+    const Vec3 ref = std::fabs(d.y) > 0.99f ? Vec3{0, 0, -1} : Vec3{0, 1, 0};
+    right = normalize(cross(ref, d));
+    up = cross(d, right);
+}
+
+ImpostorPick impostor_pick(ImpostorMode mode, int views, Vec3 direction) {
+    ImpostorPick out;
+    const int n = std::max(views, 2);
+    float u, v;
+    impostor_encode(mode, direction, u, v);
+    const float last = float(n - 1);
+    const float gx = std::clamp((u * 0.5f + 0.5f) * last, 0.0f, last);
+    const float gy = std::clamp((v * 0.5f + 0.5f) * last, 0.0f, last);
+    const int i0 = std::min(int(std::floor(gx)), n - 2), j0 = std::min(int(std::floor(gy)), n - 2);
+    const float fx = gx - float(i0), fy = gy - float(j0);
+    auto at = [&](int i, int j) { return j * n + i; };
+    if (fx + fy < 1.0f) {
+        out.frame[0] = at(i0, j0);
+        out.frame[1] = at(i0 + 1, j0);
+        out.frame[2] = at(i0, j0 + 1);
+        out.weight[0] = 1.0f - fx - fy;
+        out.weight[1] = fx;
+        out.weight[2] = fy;
+    } else {
+        out.frame[0] = at(i0 + 1, j0 + 1);
+        out.frame[1] = at(i0, j0 + 1);
+        out.frame[2] = at(i0 + 1, j0);
+        out.weight[0] = fx + fy - 1.0f;
+        out.weight[1] = 1.0f - fx;
+        out.weight[2] = 1.0f - fy;
+    }
+    return out;
+}
+
+Json impostor_to_json(const ImpostorAtlas& a) {
+    Json j = Json::object();
+    j["format"] = kImpostorFormat;
+    j["mode"] = impostor_mode_name(a.mode);
+    j["views"] = a.views;
+    j["frameSize"] = a.frameSize;
+    j["albedo"] = a.albedo;
+    j["normal"] = a.normal;
+    j["center"] = Json::array({a.center.x, a.center.y, a.center.z});
+    j["radius"] = a.radius;
+    if (!a.source.empty()) j["source"] = a.source;
+    return j;
+}
+
+Result<ImpostorAtlas> impostor_from_json(const Json& j, const std::string& name) {
+    auto bad = [&](const std::string& pointer, const std::string& what, const std::string& hint) {
+        return make_error(name + pointer + ": " + what, hint);
+    };
+    const std::string again = "Bake the impostor again with model.bake_impostor; do not edit this file by hand.";
+    if (!j.is_object()) return bad("", "is not a JSON object.", again);
+    if (!j.contains("format") || !j["format"].is_string() || j["format"].get<std::string>() != kImpostorFormat)
+        return bad("/format", std::string("is missing or not \"") + kImpostorFormat + "\".",
+                   "The file is not an impostor of this engine version. " + again);
+    ImpostorAtlas a;
+    const std::string mode = j.contains("mode") && j["mode"].is_string() ? j["mode"].get<std::string>() : std::string();
+    if (!impostor_mode_from_name(mode, a.mode))
+        return bad("/mode", "is \"" + mode + "\", not \"octahedral\" or \"hemiOctahedral\".", again);
+    auto integer = [&](const char* key, int lo, int hi, int& out) -> Result<bool> {
+        const std::string pointer = std::string("/") + key;
+        if (!j.contains(key) || !j[key].is_number_integer())
+            return bad(pointer, "is missing or not a whole number.", again);
+        const long long v = j[key].get<long long>();
+        if (v < lo || v > hi)
+            return bad(pointer,
+                       "is " + std::to_string(v) + ", outside " + std::to_string(lo) + ".." + std::to_string(hi) + ".",
+                       again);
+        out = int(v);
+        return true;
+    };
+    if (auto r = integer("views", kImpostorMinViews, kImpostorMaxViews, a.views); !r.ok()) return r.error();
+    if (auto r = integer("frameSize", kImpostorMinFrame, kImpostorMaxAtlas, a.frameSize); !r.ok()) return r.error();
+    if (static_cast<long long>(a.views) * a.frameSize > kImpostorMaxAtlas)
+        return bad("/frameSize",
+                   "times /views is " + std::to_string(static_cast<long long>(a.views) * a.frameSize) +
+                       " pixels, more than the " + std::to_string(kImpostorMaxAtlas) + " an atlas side may have.",
+                   again);
+    for (const char* key : {"albedo", "normal"}) {
+        const std::string pointer = std::string("/") + key;
+        if (!j.contains(key) || !j[key].is_string() || !inside_project(j[key].get<std::string>()))
+            return bad(pointer, "is missing or not a path inside the project.", again);
+        (key[0] == 'a' ? a.albedo : a.normal) = j[key].get<std::string>();
+    }
+    if (!j.contains("center") || !j["center"].is_array() || j["center"].size() != 3)
+        return bad("/center", "is missing or not [x, y, z].", again);
+    float c[3];
+    for (int k = 0; k < 3; ++k) {
+        const Json& e = j["center"][std::size_t(k)];
+        if (!e.is_number() || !std::isfinite(e.get<double>()) || std::fabs(e.get<double>()) > 1e7)
+            return bad("/center/" + std::to_string(k), "is not a finite number.", again);
+        c[k] = e.get<float>();
+    }
+    a.center = {c[0], c[1], c[2]};
+    if (!j.contains("radius") || !j["radius"].is_number() || !std::isfinite(j["radius"].get<double>()) ||
+        !(j["radius"].get<double>() > 0.0) || j["radius"].get<double>() > 1e7)
+        return bad("/radius", "is missing or not a positive number of metres.", again);
+    a.radius = j["radius"].get<float>();
+    a.source = j.contains("source") && j["source"].is_string() ? j["source"].get<std::string>() : std::string();
+    return a;
+}
+
+}  // namespace fa

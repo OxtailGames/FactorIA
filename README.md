@@ -28,7 +28,7 @@ It builds for Windows, macOS, Linux, iOS and Android from a single codebase.
 
 ## Status
 
-Version 0.34 (CHANGELOG.md says what each version added). The engine modules, the `factoria` CLI, the MCP server, the AI
+Version 0.35 (CHANGELOG.md says what each version added). The engine modules, the `factoria` CLI, the MCP server, the AI
 hub and the editor work, and the 11 example games in `examples/` (counted on 2026-11-09) were built by AI agents through
 the public interface; their tests run with the test suite on a Release build (`ctest -L example`). Six are reference
 games: Lantern Keep (a 2D platformer with menus, save slots, store services, accessibility options and four languages),
@@ -163,7 +163,7 @@ Topics, one page each:
 - Look and feel: [docs/PARTICLES.md](docs/PARTICLES.md) (particle effects), [docs/EFFECTS.md](docs/EFFECTS.md) (visual and audio effects), [docs/GAME_FEEL.md](docs/GAME_FEEL.md) (shake, hit-stop, flash, knockback, squash and stretch), [docs/SHADERS.md](docs/SHADERS.md) (custom shaders per material), [docs/RENDERING.md](docs/RENDERING.md) (cameras that draw into textures, photographs of the world).
 - Sound: [docs/SOUND.md](docs/SOUND.md) (sound patches and audio documents), [docs/MUSIC.md](docs/MUSIC.md) (songs as data).
 - Text and menus: [docs/TEXT.md](docs/TEXT.md) (fonts, fallback, shaping, right-to-left text, text size), [docs/LOCALIZATION.md](docs/LOCALIZATION.md) (string tables, `key` fields, the `i18n` API), [docs/MENUS.md](docs/MENUS.md) (main menu, options, credits, loading screen, pause).
-- World and services: [docs/NAVIGATION.md](docs/NAVIGATION.md) (navmeshes and agents), [docs/NETWORKING.md](docs/NETWORKING.md) (`http.fetch`), [docs/PLATFORM.md](docs/PLATFORM.md) (achievements, stats, leaderboards, cloud saves, purchases), [docs/ANALYTICS.md](docs/ANALYTICS.md) (events and remote config).
+- World and services: [docs/NAVIGATION.md](docs/NAVIGATION.md) (navmeshes and agents), [docs/BIG_WORLDS.md](docs/BIG_WORLDS.md) (M75; pages: [levels of detail and occlusion](docs/BIG_WORLDS_LOD.md), [streaming and the floating origin](docs/BIG_WORLDS_STREAMING.md), [terrain and foliage](docs/BIG_WORLDS_TERRAIN.md)), [docs/NETWORKING.md](docs/NETWORKING.md) (`http.fetch`), [docs/PLATFORM.md](docs/PLATFORM.md) (achievements, stats, leaderboards, cloud saves, purchases), [docs/ANALYTICS.md](docs/ANALYTICS.md) (events and remote config).
 
 ### Finishing and shipping a game
 

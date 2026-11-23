@@ -409,6 +409,10 @@ public:
     // Drives AudioSource/AudioListener components (doppler and occlusion included), the sound of Video components and scene
     // music. `dt` is the frame's time: velocities for doppler are position changes over it.
     void update(World& world, float dt);
+    // The world's origin moved by `offset` (World::rebase already shifted the entities): the positions audio remembers (the
+    // listener's and each source's place in the last frame, and the place of sounds played at a position) move by -offset, so
+    // the velocities doppler measures are the same as without the shift and nothing spikes. Call on the main thread.
+    void origin_shifted(Vec3 offset);
     // Who answers the occlusion rays (the engine sets one that casts physics rays). Without a probe nothing is occluded.
     void set_occlusion_probe(AudioOcclusionProbe probe);
 

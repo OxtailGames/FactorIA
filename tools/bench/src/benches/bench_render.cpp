@@ -8,10 +8,13 @@
 
 #include "benches.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/components.h"
+#include "fa/scene/components_world.h"
+#include "fa/scene/impostor.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -136,6 +139,161 @@ void build_3d(World& w) {
     }
 }
 
+// The 3D scene again, every cube and sphere with two lower levels by distance (a third of them with a cross-fade, which never runs
+// here: the bench's frames have no time delta and nothing moves) and 40 LodGroups of three meshes by screen size: what the
+// per-camera selection of the levels costs next to render.frame3d.
+void build_lod3d(World& w) {
+    build_3d(w);
+    int n = 0;
+    w.each<MeshRenderer>([&n](Entity, MeshRenderer& m) {
+        if (m.mesh != "cube" && m.mesh != "sphere") return;
+        m.lods = Json::array({Json{{"mesh", "sphere"}, {"distance", 30}}, Json{{"mesh", "cube"}, {"distance", 55}}});
+        if (++n % 3 == 0) m.lodCrossFade = 0.3f;
+    });
+    Rng rng(33);
+    for (int g = 0; g < 40; ++g) {
+        Entity group = make(w, {-30.0f + float(g) * 1.5f, 1.5f, -20.0f + float(rng.next_u32() % 40)});
+        LodGroup& lg = w.add<LodGroup>(group);
+        lg.mode = LodMode::ScreenSize;
+        lg.thresholds.push_back(0.25f);
+        lg.thresholds.push_back(0.08f);
+        lg.crossFade = 0.3f;
+        for (int level = 0; level < 3; ++level) {
+            Entity child = w.create();
+            w.set_parent(child, group);
+            w.add<MeshRenderer>(child).mesh = level == 0 ? "sphere" : "cube";
+        }
+    }
+}
+
+// The 3D scene again, every cube and sphere an impostor beyond 30 m (M75-P1c): an atlas of 4 x 4 frames of 32 pixels written into the
+// bench's project, about 700 of the 1600 meshes are cards (one batch), the rest keep their meshes. The cost of the pick of each mesh, the
+// card's vertex work and the 3-frame blend of the fragment shader.
+void build_impostor3d(World& w) {
+    build_3d(w);
+    const std::filesystem::path dir = env().dir;
+    ImpostorAtlas atlas;
+    atlas.views = 4;
+    atlas.frameSize = 32;
+    atlas.albedo = "assets/bench_impostor.png";
+    atlas.normal = "assets/bench_impostor_normal.png";
+    atlas.radius = 0.8f;
+    Image albedo, normal;
+    albedo.width = albedo.height = normal.width = normal.height = 128;
+    albedo.rgba.assign(128u * 128u * 4, 255);
+    normal.rgba.assign(128u * 128u * 4, 255);
+    for (std::size_t k = 0; k < albedo.rgba.size(); k += 4) {
+        const int x = int((k / 4) % 128) % 32, y = int((k / 4) / 128) % 32;
+        albedo.rgba[k] = std::uint8_t(80 + x * 4);
+        albedo.rgba[k + 1] = std::uint8_t(120 + y * 3);
+        albedo.rgba[k + 2] = 90;
+        albedo.rgba[k + 3] = (x - 16) * (x - 16) + (y - 16) * (y - 16) < 15 * 15 ? 255 : 0;
+        normal.rgba[k] = 128;
+        normal.rgba[k + 1] = 255;
+        normal.rgba[k + 2] = 128;
+    }
+    auto put = [&](const std::string& path, const std::vector<std::uint8_t>& bytes) {
+        (void)fs::write_bytes(fs::path_to_utf8(dir / fs::path_from_utf8(path)), bytes.data(), bytes.size());
+    };
+    put(atlas.albedo, encode_png(albedo));
+    put(atlas.normal, encode_png(normal));
+    const std::string text = impostor_to_json(atlas).dump(2);
+    put("assets/bench_impostor.impostor.json", std::vector<std::uint8_t>(text.begin(), text.end()));
+    w.each<MeshRenderer>([](Entity, MeshRenderer& m) {
+        if (m.mesh != "cube" && m.mesh != "sphere") return;
+        m.impostor = "assets/bench_impostor.impostor.json";
+        m.impostorDistance = 30.0f;
+    });
+}
+
+// build_3d with three wall Occluders across the field (24 m wide, 8 m tall, at z = 0): the cubes and spheres behind them are hidden from
+// the camera, so the frame draws fewer meshes (M75.2: the occlusion culling on the CPU).
+void build_3d_occluded(World& w) {
+    build_3d(w);
+    for (int i = 0; i < 3; ++i) {
+        Entity wall = make(w, {-25.0f + float(i) * 25.0f, 4, 0});
+        w.get<Transform>(wall)->scale = {24, 8, 1};
+        w.add<MeshRenderer>(wall).mesh = "cube";
+        w.add<Occluder>(wall);
+    }
+}
+
+// The same walls with no Occluder and SceneSettings.occlusionMode "gpu" (M75.2b): the depth pyramid of the frame before hides what is behind
+// them. Where the backend has no compute shaders it falls back to the CPU Occluders, of which this scene has none: the frame draws everything.
+void build_3d_hiz(World& w) {
+    build_3d(w);
+    for (int i = 0; i < 3; ++i) {
+        Entity wall = make(w, {-25.0f + float(i) * 25.0f, 4, 0});
+        w.get<Transform>(wall)->scale = {24, 8, 1};
+        w.add<MeshRenderer>(wall).mesh = "cube";
+    }
+    w.settings().occlusionMode = OcclusionMode::Gpu;
+}
+
+// A terrain of 513 x 513 hilly samples over 1024 m with 4 layers of 64 x 64 textures, a splat map and a holes mask, under a sun with
+// shadows (M75.5: the CDLOD tiles, the layer blend of shaders/terrain.glsl, the split patch of the holes). The GPU's own work is what
+// this row moves with: fewer fetches a pixel (the normals took 16 height fetches, now 12) show here on a GPU, not on a CPU.
+void build_terrain(World& w) {
+    const std::filesystem::path dir = env().dir;
+    auto put = [&](const char* name, const std::vector<std::uint8_t>& png) {
+        const std::string path = fs::path_to_utf8(dir / "assets" / name);
+        (void)fs::write_bytes(path, png.data(), png.size());
+        return std::string("assets/") + name;
+    };
+    GrayImage16 heights;
+    heights.width = heights.height = 513;
+    heights.sixteenBit = true;
+    heights.samples.resize(513u * 513u);
+    for (int r = 0; r < 513; ++r)
+        for (int c = 0; c < 513; ++c)
+            heights.samples[std::size_t(r) * 513 + std::size_t(c)] =
+                std::uint16_t(20000.0 + 12000.0 * std::sin(double(c) * 0.05) * std::cos(double(r) * 0.04));
+    Terrain3D& t = w.add<Terrain3D>(make(w, {0, 0, 0}));
+    t.heightmap = put("bench_height.png", encode_png_gray16(heights));
+    t.size = {1024.0f, 1024.0f};
+    t.heightScale = 120.0f;
+    Image splat;
+    splat.width = splat.height = 128;
+    splat.rgba.resize(128u * 128u * 4);
+    for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x) {
+            std::uint8_t* px = splat.rgba.data() + (std::size_t(y) * 128 + std::size_t(x)) * 4;
+            px[0] = std::uint8_t(255 - x * 2);
+            px[1] = std::uint8_t(x * 2);
+            px[2] = std::uint8_t(y * 2);
+            px[3] = std::uint8_t(255 - y * 2);
+        }
+    t.splatMaps = Json::array({put("bench_splat.png", encode_png(splat))});
+    std::vector<std::uint8_t> holes(512u * 512u, 0);
+    for (int y = 250; y < 262; ++y)
+        for (int x = 250; x < 262; ++x) holes[std::size_t(y) * 512 + std::size_t(x)] = 255;
+    t.holes = put("bench_holes.png", encode_png_gray8(512, 512, holes.data()));
+    t.layers = Json::array();
+    for (int i = 0; i < 4; ++i) {
+        Image tex;
+        tex.width = tex.height = 64;
+        tex.rgba.assign(64u * 64u * 4, 255);
+        for (std::size_t k = 0; k < tex.rgba.size(); k += 4) {
+            tex.rgba[k] = std::uint8_t(60 + 50 * i);
+            tex.rgba[k + 1] = std::uint8_t(160 - 30 * i + int((k / 4) % 7) * 4);
+            tex.rgba[k + 2] = std::uint8_t(80 + int((k / 4) % 5) * 6);
+        }
+        const std::string name = "bench_layer" + std::to_string(i) + ".png";
+        t.layers.push_back(Json::object({{"albedo", put(name.c_str(), encode_png(tex))},
+                                         {"tileSize", 6.0},
+                                         {"roughness", 0.5 + 0.1 * i},
+                                         {"metallic", 0.0}}));
+    }
+    Entity cam = make(w, {0, 90, 260});
+    Camera& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    w.get<Transform>(cam)->rotation = {-18, 0, 0};
+    Entity sun = make(w, {0, 100, 0});
+    w.get<Transform>(sun)->rotation = {-50, 30, 0};
+    w.add<Light>(sun).type = LightType::Directional;
+}
+
 Bench render_bench(const char* name, const char* summary, void (*build)(World&), std::int64_t items, const char* unit) {
     Bench b;
     b.name = name;
@@ -176,6 +334,31 @@ void add_render_benches(std::vector<Bench>& out) {
     out.push_back(render_bench(
         "render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
         build_3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.lod3d",
+                               "render.frame3d with two lower levels on every mesh and 40 LodGroups of three meshes: "
+                               "the cost of picking the levels",
+                               build_lod3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.impostor3d",
+                               "render.frame3d with every cube and sphere an impostor card beyond 30 m: the cost of "
+                               "picking, drawing and shading the cards",
+                               build_impostor3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.occlusion3d",
+                               "render.frame3d with three wall Occluders: 8 frames of 1600 meshes, most of those "
+                               "behind the walls hidden (the cost of the "
+                               "rasterizer and of 1600 tests, less the draws it saves)",
+                               build_3d_occluded, 8 * 1600, "meshes"));
+    out.push_back(render_bench(
+        "render.hiz3d",
+        "render.occlusion3d with the walls as plain meshes and SceneSettings.occlusionMode \"gpu\": 8 frames "
+        "of 1600 meshes culled by the depth pyramid of the frame before (the depth prepass, the reduce "
+        "pass, the read-back and 1600 tests, less the draws it saves; the plain frame where there are no "
+        "compute shaders)",
+        build_3d_hiz, 8 * 1600, "meshes"));
+    out.push_back(
+        render_bench("render.terrain3d",
+                     "8 frames of a 513 x 513 Terrain over 1024 m with 4 splat-blended layers, a holes mask and a "
+                     "shadow-casting sun, headless 640x360 (the tile selection, the layer blend, the split patch)",
+                     build_terrain, 8, "frames"));
 }
 
 }  // namespace fa::bench
