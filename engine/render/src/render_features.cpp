@@ -385,9 +385,10 @@ std::vector<FeatureDef> build_table() {
          "M76"},
         {"spatialUpscaler", "",
          "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
-         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "
-         "resolution. Needs no float targets, every backend. Planned (M76 P3b).",
-         "M76"},
+         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen (fragment passes, never compute), "
+         "the HUD drawn at the output resolution. Needs no float targets, every GPU backend. Pixel-perfect games "
+         "keep the plain nearest scaling.",
+         nullptr},
         {"temporalUpscaler", "half",
          "The temporal upscaler (render.upscaler mode \"temporal\"): the jittered frames of a lower resolution are "
          "accumulated into a picture of the output resolution (the temporal antialiasing as the resolve). A fragment "

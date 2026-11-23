@@ -212,7 +212,8 @@ projection, the velocity contract the temporal passes read, and the data they ke
   magnitude of 512 or more) means "no object wrote here: reproject from the depth with the camera's matrices". Motion
   above `kMaxMotion` (4 UV) is not trusted by the temporal passes. The image is optional: a pass that finds none
   reprojects every texel from the depth, which is right for everything static.
-- **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
-  `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
-  has the rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
+- **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are read by the upscale stage (`Renderer::upscaler()`);
+  `effective_upscaler_mode(settings, caps)` is the one place that says which mode draws: `stretch` and `spatial` today (M76-P3b; the
+  caps carry the pixel-art flag and what the backend can draw, and the temporal and MetalFX packages set theirs). `render.supports`
+  has the rows `motionVectors`, `spatialUpscaler` (drawn), `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
   the row of the effect itself (`PostEffect::TemporalAA`, planned M76), not a second engine row.

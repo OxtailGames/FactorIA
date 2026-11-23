@@ -1017,7 +1017,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
-         "all planned: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only), dynamicResolution; "
+         "planned: motionVectors, temporalUpscaler, metalfx (Metal only), dynamicResolution; drawn: spatialUpscaler; "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
@@ -1189,8 +1189,12 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
-         "It only stores and reports: the renderer draws every mode as \"stretch\" (effectiveMode) until the packages "
-         "that draw the others land, so the picture does not change yet. The start value is factoria.json "
+         "The renderer draws \"stretch\" and \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen); "
+         "temporal, metalfx and auto draw as the best of those it can until their packages land, and a pixel-perfect "
+         "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
+         "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
+         "at that size; at native quality the spatial mode is the sharpen alone (none at sharpness 0). The start "
+         "value is factoria.json "
          "\"render\": {\"upscaler\": {...}}; window.upscaler in scripts is the same setting. A wrong name or number "
          "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
          "graphics=false too (the value is only remembered).",
@@ -1212,7 +1216,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             }
             const render::UpscalerSettings now = I.self->upscaler();
             Json out = render::upscaler_to_json(now);
-            out["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(now)));
+            out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
             out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
             out["changed"] = changed;
             return out;

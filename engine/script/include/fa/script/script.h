@@ -257,10 +257,13 @@ public:
     }
     // The upscaler setting (`window.upscaler`, M76, docs/UPSCALING.md): how the picture drawn at a lower resolution reaches the screen.
     // set_upscaler takes a partial object ({"mode", "quality", "sharpness"}: the keys present change, the rest stays) and returns ""
-    // when done, else the error sentence (what is wrong, the valid names, a "did you mean"); nothing changes on an error. It only
-    // stores and reports: the renderer draws every mode as "stretch" until the packages that draw the others land. Engine also hands
-    // the value to the renderer; the default keeps it for hosts without one.
+    // when done, else the error sentence (what is wrong, the valid names, a "did you mean"); nothing changes on an error. Engine
+    // also hands the value to the renderer, which draws it (stretch and spatial today), and works out the render scale it implies; the
+    // default only keeps it, for hosts without a renderer.
     virtual render::UpscalerSettings upscaler() const { return upscaler_; }
+    // The mode that really draws (what `window.upscaler.effectiveMode` and render.upscaler report): the setting's mode where this backend
+    // can draw it, stretch for pixel art. The default is what a GPU would draw for the setting, for hosts without a renderer.
+    virtual render::UpscalerMode effective_upscaler_mode() const { return render::effective_upscaler_mode(upscaler()); }
     // `where` names the caller in the error ("window.upscaler" for a script, "render.upscaler" for the command).
     virtual std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler") {
         auto r = render::parse_upscaler_settings(value, where, upscaler_);
