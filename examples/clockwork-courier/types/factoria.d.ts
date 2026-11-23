@@ -11508,7 +11508,7 @@ declare module "factoria" {
      */
     exposureAdaptationSpeed: number;
     /**
-     * Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
+     * Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/rendering/RENDERING_POSTPROCESS.md for what the effects cost.
      * @since 0.31.0
      */
     bloomEnabled: boolean;
@@ -12018,7 +12018,7 @@ declare module "factoria" {
     hlodThreshold: number;
   }
   /**
-   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. No effect yet: M75.2 builds the culling (docs/BIG_WORLDS_LOD.md, "Occlusion"); the fields are saved and checked today.
+   * A solid that hides what is behind it from the camera, for the occlusion culling of dense scenes (a wall, a hill, the body of a building): the renderer rasterises it into a small depth buffer and does not draw the objects that the depth proves hidden. A cheap box is best; a mesh costs more. It hides, it is not drawn: give the entity a MeshRenderer to see it. The culling (M75.2) is described in docs/BIG_WORLDS_LOD.md, "Occlusion".
    * 
    * Category: 3D
    * @since unreleased
@@ -12101,7 +12101,7 @@ declare module "factoria" {
     open: boolean;
   }
   /**
-   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. No effect yet: M75.3 builds the streaming (docs/BIG_WORLDS_STREAMING.md, "Streaming").
+   * Makes the world around this entity load and unload as it moves: a streamed scene is cut into cells (the `world.cells` command lists them), and the cells nearer than loadRadius to any enabled anchor are loaded, those farther than unloadRadius from all of them are unloaded. Put it on the player or on the camera. A scene with no anchor loads every cell. Streaming (M75.3): see docs/BIG_WORLDS_STREAMING.md, "Streaming".
    * 
    * Category: World
    * @since unreleased

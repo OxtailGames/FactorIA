@@ -49,7 +49,7 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `exposureMinEv` | float | `-4.0` | Auto exposure only: the lowest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
 | `exposureMaxEv` | float | `4.0` | Auto exposure only: the highest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
 | `exposureAdaptationSpeed` | float | `2.0` | Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster. Range 0.0..20.0. |
-| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost. |
+| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/rendering/RENDERING_POSTPROCESS.md for what the effects cost. |
 | `bloomIntensity` | float | `1.2` | Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none). Range 0.0..10.0. |
 | `bloomThreshold` | float | `0.7` | Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1. Range 0.0..20.0. |
 | `bloomKnee` | float | `0.5` | Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp). Range 0.0..1.0. |
