@@ -6,6 +6,32 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ## Unreleased
 
+## 0.35.1
+
+FactorIA 0.35.1 fixes the three crashes the weekly fuzz run found in 0.35.0: a SoundFont whose head was `LIST` instead
+of `RIFF` made TinySoundFont read past a table, an Ogg Vorbis codebook could make stb_vorbis ask for 16 exabytes of
+memory, and an ETC1S `.ktx2` texture made the Basis transcoder read past a Huffman tree. Each file is now checked before
+the third-party reader sees it, and a damaged one is an error.
+
+### Fixes
+
+- SoundFonts: TinySoundFont also takes a file whose head is `LIST` + `sfbk` or a bare `sfbk` chunk, and the engine's
+  index checks only ran for a `RIFF` head, so a damaged hydra reached the loader unchecked (the weekly fuzz run found a
+  preset zone read past the `pbag` table). Those heads are now refused, and so are a `RIFF` or `LIST` size smaller than
+  its 4-byte id (TinySoundFont's size wrapped around) and a list nested in `pdta` or `sdta` (TinySoundFont read
+  `LIST` + `pbag` as the `pbag` table, 4 bytes off). The error says "the SoundFont is damaged" and what is wrong.
+- Ogg Vorbis: a codebook whose entries times dimensions overflow stb_vorbis's int became a 16-exabyte allocation, and
+  stb_vorbis's bit reader returns zeros past the packet, so a small file could make it allocate and fill gigabytes. The
+  codebooks of the setup header are now walked before stb_vorbis opens the file, with libvorbis's rules
+  (`ilog(dimensions) + ilog(entries)` at most 24 bits, a lookup type of at most 2, no codebook data past the packet) and
+  at most 4 million entries and lookup values in all; such a file is "not a valid OGG Vorbis file".
+- KTX2: an ETC1S file whose global data held a Huffman table with a single symbol coded in more than 10 bits made the
+  Basis transcoder read past the table's tree (it accepts that incomplete code and builds a tree one node short). The
+  Huffman tables of the tables, endpoints and selectors streams are now read and checked before the transcode starts,
+  and such a file is "damaged: a Huffman table of its ETC1S global data is not a valid code".
+- The three inputs are in the fuzz corpus (`list_head_instead_of_riff.sf2`, `codebook_entries_times_dimensions.bin`,
+  `etc1s_single_symbol_long_code.ktx2`) and in `fa_test_audio` and `fa_test_render`.
+
 ## 0.35.0
 
 Big worlds (M75): meshes get automatic LOD chains from our own deterministic simplifier, `LodGroup`s pick levels by distance or screen size with a dithered cross-fade and hysteresis, far objects turn into baked octahedral impostors and whole groups or far streamed cells into one HLOD proxy mesh (`world.bake_hlod`, `world.bake_cell_hlods`); occlusion culling hides what walls and hills cover, with CPU `Occluder`s rasterised on the job system, areas and portals for interiors and a GPU Hi-Z depth pyramid where the backend can; `StreamedWorld` splits a scene or a tilemap into cells loaded and unloaded around anchors on background threads, edited cell by cell in the editor's Cells panel; a floating origin rebases the world, physics, audio and renderer so worlds hundreds of kilometres wide keep their precision; `Terrain` draws heightmaps with GPU LOD, splat layers, holes and a heightfield collider, sculpted and painted with the editor's Terrain tool and the `terrain.*` commands; and `Foliage` draws millions of instanced grass, trees and rocks with chunk culling, fade, LOD and wind, filled by `foliage.scatter` rules or the editor's foliage brush.

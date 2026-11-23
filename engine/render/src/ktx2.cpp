@@ -1,6 +1,7 @@
 // KTX2 textures (Basis Universal): the compressed twin an export writes for a texture, transcoded to the format the GPU
 // samples. See docs/ASSETS.md, "Textures".
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <mutex>
 
@@ -30,6 +31,57 @@ constexpr TranscodeTarget kTargets[] = {
 
 std::uint32_t readle32(const std::uint8_t* p) {
     return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 | std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
+}
+
+// basisu builds a Huffman table whose code has a single symbol even when the code is incomplete, and grows its tree array only as
+// far as the nodes that symbol's code reaches: when that code is longer than the fast lookup's 10 bits, the last node's sibling
+// slot is missing and decode_huffman reads past the array (the fuzz target `ktx2` found it). A table is sound when every node it
+// can reach (a negative entry ~i names the pair tree[i], tree[i + 1]) lies inside the tree.
+bool huffman_table_sound(const basist::huffman_decoding_table& table) {
+    const std::size_t nodes = table.get_tree().size();
+    auto inside = [&](int entry) { return entry >= 0 || std::size_t(~entry) + 1 < nodes; };
+    for (const int entry : table.get_lookup())
+        if (!inside(entry)) return false;
+    for (const std::int16_t entry : table.get_tree())
+        if (!inside(entry)) return false;
+    return true;
+}
+
+// Reads `count` Huffman tables from the front of a stream the way basisu does and checks each. A stream basisu cannot read is
+// left for basisu to refuse.
+bool huffman_stream_sound(const std::uint8_t* data, std::uint32_t size, int count) {
+    basist::bitwise_decoder bits;
+    if (!bits.init(data, size)) return true;
+    for (int i = 0; i < count; ++i) {
+        basist::huffman_decoding_table table;
+        if (!bits.read_huffman_table(table)) return true;
+        if (!huffman_table_sound(table)) return false;
+    }
+    return true;
+}
+
+// The Huffman tables of an ETC1S file's supercompression global data, checked before basisu decodes with them: the four of the
+// tables stream, the four of the endpoints stream and the selector table (basist::ktx2_transcoder::decompress_etc1s_global_data,
+// decode_tables and decode_palettes read them in that layout). Returns false for a table that would read outside its tree.
+bool etc1s_tables_sound(const basist::ktx2_transcoder& ktx, const std::uint8_t* data, std::size_t size) {
+    const basist::ktx2_header& h = ktx.get_header();
+    const std::uint64_t offset = h.m_sgd_byte_offset.get_uint64(), length = h.m_sgd_byte_length.get_uint64();
+    if (offset > size || length > size - offset || length < 20) return true;  // ktx2_transcoder refuses these
+    const std::uint8_t* sgd = data + offset;
+    const std::uint64_t images =
+        std::uint64_t(std::max<std::uint32_t>(h.m_layer_count, 1)) * h.m_face_count * h.m_level_count;
+    const std::uint32_t endpoints = readle32(sgd + 4), selectors = readle32(sgd + 8), tables = readle32(sgd + 12);
+    const std::uint64_t front = 20 + 20 * images;
+    if (front + endpoints + selectors + tables + readle32(sgd + 16) > length)
+        return true;  // so does decompress_etc1s_global_data
+    const std::uint8_t* endpointData = sgd + front;
+    const std::uint8_t* selectorData = endpointData + endpoints;
+    if (!huffman_stream_sound(selectorData + selectors, tables, 4)) return false;
+    if (!huffman_stream_sound(endpointData, endpoints, 4)) return false;
+    basist::bitwise_decoder bits;  // selectors: global codebook bit, hybrid bit, raw bit, then the table unless raw
+    if (!bits.init(selectorData, selectors) || bits.get_bits(1) || bits.get_bits(1) || bits.get_bits(1)) return true;
+    basist::huffman_decoding_table table;
+    return !bits.read_huffman_table(table) || huffman_table_sound(table);
 }
 
 const TranscodeTarget* pick_target() {
@@ -102,6 +154,9 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
                                   "Export the project again: `factoria export` writes these files.");
         }
     }
+    if (ktx.is_etc1s() && !etc1s_tables_sound(ktx, data, size))
+        return make_error("the KTX2 file is damaged: a Huffman table of its ETC1S global data is not a valid code",
+                          "Export the project again: `factoria export` writes these files.");
     if (!ktx.start_transcoding()) return make_error("the KTX2 file is damaged", "Export the project again.");
 
     // D3D11 and WebGPU create block-compressed textures only when the size is a multiple of the block, so any other size
