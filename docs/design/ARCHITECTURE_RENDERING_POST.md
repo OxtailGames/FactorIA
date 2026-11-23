@@ -183,8 +183,8 @@ upscaler mode that calls it from `present()` is a later package. What exists and
 ## Motion vectors and jitter (M76)
 
 M76 adds temporal antialiasing (drawn since M76-P2, "Temporal antialiasing" below) and the open upscalers. The shared part
-is the jitter of the projection, the velocity contract the temporal passes read, and the data they keep from one frame to
-the next.
+is the jitter of the projection, the velocity image the temporal passes read (written by the depth prepass since M76-P1a,
+see "Who writes the velocity"), and the data they keep from one frame to the next.
 
 - **Jitter (`include/fa/scene/jitter.h`, `src/jitter.cpp`).** `jitter_offset_pixels(frame, phases)` is the Halton(2,3)
   point number `frame % phases + 1`, minus 0.5, in pixels of the **render** resolution (x to the right, y down; `phases` is
@@ -211,7 +211,7 @@ the next.
   that frame) and `jitterPx`, and the same three of the frame before (`before*`). `origin_shifted` multiplies the matrices of both
   by the same shift as `prevViewProj`, so a floating-origin move does not read as motion. `PostPlan` carries them as
   `prevJitteredViewProj`, `jitterPx`, `jitterNdc`, `prevJitterPx`, `prevJitterNdc`.
-- **The velocity contract (`VelocityRef` in `src/postprocess.h`; written by the velocity pass of M76-P1a, read by the temporal passes).** An optional RG16F image at the render
+- **The velocity contract (`VelocityRef` in `src/postprocess.h`; written by the depth prepass since M76-P1a, read by the temporal passes).** An optional RG16F image at the render
   resolution, `PostPlan::velocity`. Each texel holds `uvPrev - uvCurr` in UV units (so `uvPrev = uvCurr + velocity`),
   computed from the **unjittered** current and previous matrices (`uvCurr` is the texel without jitter). The sentinel
   `VelocityRef::kNone` (1024, outside the half range of any real motion; `is_none` is true for it, for NaN and for a
@@ -220,7 +220,7 @@ the next.
   reprojects every texel from the depth, which is right for everything static.
 - **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
   `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
-  has the rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
+  has the rows `motionVectors` (drawn since M76-P1a), `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
   the row of the effect itself (`PostEffect::TemporalAA`, supported on every backend), not a second engine row.
 
 ### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)
@@ -264,3 +264,41 @@ the next.
 - **Shared with the temporal upscaler (M76-P4).** `taa_shared.glsl` holds the whole resolve with the input size and the history size
   as separate arguments (`taa_resolve(uv, inSize, outSize, jitter)`), and `TaaFx::resolve(gpu, pass, TaaResolveInput)` draws it with
   `inW/inH` (the picture) and `outW/outH` (the history and the target). The antialiasing calls it with both equal.
+
+### Who writes the velocity (M76-P1a)
+
+- **Asking.** There is one request: `PostPlan::request_velocity()`. `make_post_plan` calls it for an effect that needs the motion
+  (`post_effect_needs_velocity`: the temporal antialiasing; `post_mask_needs_velocity` for a mask of effects), and
+  `plan_job` calls it for the debug view `motionVectors` and for `RendererTestAccess::force_velocity`. When nothing asks, nothing
+  changes: the prepass has one colour attachment, the batches carry no previous model, the frame is bit-identical to one without
+  the feature (tested).
+- **The image.** The prepass (`prepass_pass` in `renderer_draw.cpp`, the same pass that writes the normals and the depth) gets a
+  second colour attachment `color1` of format RG16F (`Gpu::velocity_format()`), cleared to `kNone`, a transient `<camera>/velocity`
+  in the frame graph (`PostPlan::velocity`, read by `prepass-view` and by the temporal passes). It exists only when the GPU can
+  render to RG16F (`Gpu::velocity_ready()`), the camera draws the world and no global illumination pass replaces the prepass.
+  The pipeline of a frame with a velocity image is a different pipeline from the one without it (`TargetFormat::color1`).
+- **The values.** The vertex shader of the prepass programs (`mesh_common.glsl`, blocks `fa_prepass_vs`, `fa_prepass_fs`) gets the
+  previous model of the instance as vertex slot 6 (three `vec4` rows, 48 bytes per instance, `kPrevModelBuffer`), and the
+  uniforms `fa_vel_vp` (the unjittered `viewProj`) and `fa_vel_prev_vp` (`PostPlan::prevViewProj`; the same matrix when the camera has
+  no history). It outputs the clip position of the point with the current model and with the previous one, both through the
+  unjittered matrices; the fragment shader writes `uvPrev - uvCurr` (uv y down), clamped to +-`kMaxMotion`. Terrain, impostors and
+  foliage use the same blocks and are treated as static objects (previous model = model), so they hold the camera's motion.
+- **The history of the models (`Impl::prevModels`).** Each opaque item the camera draws has an entry keyed by its entity: its
+  previous and current model and the frame stamp (`postSerial`) it was last drawn in. `fill_prev_models` runs before
+  `build_batches`: an entity drawn in the frame before takes its previous model; a new one, or one not drawn in the frame before
+  (culled, hidden, another camera), takes its own current model (no motion of its own, only the camera's), and so does every item in the
+  first frame after a camera cut (`PostPlan::prevValid` false). Entries not touched for a frame are dropped, once per frame. The floating
+  origin shift moves both models of every entry by the same shift as the camera's matrices (`origin_shifted`), so a rebase is not a
+  motion. Instances of one batch keep each their own previous model: the rows are uploaded next to the instance matrices, in the same order.
+- **What is not written (the sentinel `kNone`, to be filled by M76-P1b).** Skinned meshes (`prepass_prev_attr` returns -1 and
+  `prepass_vs_skin` passes no previous model), materials with a custom `vertex()`, programs that pass 4 extra vec4s or draw from storage
+  buffers (the attributes do not fit in 16), particles, sprites and quads, and the reactive mask. The pass that reads the image then
+  reprojects those pixels from the depth with the camera's matrices (the contract above), which is right for anything static.
+- **Cost.** With the image: 4 bytes per pixel of the prepass (RG16F) plus 48 bytes per drawn opaque instance per frame, and one
+  `unordered_map` entry per visible entity (a lookup per item per frame). Without it: the prepass programs read three more vertex
+  attributes (a dummy buffer is bound, nothing is fetched from a real one) and the vertex shader tests a uniform (`fa_vel_on`); the
+  fragment shader has a second output that a pipeline without `color1` drops.
+- **Seeing it.** `render.debug_view {"view":"motionVectors"}` paints the image over the picture: the hue is the direction of the
+  motion, the brightness its length (a motion of 1/40 of the image is full brightness), black for no motion and a mid grey where
+  nothing wrote one (the sentinel). `RendererTestAccess::read_velocity` reads the raw floats back for the tests
+  (`engine/render/tests/velocity_tests.cpp`).
