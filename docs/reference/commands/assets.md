@@ -2008,7 +2008,7 @@ Without `path` this bakes every *.model.json of the project whose .glb is missin
 
 ## `model.bake_impostor` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Bake an impostor atlas of a model: pictures from many directions that a camera-facing quad shows far away.
 
@@ -2172,7 +2172,7 @@ Reads or changes the `gameReady` settings of a model document (docs/MODELING.md,
 
 ## `model.generate_lods` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.
 

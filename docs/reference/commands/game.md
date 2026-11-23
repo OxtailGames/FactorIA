@@ -501,7 +501,7 @@ Errors: `not_found` for an `id` that is not in the scene, `invalid_argument` whe
 
 ## `render.occlusion` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG.
 
