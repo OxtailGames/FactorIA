@@ -90,7 +90,8 @@ Json ProjectSettings::to_json() const {
     physics["fixedHz"] = fixedHz;
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
-    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{}) {
+    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
+        graphicsPreset != render::GraphicsPreset::Custom) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -104,11 +105,16 @@ Json ProjectSettings::to_json() const {
             render["upscaler"] = render::upscaler_to_json(upscaler);
         else
             render.erase("upscaler");
+        if (graphicsPreset != render::GraphicsPreset::Custom)
+            render["graphicsPreset"] = std::string(render::graphics_preset_name(graphicsPreset));
+        else
+            render.erase("graphicsPreset");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
         j["render"].erase("upscaler");
+        j["render"].erase("graphicsPreset");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -657,6 +663,19 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!parsed.ok()) return parsed.error();
             s.upscaler = parsed.value();
         }
+        if (auto gp = it->find("graphicsPreset"); gp != it->end() && !gp->is_null()) {
+            std::optional<render::GraphicsPreset> preset;
+            if (gp->is_string()) preset = render::parse_graphics_preset(gp->get<std::string>());
+            if (!preset) {
+                std::vector<std::string> names;
+                for (std::string_view n : render::kGraphicsPresetNames) names.emplace_back(n);
+                return make_error(at("/render/graphicsPreset") + ": unknown graphics preset " +
+                                      describe_json_value(*gp),
+                                  gp->is_string() ? did_you_mean(gp->get<std::string>(), names)
+                                                  : "Use \"low\", \"medium\", \"high\", \"ultra\" or \"custom\".");
+            }
+            s.graphicsPreset = *preset;
+        }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
         if (!it->is_object())
@@ -1054,6 +1073,12 @@ constexpr const char* kSchemaText =
               "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
             }
           }
+        },
+        "graphicsPreset": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "ultra", "custom"],
+          "default": "custom",
+          "description": "The graphics preset a run starts with (M76, docs/UPSCALING.md, \"Graphics presets\"): a quality layer the renderer applies on top of what the scene asks for (shadow cascades and sizes, ambient occlusion, reflections, depth of field, motion blur, volumetric fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. low, medium, high and ultra lower the settings of the scene, never raise them; custom (the default) is no layer: the game looks as its author made it. It writes nothing into the scenes. While a preset other than custom is on, render.upscaler is what custom brings back, not what is drawn. Scripts and the commands graphics.preset and graphics.detect change it at run time; the engine does not save the player's choice."
         }
       }
     },

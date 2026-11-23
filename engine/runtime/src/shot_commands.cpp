@@ -1218,36 +1218,84 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return out;
         });
 
-    // graphics.preset and graphics.detect: the names, arguments and docs are fixed here (M76-P0); the package that builds them (P6a)
-    // replaces the handler and keeps the rest. Until then each fails with `not_built` and changes nothing (the M75 pattern).
-    for (const char* name : {"graphics.preset", "graphics.detect"}) {
-        const bool preset = std::string_view(name) == "graphics.preset";
-        const std::string cmd = name;
-        I.commands.add(
-            {name,
-             preset ? "Apply a graphics preset (low, medium, high, ultra) to the render settings of the game."
-                    : "Measure this device and pick the graphics preset that suits it.",
-             preset ? std::string("Will set the settings a graphics options menu offers (render scale, upscaler, "
-                                  "shadows, ambient occlusion, "
-                                  "antialiasing ...) to the values of the preset `name`: low, medium, high or ultra "
-                                  "(custom = what the game "
-                                  "set itself; it cannot be applied). Result: {preset, changes}. Example: "
-                                  "graphics.preset {\"name\":\"high\"}")
-                    : std::string("Will read the device (game.device: GPU backend, memory, tier) and answer the preset "
-                                  "that suits it, "
-                                  "without changing anything. Result: {preset, reason}. Example: graphics.detect {}"),
-             preset ? parse_schema(R"({"type":"object","properties":{
-               "name":{"type":"string","enum":["low","medium","high","ultra"],"description":"The preset to apply (case does not matter)."}},"required":["name"]})")
-                    : parse_schema(R"({"type":"object","properties":{}})"),
-             !preset, "game"},
-            [cmd](const Json&) -> Json {
-                throw CommandError("not_built", cmd + " is not built yet: it is planned for M76.",
-                                   "The graphics presets are built by M76 (docs/UPSCALING.md). Until then set the "
-                                   "settings one by one: "
-                                   "window.renderScale, window.upscaler or render.upscaler, and the PostProcess "
-                                   "fields. Nothing was changed.");
-            });
-    }
+    // graphics.preset and graphics.detect (M76, engine_graphics.cpp): the names, arguments and docs were fixed by P0.
+    I.commands.add(
+        {"graphics.preset",
+         "Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render "
+         "settings of the game.",
+         "A preset is a set of limits on what the scene, its cameras' PostProcess and its lights ask for (shadows, "
+         "ambient "
+         "occlusion, reflections, depth of field, motion blur, fog, level of detail, foliage, terrain, 2D lighting, "
+         "global illumination) plus the upscaler. A limit only lowers; nothing is written into the scene or "
+         "factoria.json. `custom` is no layer: the game looks as its author made it. With `name` it applies that "
+         "preset; "
+         "with no argument it reads the current one. Returns {preset, previous, changed, changes: [{knob, from, to}], "
+         "limits, capped: [{knob, wanted, effective, reason}], upscaler, headless}. Example: graphics.preset "
+         "{\"name\":\"high\"} The table of each preset: docs/UPSCALING.md, \"Graphics presets\"." FA_COMMAND_DETAILS
+         "A limit only lowers: a scene that asks "
+         "for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also "
+         "write the upscaler (mode auto, a quality); `custom` puts back the one the game had before the first preset, "
+         "and a render.upscaler or window.upscaler change while a preset is on is what `custom` brings back. Knobs the "
+         "GPU cannot draw are capped (render.supports says which) and `capped` names each with the reason; `limits` is "
+         "the layer in force after the caps (a limit at its largest value means no limit), `changes` the limits and "
+         "the "
+         "upscaler that differ from before. `headless` is true when the engine runs without graphics: the preset is "
+         "remembered, nothing is drawn and no GPU cap was looked at. The default preset of a game is factoria.json "
+         "\"render\": {\"graphicsPreset\": \"high\"}; the engine does not remember the player's choice (keep it with "
+         "storage.set(); graphics.detect suggests one for a first run). Errors: `invalid_argument` for an unknown name "
+         "(with a \"did you mean\") or argument; nothing changes. The same is game.graphics.preset() in scripts.",
+         parse_schema(R"({"type":"object","properties":{
+               "name":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"The preset to apply. Leave it out to read the current preset."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            std::string err;
+            Json out = I.self->graphics_preset(a, &err);
+            if (!err.empty())
+                throw CommandError("invalid_argument", err,
+                                   "The presets are low, medium, high, ultra and custom. Call graphics.preset with no "
+                                   "argument to read the current one. Nothing was changed.");
+            return out;
+        });
+
+    I.commands.add(
+        {"graphics.detect",
+         "Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing.",
+         "Reads the GPU (backend, adapter name, vendor, video memory where the graphics API says it, software renderer "
+         "or not) and the "
+         "device (game.device: tier, form factor, handheld), draws a fixed scene about 150 meshes with shadows at "
+         "960x540 off-screen a few "
+         "times, and answers the preset that machine can hold. The scene is drawn with the engine's own world, never "
+         "the game's: the "
+         "simulation, its clock and its random numbers are not touched, and the graphics preset in force is lifted "
+         "while it runs so every "
+         "GPU is measured on the same work. One warm-up picture (pipelines are made then, not timed) and 5 timed ones; "
+         "the median is the "
+         "score; a safety net stops the timed ones after 4 seconds in total. Returns {preset, reason, gpu: {backend, "
+         "name, vendor, "
+         "driver, memoryMB, unifiedMemory, software}, benchmarkMs, benchmark: {ran, why, samples, frameMs, totalMs, "
+         "width, height}, "
+         "device: {tier, formFactor, handheld}}. Example: graphics.detect {}" FA_COMMAND_DETAILS
+         "The rule: a median of 4 ms or less is ultra, up to 8 ms high, up to 16 ms medium, slower low; a software "
+         "renderer (llvmpipe, "
+         "SwiftShader, WARP) is low and is not benchmarked; a phone or tablet is capped at medium, a handheld (Steam "
+         "Deck) at high, "
+         "a low device tier or under 2 GB of video memory at medium. Without graphics (graphics=false) or on the dummy "
+         "backend nothing "
+         "is drawn (`benchmark.ran` is false and says why) and the device tier decides. `benchmarkMs` is the whole "
+         "benchmark, warm-up "
+         "included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds: call it "
+         "behind a loading "
+         "screen or the first-run options page, never during play. Times are rounded to 0.1 ms and differ run to run: "
+         "a game uses "
+         "`preset`, not the number. The same is game.graphics.detect() in scripts.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {}, "graphics.detect");
+            std::string err;
+            Json out = I.self->graphics_detect(&err);
+            if (!err.empty()) throw CommandError("unavailable", err, "Run with graphics, not graphics=false.");
+            return out;
+        });
 
     I.commands.add(
         {"render.output",

@@ -853,7 +853,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
     // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
     if (draws && !fr.cam.studio) {
-        const SceneSettings& vss = world.settings();
+        SceneSettings vss = world.settings();
+        if (qualityOn) {  // the graphics preset: no fog, or at most its quality
+            if (!quality.volumetricFog) vss.volumetricFog = false;
+            vss.volumetricQuality = std::min(vss.volumetricQuality, quality.volumetricQuality);
+        }
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
         // An absolute height like the fog's (its +-10000 range is on the authored value); subtracted in double (M75.4b).
@@ -1068,7 +1072,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             const SceneLodGroup& sg = groups[g];
             groupPick[g].level = -1;
             if (sg.children <= 0 || !(sg.radius > 0.0f)) continue;
-            const float distance = length(sg.origin - fr.cam.position);
+            float distance = length(sg.origin - fr.cam.position);
+            if (qualityOn)
+                distance *= std::max(quality.lodDistanceScale, 1.0f);  // the graphics preset: levels switch sooner
             const float value =
                 sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
             // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
@@ -1134,12 +1140,13 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         }
         if (!sm->hasLods) continue;
         float screen = 0.0f;
+        const float lodDist = qualityOn ? mi.dist * std::max(quality.lodDistanceScale, 1.0f) : mi.dist;
         if (mr.lodMode ==
             LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
             const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
                                           length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
                                           length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
-            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
+            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, lodDist, lodView);
         }
         // The impostor (M75-P1c) is one more level, past the last one: the sentinel level of LodFades, so its cross-fade with the last level is the
         // ordinary one. An atlas that cannot be used (a warning was given) leaves the last level drawn.
@@ -1154,9 +1161,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             }
             return lod_level_of(mr, dist, scr);
         };
-        const int target = level_at(mi.dist, screen);
+        const int target = level_at(lodDist, screen);
         // The hysteresis: the pick again with the metric pushed farther (the distance up, the screen size down).
-        const int farTarget = level_at(mi.dist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
+        const int farTarget = level_at(lodDist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
         const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), target,
                                       canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f, farTarget);
         // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
@@ -1232,6 +1239,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         tv.camera = fr.cam.position;
         tv.linear = fr.linear;
         tv.serial = frameSerial;
+        if (qualityOn) tv.lodQuality = quality.terrainLodQuality;
         tv.gpu = &gpu;
         tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
         terrains.gather(tv, ctx.terrainDraws, meshes);
@@ -1269,6 +1277,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         fv.time = fr.time;
         fv.serial = frameSerial;
         fv.occlusion = occluded ? &occlusion : nullptr;
+        if (qualityOn) {
+            fv.density = quality.foliageDensity;
+            fv.distance = quality.foliageDistance;
+        }
         const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
         stats.foliageInstancesCulled += fc.culled;
     }
@@ -1391,15 +1403,20 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.ext[1] = Vec4{ay, 0.0f};
                 }
                 if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
-                if (l.castShadows) {
+                // The graphics preset (quality.localShadows): the point, spot and area lights cast no shadow when it is off.
+                if (l.castShadows && !(qualityOn && !quality.localShadows && l.type != LightType::Directional)) {
                     ld.shadow.casts = true;
-                    ld.shadow.resolution = l.shadowResolution;
+                    ld.shadow.resolution = qualityOn && l.shadowResolution > 0
+                                               ? std::min(l.shadowResolution, quality.shadowTileSize)
+                                               : l.shadowResolution;
                     ld.shadow.bias = l.shadowBias;
                     ld.shadow.normalBias = l.shadowNormalBias;
                     ld.shadow.softness = l.shadowSoftness;
                     ld.shadow.distance = l.shadowDistance > 0.0f ? l.shadowDistance : world.settings().shadowDistance;
                     ld.shadow.filter =
-                        l.shadowFilter == ShadowFilter::Hard ? 1 : (l.shadowFilter == ShadowFilter::Pcss ? 2 : 0);
+                        l.shadowFilter == ShadowFilter::Hard
+                            ? 1
+                            : (l.shadowFilter == ShadowFilter::Pcss && !(qualityOn && !quality.softShadows) ? 2 : 0);
                     ld.shadow.spotAngle = l.type == LightType::Spot ? l.spotAngle : 0.0f;
                     // An area light's PCSS light size: the emitter's mean full size (a rectangle's width and height, a disc's
                     // diameter, a tube's length and thickness); the penumbra then follows the emitter, scaled by shadowSoftness.
@@ -1431,7 +1448,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             ld.baked = l.mode == LightMode::Baked;
             ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
             // Light.contactShadowLength counts only with the scene's master switch; plan_job drops it again when the frame has no prepass.
-            if (world.settings().contactShadows && std::isfinite(l.contactShadowLength))
+            if (world.settings().contactShadows && !(qualityOn && !quality.contactShadows) &&
+                std::isfinite(l.contactShadowLength))
                 ld.contactLength = std::clamp(l.contactShadowLength, 0.0f, 10.0f);
             lights.push_back(ld);
         });
@@ -1625,10 +1643,12 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const SceneSettings& settings = ctx.world.settings();
     // The sun's tiles: texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several
     // (the atlas stays 2048 x 2048 for four).
-    const int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
-    const int tile = ctx.sun.resolution > 0
-                         ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
-                         : (want == 1 ? 2048 : 1024);
+    int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
+    if (qualityOn)
+        want = std::min(want, std::max(quality.shadowCascades, 0));  // the graphics preset's cap on the cascades
+    int tile = ctx.sun.resolution > 0 ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
+                                      : (want == 1 ? 2048 : 1024);
+    if (qualityOn) tile = std::max(128, std::min(tile, render::pow2_floor(std::max(quality.shadowTileSize, 128))));
     std::vector<render::ShadowTileRequest> requests;
     for (int c = 0; c < want; ++c) requests.push_back({tile, 128, c});
     // The point and spot lights that want a shadow: only those a caster can reach (the casters' box meets the light's sphere) and that
@@ -1667,8 +1687,9 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         ctx.localInputs.push_back(in);
     }
     if (want == 0 && ctx.localInputs.empty()) return;
-    const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
-                                  std::max(64, sg_query_limits().max_image_size_2d));
+    int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
+                            std::max(64, sg_query_limits().max_image_size_2d));
+    if (qualityOn) atlasMax = std::max(64, std::min(atlasMax, quality.shadowAtlasSize));
     ctx.localPlan = render::plan_local_shadows(atlasMax, requests, ctx.localInputs, fr.cam.position);
     ctx.atlas = ctx.localPlan.atlas;
     if (!ctx.localPlan.lost.empty() && !warnedShadowBudget) {
@@ -2814,6 +2835,7 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
+    if (qualityOn) lightScale = std::max(0.25f, std::min(lightScale, quality.lightScale));  // the graphics preset's cap
     if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
         if (points == 0) {
             litMode = 2;
@@ -2851,8 +2873,13 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     ctx.gi2d = Gi2dJobPlan{};
     if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
-    const Gi2dSettings s = gi2d_settings(ctx.world);
+    Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
+    if (qualityOn) {  // the graphics preset's caps (the report above keeps what the scene asks for)
+        if (!quality.gi2d) s.on = false;
+        s.quality = std::min(s.quality, quality.gi2dQuality);
+        s.resolutionScale = std::max(0.1f, std::min(s.resolutionScale, quality.gi2dResolutionScale));
+    }
     if (!s.on) return;
     if (framePost)
         gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)

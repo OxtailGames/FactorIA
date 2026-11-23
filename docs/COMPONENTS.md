@@ -4980,25 +4980,29 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 
 Not released yet (on main after 0.35.2).
 
-Measure this device and pick the graphics preset that suits it.
+Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing.
 
 Capabilities: read
 
-Will read the device (game.device: GPU backend, memory, tier) and answer the preset that suits it, without changing anything. Result: {preset, reason}. Example: graphics.detect {}
+Reads the GPU (backend, adapter name, vendor, video memory where the graphics API says it, software renderer or not) and the device (game.device: tier, form factor, handheld), draws a fixed scene about 150 meshes with shadows at 960x540 off-screen a few times, and answers the preset that machine can hold. The scene is drawn with the engine's own world, never the game's: the simulation, its clock and its random numbers are not touched, and the graphics preset in force is lifted while it runs so every GPU is measured on the same work. One warm-up picture (pipelines are made then, not timed) and 5 timed ones; the median is the score; a safety net stops the timed ones after 4 seconds in total. Returns {preset, reason, gpu: {backend, name, vendor, driver, memoryMB, unifiedMemory, software}, benchmarkMs, benchmark: {ran, why, samples, frameMs, totalMs, width, height}, device: {tier, formFactor, handheld}}. Example: graphics.detect {}
+
+The rule: a median of 4 ms or less is ultra, up to 8 ms high, up to 16 ms medium, slower low; a software renderer (llvmpipe, SwiftShader, WARP) is low and is not benchmarked; a phone or tablet is capped at medium, a handheld (Steam Deck) at high, a low device tier or under 2 GB of video memory at medium. Without graphics (graphics=false) or on the dummy backend nothing is drawn (`benchmark.ran` is false and says why) and the device tier decides. `benchmarkMs` is the whole benchmark, warm-up included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds: call it behind a loading screen or the first-run options page, never during play. Times are rounded to 0.1 ms and differ run to run: a game uses `preset`, not the number. The same is game.graphics.detect() in scripts.
 
 ### `graphics.preset` (modifies state)
 
 Not released yet (on main after 0.35.2).
 
-Apply a graphics preset (low, medium, high, ultra) to the render settings of the game.
+Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render settings of the game.
 
 Capabilities: read, state
 
-Will set the settings a graphics options menu offers (render scale, upscaler, shadows, ambient occlusion, antialiasing ...) to the values of the preset `name`: low, medium, high or ultra (custom = what the game set itself; it cannot be applied). Result: {preset, changes}. Example: graphics.preset {"name":"high"}
+A preset is a set of limits on what the scene, its cameras' PostProcess and its lights ask for (shadows, ambient occlusion, reflections, depth of field, motion blur, fog, level of detail, foliage, terrain, 2D lighting, global illumination) plus the upscaler. A limit only lowers; nothing is written into the scene or factoria.json. `custom` is no layer: the game looks as its author made it. With `name` it applies that preset; with no argument it reads the current one. Returns {preset, previous, changed, changes: [{knob, from, to}], limits, capped: [{knob, wanted, effective, reason}], upscaler, headless}. Example: graphics.preset {"name":"high"} The table of each preset: docs/UPSCALING.md, "Graphics presets".
+
+A limit only lowers: a scene that asks for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also write the upscaler (mode auto, a quality); `custom` puts back the one the game had before the first preset, and a render.upscaler or window.upscaler change while a preset is on is what `custom` brings back. Knobs the GPU cannot draw are capped (render.supports says which) and `capped` names each with the reason; `limits` is the layer in force after the caps (a limit at its largest value means no limit), `changes` the limits and the upscaler that differ from before. `headless` is true when the engine runs without graphics: the preset is remembered, nothing is drawn and no GPU cap was looked at. The default preset of a game is factoria.json "render": {"graphicsPreset": "high"}; the engine does not remember the player's choice (keep it with storage.set(); graphics.detect suggests one for a first run). Errors: `invalid_argument` for an unknown name (with a "did you mean") or argument; nothing changes. The same is game.graphics.preset() in scripts.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `name` | string ["low","medium","high","ultra"] | yes | The preset to apply (case does not matter). |
+| `name` | string ["low","medium","high","ultra","custom"] | no | The preset to apply. Leave it out to read the current preset. |
 
 ## i18n
 
@@ -13053,6 +13057,41 @@ declare module "factoria" {
   }
 
   /**
+   * A graphics preset (M76, docs/UPSCALING.md): low, medium, high, ultra, or custom (no preset: the game as its author made it).
+   * @since unreleased
+   */
+  export type GraphicsPresetName = "low" | "medium" | "high" | "ultra" | "custom";
+
+  /**
+   * What game.graphics.preset() answers: the preset now (preset) and before the call (previous), whether anything changed, the limits and the upscaler that changed (changes: { knob, from, to }), the limits now in force (limits; a number at its largest value means no limit), the knobs this GPU capped (capped, with the reason) and headless (true without graphics: the preset is remembered, nothing is drawn).
+   * @since unreleased
+   */
+  export type GraphicsPresetInfo = { preset: GraphicsPresetName; previous: GraphicsPresetName; changed: boolean; changes: { knob: string; from: unknown; to: unknown }[]; limits: Record<string, number | boolean | string>; capped: { knob: string; wanted: unknown; effective: unknown; reason: string }[]; upscaler: { mode: string; quality: string; sharpness: number; effectiveMode: string; scale: number }; headless: boolean };
+
+  /**
+   * What game.graphics.detect() answers: the preset that suits this machine (preset) and why (reason), the GPU (gpu), the whole time of the benchmark in ms (benchmarkMs), the benchmark itself (benchmark: ran is false and why says it when nothing was drawn) and the device class that capped the choice (device).
+   * @since unreleased
+   */
+  export type GraphicsDetection = { preset: GraphicsPresetName; reason: string; gpu: { backend: string; name: string; vendor: string; driver: string; memoryMB: number; unifiedMemory: boolean; software: boolean }; benchmarkMs: number; benchmark: { ran: boolean; why?: string; samples: number; frameMs: number; totalMs: number; width: number; height: number }; device: { tier: string; formFactor: string; handheld: boolean } };
+
+  /**
+   * The graphics presets (game.graphics, M76, docs/UPSCALING.md "Graphics presets").
+   * @since unreleased
+   */
+  export interface GraphicsAPI {
+    /**
+     * Reads (no argument) or applies a graphics preset: a quality layer the renderer puts over what the scene asks for (shadows, ambient occlusion, reflections, depth of field, motion blur, fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. A preset only lowers settings; "custom" removes the layer and puts back the upscaler the game had. Nothing is written into the scenes or factoria.json, and the simulation is not affected. Knobs the GPU cannot draw are capped (see capped in the result). An unknown name throws with a "did you mean" and changes nothing. The engine does not save the player's choice: keep it with storage.set(). Example: game.graphics.preset("high").
+     * @since unreleased
+     */
+    preset(name?: GraphicsPresetName): GraphicsPresetInfo;
+    /**
+     * Measures this GPU with a short off-screen benchmark (a warm-up and 5 timed pictures of a fixed scene, a few hundred ms on a good GPU, seconds on a slow one or with a cold shader cache: call it behind a loading screen or on the first-run options page, never during play) and answers the preset that suits it, the reason and the GPU. Changes nothing: apply the answer with game.graphics.preset(). Does not touch the simulation, its clock or its random numbers. Headless runs and a CPU renderer are not benchmarked (benchmark.ran is false) and the device tier decides. Example: const { preset } = game.graphics.detect(); game.graphics.preset(preset).
+     * @since unreleased
+     */
+    detect(): GraphicsDetection;
+  }
+
+  /**
    * Path finding: on the baked NavMesh3D (docs/NAVIGATION.md) and over tile maps (findTilePath).
    * @since 0.3.0
    */
@@ -14073,6 +14112,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high"; steamDeck: boolean; handheld: boolean }>;
+    /**
+     * The graphics presets: game.graphics.preset("high") applies one, game.graphics.detect() suggests the one that suits this machine (M76, docs/UPSCALING.md, "Graphics presets").
+     * @since unreleased
+     */
+    readonly graphics: GraphicsAPI;
     /**
      * The player's operating system accessibility settings, to start your options screen from: textScale (the system text size, 1 = 100 %, between 0.5 and 4), reduceMotion (animations turned off or reduced), highContrast and screenReader (a screen reader or touch exploration is running). Read when the game starts and again when the window regains focus or the app resumes. The engine applies none of them: apply them to your own options on the first run and save the player's choice (docs/MENUS.md). Where a platform cannot tell, the value is 1 / false: macOS and the web have no text size, the web and Linux outside GNOME have no screen reader. Headless runs, tests and the editor always give { textScale: 1, reduceMotion: false, highContrast: false, screenReader: false }; tests change it with game.setAccessibility(). Example: const size = storage.get("textScale", game.accessibility.textScale).
      * @since 0.2.0
