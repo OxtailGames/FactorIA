@@ -489,6 +489,12 @@ void Renderer::set_render_scale(float scale) {
     impl_->shadowTargetFailed = false;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
+void Renderer::set_upscale_stage(bool on) {
+    if (!initialized() || impl_->upscaleStage == on) return;
+    impl_->upscaleStage = on;
+    impl_->free_output_targets();
+}
+bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -1125,6 +1131,8 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.screenScale =
+        upscale_active() ? 1.0f : renderScale;  // the upscale stage draws the screen-space items at the output size
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -1260,7 +1268,7 @@ void Renderer::Impl::render(World& world, float dt) {
             setup(fr);
             fr.targetW = tc.w;
             fr.targetH = tc.h;
-            fr.renderScale = 1.0f;
+            fr.renderScale = fr.screenScale = 1.0f;
             scene2d.gather(world, fr);
             if (fr.cam.studio) {
                 fr.lights2d.clear();
@@ -1291,7 +1299,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 setup(fr);
                 fr.targetW = rq.pxW;
                 fr.targetH = rq.pxH;
-                fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
+                fr.renderScale = fr.screenScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
                 scene2d.gather(world, fr);
                 if (fr.cam
                         .studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness

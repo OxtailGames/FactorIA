@@ -1553,12 +1553,14 @@
       winSet("frameCap", 3, fps);
     },
     // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
-    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. Works in every run with graphics,
-    // headless tests included (game.screenshot then has that size); a run without a renderer only remembers the value.
+    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. The HUD and the UI (screen-space Text,
+    // Sprite, Shape2D, UI widgets) are drawn after the scale-up, at full size, so text stays sharp. 0.33 is the lowest (a third).
+    // Works in every run with graphics, headless tests included (game.screenshot is then the full size picture, HUD included);
+    // a run without a renderer only remembers the value.
     get renderScale() { return N.renderScaleGet(); },
     set renderScale(v) {
-      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.5 || v > 1) {
-        throw new Error(`window.renderScale expects a number from 0.5 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.33 || v > 1) {
+        throw new Error(`window.renderScale expects a number from 0.33 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
       }
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
