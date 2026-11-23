@@ -1,5 +1,4 @@
-// M75-P0: the project setting world.floatingOrigin (validated, no behaviour yet) and the runtime commands of the big worlds, which exist
-// but fail with `not_built` until their package lands (docs/BIG_WORLDS.md).
+// M75-P0: the project setting world.floatingOrigin and the runtime commands of the big worlds (all built now, docs/BIG_WORLDS.md).
 #include <doctest.h>
 
 #include <filesystem>

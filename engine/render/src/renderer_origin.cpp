@@ -1,4 +1,4 @@
-// The renderer and the floating origin (M75.4b; docs/BIG_WORLDS_STREAMING.md "Floating origin", docs/design/ARCHITECTURE_RENDERING.md "The floating
+// The renderer and the floating origin (M75.4b; docs/BIG_WORLDS_STREAMING.md "Floating origin", docs/design/ARCHITECTURE_RENDERING_BIGWORLDS.md "The floating
 // origin"). World::rebase moves every local position by -offset and calls the observers of the world; the renderer's observer moves what
 // the renderer keeps in world space across frames by the same offset, so the frame after a rebase is the frame it would have drawn with no
 // rebase. The callback runs on the main thread between frames (after a fixed tick, a command or a script): no render job exists then.

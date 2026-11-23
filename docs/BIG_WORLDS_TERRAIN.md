@@ -172,7 +172,7 @@ the fix: a `resolution` that is not 2^k + 1 lists the ones that work, an unknown
 
 ### Editing in the editor
 
-View > Terrain tool ([docs/editor/EDITOR_PANELS.md](editor/EDITOR_PANELS.md#terrain-tool)) is a brush on the selected `Terrain`: sculpt
+View > Terrain tool ([docs/editor/EDITOR_PANELS.md](editor/EDITOR_PANELS_WORLD.md#terrain-tool)) is a brush on the selected `Terrain`: sculpt
 (raise, lower, smooth, flatten), paint a layer, cut or fill holes, with radius, strength and falloff, a cursor ring on the ground under the
 mouse and `[` `]` for the radius. It sends the commands above (`terrain.sculpt`, `terrain.paint`, `terrain.holes`) a
 few stamps at a time while the mouse moves, with `continueStroke`, and records ONE editor undo entry at the release

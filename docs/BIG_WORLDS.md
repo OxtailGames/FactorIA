@@ -1,11 +1,7 @@
 # Big worlds
 
 Levels of detail, occlusion, streamed cells, a floating origin, terrain and foliage: what a game needs when its world is
-kilometres wide. **Milestone M75 builds this in parts.** The floating origin works today (the world, the physics, the audio and the renderer follow a rebase); the CPU occluders, the areas and portals and the GPU depth pyramid of Occlusion draw (M75.2), and the other parts below are marked "(planned, M75.n)" and none of them draws or simulates anything yet. What exists today for them is the data and the names: the components and fields (they save, load and validate, and
-do nothing yet), the counters in `renderStats`, the `render.supports` rows and the
-commands, which fail with the error `not_built` (planned for a coming version) and name the package that fills them in, except
-`world.origin`, `world.rebase`, `world.absolute_position`, `world.split_cells`, `world.merge_cells`, the `terrain.*` and the `foliage.*` commands, which work. A game that adds the rest today loses nothing:
-when a package lands, the scenes already written start to work. Nothing here changes a game that does not use it: every default
+kilometres wide. **Milestone M75 built all of it.** Levels of detail with a dithered cross-fade, impostor cards and HLOD proxies; occlusion on the CPU (occluders, areas and portals) and on the GPU (a depth pyramid); a world streamed in cells around anchors; a floating origin that keeps positions exact far from zero (the world, the physics, the audio and the renderer follow a rebase); heightmap terrain with a GPU level of detail and collision; and instanced foliage with an editor brush. Every component, field and command below is real: the scenes save, load, validate and draw or simulate what they say, and the counters in `renderStats`, the `render.supports` rows and the commands report it. Nothing here changes a game that does not use it: every default
 is "off" or "as before".
 
 | Part | Package | What it adds |
@@ -15,7 +11,7 @@ is "off" or "as before".
 | [Streaming](BIG_WORLDS_STREAMING.md#streaming-m753) | M75.3 | cells loaded and unloaded around `StreamingAnchor`s; cells that are not loaded draw their HLOD proxy (`StreamedWorld.hlodDistance`, `world.bake_cell_hlods`, [HLOD proxies](BIG_WORLDS_STREAMING.md#hlod-proxies)) |
 | [Floating origin](BIG_WORLDS_STREAMING.md#floating-origin) | M75.4 | positions stay exact far from the origin (works: the world, physics, audio and the renderer follow a rebase) |
 | [Terrain](BIG_WORLDS_TERRAIN.md#terrain-m755) | M75.5 | heightmap terrain: drawn with a GPU level of detail and collision; the `terrain.*` commands sculpt, paint, cut holes and generate it, up to 8 layers blended by splat maps and holes |
-| [Foliage](BIG_WORLDS_TERRAIN.md#foliage) | M75.6 | instanced vegetation and rocks: drawn from an instances file with chunk culling, fade, LOD, wind and thinning; `foliage.scatter`, `foliage.paint` and `foliage.clear` fill it (the editor brush is planned, M75 P6c) |
+| [Foliage](BIG_WORLDS_TERRAIN.md#foliage) | M75.6 | instanced vegetation and rocks: drawn from an instances file with chunk culling, fade, LOD, wind and thinning; `foliage.scatter`, `foliage.paint` and `foliage.clear` fill it (the editor's foliage brush: View > Foliage tool, [Editing foliage in the editor](BIG_WORLDS_TERRAIN.md#editing-foliage-in-the-editor)) |
 
 `renderer.supports` (the `render.supports` command) lists a row per renderer feature: `impostors`, `occlusionCpu`, `occlusionPortals`, `terrain` and
 `foliage` are `true` on every backend and `occlusionGpu` where the GPU has compute shaders (D3D11, Metal, OpenGL 4.3). Ask
@@ -42,8 +38,8 @@ the splat maps weight) is reported before anything is built from it. A setting t
 | Command | Package | Writes files |
 |---|---|---|
 | `world.origin`, `world.rebase`, `world.absolute_position` | M75.4 (built) | no |
-| `world.cells`, `world.stream_status` | M75.3 | no |
-| `tilemap.split_cells` | M75.3b | yes |
+| `world.cells`, `world.stream_status` | M75.3 (built) | no |
+| `tilemap.split_cells` | M75.3b (built) | yes |
 | `world.split_cells`, `world.merge_cells` | M75.3c (built) | yes |
 | `model.generate_lods`, `model.bake_impostor` | M75.1 (built) | yes |
 | `terrain.create`, `terrain.sculpt`, `terrain.paint`, `terrain.holes`, `terrain.generate`, `terrain.save`, `terrain.undo`, `terrain.redo` | M75.5 (built) | yes (`terrain.undo`, `terrain.redo` only with `save`) |
