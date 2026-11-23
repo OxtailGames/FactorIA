@@ -271,8 +271,14 @@ struct Renderer::Impl {
     bool warnedOccluderCap = false, warnedOcclusionFrameCap = false;
     std::set<std::uint64_t>
         warnedOccluders;  // entities whose Occluder was reported (no mesh, unreadable mesh): once each
-    // Occluder.mesh names that could not be read, with the error: not read from disk again every frame (a name is tried once per run).
-    std::map<std::string, std::string> occluderMeshErrors;
+    // Occluder.mesh names that could not be read, with the error and the frameSerial of the failure: not read from disk again
+    // every frame, but tried again after kOccluderRetryFrames frames (a file that appears later, a fixed path, a reloaded project).
+    struct OccluderMeshFailure {
+        std::string error;
+        std::uint64_t frame = 0;
+    };
+    static constexpr std::uint64_t kOccluderRetryFrames = 600;
+    std::map<std::string, OccluderMeshFailure> occluderMeshErrors;
     struct OcclusionShown {
         struct Box {
             std::array<Vec3, 8> corners;  // world space; bit 0 = x, 1 = y, 2 = z of the corner
