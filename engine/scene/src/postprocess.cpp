@@ -75,8 +75,7 @@ void register_postprocess_component(TypeRegistry& r) {
          "radialBlur, "
          "lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, "
          "outline, "
-         "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn except temporalAA "
-         "(planned, M76); "
+         "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; "
          "render.supports {\"feature\": \"<effect>\"} says whether this backend and GPU can run it (an effect "
          "needs float targets, a depth image or both) and why not. The lens distortion, "
          "the chromatic aberration, the colour grading, the vignette, the sharpen, the outline, the pixelation, the "
@@ -442,11 +441,16 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // temporalAA
         .field("temporalAAEnabled", &PostProcess::temporalAAEnabled,
-               "Switches the temporal antialiasing on: the camera is shaken by a sub-pixel amount every frame and the "
-               "frames are blended into a clean, smooth edge (it also resolves a render scale or an upscaler of "
-               "render.upscaler, M76). Planned (M76): the fields are stored and blended today, and nothing is drawn "
-               "yet (render.supports temporalAA says \"planned (M76)\" and postprocess.set reports it in notDrawn). It "
-               "runs on the lit HDR picture after the exposure and before the depth of field, one history per camera.")
+               "Switches the temporal antialiasing on: the camera is shaken by a sub-pixel amount every frame (meshes, "
+               "sky and HDRI move together; the HUD does not) and the frames are blended into a clean, smooth edge. It "
+               "runs on the lit HDR picture at the render resolution, after the exposure slot and before the depth of "
+               "field, on every backend (two fragment passes, no compute), with one history per camera (RGBA16F; "
+               "RGBA8 on a GPU that cannot render to half floats, where colours above 1 are clipped in the history). "
+               "The history is reprojected with the motion vectors when the frame has them, else with the depth "
+               "prepass (so it needs no other setting); it starts again after a cut, a resize or render-scale change, "
+               "a floating-origin shift, a scene load or a frame the camera did not draw. Not drawn (and not "
+               "jittered) for CameraView, render-target and camera.capture cameras. Off: no pass, no image, no "
+               "jitter. docs/UPSCALING.md has the details.")
         .field("temporalAAFeedback", &PostProcess::temporalAAFeedback,
                "Only used when temporalAAEnabled. 0.5..0.98: the share of the picture taken from the frames before. "
                "Higher is smoother and ghosts more behind moving things; 0.9 is the usual choice.")

@@ -36,7 +36,10 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"temporalAA", "",
      "Temporal antialiasing (M76): the camera is jittered by a sub-pixel amount and the frames are blended with the "
      "history, clipped to the neighbours and reprojected with the motion vectors (or the camera's own motion where "
-     "there are none). Planned: not drawn yet."},
+     "there are none), then sharpened. Two fragment passes at the render resolution on every backend, after the sun "
+     "shafts and before the depth of field; asks for the depth prepass. Where the GPU cannot render to half-float "
+     "images the history is 8 bits per channel (no depth to reject uncovered surfaces, colours above 1 clipped in the "
+     "history), with a note in the log. Not drawn for the cameras of a CameraView, a render target or a capture."},
     {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
     {"radialBlur", "",
@@ -70,8 +73,8 @@ constexpr bool effect_rows_in_order() {
 static_assert(effect_rows_in_order(),
               "kEffectRows: one row per effect, in the order (and with the name) of kPostEffectOrder");
 
-// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof): every effect of kPostEffectOrder
-// today but temporalAA (M76, drawn by P2). An effect added to the order without a drawing pass is left out here and is listed as
+// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof/taa): every effect of kPostEffectOrder.
+// An effect added to the order without a drawing pass is left out here and is listed as
 // planned (effect_planned_in) until it is drawn.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
@@ -79,11 +82,12 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
-           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
+           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
+           e == PostEffect::TemporalAA;
 }
 
 // The milestone an effect that is not drawn yet is planned for.
-constexpr const char* effect_planned_in(PostEffect e) { return e == PostEffect::TemporalAA ? "M76" : "M71"; }
+constexpr const char* effect_planned_in(PostEffect) { return "M71"; }
 
 }  // namespace
 
