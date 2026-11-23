@@ -207,7 +207,22 @@ struct Renderer::Impl {
     };
     std::unordered_map<std::uint64_t, PrevModel> prevModels;  // by Entity::bits()
     std::uint64_t prevModelsPruned = ~std::uint64_t(0);       // the postSerial prevModels was last swept in
+    // The joint palettes of a skinned entity (M76-P1b), one per skin of its Animator, of the last frame it was drawn (`cur`) and the one
+    // before (`prev`); an empty palette is a skin the prepass cannot draw with both (kVelocitySkinJoints). Same keys and life as prevModels.
+    // A palette is in model space, so an origin shift (renderer_origin.cpp) leaves it as it is.
+    struct PrevPalette {
+        std::vector<std::vector<Mat4>> prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevPalette> prevPalettes;  // by Entity::bits()
+    // The game time (World::time, seconds) of the last frame that kept the histories (`clockCur`, the postSerial `clockFrame`) and of the one
+    // before (`clockPrev`): what a material's vertex() sees as fa_time.x in the second run of the motion vectors.
+    float clockPrev = 0.0f, clockCur = 0.0f;
+    std::uint64_t clockFrame = ~std::uint64_t(0);
+    bool warnedNoVelocity = false;  // one warning for a GPU with no RG16F render target
     void fill_prev_models(DrawContext& ctx);
+    void keep_prev_palette(const MeshItem& mi);
+    const std::vector<Mat4>* prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const;
     // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
     // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
     std::function<void()> beforeFrameGraph;
