@@ -30,7 +30,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 - New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
   `render.upscaler` and `window.upscaler` in scripts (docs/UPSCALING.md). `effectiveMode` says what draws: `stretch` and
   `spatial` today; `temporal`, `metalfx` and `auto` draw as the best that exists until their upscalers land.
-- New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): they answer `not_built`.
+- New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): see "Graphics presets" below.
 - New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
   (`motionVectors` and `spatialUpscaler` are drawn, see below; `temporalAA` is the effect's own row, drawn; the others are planned M76).
 - Temporal antialiasing is drawn: with `PostProcess.temporalAAEnabled` the camera is jittered by a sub-pixel amount every frame
@@ -65,6 +65,18 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
 its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engine is the same as 0.35.1.
+
+### Graphics presets (M76)
+
+- `graphics.preset {"name"}` applies Low, Medium, High or Ultra, and `custom` takes the layer away; with no arguments it reads. A
+  preset is a set of limits the renderer applies over what the scene asks for (post effects, shadows, volumetric fog, level of detail,
+  foliage, terrain, 2D lighting, realtime GI) and the upscaler; nothing is written into the scene or the project, so `custom` and
+  `ultra` give the game's own look back bit for bit. Knobs a backend cannot draw are capped, and the answer lists each with its reason.
+  The per-preset table is in docs/UPSCALING.md, "Graphics presets".
+- `graphics.detect` reads the GPU (backend, adapter, vendor, memory) and runs a bounded benchmark (a fixed scene, about a second at
+  most, never on a software renderer), and suggests a preset with the reason. It changes nothing.
+- New script API `game.graphics` (`preset(name?)`, `detect()`) with typings, and the project key `"render": {"graphicsPreset"}` with
+  validation and a "did you mean".
 
 ### Fixes
 
