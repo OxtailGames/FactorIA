@@ -689,10 +689,11 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name.
-TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
+// M76-P0: the rows of the shared API are planned until the packages that draw them land (spatialUpscaler landed in P3b);
+// temporalAA is the effect row of that name.
+TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"motionVectors", "spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
+    for (const char* name : {"motionVectors", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -702,6 +703,15 @@ TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Meta
         std::string why;
         CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
         CHECK(why == "planned (M76)");
+    }
+    // The spatial upscaler is drawn (M76-P3b): supported on every backend with a GPU, no longer planned.
+    {
+        const int i = find_feature("spatialUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whySpatial;
+        CHECK(supported(full, "spatialUpscaler", &whySpatial));
     }
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);

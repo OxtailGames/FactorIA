@@ -149,7 +149,13 @@ struct Engine::Impl {
     bool pendingKeepProps = false;  // the scene change scheduled for the end of the frame is a reload
     void take_scene_props(bool keepProps);
 
-    double heldScale = 1.0;    // Engine::hold_render_scale: the render scale between captures
+    double heldScale = 1.0;  // Engine::hold_render_scale: the render scale between captures
+    // window.renderScale was set by the player's option (Engine::set_render_scale) and not as a size by hold_render_scale (--render-scale,
+    // the recorder): then it is combined with the upscaler's quality (apply_render_scale).
+    bool playerScale = false;
+    // The ONE place that decides the render scale the renderer draws at and whether its upscale stage runs: from heldScale, the
+    // upscaler's quality and the mode that really draws (docs/UPSCALING.md, "The render scale"). Called by every change of those.
+    void apply_render_scale();
     bool renderStale = false;  // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
