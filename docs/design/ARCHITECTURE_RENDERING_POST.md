@@ -182,8 +182,9 @@ upscaler mode that calls it from `present()` is a later package. What exists and
 
 ## Motion vectors and jitter (M76)
 
-M76 adds temporal antialiasing and the open upscalers. The shared part lands first and draws nothing: the jitter of the
-projection, the velocity contract the temporal passes read, and the data they keep from one frame to the next.
+M76 adds temporal antialiasing (drawn since M76-P2, "Temporal antialiasing" below) and the open upscalers. The shared part
+is the jitter of the projection, the velocity contract the temporal passes read, and the data they keep from one frame to
+the next.
 
 - **Jitter (`include/fa/scene/jitter.h`, `src/jitter.cpp`).** `jitter_offset_pixels(frame, phases)` is the Halton(2,3)
   point number `frame % phases + 1`, minus 0.5, in pixels of the **render** resolution (x to the right, y down; `phases` is
@@ -194,18 +195,23 @@ projection, the velocity contract the temporal passes read, and the data they ke
   and adds `drawProj` and `drawViewProj` (= the unjittered ones until `apply_jitter` runs). Only the draw sites use the drawn
   ones: the `fa_view_proj` uniform of the mesh programs, the contact shadows, the light volumes, the world's quad batches, the
   debug lines. Everything that asks a question about the world stays unjittered: culling, picking, `world_to_screen`, the
-  `query*` matrices, the cluster grid, the Hi-Z pyramid and occlusion, the terrain and foliage culling, and the inverse view
-  projection of the sky and the HDRI (they are fullscreen passes: a jitter there would shift the sky against the meshes, the
-  temporal passes undo it with the drawn matrices).
-- **When the renderer jitters (`Impl::jitter_phases`).** Only when the camera's stack has `TemporalAA` on **and** the effect
-  is drawable (`post_drawn_mask`; today it never is), or when a test forces it with `RendererTestAccess::force_jitter(r, phases)`
+  `query*` matrices, the cluster grid, the Hi-Z pyramid and occlusion, the terrain and foliage culling, the environment
+  bake and the screen-space effects that rebuild a position from the prepass (ssao, ssr, fog, depth of field, Hi-Z).
+  **The sky and the HDRI jitter with the meshes**: their fullscreen pass inverts `CameraGeometry::drawInvViewProj` (the
+  inverse of `drawViewProj`; equal to `invViewProj` while the jitter is 0), so the horizon of a mesh scene is resolved like
+  its edges and a bright HDRI does not shimmer against them. Nothing "undoes" the jitter afterwards: the resolve reads the
+  jitter of the frame (`TaaPlan::jitterPx`) and samples the current picture at the unjittered position.
+- **When the renderer jitters (`Impl::jitter_phases`).** Only when the camera is one of the game's frame (a `CameraView`, a
+  render-target camera and a `camera.capture` are built with a view size and are never jittered: nothing would resolve them),
+  its stack has `TemporalAA` on, the effect is drawable (`post_drawn_mask`) and `TaaFx` is usable (its shaders compiled and no
+  history was refused: `TaaFx::unavailable`), or when a test forces it with `RendererTestAccess::force_jitter(r, phases)`
   (0 returns to the rule); `RendererTestAccess::last_jitter` reads what each camera of the last frame used. Without jitter the
   drawn matrices are the unjittered ones, bit for bit, and the frame is the one of M75.
 - **What a camera keeps (`PrevCamera`).** The previous frame's `prevViewProj` (unjittered), `jittered` (viewProj with the jitter of
   that frame) and `jitterPx`, and the same three of the frame before (`before*`). `origin_shifted` multiplies the matrices of both
   by the same shift as `prevViewProj`, so a floating-origin move does not read as motion. `PostPlan` carries them as
   `prevJitteredViewProj`, `jitterPx`, `jitterNdc`, `prevJitterPx`, `prevJitterNdc`.
-- **The velocity contract (`VelocityRef` in `src/postprocess.h`, no pass yet).** An optional RG16F image at the render
+- **The velocity contract (`VelocityRef` in `src/postprocess.h`; written by the velocity pass of M76-P1a, read by the temporal passes).** An optional RG16F image at the render
   resolution, `PostPlan::velocity`. Each texel holds `uvPrev - uvCurr` in UV units (so `uvPrev = uvCurr + velocity`),
   computed from the **unjittered** current and previous matrices (`uvCurr` is the texel without jitter). The sentinel
   `VelocityRef::kNone` (1024, outside the half range of any real motion; `is_none` is true for it, for NaN and for a
@@ -215,4 +221,46 @@ projection, the velocity contract the temporal passes read, and the data they ke
 - **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
   `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
   has the rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
-  the row of the effect itself (`PostEffect::TemporalAA`, planned M76), not a second engine row.
+  the row of the effect itself (`PostEffect::TemporalAA`, supported on every backend), not a second engine row.
+
+### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)
+
+- **Passes.** `TaaFx::add_passes` declares two fragment passes per camera in the frame graph, at the `TemporalAA` slot of the
+  post stack (after the sun shafts and the custom passes `after:ssr`, before depth of field and motion blur, the bloom and the
+  final pass): `taa-resolve` (picture + prepass + velocity + history -> the next history image) and `taa-output` (history ->
+  the camera's rectangle of the picture, sharpened by `temporalAASharpen`; it writes RGB only, so the picture's alpha stays;
+  the history itself is not sharpened, or it would sharpen again at every frame). Render resolution, every backend, never
+  compute. `hudAfterBloom` counts the effect, so the HUD is drawn over the resolved picture. With the effect off none of this
+  exists: no pass, no image, no jitter, and the frame is bit for bit the one without it (a test compares them).
+- **History.** One ping-pong pair of images per camera (`TaaFx::Slot`, keyed by the camera entity), the size of the camera's
+  rectangle, RGBA16F (rgb = colour, a = the linear depth of the pixel, for the depth rejection) or RGBA8 where the GPU cannot
+  render to, sample and filter half floats (rgb only, a note in the log once; no depth rejection, colours above 1 clipped).
+  The budget is 1 GiB (256 MiB on wasm32), computed in saturated 64-bit before anything is allocated; a refused history logs once
+  and makes `unavailable()` true, so cameras stop being jittered for a pass that does not run. A camera that did not plan a
+  frame loses its history (`sweep`).
+- **Resolve (`taa_resolve` in `taa_shared.glsl`).** The 3x3 neighbourhood of the unjittered position (Gaussian weights) gives a
+  mean and a deviation in YCoCg; the sample with the closest depth in it picks the motion: the velocity when the pixel has one
+  (`VelocityRef`, not `is_none`), else the camera's own movement from the prepass depth through `prevFromView`
+  (`prevViewProj * view^-1`, the unjittered matrices of `PrevCamera`). The prepass is drawn with the **jittered** matrix, so the
+  current depth is read at the unjittered texel. The history is read with a 5-tap Catmull-Rom filter, its depth is compared with
+  the reprojected depth (a pixel the surface uncovered has another one: smoothstep over a relative difference of 0.08 to 0.2;
+  skipped where the velocity is known), the colour is clipped to a box of `temporalAAVarianceGamma` deviations around the mean,
+  and the mix keeps `temporalAAFeedback` of the history, less where the reactive mask is set (scaled by
+  `temporalAAReactiveScale`; no mask is bound today, a caller of `TaaFx::resolve` can pass one). The colours are squeezed so that
+  the largest channel is unchanged up to 1 and goes to 2 - 1/m above it: an edge of 50% coverage averages to 50% (the picture
+  converges to the supersampled one), a very bright pixel cannot outweigh its neighbours.
+- **The history starts again** (the frame shows its own jittered picture alone and a new history begins; `TaaFx::resets()` counts
+  it) on: a **cut** (`PostPlan::prevValid` false: the camera did not draw the frame before, the world clock went back or jumped
+  more than 8 ticks, a non-finite matrix), a **resize** or a **render-scale change** (the images have another size; the
+  renderer's `destroy_targets` also forgets them), a **floating-origin shift** (any rebase: the shifted previous matrix has a float
+  error larger than a pixel for near geometry; one frame without antialiasing), a **frame the effect did not run for the
+  camera** (it was off, another camera drew), another **scene** (`scene_path` and `scene_generation`), and a stack that **lost the
+  effect**. A change of `temporalAAFeedback`, `Sharpen`, `VarianceGamma` or `ReactiveScale` does not reset: it applies from the
+  next frame.
+- **Not antialiased.** `CameraView`, render-target and `camera.capture` cameras (no post stack is declared for a view job, and they are
+  built with a view size, so they are not jittered), the frames of `capture_world` (`framePost` false: they neither read nor
+  write a history and are not jittered). The editor's viewport draws like the game (it is the same renderer, its camera has the
+  stack), except where the editor bypasses the stack (`postBypass`): no effect, no jitter.
+- **Shared with the temporal upscaler (M76-P4).** `taa_shared.glsl` holds the whole resolve with the input size and the history size
+  as separate arguments (`taa_resolve(uv, inSize, outSize, jitter)`), and `TaaFx::resolve(gpu, pass, TaaResolveInput)` draws it with
+  `inW/inH` (the picture) and `outW/outH` (the history and the target). The antialiasing calls it with both equal.

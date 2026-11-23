@@ -123,6 +123,7 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
     ci.invViewProj = ci.viewProj.inverse();
     ci.drawProj = ci.proj;
     ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     if (target.zeroToOne) {
         ci.queryViewProj = projGl * ci.view;
         ci.queryInvViewProj = ci.queryViewProj.inverse();
@@ -140,6 +141,7 @@ void CameraGeometry::apply_jitter(Vec2 pixels, float viewWidthPx, float viewHeig
     if (pixels.x == 0.0f && pixels.y == 0.0f) {
         drawProj = proj;
         drawViewProj = viewProj;
+        drawInvViewProj = invViewProj;
         return;
     }
     // clip.x += ndc.x * clip.w, clip.y += ndc.y * clip.w: the same shift for every depth, so it is a translation of the image.
@@ -148,6 +150,7 @@ void CameraGeometry::apply_jitter(Vec2 pixels, float viewWidthPx, float viewHeig
     j.at(3, 1) = jitterNdc.y;
     drawProj = j * proj;
     drawViewProj = drawProj * view;
+    drawInvViewProj = drawViewProj.inverse();
 }
 
 Vec2 CameraGeometry::world_to_screen(Vec3 p, Vec2 target) const {

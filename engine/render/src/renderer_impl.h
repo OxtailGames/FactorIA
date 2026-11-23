@@ -125,6 +125,7 @@ struct Renderer::Impl {
     Ssao ssao;    // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
+    TaaFx taa;  // temporal antialiasing (renderer_taa.h): its shaders, pipelines and the history of each camera
     Gi2dSystem
         gi2d;  // the 2D GI field of each 2D camera (gi2d.h): its shaders, pipelines and the images of the field slots
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
@@ -210,12 +211,13 @@ struct Renderer::Impl {
         Vec2 beforeJitterPx{0, 0};
     };
     // M76: the sub-pixel jitter (fa/scene/jitter.h). A camera is jittered when its stack has TemporalAA on AND the renderer draws that
-    // effect (render_features.cpp effect_drawn: nothing yet, so no camera jitters today); `jitterForce` (RendererTestAccess::
+    // effect (render_features.cpp effect_drawn), is a camera of the game's frame (not a CameraView, a render target or a capture) and the TAA passes can run (TaaFx::unavailable); `jitterForce` (RendererTestAccess::
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
     UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
-    int jitter_phases(const CameraInfo& ci) const;
+    // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
+    int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,

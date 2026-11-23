@@ -643,7 +643,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const std::string_view drawn[] = {
         "ssao",         "exposure",   "bloom",      "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
         "colorGrading", "vignette",   "sharpen",    "outline", "pixelate",    "posterize",      "filmGrain",
-        "depthOfField", "motionBlur", "radialBlur", "ssr",     "fog",         "sunShafts"};
+        "depthOfField", "motionBlur", "radialBlur", "ssr",     "fog",         "sunShafts",      "temporalAA"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
@@ -678,7 +678,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
             continue;
         }
         CHECK_FALSE(supported(full, std::string(e).c_str(), &why));
-        CHECK(why == (e == "temporalAA" ? "planned (M76)" : "planned (M71)"));  // M76-P0 plans temporalAA
+        CHECK(why == "planned (M71)");
     }
     // hdrOutput can never exist where there is no HDR swapchain; the answer names the backend, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gl), "hdrOutput", &why));
@@ -689,7 +689,8 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name.
+// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name
+// and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
     for (const char* name : {"motionVectors", "spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
@@ -708,12 +709,14 @@ TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Meta
     CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
     CHECK((feature_table()[std::size_t(find_feature("temporalUpscaler"))].backends & (1u << int(FeatureBackend::Gl))) !=
           0);
-    // The effect row of the temporal antialiasing: planned for M76, not drawn, and no engine row of the same name.
+    // The effect row of the temporal antialiasing (M76-P2): drawn on every GPU (an 8-bit history where there are no float targets), and no
+    // engine row of the same name.
     std::string why;
-    CHECK_FALSE(supported(full, "temporalAA", &why));
-    CHECK(why == "planned (M76)");
+    CHECK(supported(full, "temporalAA", &why));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalAA", &why));
     CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].kind == FeatureKind::Effect);
-    CHECK(((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) == 0);
+    CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].planned == nullptr);
+    CHECK(((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0);
 }
 
 // (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)

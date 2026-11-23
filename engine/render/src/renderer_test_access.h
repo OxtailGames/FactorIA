@@ -72,6 +72,15 @@ struct RendererTestAccess {
     // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
     static std::vector<Vec2> last_jitter(Renderer& r);
     static int ldr_cut_format(Renderer& r);
+    // M76-P2: the temporal antialiasing (renderer_taa.h): the history images alive, whether `camera`'s last resolve blended with its history,
+    // how often a history was started, the format of the histories (sg_pixel_format as an int), whether the renderer gave the effect up, and
+    // 8-bit histories as a GPU without half-float targets has.
+    static int taa_images(Renderer& r);
+    static bool taa_used_history(Renderer& r, Entity camera);
+    static int taa_resets(Renderer& r);
+    static int taa_format(Renderer& r);
+    static bool taa_unavailable(Renderer& r);
+    static void taa_force_rgba8(Renderer& r, bool force);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);
