@@ -1211,8 +1211,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         portal_cull_meshes(world, fr, meshes);
     // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
     const bool cullable = !fr.noProbes && !fr.giCapture;
-    if (cullable && hizOn && !ctx.plan.gi && (!ctx.plan.view || ctx.plan.customPost))
-        ctx.hiz = hiz_cull(world, fr, meshes, ctx.plan.view);
+    // A view job (a capture, a CameraView, a render target) never uses it: its pyramid could never be ready inside the capture
+    // (hiz_submit runs when a frame begins), so the Occluders cull it and no reduce pass or buffer is made for it.
+    if (cullable && hizOn && !ctx.plan.gi && !ctx.plan.view) ctx.hiz = hiz_cull(world, fr, meshes);
     const bool occluded = cullable && !ctx.hiz && world.any<Occluder>() && occlude_meshes(world, fr, z01, meshes);
     // The Foliage instances (renderer_foliage.h): after the culling, because the foliage culls its own chunks (with the buffer the
     // Occluders just filled) and its items are made visible or not by it.
@@ -4020,6 +4021,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             b.views[VIEW_quad_normal_tex] = assets->white()->view;
             b.views[VIEW_quad_light_tex] = assets->white()->view;
             b.views[VIEW_quad_shadow_tex] = assets->white()->view;
+            b.views[VIEW_quad_fx_emissive_tex] =
+                assets->white()->view;  // the quad program declares them all: every view needs a handle
+            b.views[VIEW_quad_fx_cookie_tex] = assets->white()->view;
+            b.views[VIEW_quad_fx_gi_tex] = assets->white()->view;
             b.samplers[SMP_quad_smp] = gpu.sampler(SamplerKind::Nearest);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);

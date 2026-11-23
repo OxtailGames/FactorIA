@@ -292,7 +292,7 @@ BackgroundLoader::~BackgroundLoader() {
 }
 
 Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& paths, std::optional<Json> props,
-                                    Origin origin, LoadTrace* trace) {
+                                    Origin origin, LoadTrace* trace, bool suggest) {
     const char* api = kind_name(kind);
     std::vector<std::string> roots;
     const bool files = kind == Kind::Assets || kind == Kind::HlodLoad;  // jobs that name asset files, not a scene
@@ -320,12 +320,17 @@ Result<int> BackgroundLoader::start(Kind kind, const std::vector<std::string>& p
                                   "List the files: fs.list in a tool, or name each one.");
             if (!file_or_twin_exists(path, ext)) {
                 // Suggestions from the folder it names first (assets/, sounds/, ...), or from assets/ for a bare name.
-                const std::size_t slash = path.find('/');
-                const std::string top = slash == std::string::npos ? std::string() : path.substr(0, slash);
-                std::vector<std::string> listed =
-                    fs::list(!top.empty() && fs::is_directory(top) ? top : "assets", true);
+                std::string suggestion;
+                if (suggest) {
+                    const std::size_t slash = path.find('/');
+                    const std::string top = slash == std::string::npos ? std::string() : path.substr(0, slash);
+                    std::vector<std::string> listed =
+                        fs::list(!top.empty() && fs::is_directory(top) ? top : "assets", true);
+                    suggestion = did_you_mean(path, listed);
+                }
                 return make_error(
-                    std::string(api) + ": file '" + p + "' does not exist. " + did_you_mean(path, listed),
+                    std::string(api) + ": file '" + p + "' does not exist." +
+                        (suggestion.empty() ? "" : " " + suggestion),
                     kind == Kind::HlodLoad
                         ? "Bake the cell proxies again with world.bake_cell_hlods (it writes the files the "
                           "world index names), or fix the cell's hlod.mesh in the index."

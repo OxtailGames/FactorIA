@@ -458,6 +458,32 @@ TEST_CASE("cells: Save keeps the hlod entries world.bake_cell_hlods wrote into t
     CHECK_FALSE(idx["cells"][1]["hlod"].contains("maxDistance"));
 }
 
+TEST_CASE("cells: Save says so when the index on disk cannot be read and it writes the editor's copy") {
+    CellProject p;
+    CellEdit cells;
+    cells.refresh(p.world());
+    REQUIRE(cells.load(p.world(), 0, 0, nullptr));
+    p.write("worlds/w.world.json", "{ not json");  // a half-written index: the bake's hlod entries cannot be kept
+    p.move("a", 10, 50, 10);
+    cells.note_edit(p.world());
+    const CellSaveReport rep = cells.save(p.world());
+    REQUIRE_MESSAGE(rep.ok, rep.error);
+    CHECK(rep.indexWritten);
+    bool told = false;
+    for (const std::string& n : rep.notes)
+        told = told || (n.find("could not be read before this save") != std::string::npos &&
+                        n.find("overwritten from the editor's copy") != std::string::npos);
+    CHECK(told);
+    CHECK(index_of(p)["cells"][0]["bounds"]["max"][1].get<double>() == doctest::Approx(50.0));
+    // A readable index gives no such note.
+    cells.note_edit(p.world());
+    p.move("a", 10, 60, 10);
+    cells.note_edit(p.world());
+    const CellSaveReport again = cells.save(p.world());
+    REQUIRE_MESSAGE(again.ok, again.error);
+    for (const std::string& n : again.notes) CHECK(n.find("could not be read") == std::string::npos);
+}
+
 TEST_CASE("cells: a clean, checked cell whose root is deleted closes without touching its file, whatever is selected") {
     CellProject p;
     CellEdit cells;

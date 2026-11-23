@@ -355,7 +355,8 @@ View > Cells edits the cells of a streamed world (docs/BIG_WORLDS_STREAMING.md, 
   `sizeBytes` changed; the toolbar's Save and Ctrl+S do the same, together with the open scene. Deleting the root of a cell with unsaved changes
   keeps it unsaved and empty ("root deleted" in the list): Save writes it with no entities, Undo brings it back. An entity whose position is now in another cell is written into that cell (see "Editing a streamed
   world": no command is needed for it). A failure (a path outside the write rules, a cell file that is not in the index) changes nothing and the panel
-  says why.
+  says why. Save reads the index file again just before it writes it and keeps the `hlod` entries it finds there (what `world.bake_cell_hlods` wrote
+  while the cells were open); when that file cannot be read, the editor's copy is written over it and the report says so in a note.
 - **Show the grid** draws the cells in the viewport on the plane of the world: green loaded, orange with unsaved changes (the label gets a `*`), grey not
   loaded; the selected entity's cell is thicker. The Inspector says "Cell i,j" for an entity in a loaded cell, with the unsaved mark, and "Save moves it
   there" when its position is in another cell.

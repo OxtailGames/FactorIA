@@ -253,7 +253,6 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         viewTargets.erase(kKey);
         if (withCustom) customPost.release_history_of(historyCamera);
         portalGather.valid = false;
-        hiz_forget_views();  // the depth pyramids this capture's camera made (kept apart from the game's, renderer_hiz.cpp)
     };
     for (int frame = 0; frame < frames; ++frame) {
         ramps.begin_frame();

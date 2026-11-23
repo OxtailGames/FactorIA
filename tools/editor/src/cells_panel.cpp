@@ -119,6 +119,8 @@ bool Editor::cells_save(bool only, std::int32_t i, std::int32_t j) {
     if (rep.moved > 0)
         notify(std::to_string(rep.moved) + " entit" + (rep.moved == 1 ? "y" : "ies") +
                " moved to the cell of their position (the cell files and the index say so now).");
+    for (const std::string& note : rep.notes)
+        notify(note, 1);  // e.g. the index on disk was unreadable and was overwritten
     if (!rep.written.empty()) {
         cellsUi_.status = "Saved " + std::to_string(rep.written.size()) + " cell file" +
                           (rep.written.size() == 1 ? "" : "s") + (rep.indexWritten ? " and the index" : "") + ".";

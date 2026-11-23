@@ -4,6 +4,7 @@
 // Save writes that cell's file and neither the other cell's file nor the index; an entity moved across the border is written into the
 // other cell's file on Save; Play streams the world by distance and Stop brings the loaded cells back as they were.
 // Every wait is a condition with a 60 s safety net, never a frame count.
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <system_error>
@@ -246,6 +247,19 @@ void Editor::at_section_W2(AtScript& at) {
         world().info(proxy).streamedProxy = true;
         const Entity plain = world().create("w2 plain", "w2_plain");
         (void)plain;
+    });
+    // hierRows_ is filled only when the Hierarchy window is drawn: a docked-behind or collapsed panel would show no rows and fail the
+    // check below for the wrong reason, so wait (the script's own 60 s cap names it) until the panel was drawn with the new entity listed.
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitWhat_ =
+            "the Hierarchy panel to be on screen and list the new entity (a collapsed or hidden panel draws no rows)";
+        atWaitUntil_ = [this] {
+            const auto listed = [](const std::vector<std::string>& rows) {
+                return std::find(rows.begin(), rows.end(), "w2_plain") != rows.end();
+            };
+            return at_visible("tree:filter") && (listed(hierRows_) || listed(hierRowsPrev_));
+        };
     });
     step(3, [this] {
         bool proxyRow = false, plainRow = false;

@@ -11,6 +11,7 @@
 #include "brush.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/scene/foliage.h"
 
 namespace fa::editor {
 
@@ -72,9 +73,9 @@ struct FoliageCall {
 FoliageCall foliage_stroke_call(const FoliageUi& ui, const std::string& entityId, const std::vector<Vec2>& points,
                                 bool continueStroke);
 
-// foliage.paint refuses a call whose stamps visit more than this many grid cells (kMaxCandidates in tools/authoring foliage_commands.cpp):
-// (2 * radius * sqrt(density) + 2)^2 per stamp, times the stamps of the call.
-inline constexpr double kFoliageCandidateBudget = 16777216.0;  // 2^24
+// foliage.paint refuses a call whose stamps visit more than this many grid cells (kMaxFoliageCandidates, fa/scene/foliage.h, the very
+// number the command checks): (2 * radius * sqrt(density) + 2)^2 per stamp, times the stamps of the call.
+inline constexpr double kFoliageCandidateBudget = double(kMaxFoliageCandidates);
 
 // The grid cells one stamp of radius `radius` at `density` visits (the formula above, with 1 % of margin for the rounding of the
 // arguments). Pure.

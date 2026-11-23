@@ -415,10 +415,14 @@ void Editor::draw_foliage_tool_panel() {
             // One stamp must fit the command's work budget (foliage.paint visits (2 r sqrt(density) + 2)^2 grid cells a stamp): the
             // slider stops where a stamp of this radius stops fitting, and says so.
             const float sliderMax = float(std::clamp(foliage_max_density(t.brush.radius), 0.01, 20.0));
-            t.density = std::min(t.density, sliderMax);
+            // The slider shows the density clamped to what this radius allows, but t.density keeps the user's choice until they touch
+            // the slider: widening the brush and narrowing it again gives back the density they had set.
+            float shownDensity = std::min(t.density, sliderMax);
             ImGui::BeginDisabled(t.ruleDensity);
             ImGui::SetNextItemWidth(180);
-            ImGui::SliderFloat("density (/m2)", &t.density, 0.01f, sliderMax, "%.2f", ImGuiSliderFlags_Logarithmic);
+            if (ImGui::SliderFloat("density (/m2)", &shownDensity, 0.01f, sliderMax, "%.2f",
+                                   ImGuiSliderFlags_Logarithmic))
+                t.density = shownDensity;
             at_track("foliage:density");
             ImGui::EndDisabled();
             ImGui::SetItemTooltip(
