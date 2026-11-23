@@ -275,7 +275,9 @@ jobs:
     name: Package (${{ matrix.os }})
     needs: [mobile-android, mobile-ios, web-player]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # macos-universal builds two architectures per compile, which ccache skips, so it always builds cold: with M75 its
+    # Build step alone went past 60 min (v0.35.1, cancelled), and windows-x64 took 57 min. Room for both plus the tests.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
