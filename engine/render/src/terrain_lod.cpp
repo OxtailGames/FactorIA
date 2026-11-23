@@ -143,9 +143,9 @@ TerrainLodRanges TerrainLodRanges::make(const TerrainGrid& g, int levels, float 
         // the vertices of the coarse node's shared edge have not started to morph (their distance is below its morph start: the
         // finer node's parent was within range[l], and its diagonal is 1.42 node sizes, less than half of the gap), so the finer
         // node's fully morphed edge is the coarse node's edge exactly.
-        const float range = std::max(3.0f * s * qEff, prev + 3.0f * s);
-        r.range.push_back(range);
-        prev = range;
+        const float levelRange = std::max(3.0f * s * qEff, prev + 3.0f * s);
+        r.range.push_back(levelRange);
+        prev = levelRange;
     }
     return r;
 }

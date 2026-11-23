@@ -79,8 +79,10 @@ TEST_CASE("noise: the seed changes the result and the same seed gives the same o
         differ += perlin_2d(1, x, y) != perlin_2d(2, x, y);
         differ += value_2d(1, x, y) != value_2d(2, x, y);
         differ += cellular_2d(1, x, y).f1 != cellular_2d(2, x, y).f1;
-        same += perlin_2d(1, x, y) == perlin_2d(1, x, y);
-        same += perlin_3d(9, x, y, 1.5f) == perlin_3d(9, x, y, 1.5f);
+        const float p2a = perlin_2d(1, x, y), p2b = perlin_2d(1, x, y);
+        const float p3a = perlin_3d(9, x, y, 1.5f), p3b = perlin_3d(9, x, y, 1.5f);
+        same += p2a == p2b;
+        same += p3a == p3b;
     }
     CHECK(differ >= 590);
     CHECK(same == 400);

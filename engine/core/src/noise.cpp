@@ -198,7 +198,7 @@ float sample_impl(const NoiseParams& p, bool d3, float x, float y, float z) {
         z += dz;
     }
     const int octaves = p.fractal == NoiseFractal::None ? 1 : std::clamp(p.octaves, 1, kMaxNoiseOctaves);
-    const float off = p.offset < -1.0f ? -1.0f : (p.offset > 1.0f ? 1.0f : (p.offset == p.offset ? p.offset : 0.0f));
+    const float off = std::isnan(p.offset) ? 0.0f : std::clamp(p.offset, -1.0f, 1.0f);
     const float invDen = 1.0f / (1.0f + std::fabs(off));
     float px = x * p.frequency, py = y * p.frequency, pz = z * p.frequency;
     float amp = 1.0f, sum = 0.0f, norm = 0.0f;
