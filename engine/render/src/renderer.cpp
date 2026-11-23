@@ -1132,7 +1132,8 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
     fr.screenScale =
-        upscale_active() ? 1.0f : renderScale;  // the upscale stage draws the screen-space items at the output size
+        hudAtOutput ? 1.0f
+                    : renderScale;  // 1: the screen-space items go over the upscaled picture (render_world decided)
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -1219,6 +1220,27 @@ void Renderer::Impl::render(World& world, float dt) {
     } else {
         for (const CameraInfo& c : lastCams) specs.push_back({c, true, false});
         specs.push_back({lastCams.front(), false, true});
+    }
+
+    // The upscale stage (M76-P3a) draws the screen-space items over the upscaled picture, at the output size, when no pass after them in the
+    // old order (renderer_draw.cpp, build_graph) would have changed their pixels. The glyphs are rasterized for the size they are drawn at,
+    // so this is decided before the gather. The bloom is the only effect that reaches items drawn in the game image (bloomScreenSpace): the
+    // effects that put them over the bloom (bloomScreenSpace false, the scene-colour effects) or over the final pass leave them alone.
+    // The scene-colour effects are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
+    hudAtOutput = false;
+    if (upscale_active() && !lastCams.empty()) {
+        const CameraInfo& fc = lastCams.front();
+        const bool linearScene = world.settings().colorSpace == ColorSpace::Linear;
+        bool anyFinal = false;
+        for (const JobSpec& sp : specs)
+            anyFinal =
+                anyFinal ||
+                (sp.world &&
+                 make_post_plan(sp.cam, linearScene, forceEffects, world.frame(), renderScale, &fc).final_pass());
+        const bool glows = fc.bloom.enabled && fc.bloom.intensity > 0.0f && fc.bloom.screenSpace && !anyFinal;
+        hudAtOutput =
+            !glows && (!anyFinal || ensure_filter_target()) &&
+            ensure_output_target(outTarget, "output", anyFinal ? gpu.display_format() : gameTarget.format.color, true);
     }
 
     std::vector<Frame> frames(specs.size());

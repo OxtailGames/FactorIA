@@ -175,6 +175,8 @@ struct Renderer::Impl {
     // filter, when it has to reach them, goes on into outFilterTarget. outActive / outFilterActive: the last frame's picture is in
     // them (they come first in final_target()). Both are made when a frame needs them and freed with the targets.
     bool upscaleStage = false;
+    bool hudAtOutput =
+        false;  // this frame's screen-space items are drawn over the upscaled picture (decided in render_world)
     render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
     Target outTarget, outFilterTarget;
     bool outActive = false, outFilterActive = false;

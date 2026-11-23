@@ -32,8 +32,7 @@ bool Renderer::Impl::upscale_active() const {
 // Makes (or keeps) an image of the output size with `colorFormat`; `withDepth` adds the depth image the screen-space items need.
 // False (and one logged error) when the GPU cannot make it: the frame is then shown at the render resolution.
 bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth) {
-    if (t.color.id && (t.w != targetW || t.h != targetH || t.format.color != colorFormat ||
-                       (withDepth && !t.depth.id)))
+    if (t.color.id && (t.w != targetW || t.h != targetH || t.format.color != colorFormat || (withDepth && !t.depth.id)))
         destroy_target(t);
     if (t.color.id) return true;
     TargetDesc d;
@@ -46,7 +45,8 @@ bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel
     if (!t.valid()) {
         FA_ERROR("render",
                  "Upscale stage: cannot create the {}x{} output image ({}); the game is shown at its render resolution "
-                 "({}x{}) instead. Hint: lower the window size or set the render scale to 1",
+                 "({}x{}) instead, with the HUD and the UI drawn into it. Hint: lower the window size or set the "
+                 "render scale to 1",
                  targetW, targetH, label, physW, physH);
         destroy_target(t);
         return false;

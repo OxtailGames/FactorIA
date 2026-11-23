@@ -1554,7 +1554,9 @@
     },
     // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
     // (a quarter of the pixels) and scales it up, for a "performance" graphics option. The HUD and the UI (screen-space Text,
-    // Sprite, Shape2D, UI widgets) are drawn after the scale-up, at full size, so text stays sharp. 0.33 is the lowest (a third).
+    // Sprite, Shape2D, UI widgets) are drawn after the scale-up, at full size, so text stays sharp, unless a bloom with PostProcess.bloomScreenSpace true (the
+    // default) makes the HUD glow and no final pass follows: then it stays in the smaller picture, glow included (bloomScreenSpace
+    // false gives the sharp HUD). 0.33 is the lowest (a third).
     // Works in every run with graphics, headless tests included (game.screenshot is then the full size picture, HUD included);
     // a run without a renderer only remembers the value.
     get renderScale() { return N.renderScaleGet(); },
