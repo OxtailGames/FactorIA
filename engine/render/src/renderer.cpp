@@ -472,6 +472,7 @@ void Renderer::shutdown() {
         im.hdriSky.release();
         im.sceneFx.release();
         im.taa.release();
+        im.spatial.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -518,6 +519,11 @@ void Renderer::set_upscale_stage(bool on) {
 bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
 const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
+render::UpscalerMode Renderer::effective_upscaler_mode() const {
+    return impl_ ? impl_->effective_upscaler_mode() : render::UpscalerMode::Stretch;
+}
+float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";

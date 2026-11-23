@@ -61,6 +61,7 @@
 #include "light_atlas.h"
 #include "render_internal.h"
 #include "render_upscale.h"
+#include "render_upscale_spatial.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
 #include "transient_targets.h"
@@ -181,11 +182,20 @@ struct Renderer::Impl {
     render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
     Target outTarget, outFilterTarget;
     bool outActive = false, outFilterActive = false;
+    // The spatial upscaler (M76-P3b, render_upscale_spatial.h): its programs, and the upsampled picture between its two passes (made
+    // only when both run: a render scale below 1 and a sharpness above 0).
+    render::SpatialUpscaler spatial;
+    Target spatialTarget;
+    mutable int spatialSupported = -1;  // the "spatialUpscaler" row of this backend, asked once (-1 = not yet)
+    render::UpscalerCaps upscaler_caps() const;
+    render::UpscalerMode effective_upscaler_mode() const;
     bool upscale_active() const;
     bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
     void free_output_targets();
     void run_upscale(Target& out);
     void stretch_upscale(const render::UpscaleInput& in, Target& out);
+    void spatial_upscale(const render::UpscaleInput& in, Target& out);
+    bool ensure_spatial_target(sg_pixel_format colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
@@ -232,7 +242,8 @@ struct Renderer::Impl {
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
-    UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
+    UpscalerSettings
+        upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera

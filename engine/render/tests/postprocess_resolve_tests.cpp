@@ -689,11 +689,11 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name
-// and has been drawn since M76-P2.
-TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
+// M76-P0: the rows of the shared API are planned until the packages that draw them land (motionVectors landed in P1a,
+// spatialUpscaler in P3b); temporalAA is the effect row of that name and has been drawn since M76-P2.
+TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
+    for (const char* name : {"temporalUpscaler", "metalfx", "dynamicResolution"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -710,6 +710,15 @@ TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Meta
     CHECK(feature_table()[std::size_t(mv)].kind == FeatureKind::Engine);
     CHECK(feature_table()[std::size_t(mv)].planned == nullptr);
     CHECK(supported(full, "motionVectors"));
+    // The spatial upscaler is drawn (M76-P3b): supported on every backend with a GPU, no longer planned.
+    {
+        const int i = find_feature("spatialUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whySpatial;
+        CHECK(supported(full, "spatialUpscaler", &whySpatial));
+    }
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
     CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
