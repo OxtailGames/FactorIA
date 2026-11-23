@@ -833,6 +833,35 @@ TEST_CASE(
     e.shutdown();
 }
 
+TEST_CASE("streaming hlod: a retry that is not launched again clears its quiet flag, so a later failure is reported") {
+    StreamProject p;
+    add_proxies(p, 0.0, "2,0");
+    ProxyLog log;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    streamed(e).hlodDistance = 250.0f;
+    wait_shown(e, 5);  // [2,0] is the one that cannot be read
+    const auto mentions = [&] {
+        int n = 0;
+        for (const std::string& line : log.get())
+            if (line.find("cell 2,0") != std::string::npos) ++n;
+        return n;
+    };
+    CHECK(mentions() == 1);
+    // The anchor walks to 260 m from [2,0]: inside the 1.1 hysteresis band (kept, not launched again). The retry after kRetryTicks
+    // releases the failed entry and nothing relaunches it.
+    move(e, "anchor", -60, 0, 50);
+    for (int f = 0; f < 3 * WorldStreamer::kRetryTicks; ++f) e.step(1);
+    CHECK(call(e, "world.stream_status")["hlodProxiesFailed"].get<int>() == 0);
+    CHECK(mentions() == 1);
+    // Back in range: the proxy is launched, fails again, and this failure is news.
+    move(e, "anchor", 50, 0, 50);
+    for (int f = 0; f < 60 && mentions() < 2; ++f) e.step(1);
+    CHECK(mentions() == 2);
+    e.shutdown();
+}
+
 TEST_CASE("streaming hlod: a scene change drops the proxies and a disabled streamer shows none") {
     StreamProject p;
     add_proxies(p);

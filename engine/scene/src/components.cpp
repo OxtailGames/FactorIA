@@ -4760,8 +4760,8 @@ void register_builtin_components(TypeRegistry& r) {
             "Where the backend has no compute shaders (GLES3, WebGL2, macOS OpenGL; render.supports "
             "occlusionGpu says no) gpu falls back to cpu with one warning and auto to cpu silently. "
             "Perspective cameras only (an orthographic one keeps the cpu culling); a camera that draws into "
-            "a CameraView is not culled by the pyramid unless it has its own post-processing, and a "
-            "reflection probe's or realtime GI capture never is. Shadows are never culled by it.")
+            "a CameraView, a render target or a capture is not culled by the pyramid (the Occluders cull it), "
+            "and a reflection probe's or realtime GI capture never is. Shadows are never culled by it.")
         .asset_field("lightmaps", &SceneSettings::lightmaps, "any",
                      "The scene's baked lightmap: a *.lightmap.json manifest (written by the lightmap.bake command, "
                      "next to its .hdr pages) that says, per entity, which rectangle of which page lights it. The "

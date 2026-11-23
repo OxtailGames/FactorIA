@@ -32,8 +32,7 @@ namespace fa {
 
 namespace {
 
-constexpr std::uint64_t kMaxCandidates = std::uint64_t(1)
-                                         << 24;  // grid cells one command visits (8 x the instance cap)
+constexpr std::uint64_t kMaxCandidates = kMaxFoliageCandidates;  // grid cells one command visits (8 x the instance cap)
 constexpr double kPi = 3.14159265358979323846;
 
 Json parse_schema(const char* text) {
@@ -1354,7 +1353,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                     "same file byte for byte. `dryRun` only counts. Result: {file, instances, bytes, candidates, "
                     "placed, rejected: "
                     "{outside, hole, height, slope, layer, spacing}, meshes, undo, undoDepth, redoDepth, historyId, "
-                    "historyLost}. Example: "
+                    "historyLost, historiesPruned?}. Example: "
                     "foliage.scatter {\"entity\":\"grass\"}",
                     parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -1415,7 +1414,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
          "Empties the Foliage's instances file (the file stays, with 0 instances), or removes only the instances "
          "inside "
          "`region` ([minX, minZ, maxX, maxZ] in world metres, edges included). Result: {removed, instances, file, "
-         "undo, undoDepth, redoDepth, historyId, historyLost}. "
+         "undo, undoDepth, redoDepth, historyId, historyLost, historiesPruned?}. "
          "Example: foliage.clear {\"entity\":\"grass\",\"region\":[0,0,50,50]}",
          parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."},
@@ -1438,7 +1437,7 @@ void register_foliage_commands(Engine&, Engine::Impl& I) {
                  "reload, a restart, or a change of the file or of the Foliage fields by anything but the foliage "
                  "commands clears it (error stale_history, nothing changes). A new edit clears the redo list. A scene "
                  "save does not touch the history. Result: {undone|redone, file, instances, deleted, undoDepth, "
-                 "redoDepth, historyId, historyLost}. Example: " +
+                 "redoDepth, historyId, historyLost, historiesPruned?}. Example: " +
                  std::string(undo ? "foliage.undo" : "foliage.redo") + " {\"entity\":\"grass\"}",
              parse_schema(R"({"type":"object","properties":{
                "entity":{"type":"string","description":"Entity id of the Foliage."}},"required":["entity"]})"),

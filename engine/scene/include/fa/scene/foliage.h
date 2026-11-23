@@ -38,6 +38,9 @@ inline constexpr std::size_t kFoliageHistoryBytes = std::size_t(128) << 20;
 inline constexpr std::size_t kFoliageHistoryTotalBytes = std::size_t(512) << 20;
 // foliage.paint takes at most this many `points` (stamps) in one call.
 inline constexpr std::size_t kMaxFoliagePaintPoints = 512;
+// The grid cells one foliage.scatter or foliage.paint call may visit (8 x the instance cap); the foliage tool of the editor sizes its
+// pieces against the same number (kFoliageCandidateBudget).
+inline constexpr std::uint64_t kMaxFoliageCandidates = std::uint64_t(1) << 24;
 
 struct FoliageInstance {
     Vec3 position{0, 0, 0};  // metres, in the local space of the Foliage entity

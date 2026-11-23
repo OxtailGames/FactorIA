@@ -367,10 +367,9 @@ struct Renderer::Impl {
     static render::HizPose hiz_pose_of(const CameraInfo& cam);
     // gather_meshes: the camera's meshes tested against its pyramid. Returns the camera's HizCamera (null when the camera is not culled
     // this way: past the cap, so the Occluders cull it).
-    // `viewJob`: the camera draws into a view's image (a capture), so its pyramid is kept under a key of its own, apart from the game
-    // camera of the same entity (and from the camera of another world with the same index).
-    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes, bool viewJob);
-    void hiz_forget_views();  // drops the pyramids of view jobs (the end of a capture)
+    // Only the cameras that draw the game's picture call it: a view job (capture_camera, a CameraView) has no pyramid, because
+    // hiz_submit only runs when a frame begins and a capture's reduce could never come back within it.
+    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
     // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
     void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
     void hiz_overlay();

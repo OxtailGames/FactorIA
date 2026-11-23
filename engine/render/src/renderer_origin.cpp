@@ -35,7 +35,11 @@ void Renderer::Impl::watch_world_if_free(World& world) {
 void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
     if (!initialized) return;  // nothing is kept yet, and the counter is of the rebases the renderer followed
     ++originShifts;
-    const Vec3 off{float(offset.x), float(offset.y), float(offset.z)};  // a whole multiple of the step: exact in float
+    const Vec3 off{
+        float(offset.x), float(offset.y),
+        float(
+            offset
+                .z)};  // a rebase moves by a multiple of the step (exact in float); set_origin's offset is any double, rounded here
     // The cameras the effects reproject from: the previous camera is where the current one would have been, `offset` farther away. A
     // point that did not move now has the coordinates q' = q - offset, and the matrix of the frame before knew it as q' + offset.
     const Mat4 back = Mat4::translate(off);

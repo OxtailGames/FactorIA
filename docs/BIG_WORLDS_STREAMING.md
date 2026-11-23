@@ -133,7 +133,7 @@ index entry has an `hlod` draws that one simplified mesh while the cell is NOT l
 `loadRadius`, or nothing shows: the cells inside the load radius are loaded and the ones outside have no proxy yet.
 
 - **Which proxies exist.** Every fixed tick the streamer picks the cells with a proxy within the range of an anchor,
-  nearest first (ties by `[j, i]`), at most 512 of them, and reads their models in the background (at most four at a
+  nearest first (ties by cell index order), at most 512 of them, and reads their models in the background (at most four at a
   time) into the renderer's mesh cache, so the first draw does not wait for the disk. A proxy stays prepared until every
   anchor is 10% farther than the range (hysteresis) or the cell is not among the 512 nearest. The same run makes the
   same ones. `keepLoaded` loads every cell, so no proxy is made while it is on.

@@ -534,6 +534,7 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
     for (const Wanted& w : wanted) allowed.insert(w.idx);
     // A proxy that is no longer wanted goes, whatever its state. One that failed goes too once kRetryTicks have passed while it is still
     // wanted, so the loop below tries it again: a read that failed for a moment does not stick.
+    std::vector<std::size_t> retried;
     for (std::size_t idx : std::vector<std::size_t>(proxies_.begin(), proxies_.end())) {
         const CellState& st = cells_[idx];
         const bool retry = st.proxy == Proxy::Failed && tick_ - st.proxyFailedAtTick >= std::uint64_t(kRetryTicks);
@@ -542,6 +543,7 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
         } else if (retry) {
             release_proxy(idx);
             cells_[idx].proxyWarned = true;  // the retry reports nothing if it fails again
+            retried.push_back(idx);
         }
     }
     int inFlight = 0;
@@ -552,8 +554,9 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
         CellState& st = cells_[w.idx];
         const WorldCell& cell = index_.cells[w.idx];
         if (st.proxy != Proxy::None || w.distance > proxy_range(cell, s.hlodDistance)) continue;
+        // A retry (proxyWarned) reports nothing if it fails again, so its error skips the recursive "did you mean" listing.
         auto r = loader_.start(BackgroundLoader::Kind::HlodLoad, {cell.hlod}, std::nullopt,
-                               BackgroundLoader::Origin::Tool, nullptr);
+                               BackgroundLoader::Origin::Tool, nullptr, !st.proxyWarned);
         proxies_.insert(w.idx);
         if (!r) {
             mark_proxy_failed(w.idx, r.error().message, r.error().hint);
@@ -564,6 +567,10 @@ void WorldStreamer::update_proxies(const std::vector<Anchor>& anchors) {
         ++proxyLoadsStarted_;
         ++inFlight;
     }
+    // A retried cell that was not launched again this pass (loads at the cap, or inside the hysteresis band) has no failure to stay
+    // quiet about: its flag is cleared so a failure after a later launch is reported.
+    for (std::size_t idx : retried)
+        if (cells_[idx].proxy == Proxy::None) cells_[idx].proxyWarned = false;
 }
 
 // A proxy that cannot be read: reported once per stay in range (a retry that fails again is silent), tried again after kRetryTicks.
