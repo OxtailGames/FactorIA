@@ -1122,7 +1122,7 @@ constexpr const char* kSchemaText =
       "properties": {
         "floatingOrigin": {
           "type": "object",
-          "description": "Floating origin (planned, M75.4; saved and checked today, no effect yet): when the anchor is farther than `threshold` metres from the world origin, the engine moves the origin to the anchor (rounded to a multiple of `step`) and shifts every Transform the other way, so nothing moves on screen and float precision holds at 100 km and more.",
+          "description": "Floating origin (M75.4): when the anchor is farther than `threshold` metres from the world origin, the engine moves the origin to the anchor (rounded to a multiple of `step`) and shifts every Transform the other way, so nothing moves on screen and float precision holds at 100 km and more.",
           "additionalProperties": false,
           "properties": {
             "enabled": {

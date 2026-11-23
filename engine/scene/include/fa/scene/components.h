@@ -40,7 +40,7 @@ struct EntityInfo {
     // scene.save leaves them out unless asked (SaveSceneOptions::includeSpawned), because the script builds them again.
     bool scriptSpawned = false;
     // Not serialized and not reflected: true on the root entity of a streamed cell (engine/runtime world_streamer.h). The cell's
-    // content is its own file: scene.save and snapshots leave the whole subtree out. (Showing cells apart from the scene in the editor is planned, M75.3c.)
+    // content is its own file: scene.save and snapshots leave the whole subtree out. (The editor shows the cells apart from the scene in its Cells panel.)
     bool streamedCell = false;
     // Not serialized and not reflected: true on the entity the streamer makes to draw the HLOD proxy of a streamed cell that is not loaded
     // (engine/runtime world_streamer.h, M75 P1e). It is transient: scene.save and snapshots leave it out, the streamer makes and

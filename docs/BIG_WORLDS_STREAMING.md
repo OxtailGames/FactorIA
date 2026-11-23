@@ -267,7 +267,7 @@ cells); two files with the same entity id make the merge fail before it writes. 
 entity of another is reported in `warnings`: while the other cell is not loaded it is empty (the streamer drops it the same way).
 A scene with a floating `origin` is refused: rebase it first.
 
-**In the editor** (View > Cells, [Cells panel](editor/EDITOR_PANELS.md#cells-panel)) a scene with a `StreamedWorld` is edited cell by
+**In the editor** (View > Cells, [Cells panel](editor/EDITOR_PANELS_WORLD.md#cells-panel)) a scene with a `StreamedWorld` is edited cell by
 cell:
 
 - Edit mode never streams by distance (the engine is paused; no anchor is read), so what is loaded is what you chose: the cells

@@ -221,8 +221,7 @@ with its JSON pointer, and nothing is written. `model.game_ready {path, lodChain
 
 Skinned meshes are refused: the simplifier moves and removes vertices and the skin weights would not follow, so `model.generate_lods`
 on the `.glb` of a rig says so and points at the static model (`rig.bake` reads it); a `.glb` that no model document baked is
-refused with `model.import_clean` as the way to make a document of it. Only the screen-size LOD of the renderer (P1a) draws the chain
-by `screenSize`; until then `lodMode: "screenSize"` entries are saved and checked, not yet selected.
+refused with `model.import_clean` as the way to make a document of it. The renderer's screen-size LOD (P1a) selects the chain's levels by `screenSize`.
 
 ## Occlusion (M75.2)
 
@@ -367,10 +366,13 @@ It is conservative like the CPU path, with the costs of one frame of latency:
 - Up to 8 cameras per frame keep a pyramid, in the order their jobs are declared; the others are not culled by it. Each camera that
   has one asks for its own readback, which flushes the GPU's queue once (a `glFlush` on OpenGL, a `Flush` of the immediate context on
   D3D11, one more command buffer on Metal), so several cameras cost several flushes: a split-screen game pays one per player.
-- A picture taken with `screenshot` or `render.capture` of a camera has a pyramid of its own, forgotten when the capture ends: it
-  never reuses, replaces or ages the pyramid of the game's camera, and `render.occlusion` keeps showing the last frame's numbers.
-- A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps (up to 6 per frame): the limit is
-  48 steps whatever `fixedHz` is, so a 240 Hz project does not draw everything on every frame.
+- A picture taken with `screenshot` or `render.capture` of a camera keeps a pyramid of its own only when the GPU culling is on
+  (`occlusionMode` `gpu`, or `auto` where the backend can) and that camera has custom post-processing passes; the pyramid is forgotten
+  when the capture ends. It never reuses, replaces or ages the pyramid of the game's camera, and `render.occlusion` keeps showing the
+  last frame's numbers. Any other capture is not culled by a pyramid (the CPU Occluders still cull it).
+- A pyramid older than 8 frames is dropped by the world's clock, which counts fixed-update steps. The engine's loop runs at most
+  5 per frame (the rest of a backlog is dropped); the clock allows for 6 per frame, so the limit is 48 steps whatever `fixedHz` is,
+  and a 240 Hz project does not draw everything on every frame.
 - **Not culled**: shadow passes (a hidden mesh still casts its shadow), orthographic cameras (they keep the CPU Occluders),
   a camera view's picture (unless it has its own post-processing), reflection probe, GI and light-probe captures, and sprites, 2D, particles
   and UI as for the CPU path. `showTags` and `hideTags` are applied before the test, and a LOD or HLOD pick is made first, so the

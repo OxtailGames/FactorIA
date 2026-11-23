@@ -13,7 +13,8 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Commands](ARCHITECTURE_COMMANDS.md): the command (tool) system, capabilities.
 - [Files and block codecs](ARCHITECTURE_FILES.md): `fa::fs`, the file rules, block codecs.
 - [Game loop, jobs and loading](ARCHITECTURE_THREADS.md): the game loop, jobs and threads, systems that run as jobs, background loading.
-- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds (the PostProcess stack has its own page below).
+- [Rendering](ARCHITECTURE_RENDERING.md): coordinates and units, rendering, start-up order and the shader cache, textures, bounds (the PostProcess stack and the big worlds have their own pages below).
+- [Rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md): the renderer's side of M75: occlusion culling on the CPU and the GPU (depth pyramid), the floating origin, terrain, levels of detail.
 - [Rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md): the linear HDR frame, the `PostProcess` data, the effect order and the CPU resolve, the stack's passes, history and the final pass.
 - [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field.
 - [Baked lighting: the CPU lightmap baker](ARCHITECTURE_BAKING.md): the triangle BVH, the path tracer, the lightmap and probe API, the determinism rules.

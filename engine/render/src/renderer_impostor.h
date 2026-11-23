@@ -8,8 +8,8 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
-#include <string>
 #include <set>
+#include <string>
 #include <unordered_map>
 
 #include "fa/scene/impostor.h"

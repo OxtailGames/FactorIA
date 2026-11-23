@@ -8,13 +8,14 @@ Every name here is part of this build's contracts. Check a name before you use i
 
 Pages of this guide (the page name for `docs_read` is `ai-guide-<name>`; a heading is found on its page by itself, so `docs_read {"name":"ai-guide","heading":"9.4"}` works):
 
-- [tools](ai-guide/AI_GUIDE_TOOLS.md): sections 4 to 7. Tools and CLI, skills, units, scene and prefab files, streamed worlds, components.
-- [scripts](ai-guide/AI_GUIDE_SCRIPTS.md): sections 8, 9.1 to 9.7. The JavaScript API, then platformer, top-down, spawning, HUD, collisions, camera, sounds and music.
-- [tilemaps](ai-guide/AI_GUIDE_TILEMAPS.md): section 9.8. Tilemap levels, objects and tile collision.
-- [recipes-world](ai-guide/AI_GUIDE_RECIPES_WORLD.md): sections 9.9 to 9.21.2. 3D scene, saves, levels, particles, patrol AI, 3D cameras and physics, glow, sweeps, 2D water, terrain.
-- [recipes-ui-assets](ai-guide/AI_GUIDE_RECIPES_UI_ASSETS.md): sections 9.22 to 9.25. Menus, art/sound/model pipeline, game menus, animated characters, analytics.
-- [recipes-production](ai-guide/AI_GUIDE_RECIPES_PRODUCTION.md): sections 9.26 to 9.32. 2D production, enemy AI, multiplayer, split screen, render targets, game feel, choices.
-- [checks](ai-guide/AI_GUIDE_CHECKS.md): sections 10 to 14. Tests, debugging and replays, common mistakes, performance, where to read more.
+- [tools](ai-guide/AI_GUIDE_TOOLS.md): sections 4 to 7. Tools and CLI, skills, units, scene files, streamed worlds, components.
+- [scripts](ai-guide/AI_GUIDE_SCRIPTS.md): sections 8, 9.1 to 9.7. The JavaScript API, platformer, top-down, HUD, camera, sounds.
+- [tilemaps](ai-guide/AI_GUIDE_TILEMAPS.md): section 9.8. Tilemap levels, objects, collision.
+- [recipes-world](ai-guide/AI_GUIDE_RECIPES_WORLD.md): sections 9.9 to 9.18. 3D scene, saves, levels, particles, patrol AI, 3D camera.
+- [recipes-world-2](ai-guide/AI_GUIDE_RECIPES_WORLD_2.md): sections 9.19 to 9.21.2. Raycasts, glow, sweeps, 2D water, terrain.
+- [recipes-ui-assets](ai-guide/AI_GUIDE_RECIPES_UI_ASSETS.md): sections 9.22 to 9.25. Menus, art and sound pipeline, characters, analytics.
+- [recipes-production](ai-guide/AI_GUIDE_RECIPES_PRODUCTION.md): sections 9.26 to 9.32. 2D production, enemy AI, multiplayer, split screen, game feel.
+- [checks](ai-guide/AI_GUIDE_CHECKS.md): sections 10 to 14. Tests, debugging, common mistakes, performance, more reading.
 
 Read one section with `docs_read {"name":"ai-guide","heading":"<title>"}` (CLI: `factoria docs read ai-guide --heading "<title>"`): a part of the title is enough ("9.4", "Split screen"). Entries are `title -- what it holds`; a bracket names the page that holds it (the list above); none means this page.
 
@@ -49,12 +50,12 @@ Read one section with `docs_read {"name":"ai-guide","heading":"<title>"}` (CLI: 
 - 9.16 Level data in JSON imports [recipes-world]
 - 9.17 3D chase camera [recipes-world]
 - 9.18 3D rolling ball and moving platforms [recipes-world]
-- 9.19 3D ground checks and raycasts [recipes-world]
-- 9.20 Neon glow, exposure and tonemap: additive blend and the PostProcess stack [recipes-world]
-- 9.20.1 Colour-blind players: the colour filter and the colour-blind check [recipes-world]
-- 9.21 Sweep a shape instead of a ray: will it fit, how far can it go [recipes-world]
-- 9.21.1 Water, heat haze and glass in 2D: the picture drawn so far [recipes-world]
-- 9.21.2 A terrain: a heightmap as ground you can see and walk on [recipes-world]
+- 9.19 3D ground checks and raycasts [recipes-world-2]
+- 9.20 Neon glow, exposure and tonemap: additive blend and the PostProcess stack [recipes-world-2]
+- 9.20.1 Colour-blind players: the colour filter and the colour-blind check [recipes-world-2]
+- 9.21 Sweep a shape instead of a ray: will it fit, how far can it go [recipes-world-2]
+- 9.21.1 Water, heat haze and glass in 2D: the picture drawn so far [recipes-world-2]
+- 9.21.2 A terrain: a heightmap as ground you can see and walk on [recipes-world-2]
 - 9.22 A menu: buttons, sliders, focus and the gamepad [recipes-ui-assets]
 - 9.23 Art, sounds and models: generate, import, ship [recipes-ui-assets]
 - 9.24 Game menus: main menu, options, credits, loading screen, pause [recipes-ui-assets]
