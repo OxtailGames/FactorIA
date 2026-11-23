@@ -75,8 +75,10 @@ struct PrepassRef {
     static constexpr float kFarDepth = 60000.0f;
 };
 
-// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md; no pass
-// writes it yet, so PostPlan::velocity is invalid until the one that does lands). RG16F at the render resolution of the camera's rectangle
+// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md). The
+// depth prepass writes it as its second attachment when PostPlan::needsVelocity (request_velocity()); PostPlan::velocity is invalid when
+// nothing asked or the prepass did not run. What the meshes, instances, terrain, foliage and impostors write is the motion of the object; the
+// skinned meshes, custom vertex() materials, particles, sprites and quads hold kNone for now (M76-P1b). RG16F at the render resolution of the camera's rectangle
 // (the size of the prepass). rg = uvPrev - uvCurr: where the surface drawn at this pixel was on the previous frame's image minus where it is
 // now, in uv units (0..1 over the camera's rectangle, y down), computed from the UNJITTERED matrices (the jitter of the two frames is not part
 // of a motion; the resolve adds it back with PostPlan::jitterNdc / prevJitterNdc). A pixel no object wrote holds kNone in both channels: the
@@ -147,6 +149,13 @@ struct PostPlan {
     // What the effects the renderer draws read from the prepass (post_effect_needs_depth / _normals of postprocess_resolve.h). The frame
     // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
     bool needsDepth = false, needsNormals = false;
+    // M76: this camera asks for the velocity image (VelocityRef). The prepass then writes the motion vectors into a second attachment (the
+    // frame does it when the GPU can make the image: `velocity` below is valid for the passes after the prepass, invalid otherwise).
+    // Whoever needs it calls request_velocity(): make_post_plan does for an effect that reads it (post_effect_needs_velocity), the
+    // renderer for the debug view "motionVectors" and the test hook; a later effect or upscaler that is drawn adds itself to that table.
+    // The velocity image needs the prepass but not the depth or normals it holds: a consumer that reads them asks for those itself.
+    bool needsVelocity = false;
+    void request_velocity() { needsVelocity = true; }
     std::uint32_t readMask =
         0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;

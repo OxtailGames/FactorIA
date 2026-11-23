@@ -47,6 +47,13 @@ void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
             prev.jittered * back;  // the jitter is in clip space: it moves with the matrix, not with the world
         prev.beforeJittered = prev.beforeJittered * back;
     }
+    // The model matrices the motion vectors reproject from (M76): a still entity moved with the world, so both the frame before's and the
+    // last one's are `offset` closer to 0 too (translate(-off) * m): no motion appears out of the rebase.
+    const Mat4 shiftModel = Mat4::translate(Vec3{-off.x, -off.y, -off.z});
+    for (auto& [bits, pm] : prevModels) {
+        pm.prev = shiftModel * pm.prev;
+        pm.cur = shiftModel * pm.cur;
+    }
     // The 2D GI field and its irradiance history (units of the Transform: 2D pixels).
     gi2d.shift(offset.x, offset.y);
     // The realtime GI grids: the entity moved with the world, so the grid is laid out `offset` closer to 0, and the anchor that decides

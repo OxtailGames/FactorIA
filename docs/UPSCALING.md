@@ -37,7 +37,9 @@ The names are `Low`, `Medium`, `High`, `Ultra` and `Custom` (what the game set i
 ## What a game can already ask
 
 `render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
-(the effect's row). All answer false with the status `planned (M76)`.
+(the effect's row). `motionVectors` answers true where the GPU can make the image (the depth prepass writes the motion of the meshes,
+instances, terrain, foliage and impostors, and `render.debug_view {"view":"motionVectors"}` shows it); the others answer false
+with the status `planned (M76)`.
 
 | Row | Backends | Needs |
 |---|---|---|

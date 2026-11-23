@@ -399,12 +399,13 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0       ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0   ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0        ? DebugView::Ao
-                       : std::strcmp(dv, "cascades") == 0  ? DebugView::Cascades
-                       : std::strcmp(dv, "occlusion") == 0 ? DebugView::Occlusion
-                                                           : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0           ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0       ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0            ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0      ? DebugView::Cascades
+                       : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
+                       : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
+                                                               : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -1062,6 +1063,18 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
     jittered = it->second.jittered;
     jitterPx = it->second.jitterPx;
     return true;
+}
+void RendererTestAccess::force_velocity(Renderer& r, bool on) {
+    if (!r.impl_) return;
+    r.impl_->forceVelocity = on;
+    if (!on) render::destroy_target(r.impl_->velocityProbe);
+}
+bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_velocity(out, w, h, error);
 }
 void RendererTestAccess::force_jitter(Renderer& r, int phases) {
     if (r.impl_) r.impl_->jitterForce = std::max(phases, 0);

@@ -184,6 +184,9 @@ layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
 #endif
 #ifdef FA_CH_COLOR1
 layout(location=FA_X_BASE+FA_NINST+FA_NUV1) in vec4 fa_attr_color1;
+#define FA_NCOL1 1
+#else
+#define FA_NCOL1 0
 #endif
 
 void fa_inst_begin() {
@@ -1311,7 +1314,25 @@ out vec3 fa_pre_r0;
 out vec3 fa_pre_r1;
 out vec3 fa_pre_r2;
 
-void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
+// The motion vectors (M76): the camera's UNJITTERED view-projection of this frame and of the frame before, and 1 in x when the
+// prepass draws the velocity image (the renderer binds the block always; without the image the vertex stage skips the work).
+layout(binding=2) uniform fa_vel_params {
+    mat4 fa_vel_vp;
+    mat4 fa_vel_prev_vp;
+    vec4 fa_vel_on;
+};
+// The clip position (x, y, w) of the surface point now and in the previous frame, interpolated; the fragment stage turns them into
+// uv. w <= 0 in fa_vel_prev: "this program cannot say where the point was" (a skinned mesh, a draw without the previous model):
+// the fragment writes the sentinel and the temporal passes reproject with the camera alone.
+out vec3 fa_vel_cur;
+out vec3 fa_vel_prev;
+
+// `pr0..pr2` are the rows of the previous model matrix of the instance (an affine matrix), `has_prev` false when the program has none.
+// The previous world position of the point is its position now (after vertex(): a displacement is not motion here) plus what the model
+// matrix alone moved it by, so an object that did not move reprojects exactly like the camera says, and so does a terrain or a foliage
+// instance whose vertex() displaces it.
+void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color,
+                       vec4 pr0, vec4 pr1, vec4 pr2, bool has_prev) {
     VertexData v = fa_vertex_data(model, position, normal, tangent, texcoord0, color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -1329,6 +1350,16 @@ void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec
     fa_pre_r1 = vec3(view[0].y, view[1].y, view[2].y);
     fa_pre_r2 = vec3(view[0].z, view[1].z, view[2].z);
     gl_Position = fa_view_proj * wp;
+    fa_vel_cur = vec3(0.0, 0.0, 1.0);
+    fa_vel_prev = vec3(0.0);
+    if (has_prev && fa_vel_on.x > 0.5) {
+        vec4 lp = vec4(position, 1.0);
+        vec3 moved = vec3(dot(pr0, lp), dot(pr1, lp), dot(pr2, lp)) - (model * lp).xyz;
+        vec4 cur = fa_vel_vp * wp;
+        vec4 prev = fa_vel_prev_vp * vec4(v.world_pos + moved, 1.0);
+        fa_vel_cur = vec3(cur.x, cur.y, cur.w);
+        fa_vel_prev = vec3(prev.x, prev.y, prev.w);
+    }
 }
 @end
 
@@ -1346,9 +1377,21 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 #define FA_X_BASE 9
 @include_block fa_extra_attrs
+// The previous model matrix of the instance (vertex buffer 6, an affine matrix as three rows), right after the extra attributes
+// (Gpu::prepass_pipeline lays them out the same way, render_internal.h prepass_prev_attr). A program without room for them (a
+// material that declares every extra attribute) or drawn from storage buffers has none: its fragments write the sentinel.
+#if !defined(FA_BUFFER_INST) && (FA_NINST + FA_NUV1 + FA_NCOL1) <= 4
+#define FA_PREV_BASE (FA_X_BASE + FA_NINST + FA_NUV1 + FA_NCOL1)
+layout(location=FA_PREV_BASE) in vec4 fa_prev_r0;
+layout(location=FA_PREV_BASE+1) in vec4 fa_prev_r1;
+layout(location=FA_PREV_BASE+2) in vec4 fa_prev_r2;
+#define FA_PREV_ROWS fa_prev_r0, fa_prev_r1, fa_prev_r2, true
+#else
+#define FA_PREV_ROWS vec4(0.0), vec4(0.0), vec4(0.0), false
+#endif
 void main() {
     fa_inst_begin();
-    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color, FA_PREV_ROWS);
 }
 @end
 
@@ -1371,8 +1414,9 @@ layout(location=10) in vec4 fa_weights;
 @include_block fa_extra_attrs
 void main() {
     fa_inst_begin();
+    // The previous palette is not kept yet (M76-P1b): a skinned mesh writes the sentinel.
     fa_prepass_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights), fa_position,
-                      fa_normal, fa_tangent, fa_texcoord0, fa_color);
+                      fa_normal, fa_tangent, fa_texcoord0, fa_color, vec4(0.0), vec4(0.0), vec4(0.0), false);
 }
 @end
 
@@ -1383,6 +1427,10 @@ void main() {
 //   gb the surface normal in view space (x right, y up, z toward the camera), octahedral encoded in -1..1 (decode below); 0 0 where
 //      nothing was drawn
 //   a  1 where an opaque mesh was drawn, 0 where not: the truth about coverage (a drawn surface at 60000 or more has r = 60000 too)
+// A second output (location 1) is the motion vector of the pixel (M76): uvPrev - uvCurr, in uv units (y down), from the UNJITTERED
+// matrices of this frame and the one before; 1024 in both channels (VelocityRef::kNone) where this program cannot say (a skinned
+// mesh, a draw without a previous model, a point behind the previous camera). The renderer attaches a second image to the pass only
+// when a temporal effect, the debug view "motionVectors" or a test asks; without the attachment the output is dropped.
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
 @block fa_prepass_fs_main
 @include_block fa_fs_surface
@@ -1390,7 +1438,10 @@ in float fa_pre_depth;
 in vec3 fa_pre_r0;
 in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
-out vec4 fa_frag_color;
+in vec3 fa_vel_cur;
+in vec3 fa_vel_prev;
+layout(location=0) out vec4 fa_frag_color;
+layout(location=1) out vec2 fa_frag_velocity;
 void main() {
     fa_inst_load();
     SurfaceInput i;
@@ -1417,6 +1468,13 @@ void main() {
     vec2 e = nv.xy / (abs(nv.x) + abs(nv.y) + abs(nv.z));
     if (nv.z < 0.0) { e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); }
     fa_frag_color = vec4(min(fa_pre_depth, 60000.0), e, 1.0);
+    vec2 motion = vec2(1024.0);
+    if (fa_vel_cur.z > 1.0e-5 && fa_vel_prev.z > 1.0e-5) {
+        vec2 uv_cur = vec2(fa_vel_cur.x, -fa_vel_cur.y) / fa_vel_cur.z * 0.5;
+        vec2 uv_prev = vec2(fa_vel_prev.x, -fa_vel_prev.y) / fa_vel_prev.z * 0.5;
+        motion = clamp(uv_prev - uv_cur, vec2(-4.0), vec2(4.0));
+    }
+    fa_frag_velocity = motion;
 }
 @end
 
