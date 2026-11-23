@@ -1,5 +1,5 @@
 Part of [RENDERING.md](../RENDERING.md): the passes of a frame, in order, with what each one draws and when. The stack they belong to is
-described there, in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
+described on [RENDERING_POSTPROCESS.md](RENDERING_POSTPROCESS.md), in "Post-processing: bloom, exposure, tonemap, colour grading, lens effects, colour filter".
 
 # Rendering: the passes of a frame
 
@@ -10,7 +10,7 @@ has its own, named `camera:<n>/<pass>`:
 |---|---|---|
 | `bloom-bright`, `bloom-down-*`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite` | `bloomEnabled` | The glow: threshold with a soft knee, a reduced-resolution blur, added back (times the lens dirt texture). |
 | `exposure-luma`, `exposure-adapt` | `exposureMode` auto | The frame reduced to 32x32 brightness values, then the stored 1x1 exposure moves toward the one that makes the average 18% grey by `1 - exp(-speed * dt)`, kept between `exposureMinEv` and `exposureMaxEv`. No read back; the engine's frame `dt`, so the same frames give the same exposure on every run. Needs a float render target. The 1x1 exposure is kept as two 16-bit numbers (a coarse step and the remainder), so a slow speed at a high frame rate reaches the target on every GPU. Frames of `capture_world` do not count as frames of the game, so a capture does not make it jump. |
-| `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals" in RENDERING.md) | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals" in [RENDERING.md](../RENDERING.md)). |
+| `prepass` | `outlineEnabled` in depth mode, `ssaoEnabled` (and the effects of "Depth and normals" in RENDERING.md) | The opaque meshes' depth and normals, read by the outline and the ambient occlusion (see "Depth and normals" in [RENDERING_POSTPROCESS.md](RENDERING_POSTPROCESS.md)). |
 | `ssao-ao`, `ssao-blur-h`, `ssao-blur-v` | `ssaoEnabled`, 3D meshes in the view | The ambient occlusion image, made before the camera's main pass, which applies it right after the opaque meshes (see [Screen-space effects](RENDERING_EFFECTS.md)). |
 | `ssr-trace`, `ssr-copy` | `ssrEnabled` with an intensity above 0, 3D meshes in the view | The screen-space reflections: one trace over the camera's rectangle into a scratch image, one copy back (see [Screen-space effects](RENDERING_EFFECTS.md)). |
 | `shafts-rays`, `shafts-add` | `sunShaftsEnabled` | The sun shafts (see [Screen-space effects](RENDERING_EFFECTS.md)). The distance and height fog is not a pass: the main pass draws it after the opaque meshes. |

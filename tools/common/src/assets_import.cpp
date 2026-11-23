@@ -645,7 +645,8 @@ std::string supported_extensions() {
 std::vector<std::string> default_next_steps(const std::string& path) {
     if (to_lower(fs::extension(path)) == ".cube")
         return {"Use it: a PostProcess with \"colorGradingEnabled\": true and \"colorGradingLut\": \"" + path +
-                "\" (\"colorGradingLutContribution\" blends it in; docs/RENDERING.md, \"Colour grading with a LUT\")."};
+                "\" (\"colorGradingLutContribution\" blends it in; docs/rendering/RENDERING_POSTPROCESS.md, \"Colour "
+                "grading with a LUT\")."};
     if (to_lower(fs::extension(path)) == ".ies")
         return {"Use it: a Light (point or spot) with \"ies\": \"" + path +
                 "\". The table is divided by its peak, so \"intensity\" stays the brightness; the profile's nadir "

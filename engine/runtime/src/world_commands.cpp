@@ -1,5 +1,5 @@
 // The runtime commands of the big worlds of M75 (docs/BIG_WORLDS.md): the floating origin (world.origin, world.rebase,
-// world.absolute_position) and the streamed cells (world.cells, world.stream_status). M75-P0 registered them all as `not_built` stubs
+// world.absolute_position) and the streamed cells (world.cells, world.stream_status). M75-P0 first registered them as stubs
 // so the names, arguments and docs were fixed before the packages that build them; the floating origin ones are real now (M75-P4a),
 // the streaming ones (M75-P3a, the streamer in world_streamer.h) are real too.
 #include "engine_impl.h"

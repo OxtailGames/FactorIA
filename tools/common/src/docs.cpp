@@ -162,8 +162,11 @@ const std::vector<DocManifestEntry>& manifest() {
         {"ai-guide-tilemaps", "AI guide pages: recipe 9.8, tilemap levels, objects and tile collision.",
          aud({kGameAi})},
         {"ai-guide-recipes-world",
-         "AI guide pages: recipes 9.9 to 9.21 (3D scene, save data, levels, particles, patrol AI, 3D cameras, glow, "
-         "sweeps).",
+         "AI guide pages: recipes 9.9 to 9.18 (3D scene, saves, levels, particles, patrol AI, chase camera, rolling "
+         "ball).",
+         aud({kGameAi})},
+        {"ai-guide-recipes-world-2",
+         "AI guide pages: recipes 9.19 to 9.21.2 (raycasts, glow, colour-blind players, sweeps, 2D water, terrain).",
          aud({kGameAi})},
         {"ai-guide-recipes-ui-assets",
          "AI guide pages: recipes 9.22 to 9.25 (menus, art and sound pipeline, game menus, animated characters, "
@@ -212,6 +215,8 @@ const std::vector<DocManifestEntry>& manifest() {
         {"editor-review", "Editor pages: profiler, level generator, review window and play sessions.",
          aud({kUser, kEngineDev})},
         {"editor-panels", "Editor pages: the project, image, vector, sound and music panels.",
+         aud({kUser, kEngineDev})},
+        {"editor-panels-world", "Editor pages: the lightmap, terrain, cells, scene settings and graph panels.",
          aud({kUser, kEngineDev})},
         {"editor-foliage", "Editor pages: the foliage tool, a brush that paints and erases the instances of a Foliage.",
          aud({kUser, kEngineDev})},
@@ -335,6 +340,9 @@ const std::vector<DocManifestEntry>& manifest() {
         {"rendering-lighting",
          "Rendering, part: the M73 lighting fields. Lightmaps, decals, probes: rendering-lightmaps, -decals-fog, "
          "-probes.",
+         aud({kGameAi})},
+        {"rendering-postprocess",
+         "Rendering, part: the post-processing stack: bloom, exposure, tonemap, grading, lens effects, LUT, commands.",
          aud({kGameAi})},
         {"rendering-passes", "Rendering, part: the passes of a frame, when each runs and what it draws.",
          aud({kGameAi})},

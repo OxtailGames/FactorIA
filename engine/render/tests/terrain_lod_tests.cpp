@@ -1,4 +1,4 @@
-// M75-P5a: the level of detail of a Terrain, the CPU half (src/terrain_lod.h; docs/design/ARCHITECTURE_RENDERING.md, "Terrain"). No GPU: these
+// M75-P5a: the level of detail of a Terrain, the CPU half (src/terrain_lod.h; docs/design/ARCHITECTURE_RENDERING_BIGWORLDS.md, "Terrain"). No GPU: these
 // run where `ctest -LE gpu` does. The selection is checked by counts per distance and by a watertight test: for many cameras over a rough
 // terrain, every vertex on the edge of a selected node lies on the edge of each neighbour it touches (the morph formula is the CPU twin of
 // the vertex shader's), so the terrain has no cracks and does not pop where the level changes.
