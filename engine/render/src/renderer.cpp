@@ -362,6 +362,21 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
                     if (animated) gpu->shadow_pipeline(true);
                 });
             }
+            // The prepass with the velocity image (M76): its pipelines have two colour attachments, so they are not the ones of a camera
+            // that only reads the depth. Only where a PostProcess asks for temporal antialiasing, the effect that reads it; the engine's
+            // programs of a mesh drawn as it is (one sided and double sided, skinned where an entity has an Animator).
+            bool temporal = false;
+            world.each<PostProcess>([&](Entity, PostProcess& p) { temporal = temporal || p.temporalAAEnabled; });
+            if (temporal) {
+                im.warmGroups.push_back([gpu, animated] {
+                    if (!gpu->velocity_ready()) return;
+                    const TargetFormat f = gpu->prepass_target_format(true);
+                    for (const bool doubleSided : {false, true}) {
+                        gpu->prepass_pipeline(f, doubleSided, false, {}, {});
+                        if (animated) gpu->prepass_pipeline(f, doubleSided, true, {}, {});
+                    }
+                });
+            }
         }
     }
     if (im.warmNext >= im.warmGroups.size()) return 0;
@@ -486,6 +501,8 @@ void Renderer::shutdown() {
         im.impostors.destroy();
         im.foliage.destroy();
         im.assets.reset();
+        destroy_target(
+            im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
