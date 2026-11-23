@@ -79,7 +79,7 @@ struct PrepassRef {
 // The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md). The
 // depth prepass writes it as its second attachment when PostPlan::needsVelocity (request_velocity()); PostPlan::velocity is invalid when
 // nothing asked or the prepass did not run. What the meshes, instances, terrain, foliage and impostors write is the motion of the object; the
-// skinned meshes, custom vertex() materials, particles, sprites and quads hold kNone for now (M76-P1b). RG16F at the render resolution of the camera's rectangle
+// skinned meshes (of 32 joints or fewer) and custom vertex() materials write it too (M76-P1b); a skin of more than 32 joints, particles, sprites and quads hold kNone. RG16F at the render resolution of the camera's rectangle
 // (the size of the prepass). rg = uvPrev - uvCurr: where the surface drawn at this pixel was on the previous frame's image minus where it is
 // now, in uv units (0..1 over the camera's rectangle, y down), computed from the UNJITTERED matrices (the jitter of the two frames is not part
 // of a motion; the resolve adds it back with PostPlan::jitterNdc / prevJitterNdc). A pixel no object wrote holds kNone in both channels: the
