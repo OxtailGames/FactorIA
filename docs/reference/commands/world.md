@@ -4,7 +4,7 @@
 
 ## `foliage.clear` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Remove every instance of a Foliage, or those in a rectangle.
 
@@ -21,7 +21,7 @@ A Foliage with no file, or a file with nothing in the region, changes nothing (n
 
 ## `foliage.paint` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Add or remove foliage instances by hand in a circle on the ground.
 
@@ -46,7 +46,7 @@ A stroke never puts two instances closer than half the average gap of `density` 
 
 ## `foliage.redo` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Redo the foliage edit the last foliage.undo took back.
 
@@ -60,7 +60,7 @@ Applies the undone edit again. The history is in memory (the last 64 edits or 12
 
 ## `foliage.scatter` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Fill a Foliage's instances by a ScatterRule over a terrain, deterministically.
 
@@ -78,7 +78,7 @@ More than 2,000,000 instances (the most one file holds) or more than 16.7 millio
 
 ## `foliage.undo` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Undo the last foliage.scatter, foliage.paint or foliage.clear of a Foliage.
 
@@ -92,7 +92,7 @@ Puts the instances file, Foliage.meshes and Foliage.instances back as they were 
 
 ## `terrain.create` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Create a Terrain entity with a new flat 16-bit heightmap file, or one that imports a heightmap.
 
@@ -114,7 +114,7 @@ Writes a flat 16-bit greyscale PNG heightmap of `resolution` x `resolution` samp
 
 ## `terrain.generate` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Fill a Terrain's heightmap with seeded procedural noise and optional erosion (one undo step).
 
@@ -137,7 +137,7 @@ Replaces the heights with fractal Perlin noise (`seed`, `frequency` features per
 
 ## `terrain.holes` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Cut or fill holes (caves, tunnels) in a Terrain with a circle brush (live, one undo step).
 
@@ -157,7 +157,7 @@ Sets the cells of the terrain's holes mask whose centre is within `radius` world
 
 ## `terrain.paint` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Paint a material layer of a Terrain with a brush (splat maps, live, one undo step).
 
@@ -180,7 +180,7 @@ Raises the weight of `layer` (0 ... 7, an index into Terrain.layers) within `rad
 
 ## `terrain.redo` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Redo the terrain edit the last terrain.undo took back.
 
@@ -195,7 +195,7 @@ Applies the undone edit again. Each terrain keeps the last 64 edits (and at most
 
 ## `terrain.save` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Write the edited files of one Terrain, or of every Terrain, to the project.
 
@@ -209,7 +209,7 @@ Writes what terrain.sculpt, terrain.paint, terrain.holes and terrain.generate ch
 
 ## `terrain.sculpt` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Raise, lower, smooth or flatten the heights of a Terrain with a brush (live, one undo step).
 
@@ -233,7 +233,7 @@ Edits the samples of the terrain's heightmap within `radius` world metres of `ce
 
 ## `terrain.undo` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Undo the last terrain edit of a Terrain (one command's worth of heights, holes and splat maps).
 
@@ -248,7 +248,7 @@ Puts back the samples the newest sculpt, paint, holes or generate command change
 
 ## `tilemap.split_cells` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Cut the Tilemap of a scene into a streamed 2D world: one chunk scene per cell and an index.
 
@@ -269,7 +269,7 @@ Each chunk is an entity `<id>_<i>_<j>` with the same Tilemap fields (tileset, ti
 
 ## `world.absolute_position`
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Read an entity's position in double precision: the floating origin plus its local position.
 
@@ -283,7 +283,7 @@ Returns {entity, position: [x, y, z] (the origin plus the entity's world positio
 
 ## `world.bake_cell_hlods` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Bake the HLOD proxy of every cell of a streamed world and name it in the world index.
 
@@ -305,7 +305,7 @@ Deterministic: the same scenes and arguments write the same bytes. A cell with n
 
 ## `world.bake_hlod` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Bake the HLOD proxy of an entity: one simplified mesh that stands for everything under it.
 
@@ -327,7 +327,7 @@ A LodGroup's children are its levels, so wrap the children of a plain cell in ON
 
 ## `world.cells`
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 List the cells of the streamed world and which are loaded.
 
@@ -342,7 +342,7 @@ Lists the cells of the index of the scene's StreamedWorld (docs/BIG_WORLDS_STREA
 
 ## `world.merge_cells` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Merge the cells of a streamed world back into one scene file.
 
@@ -361,7 +361,7 @@ Two files with the same entity id are an error (nothing is written). The world's
 
 ## `world.origin`
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Read the floating origin: where the world's origin is, in double precision.
 
@@ -371,7 +371,7 @@ Returns {enabled, origin: [x, y, z] (metres, doubles: the world position of the 
 
 ## `world.rebase` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Move the floating origin now, shifting every entity so the camera is near (0, 0, 0) again.
 
@@ -387,7 +387,7 @@ Moves the origin to `origin` (double metres, world space: the NEW origin, not a 
 
 ## `world.split_cells` (modifies state)
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Cut a scene into a streamed world: an index, one scene per cell and a persistent scene.
 
@@ -408,7 +408,7 @@ GLOBAL entities stay in the persistent scene instead, together with the scene's 
 
 ## `world.stream_status`
 
-Not released yet (on main after 0.34.0).
+Since 0.35.0.
 
 Read what the world streaming is doing: loads in flight, budget, cells loaded.
 
