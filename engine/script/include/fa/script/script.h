@@ -261,8 +261,9 @@ public:
     // stores and reports: the renderer draws every mode as "stretch" until the packages that draw the others land. Engine also hands
     // the value to the renderer; the default keeps it for hosts without one.
     virtual render::UpscalerSettings upscaler() const { return upscaler_; }
-    virtual std::string set_upscaler(const Json& value) {
-        auto r = render::parse_upscaler_settings(value, "window.upscaler", upscaler_);
+    // `where` names the caller in the error ("window.upscaler" for a script, "render.upscaler" for the command).
+    virtual std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler") {
+        auto r = render::parse_upscaler_settings(value, where, upscaler_);
         if (!r.ok()) return r.error().message + " Hint: " + r.error().hint;
         upscaler_ = r.value();
         return {};

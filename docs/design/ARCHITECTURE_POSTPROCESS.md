@@ -41,7 +41,7 @@ display output.
   parameter added later without being edited. Everything is off by default. On a Camera it is that camera's own stack; on any other
   entity it is a volume.
 - **Effect order, one list.** `kPostEffectOrder` (and `enum PostEffect`, same order) is the order the passes run, HDR effects first,
-  display effects after the tonemap: `ssao`, `ssr`, `fog`, `sunShafts`, `exposure`, `depthOfField`, `motionBlur`, `radialBlur`,
+  display effects after the tonemap: `ssao`, `ssr`, `fog`, `sunShafts`, `exposure`, `temporalAA`, `depthOfField`, `motionBlur`, `radialBlur`,
   `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`, `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`,
   `posterize`, `filmGrain`, `colorFilter`. A pass never reorders it; `post_effect_is_hdr` tells the effects that run before the
   tonemap (up to `bloom`).

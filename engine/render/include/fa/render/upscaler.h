@@ -23,8 +23,8 @@ namespace fa::render {
 //  auto:     the best of the above this GPU and backend can draw.
 enum class UpscalerMode : std::int32_t { Stretch, Spatial, Temporal, MetalFx, Auto };
 inline constexpr int kUpscalerModeCount = 5;
-inline constexpr std::array<std::string_view, kUpscalerModeCount> kUpscalerModeNames = {"stretch", "spatial", "temporal",
-                                                                                         "metalfx", "auto"};
+inline constexpr std::array<std::string_view, kUpscalerModeCount> kUpscalerModeNames = {"stretch", "spatial",
+                                                                                        "temporal", "metalfx", "auto"};
 
 // How much smaller than the output the frame is drawn: the scale factor is the share of the output's width and height.
 enum class UpscalerQuality : std::int32_t { Native, Quality, Balanced, Performance, UltraPerformance };
