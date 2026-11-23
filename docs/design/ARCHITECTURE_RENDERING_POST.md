@@ -218,10 +218,12 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   magnitude of 512 or more) means "no object wrote here: reproject from the depth with the camera's matrices". Motion
   above `kMaxMotion` (4 UV) is not trusted by the temporal passes. The image is optional: a pass that finds none
   reprojects every texel from the depth, which is right for everything static.
-- **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
-  `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
-  has the rows `motionVectors` (drawn since M76-P1a), `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
-  the row of the effect itself (`PostEffect::TemporalAA`, supported on every backend), not a second engine row.
+- **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are read by the upscale stage (`Renderer::upscaler()`);
+  `effective_upscaler_mode(settings, caps)` is the one place that says which mode draws: `stretch` and `spatial` today (M76-P3b; the
+  caps carry the pixel-art flag and what the backend can draw, and the temporal and MetalFX packages set theirs). `render.supports`
+  has the rows `motionVectors` (drawn since M76-P1a), `spatialUpscaler` (drawn since M76-P3b), `temporalUpscaler`, `metalfx`,
+  `dynamicResolution` (planned M76); `temporalAA` is the row of the effect itself (`PostEffect::TemporalAA`, supported on every
+  backend), not a second engine row.
 
 ### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)
 

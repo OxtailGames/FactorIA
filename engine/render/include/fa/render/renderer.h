@@ -346,10 +346,17 @@ public:
     // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
     void set_upscale_stage(bool on);
     bool upscale_stage() const;
-    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): kept and reported only. The renderer draws every mode as
-    // "stretch" until the packages that draw the others land (effective_upscaler_mode).
+    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): what the upscale stage draws with. The mode that really draws
+    // is effective_upscaler_mode(): the setting's mode where this backend can draw it, and "stretch" for pixel art (ScaleMode::PixelPerfect,
+    // set_scale_mode) so its hard edges stay. With "spatial" the stage also runs at render scale 1 when the sharpness is above 0 (the
+    // sharpen alone); with "stretch" it never does. The render scale itself is not derived here: the caller sets it (Engine does:
+    // docs/UPSCALING.md, "The render scale").
     void set_upscaler(const render::UpscalerSettings& settings);
     const render::UpscalerSettings& upscaler() const;
+    render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
+    render::UpscalerMode
+    effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised
+    float render_scale() const;       // the scale set by set_render_scale (1 before)
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
