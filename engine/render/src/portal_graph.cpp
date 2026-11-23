@@ -184,13 +184,22 @@ bool portal_mesh_seen(const std::vector<PortalAreaBox>& areas, const std::vector
         wlo = {std::min(wlo.x, corners[k].x), std::min(wlo.y, corners[k].y), std::min(wlo.z, corners[k].z)};
         whi = {std::max(whi.x, corners[k].x), std::max(whi.y, corners[k].y), std::max(whi.z, corners[k].z)};
     }
-    // A margin (a thousandth of the box plus a millimetre) so the reject never differs from the exact test on a touching face.
-    const Vec3 pad = (whi - wlo) * 1.0e-3f + Vec3{1.0e-3f, 1.0e-3f, 1.0e-3f};
+    // A margin so the reject never differs from the exact test on a touching face: a thousandth of the box, plus a millimetre or a
+    // millionth of the coordinates involved (far from the origin one float step is above a millimetre, and the transform's rounding too).
+    const Vec3 size = (whi - wlo) * 1.0e-3f;
+    const auto apart = [&](float amin, float amax, float lo, float hi, float pad, float coord) {
+        const float m = pad + std::max(1.0e-3f, coord * 1.0e-6f);
+        return amin > hi + m || amax < lo - m;
+    };
+    const auto mag = [](float a, float b, float c, float d) {
+        return std::max(std::max(std::fabs(a), std::fabs(b)), std::max(std::fabs(c), std::fabs(d)));
+    };
     bool whollyInside = false;
     for (const PortalAreaBox& a : areas) {
         if (!a.valid) continue;
-        if (a.wmin.x > whi.x + pad.x || a.wmax.x < wlo.x - pad.x || a.wmin.y > whi.y + pad.y ||
-            a.wmax.y < wlo.y - pad.y || a.wmin.z > whi.z + pad.z || a.wmax.z < wlo.z - pad.z)
+        if (apart(a.wmin.x, a.wmax.x, wlo.x, whi.x, size.x, mag(a.wmin.x, a.wmax.x, wlo.x, whi.x)) ||
+            apart(a.wmin.y, a.wmax.y, wlo.y, whi.y, size.y, mag(a.wmin.y, a.wmax.y, wlo.y, whi.y)) ||
+            apart(a.wmin.z, a.wmax.z, wlo.z, whi.z, size.z, mag(a.wmin.z, a.wmax.z, wlo.z, whi.z)))
             continue;                                  // the world bounds do not touch: neither do the boxes
         Vec3 lo{inf, inf, inf}, hi{-inf, -inf, -inf};  // the mesh's corners in the local space of the area
         for (int k = 0; k < 8; ++k) {

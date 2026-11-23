@@ -2,13 +2,22 @@
 // scene is the one of occlusion_render_tests.cpp, but the wall is a plain mesh: nothing says it is an occluder, the depth of the frame before
 // proves the cube behind it hidden. The headless renderer waits for the copy of the depth grid at the start of the next frame, so what a
 // frame knows is always the frame before: the tests count frames, never milliseconds. Skipped where the backend has no compute shaders.
+#include "fa/core/engine_version.h"
 #include "test_util.h"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
+#include "fa/core/json.h"
+#include "fa/core/log.h"
+#include "fa/scene/postprocess.h"
 #include "render_features.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -72,6 +81,49 @@ Image frames(Gfx& g, World& w, int n) {
     Image img;
     for (int i = 0; i < n; ++i) img = g.draw(w);
     return img;
+}
+
+// The errors sokol_gfx's validation layer logged while alive (tag "sg"): a draw with a missing binding is a test failure, not a log line.
+struct SokolErrors {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    SokolErrors()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level < LogLevel::Error || e.category != "sg") return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~SokolErrors() { remove_log_sink(id); }
+    SokolErrors(const SokolErrors&) = delete;
+    SokolErrors& operator=(const SokolErrors&) = delete;
+    std::string text() const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        std::string out;
+        for (const std::string& m : shared->lines) out += m + "\n";
+        return out;
+    }
+};
+
+// Copies the post_tint fixture material (a custom pass of PostProcess) and its prebuilt twins into the test project; every twin gets this
+// build's engine version, as post_material_tests.cpp does.
+void install_tint_material() {
+    namespace sfs = std::filesystem;
+    const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
+    for (const auto& e : sfs::recursive_directory_iterator(src)) {
+        if (!e.is_regular_file() || e.path().filename().string().rfind("post_tint.", 0) != 0) continue;
+        std::ifstream in(e.path(), std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (e.path().extension() == ".shader") {
+            Json twin = Json::parse(bytes);
+            twin["engine"] = FA_ENGINE_VERSION;
+            bytes = twin.dump();
+        }
+        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
+    }
 }
 
 }  // namespace
@@ -206,6 +258,8 @@ TEST_CASE("hi-z on a GPU: a culled mesh still casts its shadow, and the Occluder
 TEST_CASE("hi-z on a GPU: auto uses the pyramid where the GPU can, and the debug view and the saved picture work") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    const SokolErrors
+        sokol;  // the debug view draws lines with the quad program: every view it declares needs a binding
     World w;
     make_scene(w, OcclusionMode::Auto);
     frames(g, w, 4);
@@ -230,6 +284,7 @@ TEST_CASE("hi-z on a GPU: auto uses the pyramid where the GPU can, and the debug
     g.renderer.set_debug_view(DebugView::None);
     frames(g, w, 2);
     CHECK(differing(before, g.draw(w)) == 0);
+    CHECK_MESSAGE(sokol.text().empty(), sokol.text());
 }
 
 // A wall that covers only the TOP half of the picture (it is above the camera): the cube behind it in the top half is hidden, the one
@@ -297,11 +352,18 @@ TEST_CASE("hi-z on a GPU: a capture of the camera leaves the game's pyramid and 
         MESSAGE("no compute shaders or no asynchronous read-back on this backend");
         return;
     }
+    // The camera has a custom pass: that is the only kind of capture that draws a prepass of its own, so the only one that could
+    // reach the pyramid. It must make no reduce pass and no HizCamera.
+    install_tint_material();
+    g.renderer.clear_asset_cache();
     World w;
     const Scene s = make_scene(w, OcclusionMode::Gpu);
+    w.add<PostProcess>(s.cam).customPasses =
+        Json::array({Json::object({{"material", "materials/post_tint.material.json"}})});
     frames(g, w, 4);
     CHECK(g.renderer.stats().meshesOccluded == 1);
     const int cameras = RendererTestAccess::hiz_cameras(g.renderer);
+    const int reduces = RendererTestAccess::hiz_reduces(g.renderer);
     const Json before = g.renderer.occlusion_report();
     REQUIRE(before.contains("gpu"));
     Renderer::CameraCapture spec;
@@ -312,6 +374,7 @@ TEST_CASE("hi-z on a GPU: a capture of the camera leaves the game's pyramid and 
     std::string error;
     REQUIRE_MESSAGE(g.renderer.capture_camera(w, spec, shot, &error), error);
     CHECK(RendererTestAccess::hiz_cameras(g.renderer) == cameras);  // nothing of the capture is kept
+    CHECK(RendererTestAccess::hiz_reduces(g.renderer) == reduces);  // and the GPU reduced nothing for it
     const Json after = g.renderer.occlusion_report();
     CHECK(after["gpu"]["hidden"] == before["gpu"]["hidden"]);
     CHECK(after["gpu"]["width"] == before["gpu"]["width"]);

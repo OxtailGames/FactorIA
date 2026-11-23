@@ -721,9 +721,10 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
     std::sort(next.cells.begin(), next.cells.end(),
               [](const WorldCell& x, const WorldCell& y) { return x.j != y.j ? x.j < y.j : x.i < y.i; });
     const bool writeIndex = indexChange || indexDirty_;
+    std::string diskIndexError;  // set when the index on disk could not be read at this save
     if (writeIndex) {
         // The index on disk may have changed since it was read (world.bake_cell_hlods writes each cell's "hlod"): its HLOD entries are
-        // kept, never overwritten by this copy. A file that cannot be read now leaves the copy as it is.
+        // kept, never overwritten by this copy. A file that cannot be read now leaves the copy as it is, and the report says so.
         WorldIndexOptions opts;
         opts.checkFiles = false;
         if (auto onDisk = load_world_index(indexPath_, opts); onDisk.ok()) {
@@ -732,6 +733,8 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
                     c.hlod = d->hlod;
                     c.hlodMaxDistance = d->hlodMaxDistance;
                 }
+        } else {
+            diskIndexError = onDisk.error().message;
         }
         auto checked = parse_world_index(world_index_to_json(next), indexPath_, opts);
         if (!checked.ok())
@@ -780,6 +783,11 @@ CellSaveReport CellEdit::save(World& world, bool only, std::int32_t onlyI, std::
         }
         indexDirty_ = false;
         rep.indexWritten = true;
+        if (!diskIndexError.empty())
+            rep.notes.push_back(
+                "The index '" + indexPath_ + "' could not be read before this save (" + diskIndexError +
+                "): it was overwritten from the editor's copy, so any proxy that world.bake_cell_hlods named in "
+                "it since the editor read it is gone. Run that command again for the cells you had baked.");
     }
     return rep;
 }

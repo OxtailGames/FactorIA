@@ -202,6 +202,34 @@ TEST_CASE("world.bake_cell_hlods: `cells` bakes only those, and dryRun reports w
     CHECK(obj["cellsBaked"] == 1);
 }
 
+TEST_CASE("world.bake_cell_hlods: an outDir that is the project root writes <i>_<j>.glb there, with no leading slash") {
+    for (const char* dir : {".", "worlds/.."}) {
+        CellsProject p;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+        const Json r = call(e, world_arg(Json::object({{"outDir", dir}})));
+        INFO("outDir " << dir);
+        CHECK(r["outDir"] == "");
+        CHECK(r["cellsBaked"] == 2);
+        CHECK(r["baked"][0]["mesh"] == "0_0.glb");
+        CHECK(stdfs::exists(p.dir / "0_0.glb"));
+        CHECK(stdfs::exists(p.dir / "1_0.glb"));
+        auto index = load_world_index("worlds/town.world.json");
+        REQUIRE(index.ok());
+        CHECK(index.value().find(1, 0)->hlod == "1_0.glb");
+        e.shutdown();
+    }
+    // A dryRun carries no `note`: it is only there when the index was written.
+    CellsProject q;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(q.config(), nullptr, &err), err);
+    const Json dry = call(e, world_arg(Json::object({{"dryRun", true}})));
+    CHECK_FALSE(dry.contains("note"));
+    CHECK_FALSE(dry.contains("indexWritten"));
+}
+
 TEST_CASE("world.bake_cell_hlods: a refused call names its JSON pointer and writes nothing") {
     CellsProject p;
     Engine e;

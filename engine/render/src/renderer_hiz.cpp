@@ -26,8 +26,6 @@ constexpr int kBoxEdgesHiz[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1,
 
 // A game that draws every frame with the same few cameras keeps their pictures; a camera that was not drawn for this many frames loses its buffers.
 constexpr std::uint64_t kHizForgetFrames = 120;
-// The key bit of the pyramids of a view job (a capture): see hiz_cull.
-constexpr std::uint64_t kHizViewKeyBit = 1ull << 62;
 
 }  // namespace
 
@@ -180,18 +178,10 @@ render::HizPose Renderer::Impl::hiz_pose_of(const CameraInfo& cam) {
     return render::hiz_pose(cam.proj, cam.viewProj, cam.position);
 }
 
-void Renderer::Impl::hiz_forget_views() {
-    for (auto it = hizCams.begin(); it != hizCams.end();)
-        it = (it->first & kHizViewKeyBit) ? hizCams.erase(it) : std::next(it);
-}
-
-Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes,
-                                                    bool viewJob) {
+Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes) {
     // An orthographic camera has no use for it (the depth of a cell is the clip w of a perspective matrix): the Occluders cull it.
     if (!fr.cam.perspective || !std::isfinite(fr.cam.proj.at(0, 0) + fr.cam.proj.at(1, 1))) return nullptr;
-    // A capture of a camera entity must not share the pyramid of that camera drawn by the game (another size, another picture), so
-    // its key has a bit the game's never has (an entity's bits use the low 32 + generation; bit 62 is free, like kCaptureHistoryBit).
-    const std::uint64_t key = fr.cam.entity.bits() | (viewJob ? kHizViewKeyBit : 0);
+    const std::uint64_t key = fr.cam.entity.bits();
     auto it = hizCams.find(key);
     if (it == hizCams.end()) {
         if (int(hizCams.size()) >= render::kHizMaxCameras) {

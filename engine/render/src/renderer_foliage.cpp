@@ -329,7 +329,8 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
             if (!kept) continue;
             const FoliageChunk& ch = data.chunks[ci];
             const float dmin = distance_to_box(camLocal, ch.lo, ch.hi) * sc;
-            if (!(dmin < job.fadeEnd)) {  // beyond the fade, shadows too
+            if (!std::isfinite(dmin) ||
+                !(dmin < job.fadeEnd)) {  // beyond the fade, shadows too (a NaN distance would break the sort)
                 counts.culled += int(kept);
                 continue;
             }
@@ -369,21 +370,16 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
         std::uint32_t job, cand;
     };
     std::vector<Ref> order;
-    std::size_t want = 0, groupsTotal = 0;
+    std::size_t groupsTotal = 0;
     for (std::size_t j = 0; j < fields.size(); ++j) {
         fields[j].bucketBase = groupsTotal;
         groupsTotal += fields[j].grp.size();
         for (std::size_t k = 0; k < fields[j].cands.size(); ++k) {
             order.push_back({fields[j].cands[k].dist, std::uint32_t(j), std::uint32_t(k)});
-            want += fields[j].data->chunks[fields[j].cands[k].chunk].count;
         }
     }
     std::stable_sort(order.begin(), order.end(), [](const Ref& a, const Ref& b) { return a.dist < b.dist; });
     if (buckets_.size() < groupsTotal) buckets_.resize(groupsTotal);
-    // One reserve for the items and their flags, so the many appends of a big field never reallocate (a MeshItem is a few hundred bytes).
-    const std::size_t room = std::min(want, maxItems);
-    out.reserve(out.size() + room);
-    blended.reserve(blended.size() + room);
 
     std::size_t budget = maxItems;
     bool capped = false;
@@ -459,6 +455,13 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
             --budget;
         }
     }
+    // One reserve for the items and their flags, of what the culling accepted (a MeshItem is a few hundred bytes: the instances the
+    // frustum rejected were never made), so the many appends of a big field never reallocate.
+    std::size_t accepted = 0;
+    for (const Job& job : fields)
+        for (std::size_t g = 0; g < job.grp.size(); ++g) accepted += buckets_[job.bucketBase + g].size();
+    out.reserve(out.size() + accepted);
+    blended.reserve(blended.size() + accepted);
     for (const Job& job : fields) {
         for (std::size_t g = 0; g < job.grp.size(); ++g) {
             std::vector<MeshItem>& b = buckets_[job.bucketBase + g];
