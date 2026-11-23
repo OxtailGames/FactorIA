@@ -1,19 +1,32 @@
 // Renderer: the upscale stage (render_upscale.h) and the output-resolution images the screen-space items are drawn into after it.
 #include "render_upscale.h"
 
+#include <algorithm>
+#include <cmath>
+
+#include "fa/scene/jitter.h"
+
 #include "renderer_impl.h"
 
 namespace fa::render {
 
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known) {
-    const bool understood = mode == "stretch";
+    const bool understood = mode == "stretch" || mode == "temporal";
     if (known) *known = understood;
-    return UpscaleImpl::Stretch;
+    return mode == "temporal" ? UpscaleImpl::Temporal : UpscaleImpl::Stretch;
+}
+
+int upscale_jitter_phases(int renderW, int renderH, int outW, int outH) {
+    const double rw = std::max(renderW, 1), rh = std::max(renderH, 1);
+    const double ow = std::max(outW, 1), oh = std::max(outH, 1);
+    const double phases = std::ceil(double(kJitterPhasesDefault) * (ow * oh) / (rw * rh) - 1e-6);
+    return int(std::clamp(phases, 1.0, double(kJitterPhasesMax)));
 }
 
 const char* upscale_impl_name(UpscaleImpl impl) {
     switch (impl) {
         case UpscaleImpl::Stretch: return "stretch";
+        case UpscaleImpl::Temporal: return "temporal";
     }
     return "stretch";
 }
@@ -84,8 +97,40 @@ void Renderer::Impl::stretch_upscale(const UpscaleInput& in, Target& out) {
     ++stats.drawCalls;
 }
 
+// The mode the settings select on this backend (fa/render/upscaler.h): "temporal" and "auto" draw as temporal where the TAA shaders
+// compiled (the upscaler is a resolve of the temporal antialiasing's: renderer_taa.h), pixel art always as stretch. The TAA shaders are
+// compiled on the first call of a temporal or auto setting.
+render::UpscalerMode Renderer::Impl::effective_upscaler() {
+    render::UpscalerSupport support;
+    support.pixelArt = scaleMode == ScaleMode::PixelPerfect;
+    if (upscaler.mode == render::UpscalerMode::Temporal || upscaler.mode == render::UpscalerMode::Auto)
+        support.temporal = taa.ready() && !taa.unavailable();
+    return render::effective_upscaler_mode(upscaler, support);
+}
+
+// The "temporal" implementation (M76-P4): the TAA resolve of the jittered picture at the render resolution into a history of the output
+// resolution, sharpened into `out` (TaaFx::upscale). The depth of the camera's prepass and the velocity are read when the frame has
+// them. False (nothing drawn): the plan is off or the history cannot be made; the caller then stretches.
+bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const PassContext& c) {
+    if (!upscaleTaa.on || !assets || !assets->white()) return false;
+    render::TaaResolveInput r;
+    r.color = in.color;
+    r.dummy = assets->white()->view;
+    if (const Target* t = upscalePrepass.target(c)) r.depth = t->texView;
+    if (const Target* t = upscaleVelocity.target(c)) r.velocity = t->texView;
+    r.inW = in.renderW;
+    r.inH = in.renderH;
+    // What the history is bound to besides the camera: the size the picture is drawn at and the quality (a change of either drops it).
+    const std::uint64_t config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
+                                 (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 |
+                                 (std::uint64_t(int(upscaler.quality)) & 0xFF);
+    if (!taa.upscale(gpu, upscaleTaa, r, config, out)) return false;
+    stats.drawCalls += 2;  // the resolve and the sharpened copy
+    return true;
+}
+
 // The upscale pass: the picture of the render resolution (scene_target()) into `out`. The implementation is chosen by upscaleImpl.
-void Renderer::Impl::run_upscale(Target& out) {
+void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     const Target& src = scene_target();
     UpscaleInput in;
     in.color = src.texView;
@@ -97,6 +142,11 @@ void Renderer::Impl::run_upscale(Target& out) {
     in.pixelArt = scaleMode == ScaleMode::PixelPerfect;
     switch (upscaleImpl) {
         case UpscaleImpl::Stretch: stretch_upscale(in, out); break;
+        case UpscaleImpl::Temporal:
+            in.jitter[0] = upscaleTaa.jitterPx.x;
+            in.jitter[1] = upscaleTaa.jitterPx.y;
+            if (!temporal_upscale(in, out, c)) stretch_upscale(in, out);  // no history to make: this frame is stretched
+            break;
     }
     outActive = true;
 }

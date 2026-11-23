@@ -28,8 +28,22 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It is drawn now (see
   "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
 - New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
-  `render.upscaler` and `window.upscaler` in scripts. They are stored and reported; the effective mode is always `stretch`
-  until the upscalers land (docs/UPSCALING.md).
+  `render.upscaler` and `window.upscaler` in scripts. `temporal` is drawn (below); the other modes read `stretch` as their
+  effective mode until their upscalers land (docs/UPSCALING.md).
+- The temporal upscaler is drawn (M76-P4): `render.upscaler` / `window.upscaler` / `factoria.json` with mode `temporal` (or `auto`)
+  draw the game at the quality's size (`quality` 1/1.5, 1/1.7, 1/2 or 1/3 of the window, times `window.renderScale`, at least 0.25) with
+  the camera jittered over `ceil(8 * (output / render)^2)` phases (at most 128) and resolve it into a history at the window's size with
+  the temporal antialiasing's own resolve (RGBA16F, RGBA8 on a GPU without float targets), then sharpen it (`sharpness`). The HUD stays
+  sharp at the window's size. `effectiveMode` and `render.supports` `temporalUpscaler` say it is drawn; a game with `PixelPerfect`,
+  or a frame with more than one camera, draws as `stretch`; native quality draws nothing extra. The camera's own `TemporalAA` pass is
+  skipped while it runs (its fields still tune it). It resolves after the post stack, so the post effects see a jittered image; 2D
+  sprites have no velocity and trail when they move; the textures are not biased to a finer mip (not done: sokol samplers have no bias).
+  Off (`stretch`) is free: no pass, no image, no jitter, the same pixels. `UpscalerSettings` gets `effective_upscaler_mode(settings,
+  support)` and the engine its `Renderer::effective_upscaler_mode()`; `kJitterPhasesMax` is 128 (was 16); `docs/UPSCALING.md`,
+  "The temporal upscaler".
+- Fixes in the temporal resolve (`taa_shared.glsl`, antialiasing too): a NaN in the picture or in the history is dropped and never stays in
+  the history for ever (on a GPU that keeps NaN through `max`), and the depth rejection no longer discards the history of the sky when the
+  camera turns fast.
 - New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): they answer `not_built`.
 - New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
   (planned M76).

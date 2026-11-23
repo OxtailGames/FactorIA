@@ -304,6 +304,7 @@ public:
     float default_ui_scale() const override;      // the ui.scale of factoria.json
     double render_scale() const override;         // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
+    render::UpscalerMode effective_upscaler_mode() const override;
     std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
         override;  // window.upscaler / render.upscaler: also the renderer's
     void device_overridden(

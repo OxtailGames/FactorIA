@@ -179,6 +179,32 @@ TEST_CASE("the project's upscaler is applied when the engine starts") {
     e.shutdown();
 }
 
+TEST_CASE("render.upscaler: a quality below native draws the game smaller with the upscale stage on, temporal says so, "
+          "native undoes it") {
+    TempProject p("quality");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    auto r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"performance"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["effectiveMode"] == "temporal");  // M76-P4: drawn, as the renderer can draw it
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->effective_upscaler_mode() == render::UpscalerMode::Temporal);
+    // Stretch at the same quality is the upscale stage with a plain scale-up.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "stretch");
+    CHECK(e.renderer()->upscale_stage());
+    // Native: the whole size, no stage.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"native"})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    e.shutdown();
+}
+
 TEST_CASE("graphics.preset and graphics.detect are stubs that say so") {
     TempProject p("stub");
     Engine e;

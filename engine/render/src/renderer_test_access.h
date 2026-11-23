@@ -81,6 +81,11 @@ struct RendererTestAccess {
     static int taa_format(Renderer& r);
     static bool taa_unavailable(Renderer& r);
     static void taa_force_rgba8(Renderer& r, bool force);
+    // M76-P4: the temporal upscaler: the jitter phases the last frame asked of its camera (0: the frame was not jittered for it), the
+    // implementation the last frame's upscale stage used (render::UpscaleImpl as an int), and whether its last resolve blended with the history.
+    static int upscale_phases(Renderer& r);
+    static int upscale_impl(Renderer& r);
+    static bool upscale_used_history(Renderer& r);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);

@@ -1017,7 +1017,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
-         "all planned: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only), dynamicResolution; "
+         "planned except temporalUpscaler (drawn since M76-P4): motionVectors, spatialUpscaler, metalfx (Metal only), "
+         "dynamicResolution, temporalUpscaler; "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
@@ -1189,8 +1190,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
-         "It only stores and reports: the renderer draws every mode as \"stretch\" (effectiveMode) until the packages "
-         "that draw the others land, so the picture does not change yet. The start value is factoria.json "
+         "The renderer draws \"temporal\" (and \"auto\", which picks it) as the temporal upscaler (M76-P4) while the "
+         "game is drawn below the output size: quality sets that size (the render scale is window.renderScale times "
+         "the quality's scale, never below 0.25), the camera is jittered and the frames accumulate in an output-size "
+         "history; \"spatial\" and \"metalfx\" still draw as \"stretch\" (effectiveMode), and so does pixel art "
+         "(scaleMode PixelPerfect). At quality \"native\" nothing is upscaled. The start value is factoria.json "
          "\"render\": {\"upscaler\": {...}}; window.upscaler in scripts is the same setting. A wrong name or number "
          "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
          "graphics=false too (the value is only remembered).",
@@ -1212,7 +1216,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             }
             const render::UpscalerSettings now = I.self->upscaler();
             Json out = render::upscaler_to_json(now);
-            out["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(now)));
+            out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
             out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
             out["changed"] = changed;
             return out;

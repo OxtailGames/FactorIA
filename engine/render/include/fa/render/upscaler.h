@@ -1,9 +1,8 @@
 // The engine-wide upscaler setting of M76 (docs/UPSCALING.md): how the picture drawn at a lower resolution reaches the screen.
 // It is a setting of the whole game, not of a camera: it changes the size the frame is drawn at, like Renderer::set_render_scale.
 //
-// M76-P0 only defines, validates and stores it (factoria.json "render.upscaler", the command render.upscaler, `window.upscaler` in
-// scripts). The renderer does not read it yet: today every mode draws as "stretch" (effective_upscaler_mode). The packages
-// that draw the other modes change that one function and read Renderer::upscaler().
+// factoria.json "render.upscaler", the command render.upscaler and `window.upscaler` in scripts set it. The renderer reads it
+// (Renderer::upscaler()): effective_upscaler_mode says which mode it draws with (M76-P4: "temporal" where the backend draws it).
 #pragma once
 
 #include <array>
@@ -54,8 +53,18 @@ constexpr std::string_view upscaler_quality_name(UpscalerQuality q) {
     return (i >= 0 && i < kUpscalerQualityCount) ? kUpscalerQualityNames[std::size_t(i)] : std::string_view("native");
 }
 
-// The mode the renderer really draws with: "stretch" until a package draws the others (P3b, P4, P5 each change this one place).
-UpscalerMode effective_upscaler_mode(const UpscalerSettings& s);
+// What the renderer can draw, for effective_upscaler_mode. temporal: the "temporalUpscaler" row of render.supports (a fragment
+// pass on every backend; the renderer also needs the TAA shaders to have compiled). pixelArt: the game's scale mode is
+// PixelPerfect, whose picture is never blended (stretch with a Nearest sampler).
+struct UpscalerSupport {
+    bool temporal = false;
+    bool pixelArt = false;
+};
+
+// The mode the renderer really draws with (M76: P3b, P4 and P5 each change this one place). stretch: always, and for pixel art;
+// temporal: where `support.temporal`; auto: the best of the modes that can be drawn (temporal for now); the others: stretch until a
+// package draws them. A call without `support` (a host with no renderer) says "stretch".
+UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerSupport& support = {});
 
 // {"mode", "quality", "sharpness"} (all three always present).
 Json upscaler_to_json(const UpscalerSettings& s);

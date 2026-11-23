@@ -10,9 +10,13 @@
 
 namespace fa::render {
 
-UpscalerMode effective_upscaler_mode(const UpscalerSettings& s) {
-    (void)s;
-    return UpscalerMode::Stretch;  // the other modes are drawn by later packages of M76
+UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerSupport& support) {
+    if (support.pixelArt) return UpscalerMode::Stretch;  // pixel art is never blended
+    switch (s.mode) {
+        case UpscalerMode::Temporal:
+        case UpscalerMode::Auto: return support.temporal ? UpscalerMode::Temporal : UpscalerMode::Stretch;
+        default: return UpscalerMode::Stretch;  // spatial and metalfx are drawn by later packages of M76
+    }
 }
 
 Json upscaler_to_json(const UpscalerSettings& s) {
