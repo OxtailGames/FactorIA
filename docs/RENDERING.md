@@ -31,7 +31,7 @@ This page has the render targets, the depth and normals prepass, capture and HDR
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
 - [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [The post-processing stack](rendering/RENDERING_POSTPROCESS.md): bloom, exposure, tonemap, colour grading, lens effects, colour filter, the LUT, and the commands, looks and panel that read and change the stack.
-- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect and the graphics presets (settings only for now: nothing draws yet).
+- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect and the graphics presets (the temporal antialiasing draws; the upscaler settings and the presets are settings only for now).
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
@@ -375,7 +375,7 @@ orthographic 3D camera.
   reports the current one) paints the prepass over the 3D picture of the frame, so `game.step` then `game.screenshot` shows what the
   depth-based effects read: depth as a grey, `10 / (10 + distance)` (white next to the camera), normals as the view-space direction
   mapped to colours (`x`, `y`, `z` as red, green, blue: a surface that faces the camera is blue), black where no opaque mesh was
-  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `"cascades"` tints the lit meshes by the cascade of the sun's shadow that covers them (see [Lighting](rendering/RENDERING_LIGHTING.md)). `FA_RENDER_DEBUG_VIEW=depth`, `normals`, `ao` or `cascades` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
+  drawn. `"ao"` paints the ambient occlusion instead (see [Screen-space effects](rendering/RENDERING_EFFECTS.md)). `"cascades"` tints the lit meshes by the cascade of the sun's shadow that covers them (see [Lighting](rendering/RENDERING_LIGHTING.md)). `"motionVectors"` paints the motion of every pixel since the previous frame (hue = direction, brightness = length, black = still, grey = no object wrote a vector: the sky, skinned meshes and particles, which come in a later package); it turns the velocity image on while it is shown. `FA_RENDER_DEBUG_VIEW=depth`, `normals`, `ao`, `cascades` or `motionVectors` in the environment sets the first view at start (C++: `Renderer::set_debug_view`).
   It is a way to check a scene, not an effect: it is not saved and a game does not set it. `game.screenshot` has no
   argument for it: set the view, step a frame, take the shot.
 - **What the image holds.** `r` is the depth, clamped to 60000 (the far value) so a half-float fallback never stores infinity;

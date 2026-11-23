@@ -25,14 +25,37 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 ### Temporal antialiasing and open upscalers: the shared API (M76)
 
 - New effect `PostEffect::TemporalAA` (`PostProcess.temporalAAEnabled`, `temporalAAFeedback`, `temporalAASharpen`,
-  `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It does not draw yet:
-  `render.supports` says `planned (M76)`.
+  `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It is drawn now (see
+  "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
 - New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
-  `render.upscaler` and `window.upscaler` in scripts. They are stored and reported; the effective mode is always `stretch`
-  until the upscalers land (docs/UPSCALING.md).
+  `render.upscaler` and `window.upscaler` in scripts (docs/UPSCALING.md). `effectiveMode` says what draws: `stretch` and
+  `spatial` today; `temporal`, `metalfx` and `auto` draw as the best that exists until their upscalers land.
 - New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): see "Graphics presets" below.
 - New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
-  (planned M76).
+  (`motionVectors` and `spatialUpscaler` are drawn, see below; `temporalAA` is the effect's own row, drawn; the others are planned M76).
+- Temporal antialiasing is drawn: with `PostProcess.temporalAAEnabled` the camera is jittered by a sub-pixel amount every frame
+  (meshes, sky and HDRI together, the HUD not) and two fragment passes at the render resolution (every backend, no compute) blend the
+  frame with the camera's history, reprojected with the motion vectors when the frame has them and from the depth prepass otherwise,
+  clipped to the neighbours (`temporalAAVarianceGamma`), with `temporalAAFeedback` of the history kept and `temporalAASharpen` given
+  back. The history (RGBA16F, RGBA8 with a note in the log where the GPU cannot render to half floats) starts again after a cut, a
+  resize or render-scale change, a floating-origin shift, a scene load or a frame the camera did not draw. CameraView, render-target and
+  `camera.capture` cameras are not antialiased. Off, as by default: no pass, no image, no jitter, the same pixels (docs/UPSCALING.md).
+- Motion vectors: the depth prepass can write the motion of every pixel (RG16F, `uvPrev - uvCurr` from the unjittered matrices) as a
+  second attachment, for static and moving meshes, instances, terrain, foliage and impostors (a floating-origin shift and a camera cut
+  are no motion). Skinned meshes, custom `vertex()` materials, particles and sprites come in a later package. It is written only when
+  something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
+  `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
+  grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".
+- The spatial upscaler (`render.upscaler {"mode":"spatial"}`): the game drawn at a lower resolution is brought to the window's size
+  by an edge-adaptive upsample (12 texels, a kernel narrow across an edge and long along it, clamped so it never rings) and a
+  contrast-adaptive sharpen controlled by `sharpness`, two fragment passes on every backend (no compute). A hard diagonal or a thin
+  stroke is several times narrower than with the plain stretch (measured on a test pattern). In a linear HDR scene the filters work on a reversible
+  tonemap so bright values do not ring. Pixel-perfect games keep the nearest scaling (`effectiveMode` says `stretch`); `stretch`
+  (the default) is bit-identical to before, with no extra pass.
+- The render scale is now `window.renderScale` times the quality's scale (`performance` = 0.5 ...), never below 0.25, decided in one
+  place for `window.renderScale`, `window.upscaler`, `render.upscaler` and the project's start; before, the quality did not change
+  the size. At native quality the spatial mode with `sharpness` above 0 adds one sharpen pass at the window's size (set `sharpness`
+  to 0 for none). `game.render_stats` `width`, `height` and `renderScale` are the size and scale really drawn, quality included.
 - Renderer: the projection of the drawn picture can be jittered (Halton 2,3, 8 phases) and keeps the previous frame's
   jittered matrices; culling, picking and every query use the unjittered ones. Nothing jitters while no effect needs it,
   so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_POST.md.

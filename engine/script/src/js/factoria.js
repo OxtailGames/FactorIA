@@ -1569,8 +1569,8 @@
     },
     // The upscaler (M76, docs/UPSCALING.md): { mode: "stretch" | "spatial" | "temporal" | "metalfx" | "auto", quality: "native" | "quality" |
     // "balanced" | "performance" | "ultraPerformance", sharpness: 0..1 }. Reading gives the three settings plus effectiveMode (the mode the
-    // renderer draws with: "stretch" until the other modes are built) and scale (the quality's share of the output size). Writing takes
-    // any of the three keys; the others stay. It stores and reports; nothing is drawn differently yet.
+    // renderer draws with: "stretch" or "spatial" today, "stretch" for pixel art) and scale (the quality's share of the output size). Writing
+    // takes any of the three keys; the others stay. The game is drawn at renderScale * scale (never below 0.25).
     get upscaler() { return N.upscalerGet(); },
     set upscaler(v) {
       if (v === null || typeof v !== "object" || Array.isArray(v)) {

@@ -232,7 +232,7 @@ struct PostProcess {
     bool depthOfFieldBokeh = true;        // true: a disc blur where bright points become discs; false: a smooth blur
 
     // --- temporalAA: antialiasing from the frames before (M76) -------------------------------------------------------------------
-    // Planned (M76-P2): stored and blended today, drawn by a later package (render.supports temporalAA says "planned (M76)").
+    // Drawn by renderer_taa.h on every backend (render.supports temporalAA): the jittered picture blended with the camera's history.
     bool temporalAAEnabled = false;
     float temporalAAFeedback =
         0.9f;  // 0.5..0.98: the share of the picture taken from the history (higher = smoother, ghosts more)

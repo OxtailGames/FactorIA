@@ -61,6 +61,7 @@
 #include "light_atlas.h"
 #include "render_internal.h"
 #include "render_upscale.h"
+#include "render_upscale_spatial.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
 #include "transient_targets.h"
@@ -125,6 +126,7 @@ struct Renderer::Impl {
     Ssao ssao;    // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
+    TaaFx taa;  // temporal antialiasing (renderer_taa.h): its shaders, pipelines and the history of each camera
     Gi2dSystem
         gi2d;  // the 2D GI field of each 2D camera (gi2d.h): its shaders, pipelines and the images of the field slots
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
@@ -180,16 +182,42 @@ struct Renderer::Impl {
     render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
     Target outTarget, outFilterTarget;
     bool outActive = false, outFilterActive = false;
+    // The spatial upscaler (M76-P3b, render_upscale_spatial.h): its programs, and the upsampled picture between its two passes (made
+    // only when both run: a render scale below 1 and a sharpness above 0).
+    render::SpatialUpscaler spatial;
+    Target spatialTarget;
+    mutable int spatialSupported = -1;  // the "spatialUpscaler" row of this backend, asked once (-1 = not yet)
+    render::UpscalerCaps upscaler_caps() const;
+    render::UpscalerMode effective_upscaler_mode() const;
     bool upscale_active() const;
     bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
     void free_output_targets();
     void run_upscale(Target& out);
     void stretch_upscale(const render::UpscaleInput& in, Target& out);
+    void spatial_upscale(const render::UpscaleInput& in, Target& out);
+    bool ensure_spatial_target(sg_pixel_format colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
     DebugView debugView = DebugView::None;
     std::uint32_t forceEffects = 0;
+    // M76 motion vectors (renderer_draw.cpp, fill_prev_models): `forceVelocity` (RendererTestAccess::force_velocity) asks every camera for
+    // the velocity image. `prevModels` is what the renderer keeps of each drawn entity from one game frame to the next, only for cameras
+    // that ask: its model matrix of the frame before (`prev`) and of the last frame it was drawn (`cur`), with the postSerial of that
+    // frame. An entity not drawn in the frame before, or new, has prev = cur: no motion of its own. origin_shifted moves both.
+    bool forceVelocity = false;
+    // RendererTestAccess::read_velocity: while forceVelocity is on, a pass copies the velocity image of the last camera into this RGBA16F
+    // image (rg = the vector as it is, prepass_view.glsl mode 4), which a test reads back after the frame.
+    Target velocityProbe;
+    void velocity_probe_pass(DrawContext& ctx, const Target& velocity);
+    bool read_velocity(std::vector<float>& out, int& w, int& h, std::string* error);
+    struct PrevModel {
+        Mat4 prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevModel> prevModels;  // by Entity::bits()
+    std::uint64_t prevModelsPruned = ~std::uint64_t(0);       // the postSerial prevModels was last swept in
+    void fill_prev_models(DrawContext& ctx);
     // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
     // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
     std::function<void()> beforeFrameGraph;
@@ -210,14 +238,16 @@ struct Renderer::Impl {
         Vec2 beforeJitterPx{0, 0};
     };
     // M76: the sub-pixel jitter (fa/scene/jitter.h). A camera is jittered when its stack has TemporalAA on AND the renderer draws that
-    // effect (render_features.cpp effect_drawn: nothing yet, so no camera jitters today); `jitterForce` (RendererTestAccess::
+    // effect (render_features.cpp effect_drawn), is a camera of the game's frame (not a CameraView, a render target or a capture) and the TAA passes can run (TaaFx::unavailable); `jitterForce` (RendererTestAccess::
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
-    UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
-    QualityLimits quality;      // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
-    bool qualityOn = false;     // quality != QualityLimits{}: the frame pays nothing while it is off
-    int jitter_phases(const CameraInfo& ci) const;
+    UpscalerSettings
+        upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
+    QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
+    bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
+    // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
+    int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
@@ -821,7 +851,8 @@ struct Renderer::Impl {
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
     // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
-    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false);
+    // `velocity`: the second attachment of the pass (VelocityRef's image), null for a pass that does not write the motion vectors.
+    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false, const Target* velocity = nullptr);
     // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
     // `pre` is the prepass the shader's visibility test reads.
     void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);

@@ -66,14 +66,18 @@ struct PostTrace {
 
 // What an effect reads from the prepass (renderer_draw.cpp, "prepass"; ARCHITECTURE_RENDERING.md, "PostProcess"): the linear view-space
 // depth of the opaque 3D meshes, and their view-space normals. Pure tables, so the gating of the prepass is testable without a GPU. The
-// outline needs both (depth and normal edges), fog and sun shafts and depth of field and motion blur the depth, ssao and ssr both.
+// outline needs both (depth and normal edges), fog and sun shafts, depth of field, motion blur and the temporal antialiasing the depth, ssao and ssr both.
 constexpr bool post_effect_needs_depth(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
-           e == PostEffect::DepthOfField || e == PostEffect::MotionBlur || e == PostEffect::Outline;
+           e == PostEffect::DepthOfField || e == PostEffect::MotionBlur || e == PostEffect::Outline ||
+           e == PostEffect::TemporalAA;
 }
 constexpr bool post_effect_needs_normals(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Ssr || e == PostEffect::Outline;
 }
+// M76: the effects that read the velocity image (PostPlan::velocity): the temporal antialiasing. An effect is in the table before the renderer
+// draws it, so a test that forces it (forceEffects) already gets the image; a stack only gets it for an effect that post_drawn_mask has.
+constexpr bool post_effect_needs_velocity(PostEffect e) { return e == PostEffect::TemporalAA; }
 // The same for a mask of effects (bit i = PostEffect(i), PostStack::mask).
 constexpr bool post_mask_needs(std::uint32_t mask, bool (*needs)(PostEffect)) {
     for (int i = 0; i < kPostEffectCount; ++i)
@@ -82,6 +86,9 @@ constexpr bool post_mask_needs(std::uint32_t mask, bool (*needs)(PostEffect)) {
 }
 constexpr bool post_mask_needs_depth(std::uint32_t mask) { return post_mask_needs(mask, post_effect_needs_depth); }
 constexpr bool post_mask_needs_normals(std::uint32_t mask) { return post_mask_needs(mask, post_effect_needs_normals); }
+constexpr bool post_mask_needs_velocity(std::uint32_t mask) {
+    return post_mask_needs(mask, post_effect_needs_velocity);
+}
 
 // How much the volume `vol` (a PostProcess on an entity without a Camera, whose world matrix is `world`) applies at `point`, 0..1:
 // 1 inside the shape (or always for shape global), falling linearly to 0 over blendDistance outside it, and 0 beyond. The shape is

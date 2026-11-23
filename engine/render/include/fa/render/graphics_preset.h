@@ -78,7 +78,8 @@ struct QualityLimits {
     bool operator==(const QualityLimits&) const = default;
 };
 
-// What a preset sets: the limits above and the upscaler setting (mode, quality, sharpness). "custom" is unlimited and sets no upscaler.
+// What a preset sets: the limits above and the upscaler setting (mode, quality, sharpness). "ultra" and "custom" are unlimited and set
+// no upscaler: the game keeps its own, so their picture is the same bit for bit.
 struct GraphicsPresetTable {
     QualityLimits limits;
     std::optional<UpscalerSettings> upscaler;

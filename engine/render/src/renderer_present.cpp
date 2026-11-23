@@ -179,6 +179,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.invViewProj = ci.viewProj.inverse();
     ci.drawProj = ci.proj;  // never jittered (M76)
     ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};

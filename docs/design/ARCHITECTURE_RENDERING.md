@@ -377,18 +377,35 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 `window.renderScale` below 1 draws the game at design size * scale; the stage brings that picture back to the design size and
 the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src/render_upscale.h`).
 
-- **Who turns it on.** `Renderer::set_upscale_stage(true)`; `Engine::set_render_scale` (the script's `window.renderScale`) sets it to
-  `scale < 1`. `hold_render_scale` (CLI `--render-scale`, the video recorder) and the scale of `capture_scaled` (a screenshot
-  "scale") do not: there the scale means "an image that many times the size" and the picture stays the smaller or larger image,
-  as before. `capture_scaled` switches the stage off for its temporary scale and restores it. The stage is active only when the
-  game target is smaller than the output (`Impl::upscale_active()`); at scale 1, and with the stage off, nothing changes: no pass,
-  no image, no draw call, the same pixels.
+- **Who turns it on.** `Renderer::set_upscale_stage(true)`, from one function of the runtime: `Engine::Impl::apply_render_scale`, which
+  `set_render_scale` (the script's `window.renderScale`), `set_upscaler` (`window.upscaler`, `render.upscaler`) and the start-up all
+  call. It asks `render::plan_upscale_scale(window scale, quality, effective mode, kMinRenderScale)` (`fa/render/upscaler.h`): the render
+  scale is `window.renderScale * upscaler_quality_scale(quality)`, never below 0.25, and the stage is on when that is below 1 or the
+  mode that draws is not stretch (at 1 the spatial mode is the sharpen alone). It also tells the renderer the display's `ScaleMode`, so
+  the effective mode knows about pixel art when the game has no window. `hold_render_scale` without the player's option (CLI
+  `--render-scale`, the video recorder) and the scale of `capture_scaled` (a screenshot "scale") do not: there the scale means "an image
+  that many times the size" and the picture stays the smaller or larger image, as before. `capture_scaled` switches the stage off for
+  its temporary scale and restores it. `Impl::upscale_active()` is true when the game target is smaller than the output, or at the
+  output size when the effective mode is Spatial and `upscaler.sharpness > 0`; with the stage off, and at scale 1 with `stretch`
+  (or `spatial` at sharpness 0), nothing changes: no pass, no image, no draw call, the same pixels.
+- **Which implementation.** `Renderer::effective_upscaler_mode()` is `render::effective_upscaler_mode(upscaler, upscaler_caps())`:
+  the caps hold `pixelArt` (`ScaleMode::PixelPerfect`) and what the backend draws (`spatial` from the `spatialUpscaler` row of
+  `render_features.cpp`; the temporal and MetalFX packages add theirs). `run_upscale` maps the result to the `UpscaleImpl` every
+  frame, so what `render.upscaler` reports is what is drawn. Pixel art is always Stretch (Nearest).
 - **Interface.** `UpscaleInput` (`render_upscale.h`): `color`, `depth`, `velocity` views, `jitter`, render and output size,
   `frameIndex`, `resetHistory`, `pixelArt`. `select_upscale_impl(mode, &known)` maps a mode name to an `UpscaleImpl`; an
   unknown name gives `Stretch` with `known == false`. `Impl::run_upscale` fills the input and switches on the implementation.
   `Stretch` is a straight blit of the game image (`Gpu::blit_keep_pipeline`, one draw call) with the sampler rule of the present:
-  Nearest when `ScaleMode::PixelPerfect` is set (pixel art), Linear otherwise. A temporal or spatial upscaler adds an
-  `UpscaleImpl` and a `case`; `depth`, `velocity`, `jitter` and `resetHistory` are unused (null / 0) by `Stretch`.
+  Nearest when `ScaleMode::PixelPerfect` is set (pixel art), Linear otherwise. A temporal upscaler adds an
+  `UpscaleImpl` and a `case`; `depth`, `velocity`, `jitter` and `resetHistory` are unused (null / 0) by `Stretch` and `Spatial`.
+  `Spatial` (`Impl::spatial_upscale`, `src/render_upscale_spatial.cpp`, `shaders/upscale_spatial.glsl`) is up to two fragment passes
+  that read with `texelFetch` (a Nearest sampler): `upscale-spatial-edge` (render size to output size, the 12-texel edge-adaptive
+  kernel clamped to the four nearest texels) and `upscale-spatial-sharpen` (contrast-adaptive, output size, weight
+  `SpatialUpscaler::sharpen_weight(sharpness)`, 0.18 at 1). With both the first draws into `spatialTarget` (output size, no depth, the
+  output's format); at the output size only the sharpen runs, at sharpness 0 only the edge pass. Both are one frame-graph pass
+  (`upscale`) and add one draw call each. Linear input (`UpscaleInput::linear`, `gpu.linear() && !finalEncoded`) is filtered in
+  `sqrt(c / (1 + c))` and converted back, so an HDR float scene does not ring; the programs are made on first use
+  (`SpatialUpscaler::ready`), and when they cannot be made the frame uses `stretch_upscale`.
 - **Where the HUD is drawn: the rule.** The screen-space items go over the upscaled picture only when no pass after them in the old
   order would have changed their pixels: `bloomScreenSpace` false (they are drawn over the bloom, `hudAfterBloom`), a final pass (they are
   drawn over its result, `hudAfterPost`), or no bloom at all. A bloom with `bloomScreenSpace` true and no final pass makes the HUD
@@ -412,7 +429,12 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
 - **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
   `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
   the design size and include the HUD.
-- **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter) while the stage applies; freed by
+- **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_POST.md,
+  "Temporal antialiasing"), before the stage; the stage then brings the resolved picture to the design size like any other, with the
+  same HUD rule (`hudAfterBloom` counts the effect). The temporal upscaler of M76-P4 will do both in one pass with `TaaFx::resolve`
+  (history at the output size).
+- **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter, plus `spatialTarget` for the spatial
+  mode with a sharpen over a resize) while the stage applies; freed by
   `set_upscale_stage(false)` and `destroy_targets`. The pipelines for the output formats are created the first time the stage
   draws, so the first frame after turning it on can hitch once. If the output image cannot be created the stage is skipped for
   that frame (error logged) and the HUD is not drawn in it.

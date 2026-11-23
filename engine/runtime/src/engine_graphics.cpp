@@ -24,9 +24,9 @@ std::vector<std::string> preset_names() {
 
 double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
-Json upscaler_json(const render::UpscalerSettings& s) {
+Json upscaler_json(const render::UpscalerSettings& s, render::UpscalerMode effective) {
     Json out = render::upscaler_to_json(s);
-    out["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(s)));
+    out["effectiveMode"] = std::string(render::upscaler_mode_name(effective));
     out["scale"] = round3(double(render::upscaler_quality_scale(s.quality)));
     return out;
 }
@@ -68,8 +68,8 @@ Json Engine::graphics_preset(const Json& args, std::string* error) {
         return Json();
     };
     if (!args.is_null() && !args.is_object())
-        return fail(std::string("graphics.preset: the arguments are an object like {\"name\": \"high\"}, got ") + args.type_name() +
-                    ".");
+        return fail(std::string("graphics.preset: the arguments are an object like {\"name\": \"high\"}, got ") +
+                    args.type_name() + ".");
     std::optional<GraphicsPreset> wanted;
     if (args.is_object()) {
         const std::vector<std::string> known = {"name"};
@@ -79,8 +79,9 @@ Json Engine::graphics_preset(const Json& args, std::string* error) {
                             " Pass {\"name\": \"high\"} to apply a preset, or no argument to read the current one.");
         if (args.contains("name") && !args["name"].is_null()) {
             if (!args["name"].is_string())
-                return fail(std::string("graphics.preset: `name` is a string (one of low, medium, high, ultra, custom), got ") +
-                            args["name"].type_name() + ".");
+                return fail(
+                    std::string("graphics.preset: `name` is a string (one of low, medium, high, ultra, custom), got ") +
+                    args["name"].type_name() + ".");
             const std::string name = args["name"].get<std::string>();
             wanted = render::parse_graphics_preset(name);
             if (!wanted)
@@ -105,7 +106,9 @@ Json Engine::graphics_preset(const Json& args, std::string* error) {
             }
         } else {
             if (!I.upscalerBeforePreset) I.upscalerBeforePreset = upscaler();
-            if (resolved.upscaler) set_upscaler(render::upscaler_to_json(*resolved.upscaler), "graphics.preset");
+            // A preset with no upscaler of its own (ultra) leaves the game's own: the one before the first preset.
+            const render::UpscalerSettings target = resolved.upscaler ? *resolved.upscaler : *I.upscalerBeforePreset;
+            if (target != upscaler()) set_upscaler(render::upscaler_to_json(target), "graphics.preset");
         }
         I.applyingPreset = false;
         I.graphicsPreset = p;
@@ -115,8 +118,9 @@ Json Engine::graphics_preset(const Json& args, std::string* error) {
     }
     Json changes = diff_limits(limitsBefore, I.graphicsLimits);
     if (upscaler() != upscalerBefore)
-        changes.push_back(Json::object(
-            {{"knob", "upscaler"}, {"from", render::upscaler_to_json(upscalerBefore)}, {"to", render::upscaler_to_json(upscaler())}}));
+        changes.push_back(Json::object({{"knob", "upscaler"},
+                                        {"from", render::upscaler_to_json(upscalerBefore)},
+                                        {"to", render::upscaler_to_json(upscaler())}}));
     Json out = Json::object();
     out["preset"] = std::string(render::graphics_preset_name(I.graphicsPreset));
     out["previous"] = std::string(render::graphics_preset_name(previous));
@@ -124,7 +128,7 @@ Json Engine::graphics_preset(const Json& args, std::string* error) {
     out["changes"] = changes;
     out["limits"] = render::quality_limits_to_json(I.graphicsLimits);
     out["capped"] = I.graphicsPreset == GraphicsPreset::Custom ? Json::array() : caps_json(resolved);
-    out["upscaler"] = upscaler_json(upscaler());
+    out["upscaler"] = upscaler_json(upscaler(), effective_upscaler_mode());
     out["headless"] = !resolved.gpu;
     return out;
 }

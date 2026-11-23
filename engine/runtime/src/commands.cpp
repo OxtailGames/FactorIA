@@ -1214,7 +1214,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "with no Foliage (docs/BIG_WORLDS_TERRAIN.md). "
          "views counts the CameraViews drawn. width and height are the size in pixels the game is drawn at (design "
          "size * "
-         "window.renderScale; the HUD and a screenshot are at the design size). Same as game.renderStats() "
+         "window.renderScale * the upscaler quality's scale; the HUD and a screenshot are at the design size). Same as "
+         "game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",
          parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
         [&engine](const Json&) {

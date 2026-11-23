@@ -1017,11 +1017,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
-         "all planned: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only), dynamicResolution; "
+         "planned: motionVectors, temporalUpscaler, metalfx (Metal only), dynamicResolution; drawn: spatialUpscaler; "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
-         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, and temporalAA, planned for M76); "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, temporalAA); "
          "`backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
@@ -1189,8 +1189,12 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
-         "It only stores and reports: the renderer draws every mode as \"stretch\" (effectiveMode) until the packages "
-         "that draw the others land, so the picture does not change yet. The start value is factoria.json "
+         "The renderer draws \"stretch\" and \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen); "
+         "temporal, metalfx and auto draw as the best of those it can until their packages land, and a pixel-perfect "
+         "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
+         "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
+         "at that size; at native quality the spatial mode is the sharpen alone (none at sharpness 0). The start "
+         "value is factoria.json "
          "\"render\": {\"upscaler\": {...}}; window.upscaler in scripts is the same setting. A wrong name or number "
          "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
          "graphics=false too (the value is only remembered).",
@@ -1212,7 +1216,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             }
             const render::UpscalerSettings now = I.self->upscaler();
             Json out = render::upscaler_to_json(now);
-            out["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(now)));
+            out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
             out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
             out["changed"] = changed;
             return out;
@@ -1234,8 +1238,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{\"name\":\"high\"} The table of each preset: docs/UPSCALING.md, \"Graphics presets\"." FA_COMMAND_DETAILS
          "A limit only lowers: a scene that asks "
          "for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also "
-         "write the upscaler (mode auto, a quality); `custom` puts back the one the game had before the first preset, "
-         "and a render.upscaler or window.upscaler change while a preset is on is what `custom` brings back. Knobs the "
+         "write the upscaler (mode auto, a quality; ultra none); `custom` puts back the one the game had before the "
+         "first preset, "
+         "and a render.upscaler or window.upscaler change while a preset is on applies at once and becomes what "
+         "`custom` brings back (its keys over the setting from before the preset). Knobs the "
          "GPU cannot draw are capped (render.supports says which) and `capped` names each with the reason; `limits` is "
          "the layer in force after the caps (a limit at its largest value means no limit), `changes` the limits and "
          "the "
@@ -1377,7 +1383,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
-         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "`motionVectors` paints the per-pixel motion image the prepass "
+         "writes for temporal antialiasing (the direction "
+         "of the motion as a hue, its length as the brightness, black = still, grey = no mesh wrote a vector: the sky, "
+         "skinned meshes, particles, sprites); it turns that image on while it is shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
@@ -1385,21 +1394,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao, cascades or occlusion (with a "
+         "`view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in) or occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth       ? "depth"
-                       : v == DebugView::Normals   ? "normals"
-                       : v == DebugView::Ao        ? "ao"
-                       : v == DebugView::Cascades  ? "cascades"
-                       : v == DebugView::Occlusion ? "occlusion"
-                                                   : "none";
+                return v == DebugView::Depth           ? "depth"
+                       : v == DebugView::Normals       ? "normals"
+                       : v == DebugView::Ao            ? "ao"
+                       : v == DebugView::Cascades      ? "cascades"
+                       : v == DebugView::Occlusion     ? "occlusion"
+                       : v == DebugView::MotionVectors ? "motionVectors"
+                                                       : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -1411,12 +1421,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             const DebugView previous = I.renderer->debug_view();
             if (set)
-                I.renderer->set_debug_view(wanted == "depth"       ? DebugView::Depth
-                                           : wanted == "normals"   ? DebugView::Normals
-                                           : wanted == "ao"        ? DebugView::Ao
-                                           : wanted == "cascades"  ? DebugView::Cascades
-                                           : wanted == "occlusion" ? DebugView::Occlusion
-                                                                   : DebugView::None);
+                I.renderer->set_debug_view(wanted == "depth"           ? DebugView::Depth
+                                           : wanted == "normals"       ? DebugView::Normals
+                                           : wanted == "ao"            ? DebugView::Ao
+                                           : wanted == "cascades"      ? DebugView::Cascades
+                                           : wanted == "occlusion"     ? DebugView::Occlusion
+                                           : wanted == "motionVectors" ? DebugView::MotionVectors
+                                                                       : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 

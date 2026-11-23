@@ -142,6 +142,11 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
+    // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
+    bool collectPrev = false, doVelocity = false;
+    std::vector<PrevModelRows> prevMats;
+    sg_buffer prevInst{};
     // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
     HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
@@ -683,6 +688,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.ssao = ssao_debug_settings(pp.ssao);
             pp.needsDepth = pp.needsNormals = true;
         }
+        if (debugView == DebugView::MotionVectors || forceVelocity)
+            pp.request_velocity();  // the debug view and the test hook
         if (pp.fx.grain)
             pp.fx.grainSeed =
                 grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
@@ -746,6 +753,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // Temporal antialiasing (renderer_taa.h): the matrices that reproject the history and what decides whether it still holds. The scene's
+        // identity (a load or a reload drops the history) is hashed only for a camera that asks for the effect.
+        if (fr.cam.postStack) {
+            const bool wantsTaa = fr.cam.postStack->has(PostEffect::TemporalAA);
+            const std::uint64_t taaScene =
+                wantsTaa ? std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation()
+                         : 0;
+            pp.taa = make_taa_plan(fr.cam, *fr.cam.postStack, framePost, !taa.unavailable(), camKey, postSerial,
+                                   taaScene, originShifts, pp.prevViewProj, pp.prevValid);
+        }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
         // that did not is left out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
@@ -773,6 +790,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             std::uint32_t drop = 0;
             if (!pp.sceneFx.dof) drop |= 1u << int(PostEffect::DepthOfField);
             if (!pp.sceneFx.motion) drop |= 1u << int(PostEffect::MotionBlur);
+            if (!pp.taa.on)
+                drop |=
+                    1u << int(PostEffect::TemporalAA);  // a frame that cannot resolve (a capture) needs no depth for it
             drop &= ~forceEffects;
             if ((pp.readMask & drop) != 0) {
                 pp.readMask &= ~drop;
@@ -930,11 +950,14 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx = sceneColorFx ||
-                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
-                             c->postPlan.vol.on || c->postPlan.sss.on) &&
-                            c->doPrepass) ||
-                           c->postPlan.custom.any_hdr();
+            sceneColorFx =
+                sceneColorFx ||
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                  c->postPlan.vol.on || c->postPlan.sss.on) &&
+                 c->doPrepass) ||
+                c->postPlan.taa
+                    .on ||  // the antialiasing works on the scene colour: the HUD goes over it, never through it
+                c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
@@ -1334,8 +1357,12 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     lightDirForShadow = d;
                     shadowLight = 0;
                     ld.rank = 0;
+                    // A preset without soft shadows draws a PCSS sun with the plain PCF filter (the limit of the local lights too).
+                    const ShadowFilter sunFilter =
+                        (qualityOn && !quality.softShadows && l.shadowFilter == ShadowFilter::Pcss) ? ShadowFilter::Pcf
+                                                                                                    : l.shadowFilter;
                     ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
-                               l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
+                               l.shadowSoftness,   l.shadowDistance, sunFilter};
                 }
                 if (!l.ies.empty() && !warnedDirectionalIes) {
                     warnedDirectionalIes = true;
@@ -1799,6 +1826,10 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
         }
     }
     ctx.shadowRuns.clear();
+    // M76: the previous model of every drawn instance, for the motion vectors of a camera that asks for them (a GI capture face never does).
+    ctx.collectPrev = !ctx.plan.gi && ctx.fr.wantWorld &&
+                      (ctx.postPlan.needsVelocity || debugView == DebugView::MotionVectors || forceVelocity);
+    ctx.prevMats.clear();
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
             rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
@@ -1841,7 +1872,9 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
             std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
             list->end());
     }
-    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns);
+    if (ctx.collectPrev) fill_prev_models(ctx);
+    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns,
+                  ctx.collectPrev ? &ctx.prevMats : nullptr);
     build_batches(blended, false, blendedBatches, mainMats, shadowMats, &ctx.shadowRuns);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
@@ -1850,6 +1883,37 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                          &ctx.shadowRuns);
     pack_instance_extras(blended, blendedBatches, ctx.mainExtraData, ctx.shadowExtraData, &instanceParams,
                          &ctx.shadowRuns);
+}
+
+// ---- the previous model matrices (M76 motion vectors) ----
+// Gives every visible opaque item the model matrix its entity had the game frame before (MeshItem::prevModel), from what the renderer keeps
+// in `prevModels`; the item's own model (no motion of its own) when the entity is new, was not drawn in the frame before, the camera was cut
+// (PostPlan::prevValid false) or the frame is not one of the game's (capture_world). Terrain nodes, impostor cards and foliage instances keep
+// their model: a node or a card is not an entity of its own and the instances of a foliage share one, and they are static. Every camera of
+// the frame sees the same previous matrix (the first one to ask moves the history on). Reads: ctx.opaque, ctx.postPlan.prevValid, postSerial,
+// framePost. Writes: item prevModel / hasPrev, prevModels.
+void Renderer::Impl::fill_prev_models(DrawContext& ctx) {
+    const bool kept = framePost;
+    if (kept && prevModelsPruned != postSerial) {  // an entity not drawn in the frame before is forgotten
+        prevModelsPruned = postSerial;
+        std::erase_if(prevModels, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
+    }
+    const bool useHistory = kept && ctx.postPlan.prevValid;
+    for (MeshItem& mi : ctx.opaque) {
+        mi.prevModel = mi.model;
+        mi.hasPrev = true;
+        if (!kept || !mi.visible || mi.foliage || mi.terrain || mi.impostor || mi.entity.is_null()) continue;
+        auto [it, fresh] = prevModels.try_emplace(mi.entity.bits());
+        PrevModel& e = it->second;
+        if (fresh || e.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
+            e.prev = e.cur = mi.model;
+        } else if (e.frame + 1 == postSerial) {  // the first time this frame: last frame's model is the previous one
+            e.prev = e.cur;
+            e.cur = mi.model;
+        }  // e.frame == postSerial: another item or camera of this frame, same history
+        e.frame = postSerial;
+        if (useHistory) mi.prevModel = e.prev;
+    }
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -1920,6 +1984,7 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
         return buf;
     };
     ctx.mainInst = upload(ctx.mainMats.data(), ctx.mainMats.size() * kMeshInstanceBytes);
+    ctx.prevInst = upload(ctx.prevMats.data(), ctx.prevMats.size() * kPrevModelBytes);
     ctx.shadowInst = upload(ctx.shadowMats.data(), ctx.shadowMats.size() * kMeshInstanceBytes);
     ctx.mainExtra = upload(ctx.mainExtraData.data(), ctx.mainExtraData.size() * sizeof(float));
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
@@ -3117,12 +3182,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 // ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
-    ctx.doPrepass = ctx.debugPrepass = false;
+    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = false;
     if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals ||
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || pp.needsVelocity ||
           (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
         return false;
     bool anyMesh = false;
@@ -3151,8 +3216,21 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass =
-        !ctx.plan.gi && (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    // M76: the motion vectors go into a second attachment of the same pass when the camera asks and the GPU can make the image. A GPU that
+    // cannot (or refuses the image) leaves the velocity out: PostPlan::velocity stays invalid and whoever asked reads the camera alone.
+    if (pp.needsVelocity && !ctx.plan.gi && ctx.collectPrev && gpu.velocity_ready()) {
+        TransientDesc vd = d;
+        vd.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+        vd.label = "velocity";
+        if (const std::uint64_t vh = transient_targets().pool.acquire(vd)) {
+            transient_targets().pool.release(vh);
+            ctx.doVelocity = true;
+        }
+    }
+    ctx.debugPrepass = !ctx.plan.gi &&
+                       (debugView == DebugView::Depth || debugView == DebugView::Normals ||
+                        (debugView == DebugView::MotionVectors && ctx.doVelocity)) &&
+                       gpu.prepass_view_ready();
     return true;
 }
 
@@ -3230,10 +3308,18 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
 
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
-void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces) {
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces, const Target* velocity) {
     const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
     const std::vector<MeshItem>& items = ctx.opaque;
     PassDesc pd = pass_into(t, backFaces ? "prepass-back" : "prepass");
+    // M76: the motion vectors are the second attachment, cleared to the sentinel ("no object wrote here"). The programs write it only for
+    // an instance that has a previous model (fa_vel_on), and a pass without it uses pipelines with one attachment: the output is dropped.
+    const bool vel = velocity && velocity->colorAtt.id && ctx.prevInst.id && !backFaces;
+    if (vel) {
+        pd.format = gpu.prepass_target_format(true);
+        pd.color1 = velocity->colorAtt;
+        pd.clearColor1 = {VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
+    }
     pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
@@ -3243,6 +3329,12 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
     mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
     copy_mat(vu.fa_light_vp,
              ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    // The two view-projections of the motion vectors, both without the jitter (it is not part of a motion): this frame's and the previous
+    // one's (the same one when the camera was cut, so a cut has no motion of the objects either).
+    mesh_fa_vel_params_t velU{};
+    copy_mat(velU.fa_vel_vp, ctx.fr.cam.viewProj);
+    copy_mat(velU.fa_vel_prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : ctx.fr.cam.viewProj);
+    velU.fa_vel_on[0] = vel ? 1.0f : 0.0f;
     for (const MeshBatch& batch : batches) {
         if (batch.mainCount == 0) continue;
         const MeshItem& mi = items[batch.rep];
@@ -3275,6 +3367,13 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
             if (skinned) b.vertex_buffers[2] = part.skinVb;
             if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
+            // The previous model of each instance (vertex buffer 6) when the program reads it; with no velocity image the pipeline still
+            // has the attributes, so the instance buffer stands in for it (never read: fa_vel_on is 0).
+            if (prepass_prev_attr(skinned, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                b.vertex_buffers[kPrevModelBuffer] = vel ? ctx.prevInst : ctx.mainInst;
+                b.vertex_buffer_offsets[kPrevModelBuffer] =
+                    int(batch.mainFirst * (vel ? kPrevModelBytes : kMeshInstanceBytes));
+            }
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
@@ -3282,6 +3381,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             sg_apply_bindings(&b);
             if (mbu.active) apply_mesh_base_model(*prog, mi.model);
             apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(UB_mesh_fa_vel_params, velU);
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
@@ -3383,11 +3483,57 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : 1.0f;
+    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : debugView == DebugView::MotionVectors ? 3.0f : 1.0f;
     apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
     sg_draw(0, 3, 1);
     ++stats.drawCalls;
     gpu.end_pass();
+}
+
+// The test copy of the velocity image (RendererTestAccess::read_velocity): the vectors as floats in an RGBA16F image of the camera's size.
+void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity) {
+    const int w = ctx.camPx.w, h = ctx.camPx.h;
+    if (!velocity.texView.id || w < 1 || h < 1) return;
+    if (!velocityProbe.valid() || velocityProbe.w != w || velocityProbe.h != h) {
+        destroy_target(velocityProbe);
+        TargetDesc td;
+        td.label = "velocity-probe";
+        td.width = w;
+        td.height = h;
+        td.colorFormat = SG_PIXELFORMAT_RGBA16F;
+        velocityProbe = make_target(td);
+        if (!velocityProbe.valid()) return;
+    }
+    PassDesc dp = pass_into(velocityProbe, "velocity-probe");
+    dp.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    dp.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(dp);
+    sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_prepass_view_tex] = velocity.texView;
+    b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    prepass_view_prepass_view_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
+    prepass_view_prepass_view_fs_params_t fu{};
+    fu.mode[0] = 4.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
+    sg_draw(0, 3, 1);
+    gpu.end_pass();
+}
+
+bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!velocityProbe.valid()) {
+        if (error)
+            *error =
+                "no velocity image was drawn (force_velocity is off, or the frame drew no prepass with motion vectors)";
+        return false;
+    }
+    w = velocityProbe.w;
+    h = velocityProbe.h;
+    return render::readback_rgba16f(velocityProbe.color, w, h, out, error);
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
@@ -3890,7 +4036,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 if (sky.mat && sky.mat == ctx.skyPlannedMat)
                     std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
             }
-            draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
+            // The sky and the panorama are drawn with the jitter of the meshes (the temporal antialiasing resolves them like everything else);
+            // the environment bake and everything that asks where a pixel is in the world keep the unjittered matrices.
+            draw_sky(*this, sky, fr.cam.drawInvViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
 
@@ -4281,7 +4429,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 [this, &ctx](const PassContext&) { physSky.update(gpu, 0, ctx.physMain, &stats.drawCalls); });
         }
     }
-    ResourceId prepassRes;
+    ResourceId prepassRes, velRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
         TransientDesc pdsc;
         pdsc.width = ctx.camPx.w;  // the camera's rectangle of the picture
@@ -4290,12 +4438,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         pdsc.label = plan.name + "/prepass";  // resource names are unique in a graph, and every camera has its own
         prepassRes = graph.create_transient(pdsc);
         ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
+        // M76: the motion vectors, a second attachment of the same pass (RG16F, the size of the prepass). The pass writes both, so whoever
+        // reads one lists the pass before it in the graph; PostPlan::velocity is valid from here on only when the GPU made the image.
+        std::vector<ResourceId> prepassOut{prepassRes};
+        if (ctx.doVelocity) {
+            TransientDesc vdsc = pdsc;
+            vdsc.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+            vdsc.label = plan.name + "/velocity";
+            velRes = graph.create_transient(vdsc);
+            prepassOut.push_back(velRes);
+            ctx.postPlan.velocity = VelocityRef{PrepassRef{velRes, &transient_targets()}};
+        }
         // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
         add(
-            "prepass", {}, {prepassRes},
-            [this, &ctx, prepassRes](const PassContext& c) {
+            "prepass", {}, prepassOut,
+            [this, &ctx, prepassRes, velRes](const PassContext& c) {
                 const Target* t = transient_targets().get(c.handle(prepassRes));
-                if (t) prepass_pass(ctx, *t);
+                const Target* v = velRes.valid() ? transient_targets().get(c.handle(velRes)) : nullptr;
+                if (t) prepass_pass(ctx, *t, false, v);
             },
             true);
         // The depth pyramid of the camera (renderer_hiz.cpp): a compute pass reduces the image to a small grid the CPU reads back a frame later.
@@ -4395,11 +4555,22 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             : fr.wantWorld ? "game"
                            : "game-hud",
             std::move(reads), {game}, [this, &ctx](const PassContext& c) { main_pass(ctx, c); });
-        if (ctx.debugPrepass)
-            add("prepass-view", {prepassRes, game}, {game}, [this, &ctx, prepassRes](const PassContext& c) {
-                const Target* t = transient_targets().get(c.handle(prepassRes));
+        if (forceVelocity && velRes.valid())
+            add(
+                "velocity-probe", {velRes}, {},
+                [this, &ctx, velRes](const PassContext& c) {
+                    if (const Target* v = transient_targets().get(c.handle(velRes))) velocity_probe_pass(ctx, *v);
+                },
+                true);
+        if (ctx.debugPrepass) {
+            // The debug view "motionVectors" paints the velocity image (the prepass's depth and normals are not part of it).
+            const bool vv = debugView == DebugView::MotionVectors && velRes.valid();
+            const ResourceId shown = vv ? velRes : prepassRes;
+            add("prepass-view", {shown, game}, {game}, [this, &ctx, shown](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(shown));
                 if (t) prepass_view_pass(ctx, *t);
             });
+        }
     }
     ResourceId coverageRes;
     if (ctx.doCoverage) {  // a sprite outline: the 2D world's alpha in an RGBA8 transient, read by the final pass
@@ -4548,6 +4719,20 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+    }
+    // Temporal antialiasing of every camera (renderer_taa.h): the jittered picture resolved with its history, over the camera's rectangle of
+    // the scene colour, after the sun shafts (and the custom passes "after:ssr", which are in it) and before the depth of field. The camera's
+    // history lives in the TaaFx: a camera that is not planned a frame loses it.
+    if (framePost) taa.sweep(postSerial);
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.taa.on) continue;
+        const BloomTarget taaDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        taa.add_passes(graph, gpu, c->postPlan.taa, c->postPlan.rect, physW, physH, game, gameTarget.texView, taaDst,
+                       c->postPlan.prepass, c->postPlan.velocity, PrepassRef{}, assets->white()->view, &stats.drawCalls,
+                       c->plan.name);
     }
     custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
