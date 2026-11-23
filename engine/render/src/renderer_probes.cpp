@@ -102,7 +102,7 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     fr.lodFollowMain = true;
     setup_frame(fr, world, 0.0f);
     fr.targetW = fr.targetH = resolution;
-    fr.renderScale = 1.0f;
+    fr.renderScale = fr.screenScale = 1.0f;
     fr.mask = CameraMask(camera_tag_list(rp.showTags), camera_tag_list(rp.hideTags));
 }
 

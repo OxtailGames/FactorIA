@@ -1354,14 +1354,20 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
         ScaleGuard {  // back to the held scale (1 unless hold_render_scale) afterwards; the next picture is drawn again
         Impl& I;
         bool on;
+        bool upscale;  // the player's render scale (window.renderScale) brings the picture back to the design size
         ~ScaleGuard() {
             if (on) {
                 I.renderer->set_render_scale(float(I.heldScale));
+                I.renderer->set_upscale_stage(upscale);
                 I.renderStale = true;
             }
         }
-    } guard{I, scale != I.heldScale};
-    if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
+    } guard{I, scale != I.heldScale, I.renderer->upscale_stage()};
+    if (guard
+            .on) {  // new images: the picture must be drawn again. A screenshot at another scale is that many pixels, not upscaled
+        I.renderer->set_upscale_stage(false);
+        I.renderer->set_render_scale(float(scale));
+    }
     const bool canDraw = !I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0);
     if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
@@ -1460,6 +1466,8 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
         return capture_scaled(probe, scale, error);  // fails with the explanation
     }
     I.heldScale = scale;
+    I.renderer->set_upscale_stage(
+        false);  // a held screenshot scale (--render-scale) is a size; set_render_scale() below turns it on
     I.renderer->set_render_scale(float(scale));
     I.renderStale = true;
     return true;
@@ -1664,7 +1672,12 @@ std::string Engine::set_render_scale(double scale) {
     Impl& I = *impl_;
     if (!I.renderer) return ScriptHost::set_render_scale(scale);  // no graphics: remembered, nothing to resize
     std::string err;
-    return hold_render_scale(scale, &err) ? std::string() : err;
+    if (!hold_render_scale(scale, &err)) return err;
+    // The player's option: below 1 the game is drawn smaller and brought back to the design size, the HUD and UI drawn over it at that
+    // size (Renderer::set_upscale_stage), so a screenshot of it (capture_frame) is the design size.
+    I.renderer->set_upscale_stage(scale < 1.0);
+    I.renderStale = true;
+    return std::string();
 }
 
 void Engine::device_overridden(const Json& device) {

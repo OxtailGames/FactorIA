@@ -195,7 +195,10 @@ void register_postprocess_component(TypeRegistry& r) {
             "and "
             "stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is "
             "drawn after it and "
-            "never glows, whatever this says.")
+            "never glows, whatever this says. With window.renderScale below 1 the HUD is drawn after the scale-up, "
+            "sharp at the window size, only when it would not glow or be changed by the post stack anyway (this false, "
+            "or no bloom, or a final pass); with this true and a bloom the HUD stays in the smaller game picture, "
+            "glow included, and is scaled up with it.")
         .asset_field(
             "bloomLensDirt", &PostProcess::bloomLensDirt, "texture",
             "Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it "

@@ -1004,7 +1004,7 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         float scale = matrix_scale_x(m);
         float ppu;
         if (screen)
-            ppu = f.renderScale;
+            ppu = f.screenScale;
         else if (f.cam.perspective) {
             float dist = std::max(0.1f, length(m.translation() - f.cam.position));
             ppu = (float(f.targetH) * f.cam.viewport.h * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
@@ -1419,7 +1419,7 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
             tx.color = t.c;
             tx.pivot = {0, 1};
             TextLayout lay =
-                f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
+                f.fonts->layout(tx, t.size, f.screenScale);  // a developer overlay: the text scale does not apply
             f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
             QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}),
                            true,          pack_color(t.c),

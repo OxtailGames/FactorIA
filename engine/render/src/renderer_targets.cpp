@@ -196,12 +196,13 @@ void Renderer::Impl::update_editor_copy() {
         destroy_target(editorTarget);
         return;
     }
-    if (editorTarget.color.id && (editorTarget.w != physW || editorTarget.h != physH)) destroy_target(editorTarget);
+    if (editorTarget.color.id && (editorTarget.w != final_w() || editorTarget.h != final_h()))
+        destroy_target(editorTarget);
     if (!editorTarget.color.id) {
         TargetDesc d;
         d.label = "editor-view";
-        d.width = physW;
-        d.height = physH;
+        d.width = final_w();
+        d.height = final_h();
         d.colorFormat = SG_PIXELFORMAT_RGBA8;
         editorTarget = make_target(d);
         if (!editorTarget.valid()) {
@@ -272,6 +273,7 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
+    free_output_targets();
     for (Target& t : ldrMid) destroy_target(t);
     for (auto& [key, slot] : autoExposures)
         if (slot.exposure) slot.exposure->release();

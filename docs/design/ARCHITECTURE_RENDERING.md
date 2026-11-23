@@ -371,3 +371,48 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 
 - **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).
+
+## Upscale stage (M76)
+
+`window.renderScale` below 1 draws the game at design size * scale; the stage brings that picture back to the design size and
+the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src/render_upscale.h`).
+
+- **Who turns it on.** `Renderer::set_upscale_stage(true)`; `Engine::set_render_scale` (the script's `window.renderScale`) sets it to
+  `scale < 1`. `hold_render_scale` (CLI `--render-scale`, the video recorder) and the scale of `capture_scaled` (a screenshot
+  "scale") do not: there the scale means "an image that many times the size" and the picture stays the smaller or larger image,
+  as before. `capture_scaled` switches the stage off for its temporary scale and restores it. The stage is active only when the
+  game target is smaller than the output (`Impl::upscale_active()`); at scale 1, and with the stage off, nothing changes: no pass,
+  no image, no draw call, the same pixels.
+- **Interface.** `UpscaleInput` (`render_upscale.h`): `color`, `depth`, `velocity` views, `jitter`, render and output size,
+  `frameIndex`, `resetHistory`, `pixelArt`. `select_upscale_impl(mode, &known)` maps a mode name to an `UpscaleImpl`; an
+  unknown name gives `Stretch` with `known == false`. `Impl::run_upscale` fills the input and switches on the implementation.
+  `Stretch` is a straight blit of the game image (`Gpu::blit_keep_pipeline`, one draw call) with the sampler rule of the present:
+  Nearest when `ScaleMode::PixelPerfect` is set (pixel art), Linear otherwise. A temporal or spatial upscaler adds an
+  `UpscaleImpl` and a `case`; `depth`, `velocity`, `jitter` and `resetHistory` are unused (null / 0) by `Stretch`.
+- **Where the HUD is drawn: the rule.** The screen-space items go over the upscaled picture only when no pass after them in the old
+  order would have changed their pixels: `bloomScreenSpace` false (they are drawn over the bloom, `hudAfterBloom`), a final pass (they are
+  drawn over its result, `hudAfterPost`), or no bloom at all. A bloom with `bloomScreenSpace` true and no final pass makes the HUD
+  glow, so the HUD stays in the game image at the render resolution and is scaled up with it: a game's look does not change unless it
+  opts in (`bloomScreenSpace` false for the sharp HUD). The glyphs are rasterized for the size they are drawn at, so `render_world`
+  decides it before the gather (`Impl::hudAtOutput`, which makes `Frame::screenScale` 1 instead of `renderScale`) from the first
+  camera's bloom and every camera's `make_post_plan(...).final_pass()`; the scene-colour effects (reflections, shafts, depth of field,
+  motion blur, volumetrics, subsurface, HDR custom passes) are not known there, so with a glowing bloom and one of them the HUD stays in
+  the game image too. `plan_job` repeats the check on the finished plans before it sets `DrawContext::hudOut`. The stage still runs in
+  the other case: `upscale` brings the image to the design size, and no `hud-over-upscale` pass exists.
+- **Frame graph.** In the last main job (the one that owns the screen items, `plan.last`), after the post stack and the final
+  pass: `upscale` (game image -> `outTarget`, the design size, 1 sample, the format of the game image or the display format after
+  the final pass) and, when `hudOut`, `hud-over-upscale` (the HUD, drawn at `outTarget` size with `physW/physH` and
+  the scale temporarily swapped to the output's and `renderScale` 1, so label and UI text are rastered at output size; a
+  CameraView image keeps its size of design size * `renderScale`, so the render scale still saves that work). With a colour filter
+  the HUD is drawn first and the filter after it (`output-color-filter`), so it covers the HUD like it does in the other paths. With
+  `hudOut` the screen items do not draw into the game image (no `hud-over-bloom` or `hud-over-post` pass is declared for them). `outTarget` is
+  made (with its depth) by `render_world`, for the format the picture has when it reaches the stage; when it cannot be made
+  the frame is drawn as without the stage: the HUD in the game image, shown at the render resolution (error logged). View and
+  capture jobs (`plan.view`) never use the stage.
+- **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
+  `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
+  the design size and include the HUD.
+- **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter) while the stage applies; freed by
+  `set_upscale_stage(false)` and `destroy_targets`. The pipelines for the output formats are created the first time the stage
+  draws, so the first frame after turning it on can hitch once. If the output image cannot be created the stage is skipped for
+  that frame (error logged) and the HUD is not drawn in it.

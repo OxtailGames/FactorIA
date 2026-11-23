@@ -335,6 +335,14 @@ public:
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
     void set_render_scale(float scale);
+    // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is
+    // drawn at the lower resolution, brought back to the design size by the upscale stage, and the screen-space items (HUD, UI,
+    // debug text) are drawn over it at the design size, so text stays sharp, unless the post stack would have changed them (a bloom
+    // with PostProcess.bloomScreenSpace true makes them glow): then they stay in the smaller picture and are scaled up with it, as
+    // without the stage. capture() returns the design-size picture, HUD included. Off (the default), set_render_scale only changes the size of every image and of the captures (a screenshot "scale"),
+    // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
+    void set_upscale_stage(bool on);
+    bool upscale_stage() const;
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
