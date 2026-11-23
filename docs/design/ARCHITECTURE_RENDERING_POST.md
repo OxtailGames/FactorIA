@@ -188,7 +188,7 @@ the next.
 
 - **Jitter (`include/fa/scene/jitter.h`, `src/jitter.cpp`).** `jitter_offset_pixels(frame, phases)` is the Halton(2,3)
   point number `frame % phases + 1`, minus 0.5, in pixels of the **render** resolution (x to the right, y down; `phases` is
-  8 by default and clamped to 1..16, `kJitterPhasesDefault`, `kJitterPhasesMax`). It depends on the frame index only
+  8 by default and clamped to 1..128, `kJitterPhasesDefault`, `kJitterPhasesMax`). It depends on the frame index only
   (`postSerial`, the game frames counted by the renderer), never on a clock, so a replay jitters the same way.
   `jitter_pixels_to_ndc` turns it into the clip-space shift `(2 jx / W, -2 jy / H)`.
 - **Which matrices are jittered.** `CameraGeometry` (`camera_geometry.h`) keeps `proj`, `viewProj` and `invViewProj` **unjittered**
@@ -219,8 +219,9 @@ the next.
   above `kMaxMotion` (4 UV) is not trusted by the temporal passes. The image is optional: a pass that finds none
   reprojects every texel from the depth, which is right for everything static.
 - **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
-  `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
-  has the rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
+  `effective_upscaler_mode(settings, support)` is the one place that says which mode draws (`temporal`, and `auto`, where
+  `UpscalerSupport.temporal`; pixel art and the other modes `stretch` for now). `render.supports` has the rows `motionVectors`,
+  `spatialUpscaler`, `metalfx`, `dynamicResolution` (planned M76) and `temporalUpscaler` (drawn, M76-P4); `temporalAA` is
   the row of the effect itself (`PostEffect::TemporalAA`, supported on every backend), not a second engine row.
 
 ### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)
@@ -263,4 +264,10 @@ the next.
   stack), except where the editor bypasses the stack (`postBypass`): no effect, no jitter.
 - **Shared with the temporal upscaler (M76-P4).** `taa_shared.glsl` holds the whole resolve with the input size and the history size
   as separate arguments (`taa_resolve(uv, inSize, outSize, jitter)`), and `TaaFx::resolve(gpu, pass, TaaResolveInput)` draws it with
-  `inW/inH` (the picture) and `outW/outH` (the history and the target). The antialiasing calls it with both equal.
+  `inW/inH` (the picture) and `outW/outH` (the history and the target). The antialiasing calls it with both equal; `TaaFx::upscale` calls it
+  with the render size and the output size (docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)"). When the picture is smaller than the output
+  the Gaussian of the 3x3 gather narrows by the ratio of the areas (`kern`), so the sum over the phases is as sharp as an output pixel allows.
+- **NaN and the sky.** A NaN sample of the picture is left out of the gather and the moments, a NaN texel of the history (found by its bits, so
+  fast-math cannot drop the test) is dropped (keep 0) and the pixel restarts from the picture, so a NaN never stays in the history; and the
+  depth rejection of the history is not applied to the sky (the pixels no mesh drew), whose depth changes with every turn of the camera.
+  `kJitterPhasesMax` is 128 (the upscaler at a third of the size needs 72).

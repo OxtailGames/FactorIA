@@ -114,6 +114,8 @@ void DebugDraw::clear() {
 // no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
 // forced it (jitterForce).
 int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
+    // M76-P4: the temporal upscaler jitters the frame's one camera by the sequence render() chose for the upscale ratio, whatever its stack.
+    if (temporalPhases > 0 && mainFrameCamera) return std::min(temporalPhases, kJitterPhasesMax);
     if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
     const bool on = mainFrameCamera && ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
                     ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && taa.ready() && !taa.unavailable();
@@ -517,6 +519,10 @@ void Renderer::set_upscale_stage(bool on) {
 bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
 const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+render::UpscalerMode Renderer::effective_upscaler_mode() const {
+    if (!initialized()) return render::effective_upscaler_mode(impl_->upscaler);
+    return impl_->effective_upscaler();
+}
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -1098,6 +1104,11 @@ bool RendererTestAccess::taa_used_history(Renderer& r, Entity camera) {
     return r.impl_ && r.impl_->taa.last_used_history(camera.bits());
 }
 int RendererTestAccess::taa_resets(Renderer& r) { return r.impl_ ? r.impl_->taa.resets() : 0; }
+int RendererTestAccess::upscale_phases(Renderer& r) { return r.impl_ ? r.impl_->temporalPhases : 0; }
+int RendererTestAccess::upscale_impl(Renderer& r) { return r.impl_ ? int(r.impl_->upscaleImpl) : 0; }
+bool RendererTestAccess::upscale_used_history(Renderer& r) {
+    return r.impl_ && r.impl_->taa.last_used_history(render::kUpscaleCamKey);
+}
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
 void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
@@ -1227,7 +1238,24 @@ void Renderer::Impl::render(World& world, float dt) {
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
+    // M76-P4: the temporal upscaler jitters the camera by the number of phases the upscale ratio asks for (the cameras are built with it) and
+    // resolves it into the output image; it works on a frame of ONE full-viewport camera (several cameras or a split screen are drawn
+    // stretched: each would need a history of its rectangle). The frame is decided here, before the cameras are built.
+    temporalPhases = 0;
+    temporalFrame = false;
+    upscaleTaa = TaaPlan{};
+    upscaleImpl = render::UpscaleImpl::Stretch;
+    if (upscale_active() && effective_upscaler() == render::UpscalerMode::Temporal)
+        temporalPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
     lastCams = collect_cameras(world);
+    if (temporalPhases > 0 && !(lastCams.size() == 1 && lastCams.front().fullViewport())) {
+        temporalPhases = 0;
+        lastCams = collect_cameras(world);
+    }
+    if (temporalPhases > 0) {
+        temporalFrame = true;
+        upscaleImpl = render::UpscaleImpl::Temporal;
+    }
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)

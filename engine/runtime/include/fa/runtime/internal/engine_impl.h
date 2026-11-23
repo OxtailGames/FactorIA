@@ -149,8 +149,14 @@ struct Engine::Impl {
     bool pendingKeepProps = false;  // the scene change scheduled for the end of the frame is a reload
     void take_scene_props(bool keepProps);
 
-    double heldScale = 1.0;    // Engine::hold_render_scale: the render scale between captures
-    bool renderStale = false;  // OnDemand: simulated since the last draw
+    double heldScale = 1.0;  // Engine::hold_render_scale: the render scale between captures
+    // M76-P4: the render scale the renderer draws at is heldScale times the upscaler quality's scale (used_render_scale) while the scale
+    // is the player's (window.renderScale, the project's upscaler); a scale held for a screenshot (the CLI's --render-scale) is a size and
+    // is used as it is. Engine::set_render_scale sets it, hold_render_scale clears it.
+    bool playerScale = true;
+    double used_render_scale() const;  // heldScale times the upscaler quality's scale, while the scale is the player's
+    void apply_player_scale();         // the renderer's scale and upscale stage for used_render_scale()
+    bool renderStale = false;          // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;

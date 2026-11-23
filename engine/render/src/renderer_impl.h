@@ -182,9 +182,20 @@ struct Renderer::Impl {
     Target outTarget, outFilterTarget;
     bool outActive = false, outFilterActive = false;
     bool upscale_active() const;
+    // M76-P4, the temporal upscaler (renderer_upscale.cpp). effective_upscaler(): the mode the settings select on this backend (the
+    // "temporalUpscaler" row of render.supports, the scale mode). temporalPhases: the jitter sequence render() asks the cameras for this
+    // frame (0: none); temporalFrame: this frame's picture is jittered for the upscaler and resolved by it (plan_job: `upscaleTaa` is the
+    // plan, and the camera's own TemporalAA is not drawn); both are set by render() before the cameras are built.
+    render::UpscalerMode effective_upscaler();
+    int temporalPhases = 0;
+    bool temporalFrame = false;
+    TaaPlan upscaleTaa;
+    PrepassRef upscalePrepass;
+    VelocityRef upscaleVelocity;
+    bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
     void free_output_targets();
-    void run_upscale(Target& out);
+    void run_upscale(Target& out, const PassContext& c);
     void stretch_upscale(const render::UpscaleInput& in, Target& out);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
@@ -215,7 +226,7 @@ struct Renderer::Impl {
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
-    UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
+    UpscalerSettings upscaler;  // Renderer::set_upscaler: read by effective_upscaler() every frame
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera

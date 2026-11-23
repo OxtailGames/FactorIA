@@ -189,10 +189,10 @@ TEST_CASE("jitter: Halton(2,3) values, the offsets, the phases") {
             CHECK(std::fabs(a.y) < 0.5f);
         }
     }
-    // `phases` is clamped to 1 .. kJitterPhasesMax: 0 and negative read as 1, 100 as 16; and 8 differs from 16.
+    // `phases` is clamped to 1 .. kJitterPhasesMax: 0 and negative read as 1, 1000 as the maximum; and 8 differs from 16.
     CHECK(jitter_offset_pixels(5, 0).x == jitter_offset_pixels(0, 1).x);
     CHECK(jitter_offset_pixels(5, -3).y == jitter_offset_pixels(0, 1).y);
-    CHECK(jitter_offset_pixels(11, 100).x == jitter_offset_pixels(11, kJitterPhasesMax).x);
+    CHECK(jitter_offset_pixels(11, 1000).x == jitter_offset_pixels(11, kJitterPhasesMax).x);
     CHECK(jitter_offset_pixels(10, 16).x != jitter_offset_pixels(10, 8).x);
     // The 8 offsets of the default sequence are all different.
     for (int i = 0; i < kJitterPhasesDefault; ++i)

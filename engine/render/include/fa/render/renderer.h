@@ -344,10 +344,16 @@ public:
     // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
     void set_upscale_stage(bool on);
     bool upscale_stage() const;
-    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): kept and reported only. The renderer draws every mode as
-    // "stretch" until the packages that draw the others land (effective_upscaler_mode).
+    // The engine-wide upscaler setting (fa/render/upscaler.h, M76). While the picture is drawn below the output size
+    // (set_upscale_stage and a render scale below 1) the renderer brings it back with effective_upscaler_mode(): "temporal"
+    // (M76-P4: the camera is jittered and the frames accumulate in an output-size history) or stretch. The caller sets the render
+    // scale of the quality (upscaler_quality_scale) itself.
     void set_upscaler(const render::UpscalerSettings& settings);
     const render::UpscalerSettings& upscaler() const;
+    // The mode the renderer really draws with on this backend and scale mode (what render.upscaler and window.upscaler report as
+    // effectiveMode): "stretch" for stretch, spatial and metalfx (not drawn yet), for pixel art (ScaleMode::PixelPerfect) and where the
+    // temporal upscaler cannot run; "temporal" for temporal and auto. It says what would be drawn, not whether the stage is on.
+    render::UpscalerMode effective_upscaler_mode() const;
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();

@@ -392,12 +392,15 @@ std::vector<FeatureDef> build_table() {
          "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "
          "resolution. Needs no float targets, every backend. Planned (M76 P3b).",
          "M76"},
-        {"temporalUpscaler", "half",
-         "The temporal upscaler (render.upscaler mode \"temporal\"): the jittered frames of a lower resolution are "
-         "accumulated into a picture of the output resolution (the temporal antialiasing as the resolve). A fragment "
-         "pass on every backend; without float targets the history is RGBA8, with a note in the log. Planned "
-         "(M76 P4).",
-         "M76"},
+        {"temporalUpscaler", "",
+         "The temporal upscaler (render.upscaler mode \"temporal\", also picked by \"auto\"): while the game is drawn "
+         "below the output size the camera is jittered at the render resolution and the frames are accumulated into a "
+         "history of the output resolution (the temporal antialiasing's resolve), then sharpened; the HUD and the UI "
+         "are drawn over it at the output resolution. Two fragment passes on every backend, no compute. Without "
+         "half-float targets the history is 8 bits per channel (no depth, colours above 1 clipped), with a note in the "
+         "log. One full-screen camera; a frame of several cameras or a split screen is stretched; pixel art "
+         "(PixelPerfect) always stretches (M76-P4).",
+         nullptr},
         {"metalfx", "",
          "MetalFX (render.upscaler mode \"metalfx\"): Apple's own spatial and temporal upscalers, on Metal "
          "(macOS and iOS). Planned (M76 P5); elsewhere the mode \"auto\" picks \"temporal\" or \"spatial\".",

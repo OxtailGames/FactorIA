@@ -691,9 +691,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 
 // M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name
 // and has been drawn since M76-P2.
-TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
+TEST_CASE("features: the upscaling rows of M76 are planned (the temporal upscaler is drawn), metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"motionVectors", "spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
+    for (const char* name : {"motionVectors", "spatialUpscaler", "metalfx", "dynamicResolution"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -707,8 +707,13 @@ TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Meta
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
     CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
-    CHECK((feature_table()[std::size_t(find_feature("temporalUpscaler"))].backends & (1u << int(FeatureBackend::Gl))) !=
-          0);
+    // The temporal upscaler (M76-P4) is drawn on every GPU backend, with an 8-bit history where there are no float targets.
+    const FeatureDef& tu = feature_table()[std::size_t(find_feature("temporalUpscaler"))];
+    CHECK(tu.kind == FeatureKind::Engine);
+    CHECK(tu.planned == nullptr);
+    CHECK((tu.backends & (1u << int(FeatureBackend::Gl))) != 0);
+    CHECK(supported(full, "temporalUpscaler", nullptr));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler", nullptr));
     // The effect row of the temporal antialiasing (M76-P2): drawn on every GPU (an 8-bit history where there are no float targets), and no
     // engine row of the same name.
     std::string why;

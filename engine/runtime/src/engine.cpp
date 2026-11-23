@@ -97,6 +97,24 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
     return false;
 }
 
+// M76-P4 (P3b adds the same rule: keep one): the render scale the renderer draws at. The player's scale (window.renderScale) times the
+// share of the width and the height the upscaler's quality draws (1 at native, 1/2 at performance), never below the renderer's smallest.
+double Engine::Impl::used_render_scale() const {
+    if (!playerScale || !renderer) return heldScale;
+    const double q = double(render::upscaler_quality_scale(self->upscaler().quality));
+    return std::max(heldScale * q, double(Renderer::kMinRenderScale));
+}
+
+// Draws the game at used_render_scale(), with the upscale stage on while that is below the design size (the HUD and UI are then drawn at
+// the design size over the brought-back picture). A scale held for a screenshot is left alone.
+void Engine::Impl::apply_player_scale() {
+    if (!renderer || !playerScale) return;
+    const double used = used_render_scale();
+    renderer->set_render_scale(float(used));
+    renderer->set_upscale_stage(used < 1.0);
+    renderStale = true;
+}
+
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     world.interp().enabled = project.renderInterpolation;  // fa/scene/interpolation.h
@@ -981,6 +999,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
+            I.apply_player_scale();  // M76-P4: the quality of the project's upscaler draws the game below the design size
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
@@ -1358,13 +1377,13 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
                     std::to_string(I.renderer->target_width()) + "x" + std::to_string(I.renderer->target_height()) +
                     "). Use a smaller scale.");
     struct
-        ScaleGuard {  // back to the held scale (1 unless hold_render_scale) afterwards; the next picture is drawn again
+        ScaleGuard {  // back to the used scale (1 unless hold_render_scale / an upscaler quality) afterwards; the next picture is drawn again
         Impl& I;
         bool on;
         bool upscale;  // the player's render scale (window.renderScale) brings the picture back to the design size
         ~ScaleGuard() {
             if (on) {
-                I.renderer->set_render_scale(float(I.heldScale));
+                I.renderer->set_render_scale(float(I.used_render_scale()));
                 I.renderer->set_upscale_stage(upscale);
                 I.renderStale = true;
             }
@@ -1473,6 +1492,7 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
         return capture_scaled(probe, scale, error);  // fails with the explanation
     }
     I.heldScale = scale;
+    I.playerScale = false;  // a size; Engine::set_render_scale makes it the player's again
     I.renderer->set_upscale_stage(
         false);  // a held screenshot scale (--render-scale) is a size; set_render_scale() below turns it on
     I.renderer->set_render_scale(float(scale));
@@ -1682,15 +1702,23 @@ std::string Engine::set_render_scale(double scale) {
     if (!hold_render_scale(scale, &err)) return err;
     // The player's option: below 1 the game is drawn smaller and brought back to the design size, the HUD and UI drawn over it at that
     // size (Renderer::set_upscale_stage), so a screenshot of it (capture_frame) is the design size.
-    I.renderer->set_upscale_stage(scale < 1.0);
+    I.playerScale = true;
+    I.apply_player_scale();
     I.renderStale = true;
     return std::string();
 }
 
 std::string Engine::set_upscaler(const Json& value, const std::string& where) {
     std::string err = ScriptHost::set_upscaler(value, where);
-    if (err.empty() && impl_->renderer) impl_->renderer->set_upscaler(upscaler());
+    if (err.empty() && impl_->renderer) {
+        impl_->renderer->set_upscaler(upscaler());
+        impl_->apply_player_scale();  // the quality sets the size the frame is drawn at
+    }
     return err;
+}
+
+render::UpscalerMode Engine::effective_upscaler_mode() const {
+    return impl_->renderer ? impl_->renderer->effective_upscaler_mode() : ScriptHost::effective_upscaler_mode();
 }
 
 void Engine::device_overridden(const Json& device) {

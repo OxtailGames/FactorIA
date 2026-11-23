@@ -18,7 +18,8 @@ namespace {
 float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
 static_assert(UB_taa_taa_vs_params == 0 && UB_taa_taa_params == 1, "the taa program uniform slots");
-static_assert(VIEW_taa_tex_c == 0 && VIEW_taa_tex_p == 1 && VIEW_taa_tex_v == 2 && VIEW_taa_tex_h == 3 && VIEW_taa_tex_r == 4,
+static_assert(VIEW_taa_tex_c == 0 && VIEW_taa_tex_p == 1 && VIEW_taa_tex_v == 2 && VIEW_taa_tex_h == 3 &&
+                  VIEW_taa_tex_r == 4,
               "the taa resolve view slots");
 static_assert(VIEW_taa_tex_o == 5, "the taa output view slot");
 static_assert(SMP_taa_smp_lin == 0 && SMP_taa_smp_pt == 1 && SMP_taa_smp_o == 2, "the taa sampler slots");
@@ -51,12 +52,12 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 
 }  // namespace
 
-TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available, std::uint64_t camKey,
-                      std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
-                      const Mat4& prevViewProj, bool prevValid) {
+namespace {
+
+// The plan of `cam` with the numbers of `f` (clamped); the callers decide whether there is one.
+TaaPlan build_taa_plan(const CameraInfo& cam, const PostProcess& f, std::uint64_t camKey, std::uint64_t serial,
+                       std::uint64_t sceneKey, std::uint64_t originShifts, const Mat4& prevViewProj, bool prevValid) {
     TaaPlan p;
-    if (!gameFrame || !available || !stack.has(PostEffect::TemporalAA)) return p;
-    const PostProcess& f = stack.fx;
     p.gamma = std::clamp(finite_or(f.temporalAAVarianceGamma, 1.0f), 0.5f, 2.0f);
     p.feedback = std::clamp(finite_or(f.temporalAAFeedback, 0.9f), 0.5f, 0.98f);
     p.sharpen = std::clamp(finite_or(f.temporalAASharpen, 0.25f), 0.0f, 1.0f);
@@ -67,7 +68,8 @@ TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFr
     p.sceneKey = sceneKey;
     p.originShifts = originShifts;
     const Mat4& P = cam.proj;
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     bool finite = std::fabs(P.at(0, 0)) > 1e-12f && std::fabs(P.at(1, 1)) > 1e-12f;
     for (float t : terms) finite = finite && std::isfinite(t);
     for (int i = 0; i < 8; ++i) p.proj[i] = terms[i];
@@ -79,6 +81,26 @@ TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFr
         for (int i = 0; i < 16; ++i) finite = finite && std::isfinite(p.prevFromView.m[i]);
         p.prevValid = finite;  // a matrix that is not usable: the camera starts a new history (a cut)
     }
+    return p;
+}
+
+}  // namespace
+
+TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available,
+                      std::uint64_t camKey, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+                      const Mat4& prevViewProj, bool prevValid) {
+    if (!gameFrame || !available || !stack.has(PostEffect::TemporalAA)) return TaaPlan{};
+    return build_taa_plan(cam, stack.fx, camKey, serial, sceneKey, originShifts, prevViewProj, prevValid);
+}
+
+TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, bool gameFrame, bool available,
+                              float sharpness, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+                              const Mat4& prevViewProj, bool prevValid) {
+    if (!gameFrame || !available) return TaaPlan{};
+    static const PostProcess kDefaults;
+    const PostProcess& f = stack && stack->has(PostEffect::TemporalAA) ? stack->fx : kDefaults;
+    TaaPlan p = build_taa_plan(cam, f, kUpscaleCamKey, serial, sceneKey, originShifts, prevViewProj, prevValid);
+    p.sharpen = std::clamp(p.sharpen * finite_or(sharpness, 0.5f) / 0.5f, 0.0f, 1.0f);
     return p;
 }
 
@@ -95,10 +117,11 @@ bool TaaFx::ready() {
             s = {};
         }
         state_ = -1;
-        FA_ERROR("render",
-                 "Temporal antialiasing is unavailable: its shaders failed to compile for this graphics backend (see the sokol log "
-                 "lines above). The game renders without it and without the camera jitter. Hint: update the graphics driver (Mesa: try "
-                 "LIBGL_ALWAYS_SOFTWARE=1) or turn temporalAAEnabled off.");
+        FA_ERROR("render", "Temporal antialiasing is unavailable: its shaders failed to compile for this graphics "
+                           "backend (see the sokol log "
+                           "lines above). The game renders without it and without the camera jitter. Hint: update the "
+                           "graphics driver (Mesa: try "
+                           "LIBGL_ALWAYS_SOFTWARE=1) or turn temporalAAEnabled off.");
         return false;
     }
     state_ = 1;
@@ -122,7 +145,8 @@ sg_pipeline TaaFx::pipeline(Prog prog, const TargetFormat& format) {
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = prog == Prog::Resolve ? "taa-resolve" : "taa-output";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -135,8 +159,10 @@ sg_pixel_format TaaFx::pick_format() {
         if (!warnedFormat_) {
             warnedFormat_ = true;
             FA_INFO("render",
-                    "Temporal antialiasing: this GPU cannot render to half-float images, so the history is 8 bits per channel "
-                    "(colours above 1 are clipped in it and the depth that rejects a surface that was uncovered is not kept: more "
+                    "Temporal antialiasing: this GPU cannot render to half-float images, so the history is 8 bits per "
+                    "channel "
+                    "(colours above 1 are clipped in it and the depth that rejects a surface that was uncovered is not "
+                    "kept: more "
                     "ghosting behind moving objects). Hint: nothing to do; a GPU with half-float targets keeps both.");
         }
     }
@@ -164,7 +190,9 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
     // The budget counts every other camera's images (this one is made again).
     std::uint64_t used = 0;
     for (const auto& e : slots_)
-        if (e.second != slot) used = std::min<std::uint64_t>(used + history_bytes(e.second->w, e.second->h, e.second->format), kBudgetBytes + 1);
+        if (e.second != slot)
+            used = std::min<std::uint64_t>(used + history_bytes(e.second->w, e.second->h, e.second->format),
+                                           kBudgetBytes + 1);
     const std::uint64_t wanted = history_bytes(w, h, format);
     if (!slot) slot = std::make_shared<Slot>();
     destroy(*slot);
@@ -183,8 +211,10 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
         slots_.erase(camKey);
         refused_ = true;
         FA_ERROR("render",
-                 "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the histories take at most "
-                 "{} MB, or the GPU refused the images). The game renders without it and without the camera jitter. Hint: lower the "
+                 "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the "
+                 "histories take at most "
+                 "{} MB, or the GPU refused the images). The game renders without it and without the camera jitter. "
+                 "Hint: lower the "
                  "render scale or turn temporalAAEnabled off.",
                  job, w, h, kBudgetBytes >> 20);
         return nullptr;
@@ -323,6 +353,49 @@ bool TaaFx::output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, 
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     return true;
+}
+
+bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {
+    if (!plan.on || !out.valid() || !in.color.id || !in.dummy.id || !ready() || refused_) return false;
+    in.outW = out.w;
+    in.outH = out.h;
+    const sg_pixel_format hf = pick_format();
+    const std::shared_ptr<Slot> slot = slot_for(plan.camKey, in.outW, in.outH, hf, "upscale");
+    if (!slot) return false;
+    // The history holds the frame before when the upscaler resolved it, nothing that changes what the images mean happened since (a cut, a
+    // scene, a floating-origin shift, another render size or quality) and the images are the ones just made or kept.
+    const bool histValid = slot->wrote && (slot->last == 0 || slot->last == 1) && slot->serial + 1 == plan.serial &&
+                           slot->sceneKey == plan.sceneKey && slot->originShifts == plan.originShifts &&
+                           slot->configKey == configKey && plan.prevValid;
+    if (!histValid) ++resets_;
+    slot->planned = plan.serial;
+    const int readIdx = histValid ? slot->last : -1;
+    const int writeIdx = slot->last == 0 ? 1 : 0;
+    in.jitterPx = plan.jitterPx;
+    in.gamma = plan.gamma;
+    in.feedback = plan.feedback;
+    in.reactiveScale = plan.reactiveScale;
+    in.prevFromView = plan.prevFromView;
+    for (int i = 0; i < 8; ++i) in.proj[i] = plan.proj[i];
+    in.historyHasDepth = hf == SG_PIXELFORMAT_RGBA16F;
+    in.historyValid = readIdx >= 0;
+    in.history = readIdx >= 0 ? slot->img[readIdx].texView : sg_view{};
+    PassDesc pd = pass_into(slot->img[writeIdx], "upscale-resolve");
+    pd.colorLoad = SG_LOADACTION_DONTCARE;
+    if (!resolve(gpu, pd, in)) return false;
+    slot->last = writeIdx;
+    slot->wrote = true;
+    slot->serial = plan.serial;
+    slot->sceneKey = plan.sceneKey;
+    slot->originShifts = plan.originShifts;
+    slot->configKey = configKey;
+    slot->usedHistory = histValid;
+    // The sharpened history into the output image. The pipeline leaves the alpha alone, so the image is cleared to opaque first.
+    PassDesc od = pass_into(out, "upscale-output");
+    od.colorLoad = SG_LOADACTION_CLEAR;
+    od.clearColor = sg_color{0.0f, 0.0f, 0.0f, 1.0f};
+    od.colorStore = SG_STOREACTION_STORE;
+    return output(gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
 // The pass callbacks capture a plan by value (a Mat4 inside): MSVC warns (C4324) about padded closures when a member is alignas(16).

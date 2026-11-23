@@ -14,7 +14,9 @@
 namespace fa {
 
 inline constexpr int kJitterPhasesDefault = 8;  // the sequence repeats after this many frames
-inline constexpr int kJitterPhasesMax = 16;     // the longest sequence a camera may ask for
+// The longest sequence a camera may ask for: the temporal upscaler (M76-P4) wants ceil(8 * (output / render)^2) phases, 72 at a render size
+// of a third of the output's width and height (UltraPerformance), 128 at the smallest render scale (0.25) of the renderer.
+inline constexpr int kJitterPhasesMax = 128;
 
 // Element `index` (1, 2, 3 ...) of the Halton sequence in `base` (2 or 3 for the jitter): a number in [0, 1). Index 0 gives 0.
 float halton(std::uint32_t index, std::uint32_t base);

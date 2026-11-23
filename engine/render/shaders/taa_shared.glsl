@@ -41,6 +41,9 @@ const float TAA_FAR = 60000.0;
 vec2 taa_fl(vec2 s) { return vec2(s.x, mix(s.y, 1.0 - s.y, a.x)); }
 vec2 taa_game_uv(vec2 s) { return taa_fl(s * rc.zw + rc.xy); }
 float taa_max3(vec3 c) { return max(max(c.r, c.g), c.b); }
+// A NaN test by the bits of the float: a GPU compiler that assumes "no NaN" (fast math) may drop isnan(), but not this.
+bool taa_nanf(float x) { return (floatBitsToUint(x) & 0x7fffffffu) > 0x7f800000u; }
+bool taa_nan3(vec3 c) { return taa_nanf(c.x) || taa_nanf(c.y) || taa_nanf(c.z); }
 // The colour with its largest channel squeezed into 0..2: unchanged up to 1 (a mean of the samples of a pixel at the edge of a shape is the mean of
 // their values, so the picture converges to the supersampled one), above 1 the channel m goes to 2 - 1/m, so a bright pixel cannot outweigh its
 // neighbours in the mean and the variance.
@@ -77,7 +80,7 @@ vec3 taa_history_rgb(vec2 p, vec2 size) {
     r += textureLod(sampler2D(tex_h, smp_lin), taa_fl(vec2(p3.x, p12.y)), 0.0).rgb * (w3.x * w12.y);
     r += textureLod(sampler2D(tex_h, smp_lin), taa_fl(vec2(p12.x, p3.y)), 0.0).rgb * (w12.x * w3.y);
     float wsum = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
-    return max(r / max(wsum, 1e-4), vec3(0.0));
+    return r / max(wsum, 1e-4);   // not clamped to 0..: the caller tests it for NaN first (a NaN texel of the history would carry on for ever)
 }
 
 // What taa_resolve returns: the resolved colour (display-linear like the picture) and the linear depth the history keeps for its pixel.
@@ -90,6 +93,10 @@ struct TaaResult {
 // size of the history and the output, jit: the jitter of this frame in picture pixels.
 TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
     vec2 up = u * inSize;                         // the position to resolve, in picture pixels
+    // The width of the filter is that of an OUTPUT pixel: when the picture is smaller than the output (the temporal upscaler) the Gaussian narrows by the
+    // ratio of the areas, so the sum over the jitter phases is as sharp as a picture of the output size, not as blurry as one of the render size. 1 at
+    // the same size (the antialiasing of a camera: unchanged).
+    float kern = max(1.0, (outSize.x / inSize.x) * (outSize.y / inSize.y));
     vec2 base = floor(up + jit);                  // the picture pixel that shows it
     vec3 acc = vec3(0.0);
     float wsum = 0.0;
@@ -97,6 +104,7 @@ TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
     vec3 m2 = vec3(0.0);
     float bestD = 1e30;
     float bestDepth = TAA_FAR;
+    float valid = 0.0;                            // the number of samples that are not NaN
     vec2 bestCtr = base + 0.5;
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
@@ -104,11 +112,15 @@ TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
             vec2 ctr = ip + 0.5;
             vec2 suv = ctr / inSize;
             vec3 c = textureLod(sampler2D(tex_c, smp_lin), taa_game_uv(suv), 0.0).rgb;
-            c = taa_ycocg(taa_compress(clamp(c, vec3(0.0), vec3(65000.0))));
+            // A NaN sample (a shader that divided 0 by 0) is left out of the filter and the moments: it would reach the history, which
+            // is mixed with itself for ever, and never clear.
+            bool bad = taa_nan3(c);
+            c = bad ? vec3(0.0) : taa_ycocg(taa_compress(clamp(c, vec3(0.0), vec3(65000.0))));
             vec2 d = (ctr - jit) - up;            // where this pixel's sample is, from the pixel being resolved
-            float w = exp(-2.29 * dot(d, d));
+            float w = bad ? 0.0 : exp(-2.29 * kern * dot(d, d));
             acc += c * w;
             wsum += w;
+            valid += bad ? 0.0 : 1.0;
             m1 += c;
             m2 += c * c;
             // The closest surface around decides how the pixel moved (an edge keeps the motion of the thing in front).
@@ -125,9 +137,9 @@ TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
             }
         }
     }
-    vec3 cur = acc / max(wsum, 1e-6);
-    vec3 mu = m1 / 9.0;
-    vec3 sigma = sqrt(max(m2 / 9.0 - mu * mu, vec3(0.0)));
+    vec3 cur = wsum > 1e-6 ? acc / wsum : vec3(0.0);   // every sample NaN: black, with no history
+    vec3 mu = m1 / max(valid, 1.0);
+    vec3 sigma = sqrt(max(m2 / max(valid, 1.0) - mu * mu, vec3(0.0)));
 
     // How the surface at the closest sample moved: the velocity an object wrote, else the camera's movement from the depth.
     vec2 suvB = bestCtr / inSize;                 // the sample's own uv, in the jittered image
@@ -157,19 +169,22 @@ TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
     float keep = 0.0;
     vec3 hist = cur;
     if (hv > 0.5) {
-        hist = taa_ycocg(taa_compress(taa_history_rgb(pu, outSize)));
+        vec3 hrgb = taa_history_rgb(pu, outSize);
+        bool histBad = taa_nan3(hrgb);            // a NaN in the history is dropped, not carried
+        hist = histBad ? cur : taa_ycocg(taa_compress(max(hrgb, vec3(0.0))));
         // The variance clip: the history is pulled toward the mean of the neighbours until it is inside the box of mean +- gamma * sigma.
         vec3 e = max(g.x * sigma, vec3(1e-3));
         vec3 dir = hist - mu;
         float t = max(max(abs(dir.x) / e.x, abs(dir.y) / e.y), abs(dir.z) / e.z);
         if (t > 1.0) hist = mu + dir / t;
-        keep = clamp(g.y, 0.0, 0.995);
+        keep = histBad ? 0.0 : clamp(g.y, 0.0, 0.995);
         // A surface that was not where the history says (an occluded thing came out): the depth it had is far from the depth it has now. Not
-        // known for a pixel an object moved (its velocity says where it was, not how deep).
-        if (f.w > 0.5 && prevDepth > 0.0 && !velocityKnown) {
+        // known for a pixel an object moved (its velocity says where it was, not how deep). Not tested for the sky (nothing was drawn there:
+        // the depth is the far plane): its "depth" changes with every turn of the camera and would drop the history of the whole sky.
+        if (f.w > 0.5 && prevDepth > 0.0 && !velocityKnown && bestDepth < TAA_FAR) {
             float hd = textureLod(sampler2D(tex_h, smp_pt), taa_fl(pu), 0.0).a;
             float rel = abs(hd - prevDepth) / max(prevDepth, 0.25);
-            keep *= 1.0 - smoothstep(0.08, 0.2, rel);
+            keep *= taa_nanf(hd) ? 0.0 : 1.0 - smoothstep(0.08, 0.2, rel);
         }
         if (f.z > 0.5) {
             float r = textureLod(sampler2D(tex_r, smp_pt), taa_fl(suvB), 0.0).r;

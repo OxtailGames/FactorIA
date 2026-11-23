@@ -4410,7 +4410,7 @@ NATIVE(upscalerGet) {  // {mode, quality, sharpness, effectiveMode, scale}
     SETUP;
     const render::UpscalerSettings s = I->host->upscaler();
     Json j = render::upscaler_to_json(s);
-    j["effectiveMode"] = std::string(render::upscaler_mode_name(render::effective_upscaler_mode(s)));
+    j["effectiveMode"] = std::string(render::upscaler_mode_name(I->host->effective_upscaler_mode()));
     j["scale"] = std::round(double(render::upscaler_quality_scale(s.quality)) * 1000.0) / 1000.0;
     return I->from_json(j);
 }
