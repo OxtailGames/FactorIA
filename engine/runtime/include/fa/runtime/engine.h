@@ -306,6 +306,10 @@ public:
     std::string set_render_scale(double scale) override;
     std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
         override;  // window.upscaler / render.upscaler: also the renderer's
+    // game.graphics / graphics.preset / graphics.detect (M76, engine_graphics.cpp). graphics_preset({}) reads the preset,
+    // graphics_preset({"name": "high"}) applies it; an error is put in *error and nothing changes.
+    Json graphics_preset(const Json& args, std::string* error) override;
+    Json graphics_detect(std::string* error) override;
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values

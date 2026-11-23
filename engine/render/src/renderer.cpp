@@ -3,6 +3,7 @@
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
 #include "scene2d.h"
+#include "quality.h"
 #include "render_features.h"
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
@@ -142,6 +143,9 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && world.any<PostProcess>()) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci));
+        if (qualityOn)
+            apply_quality_limits(
+                *stack, quality);  // the graphics preset: what the cameras may draw (the components are untouched)
         for (const Error& err : stack->customErrors)
             if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
@@ -514,6 +518,16 @@ void Renderer::set_upscale_stage(bool on) {
 bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
 const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+void Renderer::set_quality(const render::QualityLimits& limits) {
+    impl_->quality = limits;
+    impl_->qualityOn = limits != render::QualityLimits{};
+}
+const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
+render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
+    render::FeatureEnv env;  // headless (no GPU) until the renderer has one
+    if (initialized()) env = render::feature_env_from_sokol();
+    return render::resolve_quality(preset, env);
+}
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";

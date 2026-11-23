@@ -288,7 +288,8 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
         }
         if (!en.data || en.file != file) return;
         const FoliageChunks& data = *en.data;
-        const float density = std::isfinite(f.density) ? std::clamp(f.density, 0.0f, 1.0f) : 0.0f;
+        const float density = (std::isfinite(f.density) ? std::clamp(f.density, 0.0f, 1.0f) : 0.0f) *
+                              std::clamp(view.density, 0.0f, 1.0f);
         if (en.keptDensity != density || en.kept.size() != data.chunks.size()) {
             en.keptDensity = density;
             en.kept.resize(data.chunks.size());
@@ -308,9 +309,10 @@ FoliageRenderer::Counts FoliageRenderer::gather(const View& view, std::vector<Me
         job.castShadows = f.castShadows;
         job.wind = std::isfinite(f.windStrength) ? std::max(f.windStrength, 0.0f) : 0.0f;
         job.freq = std::isfinite(f.windFrequency) ? f.windFrequency : 0.0f;
-        job.fadeStart = f.fadeStart;
-        job.fadeEnd = f.fadeEnd;
-        job.lodDistance = f.lodDistance;
+        const float distScale = std::isfinite(view.distance) ? std::clamp(view.distance, 0.05f, 1.0f) : 1.0f;
+        job.fadeStart = f.fadeStart * distScale;
+        job.fadeEnd = f.fadeEnd * distScale;
+        job.lodDistance = f.lodDistance * distScale;
 
         float radius = 0.0f;  // from the origin of an instance to its farthest corner, for scale 1
         for (std::size_t i = 0; i < names.size(); ++i) {

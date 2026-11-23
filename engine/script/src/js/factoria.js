@@ -2284,6 +2284,20 @@
   };
 
   const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected", "originShifted"];
+  const graphicsResult = (r) => {
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  };
+  const graphicsApi = Object.freeze({
+    preset(name) {
+      if (name === undefined) return graphicsResult(N.graphicsPreset({}));
+      if (typeof name !== "string") {
+        throw new Error(`game.graphics.preset(name) expects one of "low", "medium", "high", "ultra", "custom", but got ${inspect(name)}`);
+      }
+      return graphicsResult(N.graphicsPreset({ name }));
+    },
+    detect() { return graphicsResult(N.graphicsDetect()); },
+  });
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -2352,6 +2366,10 @@
     // a phone or a tablet }. Headless runs and tests always read
     // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).
     get device() { return Object.freeze(N.deviceInfo()); },
+    // The graphics presets (M76, docs/UPSCALING.md "Graphics presets"): preset() reads the current one, preset("high") applies it (low,
+    // medium, high, ultra, custom) and returns what changed; detect() measures the GPU with a short off-screen benchmark and returns the
+    // preset it suggests, changing nothing. A wrong name throws with a "did you mean".
+    get graphics() { return graphicsApi; },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     // The bot hook (docs/SCRIPTING.md, "The bot"): fn(bot) is called once per step by `play.auto` (never by a shipped game, which

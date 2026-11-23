@@ -248,6 +248,17 @@ struct Engine::Impl {
     std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
     std::optional<bool> appliedProjectMirrorRtl;             // the project's ui.mirrorRtl last applied
     std::optional<render::UpscalerSettings> appliedProjectUpscaler;  // the project's render.upscaler last applied (M76)
+    // The graphics preset (M76-P6a, engine_graphics.cpp): the quality layer the renderer applies. Custom = none.
+    render::GraphicsPreset graphicsPreset = render::GraphicsPreset::Custom;
+    render::QualityLimits
+        graphicsLimits;  // the limits of graphicsPreset after the GPU's caps (the defaults = no limit)
+    // The upscaler the game had before the first preset (Custom puts it back); empty while the preset is Custom.
+    std::optional<render::UpscalerSettings> upscalerBeforePreset;
+    std::optional<render::GraphicsPreset> appliedProjectPreset;  // the project's render.graphicsPreset last applied
+    bool applyingPreset = false;  // a preset is writing the upscaler (not a manual change)
+    // Resolves graphicsPreset on this GPU and hands the limits to the renderer (called when the renderer is created, after the project's
+    // preset was read).
+    void apply_graphics_quality();
     float appliedProjectUiScale = -1.0f;  // the project's ui.scale last applied; -1 before the first time
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
     // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.

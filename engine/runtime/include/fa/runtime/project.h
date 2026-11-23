@@ -36,6 +36,7 @@
 #include "fa/core/types.h"
 #include "fa/scene/ui_tooltip.h"
 #include "fa/render/renderer.h"
+#include "fa/render/graphics_preset.h"
 #include "fa/render/upscaler.h"
 
 namespace fa {
@@ -126,6 +127,8 @@ struct ProjectSettings {
     // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
     // window.upscaler. Stored and reported only: the renderer draws every mode as "stretch" until the packages that draw the others land.
     render::UpscalerSettings upscaler;
+    // "render": {"graphicsPreset": "high"} (M76-P6a, docs/UPSCALING.md "Graphics presets"): the preset a run starts with. custom (default) = none.
+    render::GraphicsPreset graphicsPreset = render::GraphicsPreset::Custom;
     FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();
     Json inputSchemes = Json::

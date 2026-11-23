@@ -440,8 +440,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
-- [`graphics.detect`](commands/game.md#graphicsdetect): Measure this device and pick the graphics preset that suits it. _Not released yet._
-- [`graphics.preset`](commands/game.md#graphicspreset-modifies-state): Apply a graphics preset (low, medium, high, ultra) to the render settings of the game. _Not released yet._
+- [`graphics.detect`](commands/game.md#graphicsdetect): Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing. _Not released yet._
+- [`graphics.preset`](commands/game.md#graphicspreset-modifies-state): Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render settings of the game. _Not released yet._
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._

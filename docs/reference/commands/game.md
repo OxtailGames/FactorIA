@@ -375,25 +375,29 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 
 Not released yet (on main after 0.35.2).
 
-Measure this device and pick the graphics preset that suits it.
+Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing.
 
 Capabilities: read
 
-Will read the device (game.device: GPU backend, memory, tier) and answer the preset that suits it, without changing anything. Result: {preset, reason}. Example: graphics.detect {}
+Reads the GPU (backend, adapter name, vendor, video memory where the graphics API says it, software renderer or not) and the device (game.device: tier, form factor, handheld), draws a fixed scene about 150 meshes with shadows at 960x540 off-screen a few times, and answers the preset that machine can hold. The scene is drawn with the engine's own world, never the game's: the simulation, its clock and its random numbers are not touched, and the graphics preset in force is lifted while it runs so every GPU is measured on the same work. One warm-up picture (pipelines are made then, not timed) and 5 timed ones; the median is the score; a safety net stops the timed ones after 4 seconds in total. Returns {preset, reason, gpu: {backend, name, vendor, driver, memoryMB, unifiedMemory, software}, benchmarkMs, benchmark: {ran, why, samples, frameMs, totalMs, width, height}, device: {tier, formFactor, handheld}}. Example: graphics.detect {}
+
+The rule: a median of 4 ms or less is ultra, up to 8 ms high, up to 16 ms medium, slower low; a software renderer (llvmpipe, SwiftShader, WARP) is low and is not benchmarked; a phone or tablet is capped at medium, a handheld (Steam Deck) at high, a low device tier or under 2 GB of video memory at medium. Without graphics (graphics=false) or on the dummy backend nothing is drawn (`benchmark.ran` is false and says why) and the device tier decides. `benchmarkMs` is the whole benchmark, warm-up included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds: call it behind a loading screen or the first-run options page, never during play. Times are rounded to 0.1 ms and differ run to run: a game uses `preset`, not the number. The same is game.graphics.detect() in scripts.
 
 ## `graphics.preset` (modifies state)
 
 Not released yet (on main after 0.35.2).
 
-Apply a graphics preset (low, medium, high, ultra) to the render settings of the game.
+Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render settings of the game.
 
 Capabilities: read, state
 
-Will set the settings a graphics options menu offers (render scale, upscaler, shadows, ambient occlusion, antialiasing ...) to the values of the preset `name`: low, medium, high or ultra (custom = what the game set itself; it cannot be applied). Result: {preset, changes}. Example: graphics.preset {"name":"high"}
+A preset is a set of limits on what the scene, its cameras' PostProcess and its lights ask for (shadows, ambient occlusion, reflections, depth of field, motion blur, fog, level of detail, foliage, terrain, 2D lighting, global illumination) plus the upscaler. A limit only lowers; nothing is written into the scene or factoria.json. `custom` is no layer: the game looks as its author made it. With `name` it applies that preset; with no argument it reads the current one. Returns {preset, previous, changed, changes: [{knob, from, to}], limits, capped: [{knob, wanted, effective, reason}], upscaler, headless}. Example: graphics.preset {"name":"high"} The table of each preset: docs/UPSCALING.md, "Graphics presets".
+
+A limit only lowers: a scene that asks for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also write the upscaler (mode auto, a quality); `custom` puts back the one the game had before the first preset, and a render.upscaler or window.upscaler change while a preset is on is what `custom` brings back. Knobs the GPU cannot draw are capped (render.supports says which) and `capped` names each with the reason; `limits` is the layer in force after the caps (a limit at its largest value means no limit), `changes` the limits and the upscaler that differ from before. `headless` is true when the engine runs without graphics: the preset is remembered, nothing is drawn and no GPU cap was looked at. The default preset of a game is factoria.json "render": {"graphicsPreset": "high"}; the engine does not remember the player's choice (keep it with storage.set(); graphics.detect suggests one for a first run). Errors: `invalid_argument` for an unknown name (with a "did you mean") or argument; nothing changes. The same is game.graphics.preset() in scripts.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `name` | string ["low","medium","high","ultra"] | yes | The preset to apply (case does not matter). |
+| `name` | string ["low","medium","high","ultra","custom"] | no | The preset to apply. Leave it out to read the current preset. |
 
 ## `input.record` (modifies state)
 

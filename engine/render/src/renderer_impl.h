@@ -215,6 +215,8 @@ struct Renderer::Impl {
     // before the effect is drawn.
     int jitterForce = 0;
     UpscalerSettings upscaler;  // Renderer::set_upscaler: kept, not drawn yet (M76)
+    QualityLimits quality;      // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
+    bool qualityOn = false;     // quality != QualityLimits{}: the frame pays nothing while it is off
     int jitter_phases(const CameraInfo& ci) const;
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
