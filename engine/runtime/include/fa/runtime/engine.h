@@ -306,7 +306,9 @@ public:
     std::string set_render_scale(double scale) override;
     std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
         override;  // window.upscaler / render.upscaler: also the renderer's
-    render::UpscalerMode effective_upscaler_mode() const override;  // the renderer's: what draws, pixel art is stretch
+    render::UpscalerMode effective_upscaler_mode()
+        const override;  // the renderer's: what draws, pixel art is stretch; with no renderer, what a GPU would draw
+    render::UpscalerCaps upscaler_caps() const override;  // no renderer: pixelArt from the project's scale mode
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values

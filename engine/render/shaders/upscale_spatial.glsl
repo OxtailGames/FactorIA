@@ -19,12 +19,17 @@
 @module upscale_spatial
 
 @vs vs
+layout(binding=0) uniform spatial_vs_params {
+    vec4 flip;      // x = 1 when the source render target has its origin at the bottom (OpenGL): the same rule as blit.glsl
+};
 layout(location=0) in vec2 pos;
 out vec2 uv;
 void main() {
     gl_Position = vec4(pos, 0.0, 1.0);
-    // The picture is stored like the game image on every backend (no flip): the same uv as blit.glsl with flip 0.
-    uv = vec2(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
+    // A copy between two render targets keeps the storage layout on every backend: blit.glsl's uv, with its flip.
+    float v_top_down = 0.5 - pos.y * 0.5;
+    float v_bottom_up = 0.5 + pos.y * 0.5;
+    uv = vec2(pos.x * 0.5 + 0.5, mix(v_top_down, v_bottom_up, flip.x));
 }
 @end
 
@@ -53,7 +58,7 @@ float luma_of(vec3 p) {
 @fs fs_edge
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
-layout(binding=0) uniform upscale_edge_params {
+layout(binding=1) uniform upscale_edge_params {
     vec4 src;       // xy = the size of the source in texels, z = 1 when it holds linear light, w = unused
 };
 in vec2 uv;
@@ -133,7 +138,7 @@ void main() {
 @fs fs_sharpen
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
-layout(binding=0) uniform upscale_sharpen_params {
+layout(binding=1) uniform upscale_sharpen_params {
     vec4 src;       // xy = the size of the source in texels, z = 1 when it holds linear light, w = the strongest negative weight of
                     // the sharpen (0 = none; sharpness 1 is 0.18)
 };

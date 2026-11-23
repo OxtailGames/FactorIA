@@ -27,7 +27,8 @@ draws, so reading the setting back never lies:
   would blur the pixels it keeps hard (the quality still lowers the size it is drawn at);
 - `temporal`, `metalfx` and `auto` draw as `spatial` until their packages land (then `auto` picks the best of
   metalfx, temporal and spatial the GPU can draw, and `temporal` or `metalfx` fall back to the next one down);
-- with no GPU (`graphics=false`) there is nothing to draw: `stretch`, as a host with no renderer reports the mode a GPU would draw.
+- with no renderer (`graphics=false`) `effectiveMode` is what a GPU would draw: `stretch` for a pixel-perfect project, and otherwise
+  the same as with a GPU (`spatial` for `spatial`, `auto`, `temporal` and `metalfx` until those draw).
 
 The project's block is applied when the engine starts and again when `factoria.json` changes it.
 
@@ -81,7 +82,7 @@ If they cannot compile on a backend (logged once) the stage scales up with the p
 | OpenGL, GLES3, WebGL2 | yes | fragment passes with `texelFetch` |
 | D3D11 | yes | same |
 | Metal | yes | same; `metalfx` is a separate mode |
-| No GPU (`graphics=false`) | no | `effectiveMode` is `stretch` |
+| No renderer (`graphics=false`) | nothing is drawn | `effectiveMode` is what a GPU would draw: `stretch` for pixel-perfect projects, else per the setting |
 
 ## Temporal antialiasing
 

@@ -70,7 +70,9 @@ struct UpscalerCaps {
 //  - spatial: spatial, stretch where the backend cannot draw it (`caps.spatial` false: no GPU);
 //  - temporal and metalfx: themselves when drawable, else the next best this GPU can draw (metalfx -> temporal -> spatial);
 //  - auto: the best drawable of metalfx, temporal, spatial; stretch when none is.
-// The default caps are those of a host without a renderer (a run with graphics=false): what a GPU would draw.
+// Without a renderer (a run with graphics=false) the host reports what a GPU would draw: caps with pixelArt taken from the project's
+// scale mode and the default `spatial` (true), so a pixel-perfect project says stretch and any other says spatial for spatial, auto,
+// temporal and metalfx. The default argument is that host with a scale mode that is not pixel perfect.
 UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCaps& caps = {});
 
 // The render scale the game is drawn at and whether the upscale stage runs (docs/UPSCALING.md, "The render scale"): the player's scale
