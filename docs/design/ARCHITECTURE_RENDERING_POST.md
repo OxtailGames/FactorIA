@@ -134,3 +134,48 @@ each.
   multiplying one to 1). `shafts-rays` makes the half resolution rays and `shafts-add` adds them; they run after the SSR passes and
   before the depth of field, on the same destination as the bloom. A camera with only fog forces no `hudAfterBloom`: only shafts, SSR,
   depth of field and motion blur do, because they work on the picture after the main pass.
+
+## MetalFX (M76)
+
+`src/metalfx.h` (`fa::render::metalfx`; the Metal side is `src/metalfx_apple.mm`, every other backend builds the stubs of
+`src/metalfx.cpp`) wraps Apple's `MTLFXSpatialScaler` and `MTLFXTemporalScaler` over sokol images. It is a building block: the `metalfx`
+upscaler mode that calls it from `present()` is a later package. What exists and what it costs:
+
+- **Support** (`support()`). The framework is loaded at run time (`NSBundle`, classes by name), so nothing links against it and a player starts
+  on an OS without it; an SDK without the headers builds the same "not available" answer. `Support` has `spatial` and `temporal` (each from
+  `supportsDevice:`) and a `reason` that teaches: macOS 13 / iOS 16 needed, the iOS simulator has none, an old GPU, a build without the SDK, the
+  OpenGL backend (`FA_GFX_BACKEND`) or any non-Metal backend. The project's iOS deployment target is 16.3 and macOS has none set (it builds for
+  the host), so the checks are `@available(macOS 13.0, iOS 16.0, *)` plus the class lookup; nothing is weak linked.
+- **Images.** `color`, `depth` and `motion` are any sokol images of the sizes and formats of the `Desc` (sampled only). `output` is written by
+  MetalFX: it needs `usage.color_attachment` and `usage.storage_image` (`MTLTextureUsageRenderTarget | ShaderWrite`; the spatial scaler asks
+  only for the first, the temporal one for both, so the wrapper asks for both) and an ordinary texture view for the passes that read it.
+  `encode` checks sizes, formats, usage and sample count BEFORE it does any work, and its errors say what to change.
+- **The ordering problem.** MetalFX encodes into an `MTLCommandBuffer`. sokol makes the frame's buffer at its first pass
+  (`_sg_mtl_acquire_cmd_buffer`, which also `enqueue`s it on the queue) and commits it in `sg_commit`; it exposes the queue, the device and
+  the current render or compute ENCODER (`sg_mtl_*`), never the buffer, and an encoder has no public way back to its buffer. The scene colour
+  is written by passes of that buffer and the output is read by passes after it, in the same frame. Options, all without editing `external/`:
+  1. *Own buffer, committed at the end of the frame.* The queue runs buffers in the order they were enqueued, and sokol's was enqueued at its
+     first pass: the own buffer runs after the whole frame, so the passes that read the output see the PREVIOUS frame's picture. Correct only
+     with a frame of latency and the HUD drawn from the old picture. Rejected.
+  2. *`MTLEvent` / `MTLSharedEvent` between the buffers.* Signalling needs a buffer to encode into (the sokol one is out of reach), and a
+     wait before the sokol buffer is committed deadlocks the queue (an enqueued, uncommitted buffer blocks everything behind it). Rejected.
+  3. *The encoder's buffer through a private selector.* Not public API; breaks with an OS update. Rejected.
+  4. *Split the frame with `sg_commit()`* (chosen). `Scaler::encode` calls `sg_commit()`: the sokol buffer with the passes so far (the scene)
+     is committed; the own buffer, made after it, is enqueued behind it and committed; the next sokol pass makes a new buffer, enqueued behind
+     the MetalFX one. One in-order queue, so the scaler reads this frame's colour and the later passes read this frame's output; sokol's
+     resources are hazard tracked, so no fence or event is needed. A mid-frame `sg_commit` is something the renderer already does (a full
+     transient pool, read-backs, `gi2d`). The test `metalfx: a pass that writes the input and a pass that reads the output in the same
+     frame ...` queues twelve frames without waiting for the GPU, each with its own grey, and checks every frame shows its own grey; with
+     the `sg_commit()` taken out of `encode` all twelve frames show the wrong picture.
+- **Cost of the split** (per frame that upscales): one more `sg_commit` (one more sokol command buffer, its garbage collection and uniform
+  buffer rotation) and one command buffer of the scaler; no semaphore of our own. sokol's semaphore counts its own two buffers in flight
+  (`SG_NUM_INFLIGHT_FRAMES`), so with two buffers per frame the CPU may run about one frame ahead of the GPU instead of two. `encode` does
+  not tell `Gpu::note_commit()`: the commit listener counts it (`Gpu::frame()` moves on) and the frame still has work to come, so the pool of
+  transient buffers keeps going (a buffer acquired before the split stays valid after it: its active slot rotates only when it is written
+  again). It must be called outside a pass.
+- **Jitter and motion** (temporal). `Frame::jitterX/Y` is how far the drawn picture was moved, in render pixels, right and down the image: a
+  scene sampled at `(x + jx, y + jy)` passes `-jx, -jy`. The test runs both signs on a still scene: the documented one converges to 0.0007
+  (mean error, 0..1) after 16 frames, the opposite one to 0.006. The temporal scaler is made with `requiresSynchronousInitialization` so
+  its first frame is already scaled; the price is a hitch when it is made (at start and on a resize).
+- **Limits.** `configure` refuses an output smaller than the input and formats outside the list in `metalfx_apple.mm`; MetalFX itself limits
+  the ratio (the error says so). A scaler made again on a resize starts its history again.
