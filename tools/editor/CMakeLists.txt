@@ -111,8 +111,11 @@ if(FA_BUILD_TESTS)
                     COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                     WORKING_DIRECTORY ${FA_ROOT})
                 # TIMEOUT: an entry takes 45-110 s alone; under ctest -j the five share the runner's CPUs (and its software GPU),
-                # so 120 s was too tight. A hang is still caught: each wait of a section gives up after 60 s.
-                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu;window" TIMEOUT 300
+                # so 120 s was too tight, and 300 s too once the M75 sections (T3, F3, W2) came: the GCC job under Xvfb took
+                # 160-220 s per entry on one runner and went past 300 s on a slower one. Splitting into more entries does not
+                # help (ctest --parallel 4 on 4 vCPUs: the work is the same). A hang is still caught: each wait of a section gives
+                # up after 60 s.
+                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu;window" TIMEOUT 480
                     SKIP_RETURN_CODE 77)  # 77: every display of this Mac sleeps (engine/platform/src/display_watchdog.h)
                 # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put the Windows-rules variable in ENVIRONMENT.
                 set_property(TEST editor_autotest_${editor_autotest_n} APPEND PROPERTY ENVIRONMENT
