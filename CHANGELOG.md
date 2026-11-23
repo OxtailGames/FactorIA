@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ## Unreleased
 
+- Polish: an Occluder whose mesh could not be read is tried again after 600 frames (it was never read again until the game restarted), and the error for an unknown mesh name no longer says "collider mesh" when an Occluder asked for it.
+
 ## 0.35.2
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
