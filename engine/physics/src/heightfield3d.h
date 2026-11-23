@@ -22,6 +22,7 @@
 
 #include "fa/core/math.h"
 #include "fa/scene/components.h"
+#include "fa/scene/terrain.h"
 
 namespace fa::detail {
 
@@ -48,8 +49,14 @@ struct HeightfieldShape {
         problem;  // why not ("" = valid): the answer of the last attempt, reused while the component is unchanged
     int rows = 0, cols = 0;
     float dx = 1.0f, dz = 1.0f, scale = 1.0f, offset = 0.0f;
-    float x0 = 0.0f, z0 = 0.0f;       // model x and z of sample (0, 0)
-    std::vector<float> h;             // rows * cols, model y
+    float x0 = 0.0f, z0 = 0.0f;  // model x and z of sample (0, 0)
+    // rows * cols, model y. For a Terrain3D this is a second copy of the terrain's heights (4 bytes a sample where the
+    // TerrainHeights keep 2: 67 MB for a 4097 x 4097 map, on top of its 33 MB), and it cannot simply share them: a sculpt
+    // must tell the solver the old AND the new height of the samples it touched (bodies resting on the old surface, bodies
+    // inside the new one), which needs the old values still in memory when the edit is seen, and the solver must read a
+    // snapshot that a command editing the terrain in the middle of a step cannot change. See "Collision" in
+    // docs/BIG_WORLDS_TERRAIN.md.
+    std::vector<float> h;
     std::vector<std::uint8_t> holes;  // (rows - 1) * (cols - 1) or empty: 1 = no collision
     int brows = 0, bcols = 0;         // blocks
     std::vector<float> bmin, bmax;
@@ -149,6 +156,11 @@ struct HeightfieldShape {
 // (the message names the entity `who`, the field and the fix); the same message is returned again, without scanning the
 // arrays, until the component changes. On an error `f` keeps its last good contents but is not valid.
 std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heightfield3D& c, HeightfieldEdit& edit);
+// The same for a Terrain3D: the grid is the terrain's own heights (so the collider is the surface that is drawn, triangle for
+// triangle), taken in again through the rectangle each mark_dirty() named since the last call. No side limit but the terrain's own
+// (4097); the cells of the holes mask are left out (TerrainHeights::holes, followed through holesVersion).
+std::string update_heightfield(HeightfieldShape& f, const std::string& who, const Terrain3D& t,
+                               const TerrainHeights& heights, HeightfieldEdit& edit);
 
 // First hit of the ray origin + d * t, 0 <= t <= maxT, with the triangles (both sides), in model space. `d` need not be unit:
 // t is in its units. The normal is the triangle's, facing the ray origin. The grid is walked cell by cell along the ray

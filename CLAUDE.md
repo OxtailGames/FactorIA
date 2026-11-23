@@ -7,7 +7,7 @@ game project instead, or `factoria docs ai-guide`.)
 It is split into pages (`docs/design/ARCHITECTURE_*.md`, each under 60 KB; the entry page lists them): list the headings
 (`grep -n '^#' docs/design/ARCHITECTURE*.md`), always read "Design principles", "Repository layout" and "Testing" (entry
 page), "Reflection" (ARCHITECTURE_CORE.md) and "Commands" (ARCHITECTURE_COMMANDS.md), and then the sections your task
-touches (threads and loading: ARCHITECTURE_THREADS.md; files: ARCHITECTURE_FILES.md; rendering: ARCHITECTURE_RENDERING.md;
+touches (threads and loading: ARCHITECTURE_THREADS.md; files: ARCHITECTURE_FILES.md; rendering: ARCHITECTURE_RENDERING.md, ARCHITECTURE_RENDERING_BIGWORLDS.md (M75: occlusion, origin, terrain, LOD);
 animation, UI, platform services, docs: ARCHITECTURE_RUNTIME.md). Every doc over about 60 KB is split into pages the same
 way (docs/design/BUILDING.md, EXTENDING.md and the rest; a test enforces it).
 

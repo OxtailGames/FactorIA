@@ -575,8 +575,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -675,6 +675,69 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+// (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)
+TEST_CASE("features: hlod is drawn on every backend (M75 P1d)") {
+    REQUIRE(find_feature("hlod") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("hlod"))].kind == FeatureKind::Engine);
+    CHECK(feature_table()[std::size_t(find_feature("hlod"))].planned == nullptr);
+    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "hlod"));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "hlod"));
+    CHECK(supported(gpu(FeatureBackend::WebGl2, false, false, false), "hlod"));
+}
+
+TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they exist (M75.2b)") {
+    REQUIRE(find_feature("occlusionGpu") >= 0);
+    const auto& row = feature_table()[std::size_t(find_feature("occlusionGpu"))];
+    CHECK(row.planned == nullptr);
+    std::string why;
+    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "occlusionGpu"));
+    CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu(FeatureBackend::D3d11, true, true, true, false), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "occlusionGpu", &why));
+    CHECK_FALSE(why.empty());
+    CHECK_FALSE(supported(gpu(FeatureBackend::WebGl2, true, true, false), "occlusionGpu", &why));
+}
+
+TEST_CASE("features: foliage is drawn on every backend, without compute (M75-P6a)") {
+    REQUIRE(find_feature("foliage") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("foliage"))].kind == FeatureKind::Engine);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK_MESSAGE(supported(gpu(b, false, false, false), "foliage", &why), why);
+    }
+}
+
+TEST_CASE("features: lodCrossFade is drawn on every backend (M75-P1a)") {
+    REQUIRE(find_feature("lodCrossFade") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("lodCrossFade"))].kind == FeatureKind::Engine);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK_MESSAGE(supported(gpu(b, false, false, false), "lodCrossFade", &why), why);
+    }
+}
+
+TEST_CASE("features: occlusionCpu is drawn on every backend (it is CPU work: no GPU feature is needed)") {
+    REQUIRE(find_feature("occlusionCpu") >= 0);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK(supported(gpu(b, false, false, false), "occlusionCpu", &why));
+        CHECK(why.find("planned") == std::string::npos);
+    }
+}
+
+TEST_CASE("features: terrain is drawn on every backend (M75-P5a)") {
+    REQUIRE(find_feature("terrain") >= 0);
+    CHECK(feature_table()[std::size_t(find_feature("terrain"))].kind == FeatureKind::Engine);
+    for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
+                             FeatureBackend::Metal}) {
+        std::string why;
+        CHECK_MESSAGE(supported(gpu(b, false, false, false), "terrain", &why), why);
+    }
 }
 
 TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for RGBA16F render targets that blend") {
@@ -886,7 +949,14 @@ TEST_CASE("features: the headless backend has no GPU and says no to everything")
 }
 
 TEST_CASE("features: the report lists every feature with a status and the backends it can run on") {
-    const Json r = feature_report(gpu(FeatureBackend::Metal, true, true, true, true), "metal");
+    FeatureEnv env = gpu(FeatureBackend::Metal, true, true, true, true);
+    env.maxTextureSize = 16384;
+    env.maxArrayLayers = 2048;
+    env.maxArrayTextureSize = 8192;
+    const Json r = feature_report(env, "metal");
+    CHECK(r["limits"]["maxTextureSize"] == 16384);
+    CHECK(r["limits"]["maxArrayLayers"] == 2048);
+    CHECK(r["limits"]["maxArrayTextureSize"] == 8192);
     CHECK(r["backend"] == "metal");
     CHECK(r["backendLabel"] == "Metal");
     REQUIRE(r["features"].size() == feature_names().size());
@@ -912,4 +982,16 @@ TEST_CASE("Renderer::supports: an unknown name, or a renderer that is not initia
     CHECK_FALSE(r.supports("no such feature"));
     CHECK_FALSE(r.supports(""));
     CHECK(r.supports_report().empty());
+}
+
+TEST_CASE("RenderStats: the M75 counters start at zero and are listed in to_json") {
+    const RenderStats s;
+    const Json j = s.to_json();
+    for (const char* key : {"occluders", "occlusionTests", "meshesOccluded", "portalsVisited", "meshesCulledByArea",
+                            "lodCrossFades", "hlodProxies", "impostors", "terrainTiles", "terrainTriangles",
+                            "foliageInstances", "foliageInstancesCulled"}) {
+        INFO(key);
+        REQUIRE(j.contains(key));
+        CHECK(j[key] == 0);
+    }
 }

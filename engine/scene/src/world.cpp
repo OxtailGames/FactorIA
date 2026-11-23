@@ -12,6 +12,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/particle_store.h"
+#include "fa/scene/terrain.h"
 #include "fa/scene/ui_rect.h"
 
 namespace fa {
@@ -210,7 +211,9 @@ struct World::Impl {
     }
 };
 
-World::World() : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()) {
+World::World()
+    : impl_(std::make_unique<Impl>()), particles_(std::make_unique<ParticleStore>()),
+      terrain_(std::make_unique<TerrainStore>()) {
     ensure_builtin_components();
     impl_->infoPool = &impl_->pool(type_of<EntityInfo>());
     impl_->transformPool = &impl_->pool(type_of<Transform>());
@@ -362,7 +365,23 @@ void World::clear() {
     interp_.clear_scene();
     vfxLive_ = 0;
     particles_->clear();
+    terrain_->clear();
     warnedSpriteClips_.clear();
+    const DVec3 oldOrigin = origin_;
+    origin_ = DVec3{};
+    rebaseCount_ = 0;
+    // After everything is cleared: an observer that reads the world finds it empty, not half-cleared.
+    if (oldOrigin.x != 0.0 || oldOrigin.y != 0.0 || oldOrigin.z != 0.0) {
+        const DVec3 change = DVec3{} - oldOrigin;
+        for (const auto& [id, cb] : originObservers_) cb(change);
+    }
+}
+
+void World::set_origin(const DVec3& origin) {
+    const DVec3 change = origin - origin_;
+    origin_ = origin;
+    if (change.x != 0.0 || change.y != 0.0 || change.z != 0.0)
+        for (const auto& [id, cb] : originObservers_) cb(change);
 }
 
 bool World::active_in_hierarchy(Entity e) const { return alive(e) && impl_->active_cached(e); }
@@ -774,6 +793,18 @@ int World::on_destroy(EntityCallback cb) {
     int id = impl_->nextObserver++;
     impl_->observers.emplace_back(id, std::move(cb));
     return id;
+}
+
+int World::on_origin_shifted(OriginCallback cb) {
+    const int id = nextOriginObserver_++;
+    originObservers_.emplace_back(id, std::move(cb));
+    return id;
+}
+
+void World::remove_origin_observer(int id) {
+    originObservers_.erase(
+        std::remove_if(originObservers_.begin(), originObservers_.end(), [&](const auto& p) { return p.first == id; }),
+        originObservers_.end());
 }
 
 void World::remove_observer(int id) {

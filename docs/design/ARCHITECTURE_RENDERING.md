@@ -2,6 +2,8 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page).
 
+The renderer's side of the big worlds of M75 (occlusion culling on the CPU and the GPU, the floating origin, terrain, levels of detail) is on the page [rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md).
+
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the
@@ -360,8 +362,6 @@ Text has ONE layout too: `Fonts::layout` (`render/src/fonts.cpp`) draws screen a
 SheenBidi reordering, line breaking), so tests can look at glyph ids and positions; `fa/render/fonts.h` is its coverage check
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
 game makers: [TEXT.md](../TEXT.md).
-
-
 
 ## PostProcess (M71)
 

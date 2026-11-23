@@ -69,6 +69,11 @@ public:
     // when the shaders failed. A scene without those components never calls it, and a pipeline for another format is made when it is drawn.
     void warm(Gpu& gpu, const TargetFormat& gameFormat);
 
+    // How many pipeline ENTRIES the cache holds (copy and effect ones, all formats): an entry whose pipeline failed to build is kept
+    // too (with id 0, so the failure is not retried every frame) and counts. A test reads it to see that a draw finds its entry
+    // already made.
+    int pipeline_count() const { return int(copyPipelines_.size() + fxPipelines_.size()); }
+
     // Copies the camera's rectangle of `game` (its texture view, resolved when multisampled): (x, row, w, h) in image rows of the game
     // image. Must be called outside any pass. On success `handle` is the pooled image (give it back with TransientTargets::pool.release) and
     // `view` its texture view; false (nothing held) when the shader or the image could not be made.

@@ -6,8 +6,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "fa/scene/world.h"
@@ -120,10 +122,33 @@ struct SceneMesh {
         0;                 // the light probe key with the reflection pick folded in (they choose different draws too)
     ProbePick refl;        // the reflection probes that reach the mesh (probe_select.h); none without volumes
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
+    // The LodGroups above the mesh (M75.1): chain entries lodChains()[chainFirst .. + chainCount), each (group index << 4) | child
+    // index of the group (15 = a child past the ninth level, never drawn). The mesh is drawn only when every group above it shows that child.
+    std::uint32_t chainFirst = 0, chainCount = 0;
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
     bool liveTextures = false;
     std::vector<std::string> targets;  // the names of the render targets this mesh shows (only when asked for)
+    // The HLOD proxy of a LodGroup (M75 P1d): a mesh made for the group (`mr` is one of the scene's own default MeshRenderers, `entity` the group's)
+    // that stands for its whole subtree. 0 = an ordinary MeshRenderer; else 1 + the index in lod_groups() of the group it belongs to (set once the
+    // groups are known). A camera draws it only where hlod_proxy_shown says so.
+    std::uint32_t hlodGroup = 0;
+    bool hlodProxy = false;  // the mesh is a proxy (hlodGroup is set for it by build_lod_groups)
+    // The mesh is the HLOD proxy of a streamed cell that is not loaded (EntityInfo::streamedProxy, M75 P1e): an ordinary MeshRenderer that
+    // renderStats.hlodProxies counts too.
+    bool streamProxy = false;
+};
+
+// A LodGroup of the scene (M75.1) with the sphere that bounds the meshes of its whole subtree, in world space.
+struct SceneLodGroup {
+    Entity entity;
+    const LodGroup* group = nullptr;
+    Vec3 origin{0, 0,
+                0};  // the group entity's position: the distance of a group is measured to it, as of a MeshRenderer
+    float radius = 0.0f;  // of the sphere around the boxes of every mesh of the subtree; 0 = the subtree draws no mesh
+    int children = 0;
+    bool proxy =
+        false;  // LodGroup.hlodProxy is set and its mesh was read: the proxy is a mesh of the scene (SceneMesh::hlodGroup)
 };
 
 class RenderScene {
@@ -136,8 +161,16 @@ public:
     void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets,
                const std::vector<ProbeVolume>* probeVolumes = nullptr);
     const std::vector<SceneMesh>& meshes() const { return meshes_; }
+    // The LodGroups of the scene and the chains of SceneMesh::chainFirst (M75.1); empty when the world has no LodGroup.
+    const std::vector<SceneLodGroup>& lod_groups() const { return lodGroups_; }
+    const std::vector<std::uint32_t>& lod_chains() const { return lodChains_; }
+    // Some mesh has lods or some LodGroup exists: the cameras then pick levels. False costs a gather one check.
+    bool has_lods() const { return anyLods_ || !lodGroups_.empty(); }
     Entity scope() const { return scope_; }
     bool built() const { return built_; }
+    // How many times a proxy path was looked for on disk (a stat) since this scene was made: once per path until an asset reloads. A test
+    // looks at it.
+    std::uint64_t hlod_existence_checks() const { return hlodChecks_; }
     MaterialHashCache& hash_cache() { return hashes_; }
     // The ranks the meshes' sort keys were made with; valid() is false when a field had more values than its bits hold.
     const SortKeyTable& sort_table() const { return sortTable_; }
@@ -150,6 +183,10 @@ public:
         probeLights_.clear();
         hasProbes_ = false;
         built_ = false;
+        lodGroups_.clear();
+        lodChains_.clear();
+        hlodRenderers_.clear();
+        anyLods_ = false;
     }
     // Frames (builds of the whole world or of a subtree) whose sort keys did not fit (SortKeyTable limits): their opaque
     // meshes were sorted by the comparator, slower but with the same result. Counted since the scene was made; the first one
@@ -168,6 +205,20 @@ private:
     std::vector<std::uint64_t> keys_;
     std::vector<MaterialHashCache::Entry*> entries_;
     std::uint64_t sortKeyFallbacks_ = 0;
+    std::vector<SceneLodGroup> lodGroups_;
+    std::vector<std::uint32_t> lodChains_;
+    std::vector<std::uint32_t> meshOf_;  // build_lod_groups' scratch: entity index -> index in meshes_
+    std::vector<std::uint32_t>
+        proxyOf_;  // the same for the HLOD proxy meshes (a group entity may have its own MeshRenderer too)
+    std::deque<MeshRenderer>
+        hlodRenderers_;  // the MeshRenderers of the proxy meshes (SceneMesh::mr points here); pointers stay good
+    bool anyLods_ = false;
+    std::unordered_set<std::string>
+        hlodChecked_;  // the .glb/.gltf proxy paths looked for on disk since the last asset reload
+    std::uint64_t hlodCheckedGen_ = ~std::uint64_t(0);  // Assets::reload_generation() the set was made at
+    std::uint64_t hlodChecks_ = 0;
+    void add_hlod_proxies(World& world, Assets& assets, Entity scopeRoot);
+    void build_lod_groups(World& world, Entity scopeRoot);
     Entity scope_;
     bool built_ = false;
 };

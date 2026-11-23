@@ -642,8 +642,8 @@ TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error
     REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
     const CommandInfo* info = e.commands().info("render.debug_view");
     REQUIRE(info != nullptr);
-    CHECK(info->inputSchema.dump().find("\"enum\":[\"none\",\"depth\",\"normals\",\"ao\",\"cascades\"]") !=
-          std::string::npos);
+    CHECK(info->inputSchema.dump().find(
+              "\"enum\":[\"none\",\"depth\",\"normals\",\"ao\",\"cascades\",\"occlusion\"]") != std::string::npos);
     auto r = e.commands().call("render.debug_view", Json::parse(R"({"view":"normal"})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "invalid_arguments");  // the schema's own error, not a check of the handler
@@ -654,6 +654,37 @@ TEST_CASE("render.debug_view: the schema's enum turns a wrong view into an error
     r = e.commands().call("render.debug_view", Json::parse(R"({"view":"depth"})"));
     REQUIRE_FALSE(r.ok);  // a valid view passes the schema and reaches the missing renderer
     CHECK(r.error["code"] == "unavailable");
+}
+
+TEST_CASE(
+    "render.occlusion: without graphics it is unavailable, and a wrong argument is an error that says what to pass") {
+    TempProject p("occlusion-command");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    auto r = e.commands().call("render.occlusion", Json::object());
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "unavailable");
+    CHECK(r.error.dump().find("graphics") != std::string::npos);
+    // A path that is not a .png: invalid_argument, with the hint that shows one.
+    r = e.commands().call("render.occlusion", Json::parse(R"({"save":".factoria/tmp/occlusion.txt"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "invalid_argument");
+    const std::string text = r.error.dump();
+    INFO(text);
+    CHECK(text.find(".png") != std::string::npos);
+    CHECK(text.find("Pass a path that ends in .png") != std::string::npos);
+    // `save` of another type, and an argument the command does not have: an error that names it, nothing written.
+    r = e.commands().call("render.occlusion", Json::parse(R"({"save":5})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("save") != std::string::npos);
+    CHECK(r.error["code"] != "unavailable");
+    r = e.commands().call("render.occlusion", Json::parse(R"({"saev":"a.png"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] != "unavailable");
+    CHECK(r.error.dump().find("saev") != std::string::npos);
 }
 
 TEST_CASE("render.pick: lists what draws a pixel, topmost first") {

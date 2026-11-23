@@ -610,7 +610,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             }
             SpawnedSkip skip;
             std::vector<PrefabExpanded> expanded;
-            auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded);
+            auto r = save_scene_file(I.world, path, a.value("includeSpawned", false), &skip, &expanded,
+                                     caller_capabilities().has(Capability::WriteAnywhere));
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
             if (I.currentScene.empty()) I.currentScene = path;
@@ -659,6 +660,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+    register_world_commands(engine, I);            // world.origin, world.rebase, world.cells, world.stream_status
     register_play_session_commands(engine, I);     // play.sessions, play.report
     register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language
@@ -1188,6 +1190,28 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "first), lights2dShadowed those with a shadow (castShadows, at most 256); "
          "sceneCopies the copies of the picture drawn so far that Water2D, DistortionZone2D and sprite materials that "
          "call fa_scene_color made (at most 8 per camera; 0 when nothing reads it). "
+         "terrainTiles counts the Terrain tiles drawn in the main pass (after the level of detail and the culling) and "
+         "terrainTriangles their triangles (also in triangles; tiles are not counted in meshes). "
+         "lodCrossFades counts the meshes drawn in the main view as one level of a dithered LOD cross-fade, summed "
+         "over the cameras (a fading entity counts two; probe and GI captures do not count; "
+         "MeshRenderer.lodCrossFade, LodGroup.crossFade). "
+         "hlodProxies counts the HLOD proxy meshes drawn in the main view, summed over the cameras (a LodGroup "
+         "past its hlodThreshold draws its hlodProxy instead of its children; one fading out counts too; and the proxy "
+         "of a streamed cell that is not loaded, StreamedWorld.hlodDistance). "
+         "occluders (the Occluders rasterised), occlusionTests (the meshes tested against them) and meshesOccluded "
+         "(the ones hidden behind them and left out of the main pass, also in meshesCulled) count the CPU occlusion "
+         "culling of docs/BIG_WORLDS_LOD.md: 0 when no enabled Occluder is in the scene. "
+         "impostors counts the cards (MeshRenderer.impostor beyond impostorDistance, docs/BIG_WORLDS_LOD.md) drawn in "
+         "the main pass, "
+         "0 when none is. "
+         "portalsVisited (the distinct open OcclusionPortals the camera's walk went through, summed over the cameras) "
+         "and meshesCulledByArea (the meshes left out of the main pass because no chain of open portals leads from "
+         "the camera's area to theirs, also in meshesCulled) count the area and portal culling: 0 when no enabled "
+         "OcclusionArea is in the scene. "
+         "foliageInstances counts the instances of Foliage drawn in the main pass (not in meshes) and "
+         "foliageInstancesCulled the ones left out of the picture (outside the view, behind an Occluder, beyond "
+         "fadeEnd, or past the 262144 a camera takes at once; one kept only for the shadow maps counts too): both 0 "
+         "with no Foliage (docs/BIG_WORLDS_TERRAIN.md). "
          "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
          "window.renderScale). Same as game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",

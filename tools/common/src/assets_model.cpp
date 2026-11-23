@@ -778,19 +778,20 @@ Json model_edit_command(const std::string& projectDir, const Json& a) {
 // ---- model.game_ready ----
 
 Json model_game_ready_command(const std::string& projectDir, const Json& a) {
-    check_arg_keys("model.game_ready", a, "",
-                   {"path", "origin", "merge", "lods", "collider", "platforms", "clear", "bake", "overwrite"});
+    check_arg_keys(
+        "model.game_ready", a, "",
+        {"path", "origin", "merge", "lods", "lodChain", "collider", "platforms", "clear", "bake", "overwrite"});
     const std::string rel = doc_path(tooling_detail::arg_string(a, "path", true));
     Loaded loaded = load_document(projectDir, rel);
     const bool clear = tooling_detail::arg_bool(a, "clear", false);
     bool change = clear;
-    for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+    for (const char* key : {"origin", "merge", "lods", "lodChain", "collider", "platforms"})
         if (a.contains(key)) change = true;
     Json json = loaded.json;
     if (change) {
         Json settings = Json::object();
         if (!clear && json.contains("gameReady") && json["gameReady"].is_object()) settings = json["gameReady"];
-        for (const char* key : {"origin", "merge", "lods", "collider", "platforms"})
+        for (const char* key : {"origin", "merge", "lods", "lodChain", "collider", "platforms"})
             if (a.contains(key)) {
                 if (a[key].is_null())
                     settings.erase(key);
@@ -828,6 +829,170 @@ Json model_game_ready_command(const std::string& projectDir, const Json& a) {
          "\",\"lods\":[{\"ratio\":0.5},{\"ratio\":0.2}],\"collider\":{\"shape\":\"convex\"}}); that writes the "
          "settings into the document and bakes the .glb, the LODs, the collider and a prefab. Nothing was changed by "
          "this call."});
+    return result;
+}
+
+// ---- model.generate_lods ----
+
+Json manifest_record(const std::string& projectDir, const std::string& rel) {
+    ProjectRootGuard root(projectDir);
+    return assets::entry(rel);  // the manifest's own lookup, so path case follows the platform's rules
+}
+
+// The model document `arg` names: the document itself, or the .glb a document baked.
+std::string lods_document(const std::string& projectDir, const std::string& arg) {
+    auto norm = fs::normalize_checked(arg);
+    if (!norm.ok() || norm->empty())
+        fail("invalid_argument", "/model: '" + arg + "' is not a project-relative path.",
+             "Example: \"assets/models/rock.model.json\" or the .glb it bakes to, \"assets/models/rock.glb\".");
+    if (ends_with(to_lower(*norm), kModelDocSuffix)) return doc_path(*norm, "model");
+    const Json recipe = recipe_of(manifest_record(projectDir, *norm));
+    const std::string command = recipe.is_object() ? recipe.value("command", std::string()) : std::string();
+    if (command == "model.bake" && recipe["args"].is_object() && recipe["args"].contains("path") &&
+        recipe["args"]["path"].is_string())
+        return doc_path(recipe["args"]["path"].get<std::string>(), "model");
+    if (starts_with(command, "rig."))
+        fail("unsupported",
+             "/model: '" + *norm + "' is a skinned mesh (baked by " + command +
+                 "); an LOD chain of a skinned mesh is not supported, because the simplifier moves vertices and the "
+                 "skin weights would not follow.",
+             "Make the chain on the static model the rig is fitted to (model.generate_lods on its .model.json) and "
+             "use the rig's skinned .glb without LODs.");
+    std::error_code ec;
+    if (stdfs::is_regular_file(project_file(projectDir, *norm), ec))
+        fail("invalid_argument",
+             "/model: '" + *norm +
+                 "' is a mesh file that no model document baked, so there is nothing to attach the LOD files and "
+                 "settings to (a skinned mesh is not supported either).",
+             "model.import_clean {\"source\":\"" + *norm +
+                 "\"} makes a model document from it; then run model.generate_lods on that document.");
+    const std::vector<std::string> all = list_model_documents(projectDir);
+    fail("not_found", "/model: '" + *norm + "' does not exist.",
+         all.empty() ? "Make a model document with model.create or model.import_clean first."
+                     : did_you_mean(*norm, all) + " Model documents: " + join(all, ", ") + ".");
+}
+
+Json model_generate_lods_command(const std::string& projectDir, const Json& a) {
+    static const std::vector<std::string> chainKeys = {"levels",       "ratios",     "errors",       "screenSizes",
+                                                       "minTriangles", "lockBorder", "normalWeight", "uvWeight"};
+    std::vector<std::string> allowed = chainKeys;
+    for (const char* k : {"model", "maxError", "dryRun", "bake", "overwrite"}) allowed.push_back(k);
+    check_arg_keys("model.generate_lods", a, "", allowed);
+    const std::string rel = lods_document(projectDir, tooling_detail::arg_string(a, "model", true));
+    Loaded loaded = load_document(projectDir, rel);
+    Json json = loaded.json;
+    Json settings = json.contains("gameReady") && json["gameReady"].is_object() ? json["gameReady"] : Json::object();
+    if (settings.contains("lods") && settings["lods"].is_array() && !settings["lods"].empty())
+        fail("invalid_argument",
+             "/gameReady/lods of '" + rel +
+                 "' already lists LODs drawn by distance, and a lodChain is a second way to make the same levels.",
+             "Remove them first (model.game_ready {\"path\":\"" + rel + "\",\"lods\":null}), then run this again.");
+    if (a.contains("maxError") && a.contains("errors"))
+        fail("invalid_argument", "/maxError and /errors both set the error limit.",
+             "Give maxError (one limit for every level) or errors (one per level), not both.");
+    Json chain =
+        settings.contains("lodChain") && settings["lodChain"].is_object() ? settings["lodChain"] : Json::object();
+    Json notes = Json::array();
+    for (const std::string& key : chainKeys)
+        if (a.contains(key)) {
+            if (a[key].is_null())
+                chain.erase(key);
+            else
+                chain[key] = a[key];
+        }
+    if (a.contains("levels") && a["levels"].is_number_integer()) {
+        // a per-level list kept from an earlier run no longer has one entry per level: drop it (and say so)
+        const long levels = std::clamp(a["levels"].get<long>(), 0L, 64L);
+        for (const char* key : {"ratios", "errors", "screenSizes"})
+            if (!a.contains(key) && chain.contains(key) && chain[key].is_array() &&
+                chain[key].size() != std::size_t(levels)) {
+                chain.erase(key);
+                notes.push_back(std::string("The stored ") + key + " list had another length than levels " +
+                                std::to_string(levels) + " and was removed (defaults apply).");
+            }
+    }
+    if (a.contains("maxError")) {
+        if (!a["maxError"].is_number() || a["maxError"].get<double>() < 0)
+            fail("invalid_argument", "/maxError must be a number of metres, 0 or more.",
+                 "Example: \"maxError\": 0.02.");
+        const long levels = chain.contains("levels") && chain["levels"].is_number_integer()
+                                ? std::clamp(chain["levels"].get<long>(), 1L, 64L)
+                                : 3L;
+        chain["errors"] = Json::array();
+        for (long i = 0; i < levels; ++i) chain["errors"].push_back(a["maxError"]);
+    }
+    chain["enabled"] = true;
+    settings["lodChain"] = chain;
+    json["gameReady"] = settings;
+    checked(json, rel);  // every problem with its JSON pointer; nothing written
+    const ModelDoc doc = *parse_model_doc(json, rel);
+    const ModelGameReady parsed = *parse_game_ready(doc.gameReady, "/gameReady");
+    const ModelBuild build = evaluate_or_fail(projectDir, doc, rel);
+    auto made = make_game_ready(build.data, parsed);
+    if (!made.ok()) fail("failed", rel + ": " + made.error().message, made.error().hint);
+    Json report = game_ready_report_json(*made, parsed);
+    std::string output = model_document_output(doc, rel);
+    const bool dryRun = tooling_detail::arg_bool(a, "dryRun", false);
+    std::vector<std::string> extras;
+    Json bakeJson = Json::object({{"state", "not_written"}});
+    if (!dryRun) {
+        require_usable_manifest(projectDir);
+        write_document(projectDir, rel, json);
+        if (tooling_detail::arg_bool(a, "bake", true)) {
+            auto b = bake_model_document(projectDir, rel, {false, tooling_detail::arg_bool(a, "overwrite", false)});
+            if (!b.ok())
+                throw CommandError(
+                    "failed", "The settings were written to '" + rel + "' but the bake failed: " + b.error().message,
+                    b.error().hint);
+            report = b->gameReady;
+            extras = b->extras;
+            output = b->output;
+            bakeJson = Json::object({{"state", "baked"}, {"output", b->output}, {"bytes", b->bytes}});
+        } else {
+            bakeJson = bake_json(model_bake_status(projectDir, rel));
+        }
+    }
+    const std::string stem = output.size() > 4 && to_lower(output.substr(output.size() - 4)) == ".glb"
+                                 ? output.substr(0, output.size() - 4)
+                                 : output;
+    Json levels = Json::array();
+    if (report.contains("lods") && report["lods"].is_array())
+        for (const Json& l : report["lods"]) {
+            if (!l.contains("lod") || l["lod"].get<int>() == 0) continue;
+            levels.push_back(Json::object({{"level", l["lod"]},
+                                           {"file", stem + ".lod" + std::to_string(l["lod"].get<int>()) + ".glb"},
+                                           {"triangles", l["triangles"]},
+                                           {"vertices", l["vertices"]},
+                                           {"ratio", l.value("ratio", 0.0)},
+                                           {"error", l.value("error", 0.0)},
+                                           {"screenSize", l.value("screenSize", 0.0)}}));
+        }
+    Json result = Json::object({{"path", rel},
+                                {"output", output},
+                                {"fullTriangles", report["lods"][0]["triangles"]},
+                                {"levels", levels},
+                                {"written", !dryRun},  // the document; the files are `bake`'s
+                                {"bake", bakeJson},
+                                {"settings", game_ready_to_json(parsed)["lodChain"]}});
+    if (!levels.empty()) result["prefab"] = stem + ".prefab.json";
+    if (!extras.empty()) result["extras"] = extras;
+    if (report.contains("notes"))
+        for (const Json& n : report["notes"]) notes.push_back(n);
+    if (!notes.empty()) result["notes"] = notes;
+    if (report.contains("warnings")) result["warnings"] = report["warnings"];
+    Json steps = Json::array();
+    if (levels.empty())
+        steps.push_back("No level was made (see notes): lower minTriangles or use a model with more triangles.");
+    else if (dryRun)
+        steps.push_back("Nothing was written. Run again without dryRun to write the .lodN.glb files and the prefab.");
+    else if (bakeJson["state"] != "baked")
+        steps.push_back("Only the settings in '" + rel + "' were written; model.bake {\"path\":\"" + rel +
+                        "\"} writes the .lodN.glb files and the prefab.");
+    else
+        steps.push_back(
+            "Instantiate " + stem +
+            ".prefab.json: its MeshRenderer has lodMode \"screenSize\" and one {mesh, screenSize} per level.");
+    result["nextSteps"] = steps;
     return result;
 }
 
@@ -1068,10 +1233,81 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             return model_edit_command(projectDir, args.is_null() ? Json::object() : args);
         });
     }
+    {
+        auto num = [](const char* what, double lo, double hi, double def) {
+            return Json::object(
+                {{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"default", def}, {"description", what}});
+        };
+        auto numList = [](const char* what, bool positive, double lowest = 0.001) {
+            Json item = Json::object({{"type", "number"}, {"maximum", positive ? 1.0 : 1000.0}});
+            item["minimum"] = positive ? lowest : 0.0;
+            return Json::object({{"type", "array"}, {"maxItems", 7}, {"items", item}, {"description", what}});
+        };
+        CommandInfo info;
+        info.name = "model.generate_lods";
+        info.category = "assets";
+        info.readOnly = false;
+        info.summary = "Generate a chain of simplified LOD meshes of a model and wire it for screen-size LOD.";
+        info.description =
+            "Turns on the `gameReady.lodChain` of a model document (docs/BIG_WORLDS_LOD.md, \"Automatic LOD chain\"): "
+            "`levels` "
+            "(1..7) simplified copies of the mesh, deterministic (meshoptimizer), each keeping `ratios[i]` of the "
+            "triangles of the level above (default 0.5) within `errors[i]` metres (`maxError` for all), drawn when "
+            "the model covers less than `screenSizes[i]` of the view (default 0.5, 0.25, 0.12, 0.06, 0.03, 0.015, "
+            "0.008). Writes the settings into the document, then bakes <name>.lodN.glb and <name>.prefab.json whose "
+            "MeshRenderer has lodMode screenSize and {mesh, screenSize} entries. Levels that would have fewer than "
+            "`minTriangles` triangles are skipped with a note. `model` is the .model.json or the .glb it baked to; "
+            "skinned meshes (a rig's .glb) are refused. Seams between parts are always kept; `lockBorder` also locks "
+            "open edges; `normalWeight` "
+            "and `uvWeight` make a collapse that smears normals or UVs cost more. `dryRun` only reports. Result: "
+            "{levels: "
+            "[{level, file, triangles, error, screenSize}], notes}. Example: model.generate_lods "
+            "{\"model\":\"assets/models/rock.model.json\",\"levels\":3}";
+        info.inputSchema = Json::object(
+            {{"type", "object"},
+             {"required", Json::array({"model"})},
+             {"additionalProperties", false},
+             {"properties",
+              obj({{"model", str("The model document (.model.json) or the .glb it baked to, project-relative.")},
+                   {"levels", Json::object({{"type", "integer"},
+                                            {"minimum", 1},
+                                            {"maximum", 7},
+                                            {"default", 3},
+                                            {"description", "How many lower levels to make."}})},
+                   {"ratios",
+                    numList("Per level, the share of the level above's triangles it keeps (default 0.5 each).", true)},
+                   {"errors", numList("Per level, the most the surface may move in metres (0 = no limit).", false)},
+                   {"maxError",
+                    Json::object({{"type", "number"},
+                                  {"minimum", 0},
+                                  {"description", "The same limit for every level, metres. Exclusive with errors."}})},
+                   {"screenSizes",
+                    numList("Per level, falling: the screen size below which the level is drawn.", true, 0.0001)},
+                   {"minTriangles",
+                    Json::object(
+                        {{"type", "integer"},
+                         {"minimum", 1},
+                         {"default", 32},
+                         {"description", "A level with fewer triangles, and the ones after it, is not made."}})},
+                   {"lockBorder",
+                    boolean(
+                        "Open edges (borders of the surface) do not move; the seams between parts are kept either way.",
+                        true)},
+                   {"normalWeight", num("How much bending a normal costs a collapse.", 0, 100, 1)},
+                   {"uvWeight", num("How much smearing a UV seam costs a collapse.", 0, 100, 0.5)},
+                   {"dryRun", boolean("Only report what would be made; write nothing.", false)},
+                   {"bake", boolean("Bake the .glb, the LOD files and the prefab after writing the settings.", true)},
+                   {"overwrite", boolean("Replace a .glb that no model document baked.", false)}})}});
+        mark_paths(info.inputSchema, "write", {"model"});
+        registry.add(info, [projectDir](const Json& args) {
+            return model_generate_lods_command(projectDir, args.is_null() ? Json::object() : args);
+        });
+    }
     register_model_uv_command(registry, projectDir);
     register_model_texture_commands(registry, projectDir);
     register_model_eyes_commands(registry, projectDir);
     register_model_import_clean_command(registry, projectDir);
+    register_model_impostor_command(registry, projectDir);
     {
         CommandInfo info;
         info.name = "model.game_ready";
@@ -1095,6 +1331,9 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
             "{\"path\":\"assets/models/"
             "tree.model.json\",\"origin\":\"bottom_center\",\"merge\":true,\"lods\":[{\"ratio\":0.5},{\"ratio\":0.15}],"
             "\"collider\":{\"shape\":\"convex\"}}" FA_COMMAND_DETAILS
+            "`lodChain`: an automatic chain by screen size instead of `lods` (not both; null removes it): {enabled, "
+            "levels, ratios, errors, screenSizes, minTriangles, lockBorder, normalWeight, "
+            "uvWeight} (docs/BIG_WORLDS_LOD.md, \"Automatic LOD chain\"). "
             "`collider.part` fits the collider to the submeshes of that named part only (a pine's \"trunk\", so the "
             "canopy does not block; "
             "it works with `merge`; an unknown name lists the parts); `collider.radius` (sphere, capsule) and "
@@ -1118,11 +1357,17 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
                    {"merge", Json::object({{"type", "boolean"},
                                            {"description", "Join submeshes with the same material and weld identical "
                                                            "vertices (left out: unchanged)."}})},
-                   {"lods", Json::object({{"type", "array"},
+                   {"lods", Json::object({{"type", Json::array({"array", "null"})},
                                           {"maxItems", 4},
                                           {"items", Json::object({{"type", "object"}})},
                                           {"description",
                                            "LOD1.. as {ratio, triangles, error, distance}; replaces the list."}})},
+                   {"lodChain",
+                    Json::object({{"type", Json::array({"object", "null"})},
+                                  {"description", "An automatic LOD chain drawn by screen size instead of `lods` (not "
+                                                  "both): {enabled, levels, ratios, errors, screenSizes, minTriangles, "
+                                                  "lockBorder, normalWeight, uvWeight}; replaces the setting, null "
+                                                  "removes it (model.generate_lods sets it with defaults)."}})},
                    {"collider", object_arg("{shape: none|box|sphere|capsule|convex|decomposed, maxHulls, maxVertices, "
                                            "resolution, part, radius, height}.")},
                    {"platforms", Json::object({{"type", "array"},
@@ -1138,12 +1383,16 @@ void register_model_commands(CommandRegistry& registry, const std::string& proje
     }
     // Capabilities (capability.h): the documents and the .glb files they bake to are project files; info and select only look.
     using namespace capability_sets;
-    declare_command_capabilities(registry, {{"model.info", reads()},
-                                            {"model.select", reads()},
-                                            {"model.bake", writes_project()},
-                                            {"model.create", writes_project()},
-                                            {"model.edit", writes_project()},
-                                            {"model.game_ready", writes_project()}});
+    declare_command_capabilities(registry,
+                                 {{"model.info", reads()},
+                                  {"model.select", reads()},
+                                  {"model.bake", writes_project()},
+                                  {"model.create", writes_project()},
+                                  {"model.edit", writes_project()},
+                                  {"model.game_ready", writes_project()},
+                                  {"model.generate_lods", writes_project()},
+                                  // `apply` also changes the open scene (state), so it is not a files-only writer
+                                  {"model.bake_impostor", edits_project()}});
 }
 
 }  // namespace fa::assets_detail

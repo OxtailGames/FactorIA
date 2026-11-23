@@ -309,6 +309,63 @@ std::vector<FeatureDef> build_table() {
          "fa_scene_color(uv) in a sprite material: the colour of the picture drawn so far in the camera (the "
          "renderer copies the camera's rectangle before the first such draw and again only where needed, at most 8 "
          "times per camera). Every backend.",
+         nullptr},
+        // The big worlds of M75 (docs/BIG_WORLDS.md): planned "M75" until each package draws its row.
+        {"lodCrossFade", "",
+         "Level of detail by distance or screen size (MeshRenderer.lods with lodMode, LodGroup) and the dithered "
+         "cross-fade between two levels (MeshRenderer.lodCrossFade, LodGroup.crossFade): both levels are drawn for "
+         "the fade's duration, each on the pixels the other leaves (a screen-space dither, no texture), so a change "
+         "of level does not pop. Every backend (M75.1); a mesh with a full-shader material switches at once.",
+         nullptr},
+        {"hlod", "",
+         "The HLOD proxy of a LodGroup (LodGroup.hlodProxy, hlodThreshold; world.bake_hlod makes the mesh): past the "
+         "threshold the group draws that one mesh instead of every child under it, with the same dithered cross-fade "
+         "as a level switch, and the proxy casts the shadow. The proxy of a streamed cell that is not loaded is not "
+         "drawn (a later package). Every backend (M75 P1d).",
+         nullptr},
+        {"impostors", "",
+         "Impostors: a mesh far away (MeshRenderer.impostor beyond impostorDistance) is drawn as one camera-facing "
+         "card that shows a baked atlas of the model (model.bake_impostor), blending the nearest three of its views "
+         "and lit with the atlas's normals, with the dithered cross-fade of the last level. Every backend (M75-P1c); "
+         "a mesh that casts shadows casts a shadow shaped like the card (turned to the camera), not like the model.",
+         nullptr},
+        {"occlusionCpu", "",
+         "Occlusion culling on the CPU: the Occluder entities are rasterised into a small depth buffer "
+         "(256 cells across) and the meshes it proves hidden are not drawn in the camera's pictures (they still cast "
+         "shadows). Needs no GPU feature, so every backend draws it (M75.2).",
+         nullptr},
+        {"occlusionPortals", "",
+         "Area and portal culling: the OcclusionArea entities are rooms and the open OcclusionPortal entities the "
+         "doors "
+         "between them; the meshes of a room that no chain of open portals in view leads to are not drawn in the "
+         "camera's pictures (they still cast shadows). Needs no GPU feature, so every backend draws it (M75.2).",
+         nullptr},
+        {"occlusionGpu", "compute",
+         "Occlusion culling on the GPU (SceneSettings.occlusionMode \"gpu\" or \"auto\"): the camera's depth and "
+         "normal prepass is "
+         "reduced by a compute pass to a 256-cell-wide grid of nearest and farthest depths, read back without waiting "
+         "(one frame "
+         "late), and the boxes of the meshes are tested against its mip chain; a mesh behind a fully covered area is "
+         "left out of the "
+         "main pass (shadows still use it). Needs compute shaders (computeShaders: D3D11, Metal, OpenGL 4.3; never "
+         "GLES3 or "
+         "WebGL2, where occlusionMode \"auto\" uses the CPU Occluders). Perspective cameras only (M75).",
+         nullptr},
+        {"terrain", "",
+         "Terrain: a heightmap drawn as a quadtree of tiles that coarsen with distance (the Terrain component, M75): "
+         "one 33 x 33 patch instanced per tile, the heights read in the vertex shader, morphed between levels, lit and "
+         "shadowed like a mesh, with up to 8 layers (albedo and normal texture arrays, roughness, metallic) blended by "
+         "two RGBA splat maps, holes cut in the geometry, and an optional height collider. Every backend whose "
+         "textures reach the sizes the report's `limits` give: maxTextureSize (the heightmap's side), and "
+         "maxArrayLayers and maxArrayTextureSize for the layer textures (up to 8 layers) and the splat maps (up to 2 "
+         "layers), and maxTextureSize again for the holes (one texture a cell); a terrain beyond them is not drawn "
+         "(the "
+         "heightmap, the holes) or is drawn with neutral grey layers (the layers, the splat maps), and the log says "
+         "which.",
+         nullptr},
+        {"foliage", "",
+         "Foliage: thousands of instances of a mesh drawn with instancing from a data file, with wind, LODs and a "
+         "fade-out distance (the Foliage component, M75.6). Every backend.",
          nullptr}};
     for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
     for (int i = 0; i < kPostEffectCount; ++i)
@@ -445,6 +502,10 @@ FeatureEnv feature_env_from_sokol() {
             env.backend = FeatureBackend::Headless;
             break;  // the dummy backend (and any sokol backend the engine never builds)
     }
+    const sg_limits limits = sg_query_limits();
+    env.maxTextureSize = limits.max_image_size_2d;
+    env.maxArrayLayers = limits.max_image_array_layers;
+    env.maxArrayTextureSize = limits.max_image_size_array;
     const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     env.halfTargets = half.render && half.blend && half.filter;
     const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
@@ -487,6 +548,9 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         list.push_back(row);
     }
     out["features"] = list;
+    out["limits"] = Json::object({{"maxTextureSize", env.maxTextureSize},
+                                  {"maxArrayLayers", env.maxArrayLayers},
+                                  {"maxArrayTextureSize", env.maxArrayTextureSize}});
     return out;
 }
 

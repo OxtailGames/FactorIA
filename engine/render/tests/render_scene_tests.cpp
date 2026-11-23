@@ -245,6 +245,26 @@ TEST_CASE("render scene: a build of a subtree keeps the hash entries of the rest
     assets.clear();
 }
 
+TEST_CASE("render scene: an HLOD proxy path is looked for on disk once, not on every build") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    World w;
+    for (int i = 0; i < 3; ++i) {
+        Entity e = make(w, "group");
+        auto& lg = w.add<LodGroup>(e);
+        lg.hlodProxy = i < 2 ? "missing/never_baked_a.glb" : "missing/never_baked_b.glb";  // two groups share one path
+        lg.hlodThreshold = 30.0f;
+    }
+    render::RenderScene scene;
+    scene.build(w, assets, kNullEntity, false);
+    CHECK(scene.hlod_existence_checks() == 2);  // one per distinct path
+    for (int i = 0; i < 5; ++i) scene.build(w, assets, kNullEntity, false);
+    CHECK(scene.hlod_existence_checks() == 2);  // the frames after the first look at nothing on disk
+    scene.reset();
+    assets.clear();
+}
+
 // ---- MaterialHashCache: no GPU ----
 
 TEST_CASE("material hash: an entity asked for twice in one frame does not keep a stale entry alive") {

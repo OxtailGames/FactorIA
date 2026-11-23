@@ -30,7 +30,12 @@
 #include "bloom.h"
 #include "decal_atlas.h"
 #include "light_clusters.h"
+#include "portal_graph.h"
 #include "renderer_env.h"
+#include "renderer_lod.h"
+#include "renderer_foliage.h"
+#include "renderer_impostor.h"
+#include "renderer_terrain.h"
 #include "renderer_probes.h"
 #include "renderer_ssr.h"
 #include "renderer_xmit.h"
@@ -46,6 +51,8 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "hiz.h"
+#include "occlusion.h"
 #include "render_scene.h"
 #include "renderer_ssao.h"
 #include "font_set.h"
@@ -93,9 +100,12 @@ struct Renderer::Impl {
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
     std::unique_ptr<Fonts> fonts;
-    GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
-    float textScale = 1.0f;  // Renderer::set_text_scale
-    float uiScale = 1.0f;    // Renderer::set_ui_scale
+    ImpostorRenderer impostors;  // the impostor atlases, card and program (renderer_impostor.h)
+    TerrainRenderer terrains;    // the Terrain components' height textures, patch and program (renderer_terrain.h)
+    FoliageRenderer foliage;     // the Foliage components: instances file, chunks and items (renderer_foliage.h)
+    GradientRamps ramps;         // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
+    float textScale = 1.0f;      // Renderer::set_text_scale
+    float uiScale = 1.0f;        // Renderer::set_ui_scale
 
     // The game target (make_target): gameTarget.colorAtt / resolveAtt / depthAtt are what the passes draw into, gameTarget.texView what
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
@@ -176,8 +186,23 @@ struct Renderer::Impl {
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
     };
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
-    bool fogMissingWarned = false;                               // one warning when a planned fog could not be drawn
-    bool sceneCopyWarned = false;  // one warning per scene when the image of a scene copy could not be made
+    // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
+    // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
+    // moves what it keeps in world space across frames by the same offset: the cameras the motion vectors reproject from, the 2D GI
+    // field's geometry and history, the realtime GI's anchors, the occlusion debug boxes. Everything else is rebuilt from the world each
+    // frame (the cameras, the occluders, the terrain selection, the shadow rows) or snaps in absolute space (the cascades, the 2D GI
+    // field). The callback runs on the main thread between frames, when no render job exists.
+    World* originWorld = nullptr;  // the world the observer is registered in (null: none)
+    std::weak_ptr<const void>
+        originWorldAlive;            // expires when that world is destroyed: then the observer is gone with it
+    int originObserver = 0;          // World::on_origin_shifted's id
+    std::uint64_t originShifts = 0;  // rebases followed since the renderer was made (RendererTestAccess)
+    void watch_world(World& world);
+    void watch_world_if_free(World& world);  // captures: watches `world` only when no other live world is watched
+    void unwatch_world();
+    void origin_shifted(World& world, const DVec3& offset);
+    bool fogMissingWarned = false;  // one warning when a planned fog could not be drawn
+    bool sceneCopyWarned = false;   // one warning per scene when the image of a scene copy could not be made
     bool sceneCapWarned =
         false;  // one warning per scene when a camera has more runs of scene-reading draws than kMaxSceneCopies
     bool prepassWarned = false;   // one warning when the prepass cannot be made
@@ -239,6 +264,119 @@ struct Renderer::Impl {
     bool warnedDirectionalIes = false;  // one warning each for a Light.ies on a directional light,
     bool warnedAreaCookie = false;      // a Light.cookie on an area light
     bool warnedAreaIes = false;         // and a Light.ies on an area light (none of them uses it)
+    // M75.2, occlusion culling on the CPU (renderer_occlusion.cpp): the depth buffer of the last camera job that had occluders (every job
+    // rasterises its own), the caps, and what the report and the debug view show.
+    render::OcclusionBuffer occlusion;
+    render::OcclusionLimits occlusionLimits;  // the defaults; a test lowers them to reach a cap
+    bool warnedOccluderCap = false, warnedOcclusionFrameCap = false;
+    std::set<std::uint64_t>
+        warnedOccluders;  // entities whose Occluder was reported (no mesh, unreadable mesh): once each
+    // Occluder.mesh names that could not be read, with the error: not read from disk again every frame (a name is tried once per run).
+    std::map<std::string, std::string> occluderMeshErrors;
+    struct OcclusionShown {
+        struct Box {
+            std::array<Vec3, 8> corners;  // world space; bit 0 = x, 1 = y, 2 = z of the corner
+            bool culled = false;          // false: an Occluder; true: a mesh the culling left out
+        };
+        bool valid = false;
+        std::string camera;
+        int occluders = 0, tests = 0, occluded = 0, coveredCells = 0, sourceTriangles = 0;
+        std::vector<Box> boxes;  // only while the debug view is on
+    };
+    OcclusionShown occlusionShown;  // this frame (cleared when it begins)
+    OcclusionShown occlusionPrev;   // the frame before: what the debug view draws
+    // True when it rasterised an occlusion buffer for this camera (`occlusion` holds it), false when nothing was tested.
+    bool occlude_meshes(World& world, Frame& fr, bool z01, std::vector<MeshItem>& meshes);
+    // M75.2, areas and portals (renderer_portals.cpp): (entity, what) pairs already warned about (what: an unknown areaId, or a code).
+    std::set<std::pair<std::uint64_t, std::int64_t>> warnedPortalEntities;
+    void portal_cull_meshes(World& world, Frame& fr, std::vector<MeshItem>& meshes);
+    // The OcclusionArea and OcclusionPortal boxes of the frame, gathered once and shared by its cameras (the same world, the same
+    // scope subtree); render() and every capture drop it, since the world may have changed between them.
+    struct PortalGather {
+        bool valid = false;
+        const World* world = nullptr;
+        std::uint64_t scope = 0;
+        std::vector<render::PortalAreaBox> areas;
+        std::vector<render::PortalBox> portals;
+        std::vector<std::string> ids;  // the distinct area ids as text, for the did-you-mean
+    } portalGather;
+    void gather_portal_boxes(World& world, Entity scopeRoot, PortalGather& into);
+    void occlusion_overlay();
+    // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
+    // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
+    struct HizCamera {
+        struct Flight {  // a copy of the cells that was asked for and has not been taken yet
+            int slot = -1;
+            render::HizPose pose;
+            int w = 0, h = 0;
+            std::uint64_t frame = 0, worldFrame = 0;
+        };
+        std::uint64_t key = 0;
+        int w = 0, h = 0;  // cells of `cells` (the aspect of the camera's rectangle)
+        sg_buffer cells{};
+        sg_view cellsView{};
+        render::AsyncBufferRead ring;
+        std::vector<Flight> flights;  // oldest first
+        bool reduced = false;         // a reduce pass wrote `cells` and no copy of it was asked for yet
+        Flight reducedInfo;           // its pose, size and frame
+        render::HizPyramid pyramid;   // the newest picture that came back
+        render::HizPose pose;         // the camera of that picture
+        std::uint64_t pyramidFrame = 0, pyramidWorldFrame = 0;
+        std::uint64_t usedFrame = 0;  // the frameSerial of the last frame this camera was culled or reduced in
+        std::string name;
+        HizCamera() = default;
+        HizCamera(const HizCamera&) = delete;
+        HizCamera& operator=(const HizCamera&) = delete;
+        ~HizCamera();
+    };
+    std::map<std::uint64_t, std::unique_ptr<HizCamera>> hizCams;  // by camera entity bits
+    sg_shader hizShader{};
+    int hizShaderState = 0;  // 0 not tried, 1 made, -1 refused
+    int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
+    std::string hizWhy;      // why not
+    bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
+    bool warnedHizMode = false, warnedHizCameras = false;
+    const World* hizWorld = nullptr;
+    std::string hizScene;
+    // What `render.occlusion` and the debug view say about the GPU culling of a frame (summed over the cameras culled this way).
+    struct HizShown {
+        bool valid = false;
+        std::string camera;  // the last camera culled this way
+        int cameras = 0, usable = 0, tests = 0, hidden = 0;
+        int cells = 0, cellsDown = 0, levels = 0, coveredCells = 0;
+        int ageFrames = -1;            // frames between the newest picture and this one (-1: none yet)
+        std::string why;               // the reason the last camera drew without culling, when it did
+        std::array<int, 8> reasons{};  // the tests by HizTestInfo::Why
+        int greyLevel = -1, greyW = 0, greyH = 0;
+        std::vector<std::uint8_t> grey;  // a coarse level of the pyramid, for the debug view (only while it is on)
+        std::vector<OcclusionShown::Box> boxes;
+    };
+    HizShown hizShown, hizPrev;
+    bool warnedHizRead = false;
+    bool warnedHizPipeline = false;
+    int hizReduces = 0;  // reduce passes run since the renderer was made (tests)
+    // The mode of the world's SceneSettings against what this GPU can do; one warning when `gpu` was asked for and cannot be had.
+    bool hiz_resolve(World& world);
+    // Start of Renderer::begin_frame (before sokol's frame begins): ask for the copy of every reduce of the frame before and take the
+    // copies that came back.
+    void hiz_submit();
+    // Frame start of render(): the world, the mode, the cameras not drawn any more.
+    void hiz_begin_frame(World& world);
+    void hiz_release();
+    void hiz_shift(const Vec3& off);
+    static render::HizPose hiz_pose_of(const CameraInfo& cam);
+    // gather_meshes: the camera's meshes tested against its pyramid. Returns the camera's HizCamera (null when the camera is not culled
+    // this way: past the cap, so the Occluders cull it).
+    // Only the cameras that draw the game's picture call it: a view job (capture_camera, a CameraView) has no pyramid, because
+    // hiz_submit only runs when a frame begins and a capture's reduce could never come back within it.
+    HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
+    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
+    void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
+    void hiz_overlay();
+    std::string hizModeName = "cpu";  // SceneSettings.occlusionMode of the last frame's world
+    // The "gpu" object of Renderer::occlusion_report: what the depth pyramid did in the last frame; `level` of the pyramid is saved to
+    // `savePath` (a .png) when one is given.
+    Json hiz_report(std::string_view savePath, int level);
     // The light atlas (light_atlas.h; view 25): the LTC tables, the cookies and the IES profiles, made at the first light that needs them.
     LightAtlas lightAtlas;
     // M73.5b, the projected decals (renderer_decals.cpp). A Decal of the view: its world matrix and the component (valid until the
@@ -466,6 +604,7 @@ struct Renderer::Impl {
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
+    LodFades lodFades;  // the levels of detail the cameras picked and the cross-fades running (renderer_lod.h)
     InstanceParamCache instanceParams;  // the packed per-instance material params of each entity (mesh_batch.h)
     struct JobPlan {
         // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a

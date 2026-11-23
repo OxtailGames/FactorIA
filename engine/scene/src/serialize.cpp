@@ -1,6 +1,8 @@
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -12,6 +14,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/floating_origin.h"
 #include "fa/scene/particles.h"
 #include "fa/scene/tilemap.h"
 #include "serialize_internal.h"
@@ -120,6 +123,8 @@ public:
                          bool deferEntities);
     void resolve_pending();
     void defer_missing_refs() { deferMissing_ = true; }
+    // A streamed cell loads under `root`: an entity reference reaches only what the cell holds or what is outside every cell.
+    void set_cell_root(Entity root) { cellRoot_ = root; }
     World& world() { return world_; }
 
 private:
@@ -136,6 +141,7 @@ private:
     bool deferMissing_ =
         false;  // a reference to an id that does not exist yet is a warning and goes to report_.deferred
     std::vector<std::string> prefabStack_;
+    Entity cellRoot_ = kNullEntity;  // set while a streamed cell loads (SceneLoadOptions::streamedCell)
 };
 
 void Loader::apply_info_key(Entity e, const std::string& key, const Json& v, const std::string& ptr, bool quietIds) {
@@ -317,8 +323,37 @@ void Loader::resolve_one(const PendingRef& ref) {
             report_.deferred.push_back({ref.owner, ref.type, ref.field, v.get<std::string>(), ref.pointer});
             return;
         }
+        if (!cellRoot_.is_null()) {
+            warn(ref.pointer, "No entity with id " + where + " in this cell or in the scene; the field stays empty",
+                 "A streamed cell sees only its own entities and those of the main scene: the entity may live in "
+                 "another "
+                 "cell, which loads and unloads on its own. Keep both entities in one cell, or find the other one at "
+                 "run "
+                 "time (world.find(id), after the \"cellLoaded\" event of world.on). " +
+                     did_you_mean(v.get<std::string>(), ids, 20));
+            return;
+        }
         error(ref.pointer, "No entity with id " + where, did_you_mean(v.get<std::string>(), ids, 20));
         return;
+    }
+    if (!cellRoot_.is_null()) {
+        // The target must be in this cell, or outside every streamed cell (the main scene never unloads).
+        Entity cell = kNullEntity;
+        for (Entity up = target; !up.is_null(); up = world_.parent(up))
+            if (world_.info(up).streamedCell) {
+                cell = up;
+                break;
+            }
+        if (!cell.is_null() && cell != cellRoot_) {
+            warn(ref.pointer,
+                 "Field '" + ref.type->name + "." + ref.field->name + "' names '" + v.get<std::string>() +
+                     "', an entity of another streamed cell (" + world_.info(cell).name + "); the field stays empty",
+                 "A cell can unload while the other one stays, which would leave the reference dangling. Move the two "
+                 "entities into "
+                 "one cell, or look the other one up at run time (world.find(id), after the \"cellLoaded\" event of "
+                 "world.on).");
+            return;
+        }
     }
     *static_cast<Entity*>(ref.field->ptr(obj)) = target;
 }
@@ -684,6 +719,36 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                     warn(pptr, issue.message, issue.hint);
             }
         }
+        // M75: the big-world components (their numbers are range-checked by reflection; these are the contradictions between
+        // fields and the shapes inside their Json arrays).
+        auto world_problems = [&](const char* comp, const std::vector<WorldProblem>& issues) {
+            for (const WorldProblem& issue : issues) {
+                const std::string wptr = cptr + "/" + comp + issue.pointer;
+                const std::string message = issue.message + " (entity " + who + ")";
+                if (issue.error)
+                    error(wptr, message, issue.hint);
+                else
+                    warn(wptr, message, issue.hint);
+            }
+        };
+        if (const MeshRenderer* mr = world_.get<MeshRenderer>(e))
+            world_problems("MeshRenderer",
+                           mesh_lod_problems(mr->mesh, mr->lods, mr->lodMode, mr->impostorDistance, mr->impostor));
+        if (const LodGroup* lg = world_.get<LodGroup>(e)) world_problems("LodGroup", lod_group_problems(*lg));
+        if (const Occluder* oc = world_.get<Occluder>(e))
+            world_problems("Occluder", occluder_problems(*oc, world_.get<MeshRenderer>(e) != nullptr));
+        if (const OcclusionArea* oa = world_.get<OcclusionArea>(e))
+            world_problems("OcclusionArea", occlusion_area_problems(*oa));
+        if (const OcclusionPortal* op = world_.get<OcclusionPortal>(e))
+            world_problems("OcclusionPortal", occlusion_portal_problems(*op));
+        if (const StreamingAnchor* sa = world_.get<StreamingAnchor>(e))
+            world_problems("StreamingAnchor", streaming_anchor_problems(*sa));
+        if (const StreamedWorld* sw = world_.get<StreamedWorld>(e))
+            world_problems("StreamedWorld", streamed_world_problems(*sw));
+        if (const Terrain3D* tr = world_.get<Terrain3D>(e)) world_problems("Terrain", terrain_problems(*tr));
+        if (const Foliage* fo = world_.get<Foliage>(e)) world_problems("Foliage", foliage_problems(*fo));
+        if (const ScatterRule* sr = world_.get<ScatterRule>(e))
+            world_problems("ScatterRule", scatter_rule_problems(*sr));
         if (const Camera* cam = world_.get<Camera>(e)) {
             const std::string problem = camera_viewport_problem(cam->viewport);
             if (!problem.empty())
@@ -962,6 +1027,8 @@ Json entity_to_json(const World& world, Entity e, const EntityJsonOptions& opts)
     if (opts.includeChildren && !world.children(e).empty()) {
         Json kids = Json::array();
         for (Entity c : world.children(e)) {
+            if (world.info(c).streamedCell || world.info(c).streamedProxy)
+                continue;  // a streamed cell is its own file (docs/BIG_WORLDS.md); its HLOD proxy is made again by the streamer
             if (opts.skipSpawned && skip_spawned_subtree(world, c, opts)) continue;
             kids.push_back(entity_to_json(world, c, opts));
         }
@@ -984,6 +1051,7 @@ Entity entity_from_json(World& world, const Json& entity, Entity parent, LoadRep
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts) {
     LoadReport report;
     Loader loader(world, report, std::string(sourceName));
+    if (opts.streamedCell && opts.additive) loader.set_cell_root(opts.parent);
     if (!scene.is_object()) {
         loader.error("", "A scene file must be a JSON object, got " + describe_json_value(scene),
                      std::string("Start from {\"format\": \"") + kSceneFormat + "\", \"entities\": []}.");
@@ -1004,7 +1072,7 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
         loader.warn("/format", "Missing \"format\"",
                     std::string("Add \"format\": \"") + kSceneFormat + "\" as the first key.");
     }
-    static const std::vector<std::string> topKeys = {"format", "settings", "entities"};
+    static const std::vector<std::string> topKeys = {"format", "origin", "settings", "entities"};
     for (auto it = scene.begin(); it != scene.end(); ++it) {
         const std::string& k = it.key();
         if (std::find(topKeys.begin(), topKeys.end(), k) != topKeys.end()) continue;
@@ -1013,6 +1081,25 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
     }
 
     if (!opts.additive) world.clear();
+
+    // The floating origin the positions below are relative to (written only when a rebase moved it). A normal load restores it. An
+    // additive load keeps the origin of the world it joins and instead places what it loads at its ABSOLUTE position: the roots
+    // move by (file origin - world origin) once everything is loaded (place_loaded_entities below).
+    DVec3 fileOrigin{};
+    if (scene.contains("origin")) {
+        const Json& o = scene["origin"];
+        if (!o.is_array() || o.size() != 3 || !o[0].is_number() || !o[1].is_number() || !o[2].is_number() ||
+            !std::isfinite(o[0].get<double>()) || !std::isfinite(o[1].get<double>()) ||
+            !std::isfinite(o[2].get<double>())) {
+            loader.error(
+                "/origin", "'origin' must be an array of three finite numbers [x, y, z], got " + describe_json_value(o),
+                "It is the world position of the scene's local (0, 0, 0) in metres, for example [20480, 0, -4096]. "
+                "Leave it out (it is 0) unless the floating origin moved.");
+        } else {
+            fileOrigin = {o[0].get<double>(), o[1].get<double>(), o[2].get<double>()};
+            if (!opts.additive) world.set_origin(fileOrigin);
+        }
+    }
 
     if (scene.contains("settings") && !opts.additive) {
         const Json& s = scene["settings"];
@@ -1047,6 +1134,11 @@ LoadReport load_scene(World& world, const Json& scene, std::string_view sourceNa
         }
     }
     loader.resolve_pending();
+    if (opts.additive) {
+        // fileOrigin - world origin in double, then to float: exact for every origin a rebase made (multiples of the step).
+        const DVec3 d = fileOrigin - world.origin();
+        place_loaded_entities(world, report.created, {float(d.x), float(d.y), float(d.z)}, !opts.parent.is_null());
+    }
     if (!opts.additive && !sourceName.empty() && sourceName.front() != '<')
         world.set_scene_path(std::string(sourceName));
     return report;
@@ -1112,9 +1204,15 @@ Json save_scene(const World& world, const SaveSceneOptions& options) {
     if (!pose.empty()) eo.poseRest = &pose;
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
+    // The positions below are relative to the floating origin: written (as doubles) only when a rebase moved it, so every scene that
+    // never had one is saved as before.
+    if (const DVec3& o = world.origin(); o.x != 0.0 || o.y != 0.0 || o.z != 0.0)
+        scene["origin"] = Json::array({o.x, o.y, o.z});
     scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) {
+        if (world.info(e).streamedCell || world.info(e).streamedProxy)
+            continue;  // a streamed cell is its own file, loaded again by the streamer (and so is its proxy)
         if (skipSpawned && skip_spawned_subtree(world, e, eo)) continue;
         ents.push_back(entity_to_json(world, e, eo));
     }
@@ -1199,13 +1297,19 @@ std::vector<std::string> project_scene_files(std::string_view dir) {
 }
 
 Result<void> save_scene_file(const World& world, std::string_view path, bool includeSpawned, SpawnedSkip* skipped,
-                             std::vector<PrefabExpanded>* prefabsExpanded) {
+                             std::vector<PrefabExpanded>* prefabsExpanded, bool writeAnywhere) {
     SaveSceneOptions o;
     o.skipSpawned = !includeSpawned;
     o.skipped = skipped;
     o.prefabs = PrefabSave::Keep;
     o.prefabsExpanded = prefabsExpanded;
-    return save_scene_json_file(path, save_scene(world, o));
+    if (auto r = save_scene_json_file(path, save_scene(world, o)); !r.ok()) return r;
+    // The terrain files the scene points to (heightmap, holes, splat maps) that terrain.sculpt, terrain.paint... edited in memory.
+    if (auto r = save_all_terrain_files(world, nullptr, writeAnywhere); !r.ok())
+        return make_error("The scene file '" + std::string(path) +
+                              "' was written, but a terrain file was not: " + r.error().message,
+                          r.error().hint);
+    return {};
 }
 
 // ---------------------------------------------------------------- prefabs --
@@ -1302,6 +1406,14 @@ Json scene_json_schema() {
         {"$schema", Json::object({{"type", "string"}})},
         {"name", Json::object({{"type", "string"}})},
         {"format", Json::object({{"const", kSceneFormat}})},
+        {"origin",
+         Json::object(
+             {{"type", "array"},
+              {"items", Json::object({{"type", "number"}})},
+              {"minItems", 3},
+              {"maxItems", 3},
+              {"description", "Floating origin: the world position (metres, doubles) of the scene's local (0, 0, 0), "
+                              "written only when a rebase moved it (default [0, 0, 0])."}})},
         {"settings", Json::object({{"$ref", "#/$defs/SceneSettings"}})},
         {"entities", Json::object({{"type", "array"}, {"items", Json::object({{"$ref", "#/$defs/Entity"}})}})},
     });

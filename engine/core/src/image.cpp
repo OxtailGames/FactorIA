@@ -95,6 +95,43 @@ Result<Image> decode_image(const std::uint8_t* data, std::size_t size) {
     return img;
 }
 
+Result<GrayImage16> decode_gray16(const std::uint8_t* data, std::size_t size) {
+    if (!data || size == 0 || size > std::size_t(std::numeric_limits<int>::max()))
+        return make_error(size == 0 ? "Cannot decode image: the file is empty"
+                                    : "Cannot decode image: the file is larger than 2 GB",
+                          "Use a 16-bit greyscale PNG. Re-export the file from your image editor.");
+    int hw = 0, hh = 0, hcomp = 0;
+    if (stbi_info_from_memory(data, int(size), &hw, &hh, &hcomp) &&
+        std::uint64_t(std::abs(std::int64_t(hw))) * std::uint64_t(std::abs(std::int64_t(hh))) > kMaxImagePixels)
+        return make_error(std::format("Cannot decode image: it is {} x {} pixels, more than the {} million pixels "
+                                      "the engine reads",
+                                      std::abs(std::int64_t(hw)), std::abs(std::int64_t(hh)),
+                                      kMaxImagePixels / 1000000),
+                          "Scale the image down in your image editor.");
+    const bool sixteen = stbi_is_16_bit_from_memory(data, int(size)) != 0;
+    int w = 0, h = 0, comp = 0;
+    stbi_us* px = stbi_load_16_from_memory(data, int(size), &w, &h, &comp, 1);
+    if (!px) {
+        const char* why = stbi_failure_reason();
+        return make_error(std::string("Cannot decode image: ") + (why ? why : "unknown format"),
+                          "Use a 16-bit greyscale PNG. Re-export the file from your image editor.");
+    }
+    if (w <= 0 || h <= 0) {
+        stbi_image_free(px);
+        return make_error(std::format("Cannot decode image: it is {} x {} pixels, a picture needs at least one in each "
+                                      "direction",
+                                      w, h),
+                          "The file is damaged. Re-export it from your image editor.");
+    }
+    GrayImage16 img;
+    img.width = w;
+    img.height = h;
+    img.sixteenBit = sixteen;
+    img.samples.assign(px, px + std::size_t(w) * std::size_t(h));
+    stbi_image_free(px);
+    return img;
+}
+
 Result<Image> load_image(std::string_view path) {
     auto bytes = fs::read_bytes(path);
     if (!bytes) return bytes.error();
@@ -226,6 +263,18 @@ std::vector<std::uint8_t> encode_png(const Image& img) {
         v->insert(v->end(), p, p + size);
     };
     stbi_write_png_to_func(write, &out, img.width, img.height, 4, img.rgba.data(), img.width * 4);
+    return out;
+}
+
+std::vector<std::uint8_t> encode_png_gray8(int width, int height, const std::uint8_t* data) {
+    std::vector<std::uint8_t> out;
+    if (width < 1 || height < 1 || !data) return out;
+    auto write = [](void* ctx, void* bytes, int size) {
+        auto* v = static_cast<std::vector<std::uint8_t>*>(ctx);
+        const auto* p = static_cast<const std::uint8_t*>(bytes);
+        v->insert(v->end(), p, p + size);
+    };
+    stbi_write_png_to_func(write, &out, width, height, 1, data, width);
     return out;
 }
 
@@ -533,6 +582,49 @@ std::string zlib_compress(std::string_view data) {
     if (!z) return {};
     std::string out(reinterpret_cast<const char*>(z), static_cast<std::size_t>(outLen));
     STBIW_FREE(z);
+    return out;
+}
+
+std::vector<std::uint8_t> encode_png_gray16(const GrayImage16& img) {
+    if (img.empty() || img.samples.size() != std::size_t(img.width) * std::size_t(img.height)) return {};
+    std::string raw;
+    raw.reserve((std::size_t(img.width) * 2 + 1) * std::size_t(img.height));
+    for (int y = 0; y < img.height; ++y) {
+        raw.push_back(0);  // filter type 0 (none)
+        for (int x = 0; x < img.width; ++x) {
+            const std::uint16_t v = img.samples[std::size_t(y) * std::size_t(img.width) + std::size_t(x)];
+            raw.push_back(char(v >> 8));
+            raw.push_back(char(v & 0xFF));
+        }
+    }
+    const std::string z = zlib_compress(raw);
+    if (z.empty()) return {};
+    std::uint32_t table[256];
+    for (std::uint32_t n = 0; n < 256; ++n) {
+        std::uint32_t c = n;
+        for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+        table[n] = c;
+    }
+    std::vector<std::uint8_t> out = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    auto be32 = [](std::vector<std::uint8_t>& v, std::uint32_t x) {
+        for (int s = 24; s >= 0; s -= 8) v.push_back(std::uint8_t(x >> s));
+    };
+    auto chunk = [&](const char* type, const std::vector<std::uint8_t>& body) {
+        be32(out, std::uint32_t(body.size()));
+        std::vector<std::uint8_t> crcData(type, type + 4);
+        crcData.insert(crcData.end(), body.begin(), body.end());
+        out.insert(out.end(), crcData.begin(), crcData.end());
+        std::uint32_t crc = 0xFFFFFFFFu;
+        for (std::uint8_t b : crcData) crc = table[(crc ^ b) & 0xFF] ^ (crc >> 8);
+        be32(out, crc ^ 0xFFFFFFFFu);
+    };
+    std::vector<std::uint8_t> ihdr;
+    be32(ihdr, std::uint32_t(img.width));
+    be32(ihdr, std::uint32_t(img.height));
+    ihdr.insert(ihdr.end(), {16, 0, 0, 0, 0});  // 16 bits, greyscale, deflate, no filter method change, no interlace
+    chunk("IHDR", ihdr);
+    chunk("IDAT", std::vector<std::uint8_t>(z.begin(), z.end()));
+    chunk("IEND", {});
     return out;
 }
 

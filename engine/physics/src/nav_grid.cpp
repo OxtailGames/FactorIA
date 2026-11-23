@@ -979,3 +979,29 @@ void NavGrid::make_reach() {
 }
 
 }  // namespace fa::detail
+
+namespace fa::detail {
+
+void NavGrid::shift(Vec3 offset) {
+    // Cells are addressed from `origin`, so moving it keeps every cell index; heights are the only other world values.
+    p_.origin = p_.origin - offset;
+    p_.yMin -= offset.y;
+    p_.yMax -= offset.y;
+    for (Span& s : spans_) {
+        s.y -= offset.y;
+        if (s.ceil < 1e29f) s.ceil -= offset.y;  // 1e30 = open sky stays open
+    }
+    for (Span& s : dyn_) {
+        s.y -= offset.y;
+        if (s.ceil < 1e29f) s.ceil -= offset.y;
+    }
+    for (auto& [key, w] : walk_) {
+        (void)key;
+        for (DynSpec& d : w.specs) {
+            d.y -= offset.y;
+            if (d.ceil < 1e29f) d.ceil -= offset.y;
+        }
+    }
+}
+
+}  // namespace fa::detail

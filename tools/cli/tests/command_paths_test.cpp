@@ -210,6 +210,7 @@ Json extra_arguments(const std::string& name) {
         {"prefab.save", Json::parse(R"({"id":"camera"})")},
         {"scene.import_ascii", Json::parse(R"({"rows":["#"],"legend":{"#":0}})")},
         {"sfx.preset", Json::parse(R"({"name":"coin"})")},
+        {"world.bake_hlod", Json::parse(R"({"entity":"block"})")},
         {"vector.to_rig", Json::parse(R"({"source":"assets/art/hero.svg"})")},
     };
     if (name.rfind("vector.", 0) == 0 &&

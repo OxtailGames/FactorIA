@@ -46,6 +46,9 @@ struct Renderer::Impl::PartDraw {
 struct Renderer::Impl::MaterialInputs {
     float params[kMaxMaterialParams][4];
     TextureAsset* textures[kMaxMaterialTextures]{};
+    // A texture for the VERTEX stage's copy of a slot, where it differs from the fragment stage's (null = the same one). The terrain binds
+    // its splat array to the fragment stage and the holes texture to the vertex stage of the same slot.
+    TextureAsset* vsTextures[kMaxMaterialTextures]{};
 };
 
 // What draws the sky: the engine's own program (mat null) or a sky material (SceneSettings.skyMaterial) with its
@@ -97,6 +100,8 @@ struct Renderer::Impl::DrawContext {
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
+    ImpostorDraws impostorDraws;           // gather_meshes: what the MeshItems of the impostor cards point at
+    std::deque<TerrainDraw> terrainDraws;  // gather_meshes: what the MeshItems of the terrains' nodes point at
     std::vector<LightData> lights;
     // collect_decals: the decals of the view in drawing order, and every texture path the Decals of the world name (sorted, normalised).
     std::vector<DecalItem> decals;
@@ -133,6 +138,8 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
+    HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
@@ -810,6 +817,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         PostPlan& pp = ctx.postPlan;
         pp.fogFx = make_fog_plan(fr.cam, *fr.cam.postStack, fr.linear, haveSun ? &sun : nullptr);
+        // fogHeightBase is an absolute height (the +-1e6 cap of make_fog_plan is on that authored value, before this): in local
+        // coordinates it moves down as the floating origin moves up (M75.4b). Subtracted in double, rounded to a float once.
+        pp.fogFx.heightBase = float(double(pp.fogFx.heightBase) - world.origin().y);
         const std::uint32_t shaftsBit = 1u << int(PostEffect::SunShafts);
         if ((pp.readMask & shaftsBit) != 0 && !pp.fogFx.shafts && debugView != DebugView::Ao) {
             pp.readMask &= ~shaftsBit;  // no sun in view: the shafts draw nothing, so they need no depth
@@ -827,6 +837,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         const SceneSettings& vss = world.settings();
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
+        // An absolute height like the fog's (its +-10000 range is on the authored value); subtracted in double (M75.4b).
+        ctx.postPlan.vol.heightBase = float(double(ctx.postPlan.vol.heightBase) - world.origin().y);
         // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
         if (ctx.postPlan.vol.on) {
             if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
@@ -956,8 +968,12 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     const bool masked = !fr.mask.empty();
     for (const SceneMesh& sm : shared) {
         if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
-        if (sm.hasLods || sm.liveTextures) special.emplace_back(meshes.size(), &sm);
+        if (sm.hlodProxy && sm.hlodGroup == 0)
+            continue;  // a proxy no group claimed would draw all the time, whatever the distance
+        if (sm.hasLods || sm.liveTextures || sm.chainCount != 0 || sm.hlodGroup != 0)
+            special.emplace_back(meshes.size(), &sm);
         MeshItem& mi = meshes.emplace_back();
+        mi.hlod = sm.hlodGroup != 0 || sm.streamProxy;
         mi.mr = sm.mr;
         mi.entity = sm.entity;
         mi.model = sm.model;
@@ -981,6 +997,55 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
+    // Levels of detail (M75.1). Each job picks with its own camera (a split-screen camera, a render target, a CameraView); a probe or GI
+    // capture follows the first main camera of the frame. The shadow passes of a job draw the items of the job, so they cast the level
+    // of their camera. LodFades keeps the cross-fades per camera and entity.
+    const bool lodsOn = renderScene.has_lods();
+    const bool lodFollow = fr.lodFollowMain;
+    const bool lodMainJob = !lodFollow && ctx.plan.name.compare(0, 7, "camera:") == 0;
+    const std::uint64_t lodCam = std::hash<std::string>{}(ctx.plan.name);
+    // The main camera's picks are kept for the captures only where a capture will ask: a world with a ReflectionProbe or a RealtimeGI.
+    const bool lodRemember = lodMainJob && lodsOn && (world.any<ReflectionProbe>() || world.any<RealtimeGI>());
+    const LodView lodView{fr.cam.perspective, fr.cam.fov, fr.cam.halfH};
+    const auto lod_pick = [&](LodKind kind, std::uint64_t bits, int target, float crossFade, int farTarget) {
+        if (lodFollow) {
+            LodPick p;
+            p.level = target;
+            if (const LodPick* m = lodFades.main_pick(bits, kind))
+                p.level = m->level;  // settled: a capture never fades
+            return p;
+        }
+        const LodPick p = lodFades.step(lodCam, bits, kind, target, crossFade, fr.dt, farTarget);
+        if (lodRemember && !lodFades.main_set()) lodFades.remember(bits, kind, p);
+        return p;
+    };
+    std::vector<LodPick>
+        groupPick;  // per LodGroup of the scene: the child this camera shows (level -1 = a group that draws nothing)
+    if (lodsOn) {
+        const auto& groups = renderScene.lod_groups();
+        groupPick.resize(groups.size());
+        for (std::size_t g = 0; g < groups.size(); ++g) {
+            const SceneLodGroup& sg = groups[g];
+            groupPick[g].level = -1;
+            if (sg.children <= 0 || !(sg.radius > 0.0f)) continue;
+            const float distance = length(sg.origin - fr.cam.position);
+            const float value =
+                sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
+            // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
+            const auto level_at = [&](float v) {
+                return sg.proxy && lod_hlod_reached(*sg.group, v) ? kHlodLevel
+                                                                  : lod_group_level(*sg.group, sg.children, v);
+            };
+            const bool screenMode = sg.group->mode == LodMode::ScreenSize;
+            const int farLevel =
+                level_at(screenMode ? value * (1.0f - kLodHysteresis) : value * (1.0f + kLodHysteresis));
+            groupPick[g] = lod_pick(LodKind::Group, sg.entity.bits(), level_at(value), sg.group->crossFade, farLevel);
+        }
+    }
+    std::vector<char> lodDropped;  // an item whose LodGroup child is not shown
+    std::vector<std::pair<MeshItem, char>>
+        lodOutgoing;  // the level fading out of an entity in a cross-fade, and whether it is blended
+    std::vector<const SceneMesh*> lodOutgoingMesh;
     for (const auto& [i, sm] : special) {
         MeshItem& mi = meshes[i];
         const MeshRenderer& mr = *mi.mr;
@@ -988,17 +1053,149 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
             mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         }
+        // The levels switch at once (no dither) where the draw has no program with it: a full-shader material, a custom material
+        // that is not alphaMode "clip" (its programs have no discard) and a mesh with subsurface scattering (its extra pass).
+        // The engine's own program fades through its mesh_lod variant, a clip material through the discard it has.
+        const bool customMat = mi.material && mi.material->ok;
+        const bool canFade =
+            customMat ? !mi.material->full && mi.material->alphaMode == "clip" : !(subsurface_of(mr)[0] > 0.0f);
+        float groupFade = 0.0f;
+        if (sm->hlodGroup !=
+            0) {  // the proxy of a group: drawn only at the group's proxy level (or while it fades out)
+            if (!hlod_proxy_shown(groupPick[sm->hlodGroup - 1], canFade, groupFade)) {
+                if (lodDropped.empty()) lodDropped.assign(meshes.size(), 0);
+                lodDropped[i] = 1;
+                continue;
+            }
+            mi.lodFade = groupFade;
+        }
+        if (sm->chainCount != 0 && lodsOn) {
+            const std::vector<std::uint32_t>& chains = renderScene.lod_chains();
+            bool drop = false;
+            for (std::uint32_t k = 0; k < sm->chainCount; ++k) {
+                const std::uint32_t entry = chains[sm->chainFirst + k];
+                const LodPick& r = groupPick[entry >> 4];
+                const int child = int(entry & 15u);
+                if (r.level < 0) continue;
+                if (child == r.level) {
+                    if (r.fading() && canFade && groupFade == 0.0f) groupFade = r.amount;
+                } else if (r.fading() && child == r.from && canFade) {
+                    if (groupFade == 0.0f) groupFade = -r.amount;
+                } else {
+                    drop = true;
+                }
+            }
+            if (drop) {
+                if (lodDropped.empty()) lodDropped.assign(meshes.size(), 0);
+                lodDropped[i] = 1;
+                continue;
+            }
+            mi.lodFade = groupFade;
+        }
         if (!sm->hasLods) continue;
-        const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
-        if (level == mr.mesh) continue;
-        mi.mesh = assets->mesh(level);
-        mi.lm = {};  // another mesh: the entity was baked for the one the manifest names
-        mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
-        meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+        float screen = 0.0f;
+        if (mr.lodMode ==
+            LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
+            const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
+                                          length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
+                                          length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
+            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
+        }
+        // The impostor (M75-P1c) is one more level, past the last one: the sentinel level of LodFades, so its cross-fade with the last level is the
+        // ordinary one. An atlas that cannot be used (a warning was given) leaves the last level drawn.
+        const bool hasImpostor = !mr.impostor.empty() && mr.impostorDistance > 0.0f;
+        const int lastLevel = hasImpostor ? lod_level_of(mr, 3.0e38f, 0.0f) : 0;
+        ImpostorUse impostorUse;
+        bool impostorReady = false;
+        const auto level_at = [&](float dist, float scr) {
+            if (hasImpostor && impostor_active(mr, dist, scr)) {
+                if (!impostorReady) impostorReady = impostors.resolve(*assets, frameSerial, mr, mi.entity, impostorUse);
+                return impostorReady ? kImpostorLevel : lastLevel;
+            }
+            return lod_level_of(mr, dist, scr);
+        };
+        const int target = level_at(mi.dist, screen);
+        // The hysteresis: the pick again with the metric pushed farther (the distance up, the screen size down).
+        const int farTarget = level_at(mi.dist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
+        const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), target,
+                                      canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f, farTarget);
+        // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
+        const auto set_level = [&](MeshItem& item, int level) {
+            const std::string& name = lod_level_mesh(mr, level);
+            if (name == mr.mesh) return false;
+            item.mesh = assets->mesh(name);
+            item.lm = {};  // another mesh: the entity was baked for the one the manifest names
+            mesh_cull_bounds(*item.mesh, world.get<Animator>(item.entity), item.bmin, item.bmax, item.anim);
+            return true;
+        };
+        // Puts the level `level` (or the impostor's card, kImpostorLevel) into `item` and says whether the result is blended.
+        const ImpostorCamera impostorCam{fr.cam.position, fr.cam.right, fr.cam.up, fr.linear};
+        const auto place = [&](MeshItem& item, int level, char& isBlended) {
+            if (level == kImpostorLevel) {
+                if (!impostorReady)
+                    impostorReady = impostors.resolve(*assets, frameSerial, mr, item.entity, impostorUse);
+                if (impostorReady) {
+                    impostors.make_item(item, ctx.impostorDraws, impostorUse, impostorCam);
+                    isBlended = 0;  // a card is alpha-cut, never blended
+                    return;
+                }
+                level = lastLevel;
+            }
+            if (set_level(item, level)) isBlended = mesh_is_blended(mr, *item.mesh, item.material) ? 1 : 0;
+        };
+        if (pick.fading()) {
+            MeshItem out = mi;
+            char outBlended = sm->blended ? 1 : 0;
+            out.lodFade = -pick.amount;
+            mi.lodFade = pick.amount;
+            place(out, pick.from, outBlended);
+            lodOutgoing.emplace_back(std::move(out), outBlended);
+            lodOutgoingMesh.push_back(sm);
+        }
+        place(mi, pick.level, meshBlended[i]);
+    }
+    if (lodMainJob && lodsOn) lodFades.set_main();
+    for (std::size_t k = 0; k < lodOutgoing.size(); ++k) {  // after the loop: it holds references into `meshes`
+        special.emplace_back(meshes.size(), lodOutgoingMesh[k]);
+        meshes.push_back(std::move(lodOutgoing[k].first));
+        meshBlended.push_back(lodOutgoing[k].second);
     }
     for (const auto& entry : special) {  // what the camera changed is ranked again; a value the table lacks: comparator
         MeshItem& mi = meshes[entry.first];
+        if (mi.impostor) continue;  // a card keeps its own key (kImpostorSortKey)
         mi.keyed = mi.keyed && renderScene.sort_table().key_of(fields_of(mi), mi.sortKey);
+    }
+    if (!lodDropped.empty()) {  // the children of a LodGroup this camera does not show
+        lodDropped.resize(meshes.size(), 0);
+        std::size_t kept = 0;
+        for (std::size_t i = 0; i < meshes.size(); ++i) {
+            if (lodDropped[i]) continue;
+            if (kept != i) {
+                meshes[kept] = std::move(meshes[i]);
+                meshBlended[kept] = meshBlended[i];
+            }
+            ++kept;
+        }
+        meshes.resize(kept);
+        meshBlended.resize(kept);
+    }
+    // The Terrains: one MeshItem per node of the quadtree the camera selects (renderer_terrain.h), opaque, ahead of the frustum job
+    // like every other item.
+    {
+        TerrainRenderer::View tv;
+        tv.world = &world;
+        tv.scopeRoot = fr.scopeRoot;
+        if (masked) tv.drawn = [&](Entity e) { return fr.mask.draws(world, e); };
+        tv.assets = assets.get();
+        tv.viewProj = fr.cam.viewProj;
+        tv.z01 = z01;
+        tv.camera = fr.cam.position;
+        tv.linear = fr.linear;
+        tv.serial = frameSerial;
+        tv.gpu = &gpu;
+        tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
+        terrains.gather(tv, ctx.terrainDraws, meshes);
+        meshBlended.resize(meshes.size(), 0);
     }
     const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
     rjobs::run("render.mesh_frustum", meshSplit, [&](const jobs::Chunk& c) {
@@ -1007,7 +1204,36 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             mi.visible = mi.noCull || box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
         }
     });
-    for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
+    // Occlusion culling (M75.2): with no enabled Occluder in the world this is the one branch; a reflection probe's or a GI capture's pictures
+    // are not culled (they show the scene from a point the Occluders were not placed for).
+    // Areas and portals (M75.2) come first (a mesh in a room the portals do not show needs no depth test); the same single branch.
+    if (!fr.noProbes && !fr.giCapture && fr.cam.areaCulling && world.any<OcclusionArea>())
+        portal_cull_meshes(world, fr, meshes);
+    // The GPU culling of the depth pyramid (M75.2b, SceneSettings.occlusionMode) is exclusive: a camera that uses it is not culled by the Occluders.
+    const bool cullable = !fr.noProbes && !fr.giCapture;
+    // A view job (a capture, a CameraView, a render target) never uses it: its pyramid could never be ready inside the capture
+    // (hiz_submit runs when a frame begins), so the Occluders cull it and no reduce pass or buffer is made for it.
+    if (cullable && hizOn && !ctx.plan.gi && !ctx.plan.view) ctx.hiz = hiz_cull(world, fr, meshes);
+    const bool occluded = cullable && !ctx.hiz && world.any<Occluder>() && occlude_meshes(world, fr, z01, meshes);
+    // The Foliage instances (renderer_foliage.h): after the culling, because the foliage culls its own chunks (with the buffer the
+    // Occluders just filled) and its items are made visible or not by it.
+    if (world.any<Foliage>() || foliage.size() != 0) {
+        FoliageRenderer::View fv;
+        fv.world = &world;
+        fv.scopeRoot = fr.scopeRoot;
+        if (masked) fv.drawn = [&](Entity e) { return fr.mask.draws(world, e); };
+        fv.assets = assets.get();
+        fv.viewProj = fr.cam.viewProj;
+        fv.z01 = z01;
+        fv.camera = fr.cam.position;
+        fv.time = fr.time;
+        fv.serial = frameSerial;
+        fv.occlusion = occluded ? &occlusion : nullptr;
+        const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
+        stats.foliageInstancesCulled += fc.culled;
+    }
+    for (std::size_t i = 0; i < meshes.size(); ++i)
+        (meshBlended[i] ? blended : opaque).push_back(std::move(meshes[i]));  // the last use
     // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
     const auto farther = [](const MeshItem& a, const MeshItem& b) {
         return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
@@ -1428,9 +1654,9 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         const render::CameraFrustum cf =
             render::camera_frustum(fr.cam.invViewProj, ctx.z01, fr.cam.position, normalize(fr.cam.forward));
         const float shadowDist = ctx.sun.distance > 0.0f ? ctx.sun.distance : settings.shadowDistance;
-        const render::CascadePlan plan =
-            render::plan_cascades(cf, bmin, bmax, normalize(ctx.lightDirForShadow), shadowDist,
-                                  settings.shadowCascadeSplit, settings.shadowCascadeBlend, tileSizes, ctx.z01);
+        const render::CascadePlan plan = render::plan_cascades(
+            cf, bmin, bmax, normalize(ctx.lightDirForShadow), shadowDist, settings.shadowCascadeSplit,
+            settings.shadowCascadeBlend, tileSizes, ctx.z01, ctx.world.origin());
         if (plan.ok) {
             ctx.splits = plan.splits;
             ctx.fits = plan.fits;
@@ -1519,7 +1745,8 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                            for (std::size_t i = ch.begin; i < ch.end; ++i) {
                                MeshItem& mi = (*list)[i];
                                mi.castMask = 0;
-                               if (mi.mr->castShadows) {
+                               // The shadow draws the level that fades IN only (solid), never the one fading out: no dither in a shadow map.
+                               if (mi.mr->castShadows && !(mi.lodFade < 0.0f)) {
                                    // A conservative world sphere of the item for the local lights' ranges.
                                    const Vec3 centre = mi.model.transform_point((mi.bmin + mi.bmax) * 0.5f);
                                    const float scale = std::max(
@@ -1542,7 +1769,10 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                            }
                        });
         for (auto& mi : *list) {
-            if (!mi.visible) ++stats.meshesCulled;
+            if (!mi.visible && !mi.foliage)
+                ++stats.meshesCulled;  // a foliage instance kept for the shadows counts in foliageInstancesCulled
+            if (mi.visible && mi.lodFade != 0.0f && !mi.foliage && !ctx.fr.lodFollowMain) ++stats.lodCrossFades;
+            if (mi.visible && mi.hlod && !ctx.fr.lodFollowMain) ++stats.hlodProxies;
             if (!doShadows) mi.casts = false;
             if (mi.casts) ++stats.shadowCasters;
         }
@@ -2315,6 +2545,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     mesh_fa_mesh_fs_params_t fu = fuScene;
     fu.fa_counts[3] = float(
         decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
+    fu.fa_gi[3] = mi.lodFade;  // the dithered LOD cross-fade (mesh_common.glsl fa_lod_dither); 0 = none
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
@@ -2435,6 +2666,20 @@ MaterialAsset* Renderer::Impl::sky_material(const SceneSettings& ss) {
 }
 
 void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
+    if (mi.impostor) {  // a card of an impostor: the draw's block and its two atlases (renderer_impostor.h)
+        std::memset(in.params, 0, sizeof(in.params));
+        std::memcpy(in.params, mi.impostor->params, std::min(sizeof(in.params), sizeof(mi.impostor->params)));
+        for (int i = 0; i < 2; ++i) in.textures[i] = mi.impostor->textures[i];
+        return;
+    }
+    if (mi.terrain) {  // a node of a terrain: the draw's block and textures (renderer_terrain.h)
+        std::memset(in.params, 0, sizeof(in.params));
+        std::memcpy(in.params, mi.terrain->params, std::min(sizeof(in.params), sizeof(mi.terrain->params)));
+        for (int i = 0; i < 4; ++i) in.textures[i] = mi.terrain->textures[i];
+        in.vsTextures[3] =
+            mi.terrain->holes;  // the vertex copy of the "control" slot (renderer_terrain.cpp, material())
+        return;
+    }
     pack_material_params(*mat, mi.mr->materialParams, in.params);
     for (std::size_t i = 0; i < mat->textures.size(); ++i)
         in.textures[i] = material_texture(*mat, int(i), mi.mr->materialParams, *assets);
@@ -2484,6 +2729,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
             // none).
             b.views[kMaterialVsFirstView + int(i)] = b.views[kMaterialFirstView + int(i)];
             b.samplers[kMaterialVsFirstSampler + int(i)] = b.samplers[kMaterialFirstSampler + int(i)];
+            if (in.vsTextures[i]) b.views[kMaterialVsFirstView + int(i)] = in.vsTextures[i]->gpu_view();
         }
     for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
         if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
@@ -2579,7 +2825,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     }
     const Rect& vis = fr.cam.visible;
     const float ppu = vis.w > 0.0f ? float(double(ctx.camPx.w) / double(vis.w)) : 0.0f;
-    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s);
+    const Gi2dGeometry geom = gi2d_geometry(vis, ppu, s, ctx.world.origin().x, ctx.world.origin().y);
     if (!geom.valid) return;
     // The cascades' counts for the quality, against the platform's budget (a phone or a browser has the smaller one): over it, no field at all.
     const sg_backend gfxBackend = sg_query_backend();
@@ -2809,8 +3055,8 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || pp.needsDepth || pp.needsNormals ||
-          (debugView != DebugView::None && debugView != DebugView::Cascades)))
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals ||
+          (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -2952,9 +3198,10 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
-            sg_apply_pipeline(gpu.prepass_pipeline(pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided),
-                                                   skinned, custom ? custom->shader : sg_shader{},
-                                                   custom ? mat->extras() : MeshExtras{}, backFaces));
+            sg_apply_pipeline(gpu.prepass_pipeline(
+                pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided), skinned,
+                custom ? custom->shader : sg_shader{}, custom ? mat->extras() : MeshExtras{}, backFaces,
+                mi.lodFade != 0.0f));  // the engine's program of a fading draw: with the dither
             sg_bindings b{};
             b.vertex_buffers[0] = part.vb;
             b.vertex_buffers[1] = ctx.mainInst;
@@ -3596,7 +3843,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 MaterialInputs inputs{};
                 if (mi.material && mi.material->ok) {
                     material_inputs(mi, mi.material, inputs);
-                    count_material(mi.material);
+                    if (!mi.terrain && !mi.impostor) count_material(mi.material);
                 } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(),
                                                     mi.material->path) == stats.materialFallbacks.end()) {
                     stats.materialFallbacks.push_back(mi.material->path);
@@ -3633,7 +3880,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                             sg_apply_pipeline(gpu.mesh_pipeline(
                                 isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
                                 prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
-                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material)));
+                                isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material),
+                                mi.lodFade != 0.0f));  // the engine's program of a fading draw: the one with the dither
                         sg_bindings b{};
                         b.vertex_buffers[0] = part.vb;
                         b.vertex_buffers[1] = mainInst;
@@ -3676,7 +3924,17 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         stats.triangles += part.indexCount / 3 * (mbu.active ? mbu.instances : int(batch.mainCount));
                     }
                 }
-                if (anyDrawn || !mbu.active) {
+                if (mi.impostor) {  // its cards are not meshes: renderStats.impostors counts them
+                    stats.impostors += int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (mi.terrain) {  // its nodes are tiles, not meshes
+                    stats.terrainTiles += int(batch.mainCount);
+                    stats.terrainTriangles += kTerrainTrianglesPerNode * int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (mi.foliage) {  // its instances are not meshes of the scene
+                    stats.foliageInstances += int(batch.mainCount);
+                    ++stats.meshBatches;
+                } else if (anyDrawn || !mbu.active) {
                     stats.meshes += int(batch.mainCount);
                     ++stats.meshBatches;
                 }
@@ -3763,6 +4021,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             b.views[VIEW_quad_normal_tex] = assets->white()->view;
             b.views[VIEW_quad_light_tex] = assets->white()->view;
             b.views[VIEW_quad_shadow_tex] = assets->white()->view;
+            b.views[VIEW_quad_fx_emissive_tex] =
+                assets->white()->view;  // the quad program declares them all: every view needs a handle
+            b.views[VIEW_quad_fx_cookie_tex] = assets->white()->view;
+            b.views[VIEW_quad_fx_gi_tex] = assets->white()->view;
             b.samplers[SMP_quad_smp] = gpu.sampler(SamplerKind::Nearest);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -3950,6 +4212,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (t) prepass_pass(ctx, *t);
             },
             true);
+        // The depth pyramid of the camera (renderer_hiz.cpp): a compute pass reduces the image to a small grid the CPU reads back a frame later.
+        if (ctx.hiz) {
+            HizCamera* hc = ctx.hiz;
+            add(
+                "hiz-reduce", {prepassRes}, {},
+                [this, &ctx, hc, prepassRes](const PassContext& c) {
+                    const Target* t = transient_targets().get(c.handle(prepassRes));
+                    if (t) hiz_reduce_pass(*hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                },
+                true);
+        }
         // A face of a realtime GI capture: the same prepass with the back faces only, and the pass that turns the two into the face's
         // distance picture (renderer_gi.cpp). A probe whose first hit is a back face is inside geometry.
         if (plan.gi) {

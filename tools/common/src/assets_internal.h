@@ -163,6 +163,8 @@ void register_model_eyes_commands(
     CommandRegistry& registry, const std::string& projectDir);  // model.preview, model.check (assets_model_preview.cpp)
 void register_model_import_clean_command(
     CommandRegistry& registry, const std::string& projectDir);  // model.import_clean (assets_model_import.cpp)
+void register_model_impostor_command(CommandRegistry& registry,
+                                     const std::string& projectDir);  // model.bake_impostor (model_impostor.cpp)
 Json model_uv_report_json(
     const ModelUvReport&
         report);  // the measurements of a uv section as JSON (model.uv, and `uv` in the model.* measurements)
@@ -261,6 +263,10 @@ void check_image_documents(const std::string& projectDir, std::vector<Validation
 // baked, or whose sound assets.json does not record as its bake, is a warning with the audio.bake command. (A stale bake is check_recipes' warning.)
 void check_audio_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,
                            std::vector<ValidationIssue>& warnings);
+// project.validate: every *.world.json (the index of a streamed world) is read with load_world_index and every cell's scene file is
+// checked (no cap): each problem is an error (or a warning) with the file, the JSON pointer and the fix.
+void check_world_indexes(const std::string& projectDir, std::vector<ValidationIssue>& errors,
+                         std::vector<ValidationIssue>& warnings);
 // project.validate: every *.model.json that does not load is an error (file, JSON pointer, fix); one never baked, or whose .glb assets.json does not record as its
 // bake, is a warning with the model.bake command. (A stale bake is check_recipes' warning.)
 void check_model_documents(const std::string& projectDir, std::vector<ValidationIssue>& errors,

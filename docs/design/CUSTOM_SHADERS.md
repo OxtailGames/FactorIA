@@ -270,6 +270,14 @@ the game's shaders together. WGSL is not needed (the web export uses WebGL2).
 - **Material JSON**: JSON-pointer errors through the schema and a checker (`/params/waveHeight/default: expected a
   number, got "0.15"`; `/textures: 5 textures, at most 4 (the engine binds 6 of the 16 units GLES3 and WebGL2
   guarantee)`; an unknown `lighting` with `did_you_mean`).
+- **Too many textures in one program** (load time, the same on every backend: D3D11 and Metal could bind more, but a game
+  must load everywhere): a stage reads at most 16 image-sampler pairs (the units GLES3 and WebGL2 guarantee), the two
+  stages together at most 32 (sokol's cap). A program past the limit is refused with `the program '<material> <program>'
+  reads too many image-sampler pairs for one stage ...: 17 in its fragment stage (the engine's own bindings take 8 (tex,
+  ...), the material's own textures 9 (...))`: both stages when both are over, each with who takes how many. The material's
+  own textures are told from the engine's by what the material declares (a vertex copy is `fa_vs_<name>`). The hint
+  offers only what applies: drop the texture sampled in `vertex()` (when a vertex copy takes units), do not call
+  `fa_scene_color()` (when the program reads the scene copy), merge maps into the channels of one texture.
 - **Snippet compile errors** come from glslang through sokol-shdc as `file:line:col: error: ...`. The generator maps
   them back to `shaders/water.surface.glsl:<line>` with the offending line quoted, through the generator's own table
   of where it put the snippet in the top file (a `#line` directive is not relied on: whether glslang honours it inside

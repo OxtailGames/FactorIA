@@ -48,6 +48,18 @@ Json RenderStats::to_json() const {
                 {"lights2dDropped", lights2dDropped},
                 {"lights2dShadowed", lights2dShadowed},
                 {"sceneCopies", sceneCopies},
+                {"occluders", occluders},
+                {"occlusionTests", occlusionTests},
+                {"meshesOccluded", meshesOccluded},
+                {"portalsVisited", portalsVisited},
+                {"meshesCulledByArea", meshesCulledByArea},
+                {"lodCrossFades", lodCrossFades},
+                {"hlodProxies", hlodProxies},
+                {"impostors", impostors},
+                {"terrainTiles", terrainTiles},
+                {"terrainTriangles", terrainTriangles},
+                {"foliageInstances", foliageInstances},
+                {"foliageInstancesCulled", foliageInstancesCulled},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
                 {"materialResolves", materialResolves},
@@ -112,6 +124,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     if (best) {
         cam = *world.get<Camera>(best);
         ci.studio = cam.lighting == CameraLighting::Studio;
+        ci.areaCulling = cam.areaCulling;
         ci.studioIntensity = std::isfinite(cam.studioIntensity) ? std::clamp(cam.studioIntensity, 0.0f, 8.0f) : 1.0f;
     }
     ci.clearColor = cam.clearColor;
@@ -369,11 +382,12 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0      ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0  ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0       ? DebugView::Ao
-                       : std::strcmp(dv, "cascades") == 0 ? DebugView::Cascades
-                                                          : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0       ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0   ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0        ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0  ? DebugView::Cascades
+                       : std::strcmp(dv, "occlusion") == 0 ? DebugView::Occlusion
+                                                           : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -415,6 +429,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
 void Renderer::shutdown() {
     if (!impl_) return;
     Impl& im = *impl_;
+    im.unwatch_world();
     if (im.initialized) {
         compute_->detach();  // its storage buffers and views, while the context is open
         // Work recorded since the last frame (a dispatch, the clearing pass of a new storage image) that no frame ever
@@ -432,6 +447,7 @@ void Renderer::shutdown() {
         im.waterFx.release();
         im.skyEnv.release();
         im.probes_release();
+        im.hiz_release();
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
@@ -440,6 +456,9 @@ void Renderer::shutdown() {
         im.volFx.release();
         im.sssFx.release();
         im.ramps.destroy();
+        im.terrains.destroy();
+        im.impostors.destroy();
+        im.foliage.destroy();
         im.assets.reset();
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
@@ -488,6 +507,8 @@ int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 void Renderer::begin_frame() {
     if (!initialized()) return;
     impl_->inFrame = true;
+    impl_
+        ->hiz_submit();  // before sokol's frame begins: the copy of the last depth pyramid is queued after the frame that made it
     impl_->gpu.begin_frame();
 }
 
@@ -559,8 +580,35 @@ void Renderer::clear_asset_cache() {
     impl_->lightAtlas.invalidate_all();  // the project changed: cookies and profiles are read again
     impl_->assets->clear();
 }
+Renderer::TerrainUploads Renderer::terrain_uploads() const {
+    TerrainUploads out;
+    if (impl_) {
+        out.whole = impl_->terrains.uploads();
+        out.rects = impl_->terrains.rect_uploads();
+        out.arrays = impl_->terrains.layer_builds();
+        out.splatRects = impl_->terrains.splat_rect_uploads();
+        out.layerLoads = impl_->terrains.layer_loads();
+        out.holesWhole = impl_->terrains.holes_uploads();
+        out.holesRects = impl_->terrains.holes_rect_uploads();
+    }
+    return out;
+}
+
+bool Renderer::terrain_loading() const { return impl_ && impl_->terrains.loading(); }
+void Renderer::wait_terrain_loaded() {
+    if (impl_) impl_->terrains.wait_loaded();
+}
+
+bool Renderer::foliage_loading() const { return impl_ && impl_->foliage.loading(); }
+void Renderer::wait_foliage_loaded() {
+    if (impl_) impl_->foliage.wait_loaded();
+}
+std::uint64_t Renderer::foliage_loads() const { return impl_ ? impl_->foliage.loads() : 0; }
+
 std::uint64_t Renderer::texture_bytes() const {
-    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->decalAtlas.bytes : 0;
+    return impl_ && impl_->assets ? impl_->assets->texture_bytes() + impl_->ramps.bytes() + impl_->terrains.bytes() +
+                                        impl_->foliage.bytes() + impl_->decalAtlas.bytes
+                                  : 0;
 }
 
 bool Renderer::gpu_timing_supported(std::string* reason) const {
@@ -968,6 +1016,20 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
     if (!r.impl_) return {};
     return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
 }
+int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
+int RendererTestAccess::hiz_cameras(Renderer& r) { return r.impl_ ? int(r.impl_->hizCams.size()) : 0; }
+std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
+bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {
+    return r.impl_ && r.impl_->originWorld == world && r.impl_->originObserver != 0;
+}
+std::uint64_t RendererTestAccess::gi2d_shifts(Renderer& r) { return r.impl_ ? r.impl_->gi2d.shifts() : 0; }
+bool RendererTestAccess::prev_view_proj(Renderer& r, Entity camera, Mat4& out) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->prevViewProj.find(camera.bits());
+    if (it == r.impl_->prevViewProj.end()) return false;
+    out = it->second.viewProj;
+    return true;
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
@@ -993,6 +1055,7 @@ int RendererTestAccess::ldr_cut_format(Renderer& r) {
 void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;
+    im.watch_world(world);  // before the cameras: a rebase between two frames has already moved them
     // Camera queries (world_to_screen, screen_to_world, screen_ray, camera_at) must not depend on drawing: a frame the runtime
     // does not draw (OnDemand, a test that steps without drawing) still refreshes the cameras here.
     im.lastCams = im.collect_cameras(world);
@@ -1042,6 +1105,7 @@ void Renderer::set_text_scale(float scale) {
 
 void Renderer::render_world(World& world, float dt) {
     if (!initialized()) return;
+    impl_->watch_world(world);
     if (!impl_->inFrame) begin_frame();
     if (!impl_->updated) update(world);  // backward compatible: callers that only use render_world
     impl_->updated = false;
@@ -1098,6 +1162,7 @@ void Renderer::Impl::render(World& world, float dt) {
         gpuFrames.clear();
     }
     stats = RenderStats{};
+    lodFades.begin_frame(&world, world.scene_generation());
     materialsCounted.clear();
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
@@ -1105,6 +1170,15 @@ void Renderer::Impl::render(World& world, float dt) {
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     lastCams = collect_cameras(world);
     refresh_logic_cameras(world);
+    occlusionPrev = std::move(
+        occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
+    occlusionShown = {};
+    occlusion_overlay();
+    hiz_begin_frame(world);      // the mode, and the pictures of a world that is gone
+    portalGather.valid = false;  // the rooms and doors are gathered again by the first camera of this frame
+    hizPrev = std::move(hizShown);
+    hizShown = {};
+    hiz_overlay();
     assets->set_drawing(true);
     set_target_self({});
     collect_targets(
@@ -1463,6 +1537,7 @@ void Renderer::Impl::render(World& world, float dt) {
     stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
 
     renderScene.reset();  // it points into the world, which the game may change before the next frame
+    lodFades.end_frame();
     release_unused_views();
     assets->set_drawing(false);
     debug.clear();

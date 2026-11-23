@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/world.schema.json",
+  "title": "FactorIA streamed world index (*.world.json)",
+  "description": "The index of a streamed world: the grid of cells (each one a scene file) that the engine loads and unloads around the StreamingAnchor entities. A StreamedWorld component names the file. Errors name the file and the JSON pointer; docs/BIG_WORLDS_STREAMING.md, \"Streaming\", explains the format and `world.cells {}` lists the cells at run time.",
+  "type": "object",
+  "required": [
+    "version",
+    "dimension",
+    "cellSize",
+    "cells"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.world/1",
+      "description": "File format identifier. Always \"factoria.world/1\" (an unknown value is a warning)."
+    },
+    "version": {
+      "const": 1,
+      "description": "Version of the index format. Always 1."
+    },
+    "dimension": {
+      "enum": [
+        "3d",
+        "2d"
+      ],
+      "description": "\"3d\": the cells are laid out on the XZ plane and the height never matters; \"2d\": on the XY plane."
+    },
+    "cellSize": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 1000000,
+      "description": "Metres (units of the world) along each side of a cell."
+    },
+    "origin": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "default": [
+        0,
+        0
+      ],
+      "description": "Where cell [0, 0] starts on the plane (absolute: the floating origin plus the local position)."
+    },
+    "persistent": {
+      "type": "string",
+      "description": "Optional. The project-relative scene file that holds what is not in any cell: the entities that stay loaded and the scene's settings. world.split_cells writes it and world.merge_cells reads it back; the engine does not load it by itself (make it the project's main scene)."
+    },
+    "cells": {
+      "type": "array",
+      "maxItems": 262144,
+      "description": "The cells, in any order (the engine sorts them by [j, i]). Two entries with the same coord are an error.",
+      "items": {
+        "type": "object",
+        "required": [
+          "coord",
+          "scene",
+          "bounds"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "coord": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -1000000,
+              "maximum": 1000000
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[i, j]: i along x, j along z (3d) or y (2d). The cell covers origin + [i, j] * cellSize up to one cellSize more."
+          },
+          "scene": {
+            "type": "string",
+            "description": "Project-relative scene file of the cell (e.g. \"cells/3_-2.scene.json\"). Every entity id in it must be unique across the whole world."
+          },
+          "bounds": {
+            "type": "object",
+            "required": [
+              "min",
+              "max"
+            ],
+            "additionalProperties": false,
+            "description": "What the cell's entities cover, absolute, inside the cell's square. Distances to a cell (StreamingAnchor.loadRadius) are taken to these bounds.",
+            "properties": {
+              "min": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 3,
+                "description": "[x, y, z] in a 3d index, [x, y] in a 2d one."
+              },
+              "max": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 3,
+                "description": "[x, y, z] in a 3d index, [x, y] in a 2d one; at least min on every axis."
+              }
+            }
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional: the size of the cell's scene file, a hint for the debug view."
+          },
+          "hlod": {
+            "type": "object",
+            "required": ["mesh"],
+            "description": "Optional: the proxy the cell draws while it is NOT loaded (StreamedWorld.hlodDistance above 0). world.bake_cell_hlods writes it.",
+            "properties": {
+              "mesh": {
+                "type": "string",
+                "description": "Project-relative .glb or .gltf in the space of the cell's corner (origin + [i, j] * cellSize on the plane, height 0)."
+              },
+              "maxDistance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "description": "Optional: the farthest distance (metres) from an anchor at which this proxy is drawn; 0 or absent = StreamedWorld.hlodDistance. The nearer of the two wins."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

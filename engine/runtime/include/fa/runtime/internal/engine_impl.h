@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "fa/runtime/internal/background_loader.h"
+#include "fa/runtime/internal/world_streamer.h"
 #include "fa/core/i18n.h"
 #include "fa/core/jobs.h"
 #include "fa/platform/websocket.h"
@@ -175,6 +176,8 @@ struct Engine::Impl {
     // Background loading (scene.preload, assets.preload, scene.load {async: true}; background_loader.h). Made after the job
     // pool started (whether its IO thread runs depends on the pool), stopped before the engine waits for its jobs.
     std::unique_ptr<BackgroundLoader> loader;
+    std::unique_ptr<WorldStreamer>
+        streamer;  // made with the loader, destroyed before it (docs/BIG_WORLDS_STREAMING.md, "Streaming")
     std::optional<int> replayLoadUnits;  // a replay entry's "loadUnits": the units of the coming frame
     bool replaying = false;              // a windowed replay runs: frames without "loadUnits" take the fixed budget
     // Starts a background load (scene.preload, assets.preload, an async scene.load) for a script or a command. An async
@@ -218,6 +221,16 @@ struct Engine::Impl {
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
+    // ---- floating origin (engine_origin.cpp, docs/BIG_WORLDS_STREAMING.md "Floating origin")
+    // Moves the origin by `offset` (a whole multiple of the project's step per axis): World::rebase (Transforms, particles, queued
+    // effects, origin observers = the renderer), then the physics, the audio and the navigation, then one `originShifted` game event.
+    // All in one call on the main thread, between fixed steps, so no frame sees the subsystems disagree.
+    void rebase_origin(Vec3 offset);
+    // After a fixed step: when floatingOrigin is enabled and the anchor is farther than `threshold` from the local origin on any axis,
+    // rebase by the anchor's position rounded to `step`. One branch when it is off.
+    void auto_rebase_origin();
+    // The local world position of the project's anchor ("camera": the first rendering camera; "entity:<id>"). False when there is none.
+    bool origin_anchor_position(Vec3& out);
     void render(double dt);  // per-frame: draws in Always mode, only simulates visuals in OnDemand
     void draw(double dt,
               bool settled = false);  // draws the world now; settled = settle_visuals() already ran since the last step
@@ -274,6 +287,10 @@ void register_terrain_commands(
     Engine& engine,
     Engine::Impl&
         impl);  // terrain_commands.cpp: tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
+void register_world_commands(
+    Engine& engine,
+    Engine::Impl&
+        impl);  // world_commands.cpp: world.origin, world.rebase, world.cells, world.stream_status (M75 stubs)
 void register_wfc_commands(Engine& engine, Engine::Impl& impl);  // wfc_commands.cpp: tilemap.generate
 void register_play_session_commands(Engine& engine,
                                     Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report

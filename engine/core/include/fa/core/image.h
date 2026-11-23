@@ -32,6 +32,28 @@ Result<Image> load_image(std::string_view path);  // png/jpg/tga/bmp via fs
 // and a damaged one, are errors that say so; never a crash.
 Result<Image> decode_image(const std::uint8_t* data, std::size_t size);
 
+// A greyscale picture with 16-bit samples: heightmaps. `sixteenBit` is false when the file only had 8 bits per sample (each value
+// was widened to 16 bits as v * 257, so only 256 distinct heights exist: terraces when drawn as a landscape).
+struct GrayImage16 {
+    int width = 0;
+    int height = 0;
+    bool sixteenBit = false;
+    std::vector<std::uint16_t> samples;  // width * height, row 0 = TOP row
+
+    bool empty() const { return width <= 0 || height <= 0; }
+};
+// Decodes a PNG (or any format of decode_image) held in memory to one 16-bit channel: a 16-bit greyscale PNG keeps every bit, a
+// colour picture is reduced to its luminance. The same limits and error style as decode_image (kMaxImagePixels, checked from the
+// header before the samples are allocated).
+Result<GrayImage16> decode_gray16(const std::uint8_t* data, std::size_t size);
+
+// A 16-bit greyscale PNG of `img` (every sample kept; an empty picture gives no bytes). The way a heightmap is saved and what the
+// tests of the heightmap loaders feed to decode_gray16.
+std::vector<std::uint8_t> encode_png_gray16(const GrayImage16& img);
+// An 8-bit greyscale PNG of `width` x `height` bytes (row 0 = top; no bytes for a size below 1 or a null `data`): the way the
+// holes mask of a terrain is saved.
+std::vector<std::uint8_t> encode_png_gray8(int width, int height, const std::uint8_t* data);
+
 // The mip chain of a texture: level 0 is `base`, each next level averages 2x2 pixels (edge pixels repeated) and halves
 // the size (never below 1), down to 1x1 or 16 levels. The renderer uploads these and the export compresses them, so a
 // compressed texture has the same mips as an uncompressed one. `srgb`: the colour channels are sRGB-encoded and are averaged in linear

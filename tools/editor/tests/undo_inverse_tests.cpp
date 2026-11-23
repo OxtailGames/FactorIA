@@ -9,6 +9,8 @@
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/terrain.h"
+#include "undo_stack.h"
 #include "fa/ui/ui.h"
 #include "undo_inverse.h"
 
@@ -757,4 +759,292 @@ TEST_CASE("undo inverse: restoring several roots under one parent adds a set_par
     int reorders = 0;
     for (const UndoCommand& c : mid.inverse) reorders += c.cmd == "scene.set_parent";
     CHECK(reorders == 1);
+}
+
+TEST_CASE("undo inverse: terrain.sculpt, paint and holes are one terrain.redo / terrain.undo entry, a continued stroke "
+          "none") {
+    Session s;
+    REQUIRE(
+        s.engine.commands().call("terrain.create", Json::parse(R"({"name":"g","size":[64,64],"resolution":65})")).ok);
+    CHECK(has_undo_builder("terrain.sculpt"));
+    CHECK(has_undo_builder("terrain.paint"));
+    CHECK(has_undo_builder("terrain.holes"));
+    CHECK(has_undo_builder("terrain.generate"));
+    const Json args = Json::parse(R"({"entity":"g","tool":"raise","center":[0,0],"radius":8,"amount":5,"strength":1})");
+    std::optional<UndoPlan> plan = plan_undo(s.world(), "terrain.sculpt", args);
+    REQUIRE(plan.has_value());
+    REQUIRE(plan->forward.size() == 1);
+    REQUIRE(plan->inverse.size() == 1);
+    CHECK(plan->forward[0].cmd == "terrain.redo");
+    CHECK(plan->inverse[0].cmd == "terrain.undo");
+    CHECK(plan->inverse[0].args["entity"] == "g");
+    CHECK_FALSE(plan->noop);
+    const CommandResult r = s.engine.commands().call("terrain.sculpt", args);
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(finish_undo_plan(s.world(), "terrain.sculpt", *plan, r.result));
+    CHECK_FALSE(plan->noop);
+    // undo and redo through the plan
+    const std::shared_ptr<TerrainHeights> h = s.world().terrain().find(s.world().find("g"));
+    REQUIRE(h);
+    const std::vector<std::uint16_t> edited = h->data;
+    REQUIRE(s.run(plan->inverse));
+    CHECK(h->data != edited);
+    REQUIRE(s.run(plan->forward));
+    CHECK(h->data == edited);
+    // a stroke that changes nothing (the tool "smooth" on flat ground) makes no entry
+    const Json flat =
+        Json::parse(R"({"entity":"g","tool":"smooth","center":[30,30],"radius":4,"amount":1,"strength":1})");
+    std::optional<UndoPlan> none = plan_undo(s.world(), "terrain.sculpt", flat);
+    REQUIRE(none.has_value());
+    const CommandResult r2 = s.engine.commands().call("terrain.sculpt", flat);
+    REQUIRE_MESSAGE(r2.ok, r2.error.dump());
+    REQUIRE(finish_undo_plan(s.world(), "terrain.sculpt", *none, r2.result));
+    CHECK(none->noop);
+    // a piece that continues the stroke joins the newest step: no entry of its own
+    Json cont = args;
+    cont["continueStroke"] = true;
+    const std::optional<UndoPlan> piece = plan_undo(s.world(), "terrain.sculpt", cont);
+    REQUIRE(piece.has_value());
+    CHECK(piece->noop);
+    // a terrain that does not exist has no plan
+    CHECK_FALSE(plan_undo(s.world(), "terrain.sculpt", Json::parse(R"({"entity":"nobody"})")).has_value());
+}
+
+namespace {
+UndoEntry numbered_terrain_entry(const char* id, std::uint64_t step) {
+    const Json args = Json::object({{"entity", id}});
+    UndoCommand fwd{"terrain.redo", args, ""};
+    UndoCommand back{"terrain.undo", args, ""};
+    fwd.step = back.step = step;
+    return UndoEntry::command({fwd}, {back});
+}
+}  // namespace
+
+TEST_CASE("undo inverse: the terrain steps its history let go leave the entries that name them, nothing else does") {
+    UndoStack st;
+    st.push_back(numbered_terrain_entry("g", 1));
+    st.push_back(UndoEntry::command({{"scene.destroy", Json::object({{"id", "x"}}), ""}}, {}));
+    st.push_back(numbered_terrain_entry("other", 2));
+    st.push_back(numbered_terrain_entry("g", 2));
+    st.push_back(numbered_terrain_entry("g", 3));
+    CHECK(terrain_undo_count(st[0], "g") == 1);
+    CHECK(terrain_undo_count(st[1], "g") == 0);
+    CHECK(terrain_undo_count(st[2], "g") == 0);
+    CHECK(drop_terrain_steps(st, "g", 0).steps == 0);  // the history let go of nothing
+    CHECK(st.size() == 5);
+    const TerrainDrop one = drop_terrain_steps(st, "g", 1);  // step 1 is gone
+    CHECK(one.steps == 1);
+    CHECK(one.entries == 1);
+    REQUIRE(st.size() == 4);
+    CHECK(st[0].forward[0].cmd == "scene.destroy");
+    CHECK(terrain_undo_count(st[1], "other") == 1);  // another terrain's step 2 stays
+    CHECK(terrain_undo_count(st[2], "g") == 1);
+    CHECK(drop_terrain_steps(st, "g", 1).steps == 0);  // asked again: nothing more
+    const TerrainDrop all = drop_terrain_steps(st, "g", 5);
+    CHECK(all.steps == 2);
+    CHECK(st.size() == 2);
+}
+
+TEST_CASE(
+    "undo inverse: foliage.scatter, paint and clear are one foliage.redo / foliage.undo entry, a continued stroke or a "
+    "dry run none") {
+    Session s;
+    auto call = [&](const char* name, const char* args) {
+        const CommandResult r = s.engine.commands().call(name, Json::parse(args));
+        REQUIRE_MESSAGE(r.ok, name << " " << args << " -> " << r.error.dump());
+        return r.result;
+    };
+    call("terrain.create", R"({"name":"g","size":[64,64],"resolution":65})");
+    call("scene.spawn", R"({"id":"grass","components":{"Foliage":{},"ScatterRule":{"terrain":"g",
+         "meshes":[{"mesh":"assets/models/pine.glb"}],"density":0.5,"seed":3}}})");
+    for (const char* name : {"foliage.scatter", "foliage.paint", "foliage.clear"}) CHECK(has_undo_builder(name));
+    const Json args = Json::parse(R"({"entity":"grass"})");
+    std::optional<UndoPlan> plan = plan_undo(s.world(), "foliage.scatter", args);
+    REQUIRE(plan.has_value());
+    REQUIRE(plan->forward.size() == 1);
+    REQUIRE(plan->inverse.size() == 1);
+    CHECK(plan->forward[0].cmd == "foliage.redo");
+    CHECK(plan->inverse[0].cmd == "foliage.undo");
+    CHECK(plan->inverse[0].args["entity"] == "grass");
+    CHECK_FALSE(plan->noop);
+    const Json r = call("foliage.scatter", R"({"entity":"grass"})");
+    REQUIRE(finish_undo_plan(s.world(), "foliage.scatter", *plan, r));
+    CHECK_FALSE(plan->noop);
+    // both commands carry the history's id and the step's absolute number (steps lost + depth)
+    CHECK(plan->inverse[0].historyId == r["historyId"].get<std::uint64_t>());
+    CHECK(plan->inverse[0].step == r["historyLost"].get<std::uint64_t>() + r["undoDepth"].get<std::uint64_t>());
+    CHECK(plan->forward[0].historyId == plan->inverse[0].historyId);
+    CHECK(plan->forward[0].step == plan->inverse[0].step);
+    const std::string file = r["file"].get<std::string>();
+    REQUIRE(fs::exists(file));
+    // undo and redo through the plan
+    REQUIRE(s.run(plan->inverse));
+    CHECK_FALSE(fs::exists(file));
+    REQUIRE(s.run(plan->forward));
+    CHECK(fs::exists(file));
+    // a clear of an empty region changes nothing: no entry
+    const Json none = Json::parse(R"({"entity":"grass","region":[500,500,501,501]})");
+    std::optional<UndoPlan> noneplan = plan_undo(s.world(), "foliage.clear", none);
+    REQUIRE(noneplan.has_value());
+    REQUIRE(finish_undo_plan(s.world(), "foliage.clear", *noneplan,
+                             call("foliage.clear", R"({"entity":"grass","region":[500,500,501,501]})")));
+    CHECK(noneplan->noop);
+    // a dry run and a continued stroke make no entry of their own
+    const std::optional<UndoPlan> dry =
+        plan_undo(s.world(), "foliage.scatter", Json::parse(R"({"entity":"grass","dryRun":true})"));
+    REQUIRE(dry.has_value());
+    CHECK(dry->noop);
+    const std::optional<UndoPlan> piece =
+        plan_undo(s.world(), "foliage.paint",
+                  Json::parse(R"({"entity":"grass","center":[0,0],"radius":3,"continueStroke":true})"));
+    REQUIRE(piece.has_value());
+    CHECK(piece->noop);
+    // an entity with no Foliage has no plan
+    CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"nobody"})")).has_value());
+    CHECK_FALSE(plan_undo(s.world(), "foliage.paint", Json::parse(R"({"entity":"g"})")).has_value());
+}
+
+namespace {
+UndoEntry foliage_entry(const char* id, std::uint64_t history, std::uint64_t step) {
+    const Json args = Json::object({{"entity", id}});
+    UndoCommand redo{"foliage.redo", args, "", step, history}, undo{"foliage.undo", args, "", step, history};
+    return UndoEntry::command({redo}, {undo});
+}
+}  // namespace
+
+TEST_CASE("undo inverse: foliage rows numbered at or below the steps the history lost go, a trimmed list does not "
+          "confuse it") {
+    // The editor list holds 3 rows of a history that has made 10 steps and let go of the first 8 (steps 9 and 10 are what it still
+    // has); the list itself trimmed its oldest rows long ago, so counting lost steps against the oldest rows would drop live ones.
+    UndoStack st(3, size_t(1) << 20);
+    st.push_back(foliage_entry("grass", 7, 7));  // pushed first: trimmed below, together with 8
+    st.push_back(foliage_entry("grass", 7, 8));
+    st.push_back(UndoEntry::command({{"scene.destroy", Json::object({{"id", "x"}}), ""}}, {}));
+    st.push_back(foliage_entry("grass", 7, 9));
+    st.push_back(foliage_entry("grass", 7, 10));
+    REQUIRE(st.size() == 3);                                  // 8 and the destroy were trimmed too
+    CHECK(drop_foliage_steps(st, "grass", 7, 8).steps == 0);  // the rows left are 9 and 10: both still work
+    CHECK(st.size() == 3);
+    {  // nothing matches: the stack is not rebuilt (its counters and the entries stay as they are)
+        const std::size_t lostBefore = st.lost(), bytesBefore = st.bytes();
+        CHECK(drop_foliage_all(st, "no-such-entity").steps == 0);
+        CHECK(drop_foliage_steps(st, "grass", 7, 0).steps == 0);
+        CHECK(st.lost() == lostBefore);
+        CHECK(st.bytes() == bytesBefore);
+        CHECK(st.size() == 3);
+    }
+    const FoliageDrop one = drop_foliage_steps(st, "grass", 7, 9);
+    CHECK(one.steps == 1);
+    CHECK(one.entries == 1);
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].step == 10);
+    // the numbers repeat in another history of the same entity (it was destroyed and came back): its rows are not touched by the
+    // old one's count, and the old one's rows go when the new history shows itself
+    st.push_back(foliage_entry("grass", 8, 1));
+    CHECK(drop_foliage_steps(st, "grass", 8, 0).steps == 0 + 1);  // history 7's step 10 is of another history: gone
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].historyId == 8);
+    // another entity is never touched
+    st.push_back(foliage_entry("trees", 9, 1));
+    CHECK(drop_foliage_steps(st, "grass", 8, 5).steps == 1);
+    REQUIRE(st.size() == 2);
+    CHECK(st[1].inverse[0].args["entity"] == "trees");
+}
+
+TEST_CASE("undo inverse: a Chain entry that lost one foliage step keeps its other commands and its bytes are estimated "
+          "again") {
+    const Json g = Json::object({{"entity", "grass"}}), t = Json::object({{"entity", "g"}});
+    UndoStack st;
+    st.push_back(
+        UndoEntry::command({{"foliage.redo", g, "", 2, 3}, {"terrain.redo", t, ""}, {"foliage.redo", g, "", 3, 3}},
+                           {{"foliage.undo", g, "", 3, 3}, {"terrain.undo", t, ""}, {"foliage.undo", g, "", 2, 3}}));
+    const std::size_t before = st.bytes();
+    const FoliageDrop d = drop_foliage_steps(st, "grass", 3, 2);  // the history let go of steps 1 and 2
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 2);
+    CHECK(st[0].inverse[0].step == 3);  // number 3 still works
+    CHECK(st[0].inverse[1].cmd == "terrain.undo");
+    REQUIRE(st[0].forward.size() == 2);
+    CHECK(st[0].forward[1].cmd == "foliage.redo");
+    CHECK(st[0].forward[1].step == 3);
+    CHECK(st.bytes() < before);
+    CHECK(st.bytes() == st[0].bytes);
+    // a history that was cleared takes every foliage command of the entity, numbered or not
+    st.push_back(UndoEntry::command({{"foliage.redo", g, ""}}, {{"foliage.undo", g, ""}}));
+    const FoliageDrop all = drop_foliage_all(st, "grass");
+    CHECK(all.steps == 2);
+    CHECK(all.entries == 1);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].cmd == "terrain.undo");
+}
+
+TEST_CASE("undo inverse: a list that trimmed its own oldest entries and a terrain that lost a step drop nothing that "
+          "works") {
+    // The list trims at its own cap, so the entry numbered 16 sits at position 0. Judged by position, it would have gone
+    // with the first step the terrain lets go; judged by its number it stays, the terrain still holds step 16.
+    UndoStack st(5, size_t(1) << 20);
+    for (std::uint64_t k = 1; k <= 20; ++k) st.push_back(numbered_terrain_entry("g", k));
+    REQUIRE(st.size() == 5);  // the list holds the steps 16..20
+    CHECK(st[0].inverse[0].step == 16);
+    const TerrainDrop d = drop_terrain_steps(st, "g", 1);  // the terrain let go of step 1: no entry names it any more
+    CHECK(d.steps == 0);
+    CHECK(st.size() == 5);
+    CHECK(st[0].inverse[0].step == 16);
+    // a step the list still names does go when the terrain lets it go
+    CHECK(drop_terrain_steps(st, "g", 17).steps == 2);
+    CHECK(st.size() == 3);
+}
+
+TEST_CASE("undo inverse: an entry with several steps of one terrain loses only the ones the terrain let go") {
+    const Json g = Json::object({{"entity", "g"}});
+    std::vector<UndoCommand> fwd{{"terrain.redo", g, ""}, {"terrain.redo", g, ""}};
+    std::vector<UndoCommand> inv{{"terrain.undo", g, ""}, {"terrain.undo", g, ""}};
+    number_terrain_steps(fwd, inv, "g", 5);  // the entry holds the steps 4 and 5
+    CHECK(inv[0].step == 5);                 // undo runs the newest first
+    CHECK(inv[1].step == 4);
+    CHECK(fwd[0].step == 4);  // redo runs the oldest first
+    CHECK(fwd[1].step == 5);
+    number_terrain_steps(fwd, inv, "g", 9);  // numbered commands keep their number
+    CHECK(inv[0].step == 5);
+    UndoStack st;
+    st.push_back(UndoEntry::command(fwd, inv));
+    const std::size_t before = st.bytes();
+    const TerrainDrop d = drop_terrain_steps(st, "g", 4);  // step 4 is gone, 5 is not
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);
+    REQUIRE(st.size() == 1);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].step == 5);
+    REQUIRE(st[0].forward.size() == 1);
+    CHECK(st[0].forward[0].step == 5);
+    CHECK(st.bytes() < before);  // the entry's size was estimated again
+    CHECK(drop_terrain_steps(st, "g", 5).entries == 1);
+    CHECK(st.empty());
+    // nothing is numbered below 1
+    std::vector<UndoCommand> f2{{"terrain.redo", g, ""}}, i2{{"terrain.undo", g, ""}};
+    number_terrain_steps(f2, i2, "g", 0);
+    CHECK(i2[0].step == 0);
+}
+
+TEST_CASE("undo inverse: a Chain entry that lost its terrain step keeps its other inverses") {
+    const Json g = Json::object({{"entity", "g"}});
+    UndoCommand tfwd{"terrain.redo", g, ""}, tinv{"terrain.undo", g, ""};
+    tfwd.step = tinv.step = 1;
+    UndoStack st;
+    st.push_back(UndoEntry::command({tfwd, {"scene.set", Json::object({{"id", "x"}}), ""}},
+                                    {{"scene.set", Json::object({{"id", "x"}, {"old", 1}}), ""}, tinv}));
+    st.push_back(numbered_terrain_entry("g", 2));
+    const TerrainDrop d = drop_terrain_steps(st, "g", 1);
+    CHECK(d.steps == 1);
+    CHECK(d.entries == 0);  // the chain stays: it still undoes the other edit
+    REQUIRE(st.size() == 2);
+    CHECK(terrain_undo_count(st[0], "g") == 0);
+    REQUIRE(st[0].inverse.size() == 1);
+    CHECK(st[0].inverse[0].cmd == "scene.set");
+    REQUIRE(st[0].forward.size() == 1);
+    CHECK(st[0].forward[0].cmd == "scene.set");  // its terrain.redo went with the step
+    CHECK(terrain_undo_count(st[1], "g") == 1);  // the newer terrain step is untouched
 }

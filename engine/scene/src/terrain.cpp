@@ -1,0 +1,1121 @@
+#include "fa/scene/terrain.h"
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstring>
+#include <format>
+
+#include "fa/core/fs.h"
+#include "fa/core/image.h"
+#include "fa/core/log.h"
+#include "fa/scene/world.h"
+
+namespace fa {
+
+namespace {
+
+std::atomic<std::uint64_t> g_nextId{1};
+
+bool is_power_of_two(int v) { return v > 0 && (v & (v - 1)) == 0; }
+
+std::string valid_sizes_text() {
+    std::string s;
+    for (int n = kTerrainMinSamples; n <= kTerrainMaxSamples; n = (n - 1) * 2 + 1)
+        s += (s.empty() ? "" : ", ") + std::to_string(n);
+    return s;
+}
+
+bool ends_with_ci(std::string_view s, std::string_view suffix) {
+    if (s.size() < suffix.size()) return false;
+    for (std::size_t i = 0; i < suffix.size(); ++i) {
+        char a = s[s.size() - suffix.size() + i], b = suffix[i];
+        if (a >= 'A' && a <= 'Z') a = char(a - 'A' + 'a');
+        if (a != b) return false;
+    }
+    return true;
+}
+
+// The grid of `n` samples per side from `src` (`w` x `w`: n == w, or n == w + 1 with the last row and column repeated).
+std::shared_ptr<TerrainHeights> make_heights(const std::uint16_t* src, int w, int n) {
+    auto h = std::make_shared<TerrainHeights>();
+    h->samples = n;
+    h->id = g_nextId.fetch_add(1);
+    h->data.resize(std::size_t(n) * std::size_t(n));
+    for (int r = 0; r < n; ++r) {
+        const int sr = std::min(r, w - 1);
+        for (int c = 0; c < n; ++c)
+            h->data[std::size_t(r) * std::size_t(n) + std::size_t(c)] =
+                src[std::size_t(sr) * std::size_t(w) + std::size_t(std::min(c, w - 1))];
+    }
+    return h;
+}
+
+}  // namespace
+
+void TerrainRect::join(const TerrainRect& o) {
+    if (o.empty()) return;
+    if (empty()) {
+        *this = o;
+        return;
+    }
+    c0 = std::min(c0, o.c0);
+    r0 = std::min(r0, o.r0);
+    c1 = std::max(c1, o.c1);
+    r1 = std::max(r1, o.r1);
+}
+
+void TerrainHeights::set(int c, int r, std::uint16_t v) {
+    if (c < 0 || r < 0 || c >= samples || r >= samples) return;
+    data[std::size_t(r) * std::size_t(samples) + std::size_t(c)] = v;
+}
+
+void TerrainHeights::mark_dirty(TerrainRect rect) {
+    rect.c0 = std::max(rect.c0, 0);
+    rect.r0 = std::max(rect.r0, 0);
+    rect.c1 = std::min(rect.c1, samples - 1);
+    rect.r1 = std::min(rect.r1, samples - 1);
+    if (rect.empty()) return;
+    ++version;
+    edits_.push_back({version, rect});
+    if (edits_.size() > kEditHistory) {
+        oldestKept_ = edits_.front().version;
+        edits_.erase(edits_.begin());
+    }
+}
+
+bool TerrainHeights::dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const {
+    out = TerrainRect{};
+    if (sinceVersion >= version) return true;
+    if (sinceVersion < oldestKept_) return false;
+    for (const Edit& e : edits_)
+        if (e.version > sinceVersion) out.join(e.rect);
+    return true;
+}
+
+void TerrainHeights::mark_holes_dirty(TerrainRect rect) {
+    const int cells = std::max(samples - 1, 0);
+    rect.c0 = std::max(rect.c0, 0);
+    rect.r0 = std::max(rect.r0, 0);
+    rect.c1 = std::min(rect.c1, cells - 1);
+    rect.r1 = std::min(rect.r1, cells - 1);
+    ++holesVersion;
+    holesEdits_.push_back(
+        {holesVersion, rect});  // (an empty rectangle is kept: the version has an entry, so it is not "unknown")
+    if (holesEdits_.size() > kEditHistory) {
+        holesOldestKept_ = holesEdits_.front().version;
+        holesEdits_.erase(holesEdits_.begin());
+    }
+}
+
+bool TerrainHeights::holes_dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const {
+    out = TerrainRect{};
+    if (sinceVersion >= holesVersion) return true;
+    if (sinceVersion < holesOldestKept_) return false;
+    std::uint64_t seen = 0;
+    for (const Edit& e : holesEdits_)
+        if (e.version > sinceVersion) {
+            out.join(e.rect);
+            ++seen;
+        }
+    // A version bumped outside mark_holes_dirty has no entry: the count of entries is then short of the versions that passed.
+    if (seen != holesVersion - sinceVersion) {
+        out = TerrainRect{};
+        return false;
+    }
+    return true;
+}
+
+std::uint64_t TerrainSplat::next_serial() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1);
+}
+
+void TerrainSplat::mark_dirty(TerrainRect rect) {
+    rect.c0 = std::max(rect.c0, 0);
+    rect.r0 = std::max(rect.r0, 0);
+    rect.c1 = std::min(rect.c1, size - 1);
+    rect.r1 = std::min(rect.r1, size - 1);
+    ++version;
+    unsaved = true;
+    edits_.push_back(
+        {version, rect});  // (an empty rectangle is kept: the version has an entry, so it is not "unknown")
+    if (edits_.size() > 64) {
+        oldestKept_ = edits_.front().version;
+        edits_.erase(edits_.begin());
+    }
+}
+
+bool TerrainSplat::dirty_since(std::uint64_t sinceVersion, TerrainRect& out) const {
+    out = TerrainRect{};
+    if (sinceVersion >= version) return true;
+    if (sinceVersion < oldestKept_) return false;
+    std::uint64_t seen = 0;
+    for (const Edit& e : edits_)
+        if (e.version > sinceVersion) {
+            out.join(e.rect);
+            ++seen;
+        }
+    // A version bumped outside mark_dirty has no entry: the count of entries is then short of the versions that passed.
+    if (seen != version - sinceVersion) {
+        out = TerrainRect{};
+        return false;
+    }
+    return true;
+}
+
+std::shared_ptr<TerrainHeights> TerrainHeights::flat(int n, std::uint16_t raw) {
+    auto h = std::make_shared<TerrainHeights>();
+    h->samples = n;
+    h->id = g_nextId.fetch_add(1);
+    h->data.assign(std::size_t(n) * std::size_t(n), raw);
+    return h;
+}
+
+std::size_t TerrainStep::bytes() const {
+    std::size_t n = 0;
+    for (const TerrainPatch& p : patches) n += p.before.size() + p.after.size();
+    return n;
+}
+
+namespace {
+
+// Elements per byte group, the plane's width and a pointer to its first byte; false when the plane does not exist.
+bool plane_layout(TerrainHeights& h, TerrainPlane plane, int& width, int& rows, std::size_t& elem,
+                  std::uint8_t*& base) {
+    switch (plane) {
+        case TerrainPlane::Heights:
+            if (!h.valid()) return false;
+            width = rows = h.samples;
+            elem = 2;
+            base = reinterpret_cast<std::uint8_t*>(h.data.data());
+            return true;
+        case TerrainPlane::Holes: {
+            if (!h.valid()) return false;
+            width = rows = h.cells();
+            elem = 1;
+            const std::size_t need = std::size_t(width) * std::size_t(rows);
+            if (h.holes.size() != need) h.holes.assign(need, 0);  // the first edit of an empty mask makes it
+            base = h.holes.data();
+            return true;
+        }
+        case TerrainPlane::Splat0:
+        case TerrainPlane::Splat1: {
+            TerrainSplat& m = h.splat[plane == TerrainPlane::Splat0 ? 0 : 1];
+            if (!m.valid()) return false;
+            width = rows = m.size;
+            elem = 4;
+            base = m.rgba.data();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool patch_fits(TerrainHeights& h, const TerrainPatch& p, std::string* why) {
+    int width = 0, rows = 0;
+    std::size_t elem = 0;
+    std::uint8_t* base = nullptr;
+    const char* names[] = {"heights", "holes", "splat map 0", "splat map 1"};
+    const char* name = names[int(p.plane)];
+    if (p.plane == TerrainPlane::Holes && h.valid()) {
+        width = rows = h.cells();
+        elem = 1;
+    } else if (!plane_layout(h, p.plane, width, rows, elem, base)) {
+        if (why) *why = std::string("the ") + name + " of this terrain do not exist";
+        return false;
+    }
+    const std::size_t want = std::size_t(std::max(p.w, 0)) * std::size_t(std::max(p.h, 0)) * elem;
+    if (p.w < 1 || p.h < 1 || p.x0 < 0 || p.y0 < 0 || p.x0 + p.w > width || p.y0 + p.h > rows ||
+        p.before.size() != want || p.after.size() != want) {
+        if (why)
+            *why = std::format("a patch of the {} ({} x {} at {}, {}) does not fit the {} x {} grid or its data", name,
+                               p.w, p.h, p.x0, p.y0, width, rows);
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool TerrainHeights::write_patch(const TerrainPatch& p, bool useAfter) {
+    if (!patch_fits(*this, p, nullptr)) return false;
+    int width = 0, rows = 0;
+    std::size_t elem = 0;
+    std::uint8_t* base = nullptr;
+    plane_layout(*this, p.plane, width, rows, elem, base);
+    const std::vector<std::uint8_t>& src = useAfter ? p.after : p.before;
+    const std::size_t rowBytes = std::size_t(p.w) * elem;
+    for (int r = 0; r < p.h; ++r)
+        std::memcpy(base + (std::size_t(p.y0 + r) * std::size_t(width) + std::size_t(p.x0)) * elem,
+                    src.data() + std::size_t(r) * rowBytes, rowBytes);
+    switch (p.plane) {
+        case TerrainPlane::Heights:
+            mark_dirty({p.x0, p.y0, p.x0 + p.w - 1, p.y0 + p.h - 1});
+            heightsUnsaved = true;
+            break;
+        case TerrainPlane::Holes:
+            mark_holes_dirty({p.x0, p.y0, p.x0 + p.w - 1, p.y0 + p.h - 1});
+            holesUnsaved = true;
+            break;
+        case TerrainPlane::Splat0:
+        case TerrainPlane::Splat1: {
+            TerrainSplat& m = splat[p.plane == TerrainPlane::Splat0 ? 0 : 1];
+            m.mark_dirty({p.x0, p.y0, p.x0 + p.w - 1, p.y0 + p.h - 1});
+            break;
+        }
+    }
+    return true;
+}
+
+void TerrainHeights::trim_history() {
+    while (!undo_.empty() &&
+           (undo_.size() > kTerrainHistorySteps || (historyBytes_ > kTerrainHistoryBytes && undo_.size() > 1))) {
+        historyBytes_ -= std::min(historyBytes_, undo_.front().bytes());
+        undo_.erase(undo_.begin());
+        ++historyLost_;
+    }
+}
+
+bool TerrainHeights::apply_step(TerrainStep step, std::string* problem) {
+    if (step.patches.empty()) return true;
+    for (const TerrainPatch& p : step.patches)
+        if (!patch_fits(*this, p, problem)) return false;
+    for (const TerrainPatch& p : step.patches) write_patch(p, true);
+    for (const TerrainStep& s : redo_) historyBytes_ -= std::min(historyBytes_, s.bytes());
+    redo_.clear();
+    historyBytes_ += step.bytes();
+    undo_.push_back(std::move(step));
+    trim_history();
+    return true;
+}
+
+bool TerrainHeights::extend_step(TerrainStep step, std::string* problem) {
+    if (undo_.empty() || !redo_.empty() || undo_.back().label != step.label) {
+        if (problem) {
+            if (undo_.empty())
+                *problem = "this terrain has no edit to continue";
+            else if (!redo_.empty())
+                *problem = "an edit was undone since, so the newest edit is not the one to continue";
+            else
+                *problem =
+                    "the newest edit of this terrain is a '" + undo_.back().label + "', not a '" + step.label + "'";
+        }
+        return false;
+    }
+    for (const TerrainPatch& p : step.patches)
+        if (!patch_fits(*this, p, problem)) return false;
+    TerrainStep& last = undo_.back();
+    // One patch per plane in a step: the new patch of a plane joins the one the step has, over the rectangle that holds both.
+    // A piece inside the rectangle the step already covers (the common case of a stroke) copies only its own rectangle.
+    struct Joined {
+        std::size_t index;  // into last.patches, or npos: the plane is new to the step
+        TerrainPatch patch;
+    };
+    std::vector<Joined> joined;
+    for (const TerrainPatch& np : step.patches) {
+        std::size_t at = std::string::npos;
+        for (std::size_t i = 0; i < last.patches.size(); ++i)
+            if (last.patches[i].plane == np.plane) {
+                at = i;
+                break;
+            }
+        if (at == std::string::npos) {
+            joined.push_back({at, np});
+            continue;
+        }
+        TerrainPatch& op = last.patches[at];
+        int width = 0, rows = 0;
+        std::size_t elem = 0;
+        std::uint8_t* base = nullptr;
+        plane_layout(*this, np.plane, width, rows, elem, base);
+        const bool inside =
+            np.x0 >= op.x0 && np.y0 >= op.y0 && np.x0 + np.w <= op.x0 + op.w && np.y0 + np.h <= op.y0 + op.h;
+        if (inside) {
+            // `before` of the step already holds what the plane had before its first piece everywhere in its rectangle (a cell no
+            // piece changed still holds it), so only `after` takes the new piece.
+            for (int r = 0; r < np.h; ++r)
+                std::memcpy(op.after.data() +
+                                (std::size_t(np.y0 - op.y0 + r) * std::size_t(op.w) + std::size_t(np.x0 - op.x0)) *
+                                    elem,
+                            np.after.data() + std::size_t(r) * std::size_t(np.w) * elem, std::size_t(np.w) * elem);
+            continue;
+        }
+        TerrainPatch m;
+        m.plane = np.plane;
+        m.x0 = std::min(op.x0, np.x0);
+        m.y0 = std::min(op.y0, np.y0);
+        m.w = std::max(op.x0 + op.w, np.x0 + np.w) - m.x0;
+        m.h = std::max(op.y0 + op.h, np.y0 + np.h) - m.y0;
+        const std::size_t rowBytes = std::size_t(m.w) * elem;
+        m.after.resize(rowBytes * std::size_t(m.h));
+        for (int r = 0; r < m.h; ++r)  // cells neither piece touched keep what they hold now
+            std::memcpy(m.after.data() + std::size_t(r) * rowBytes,
+                        base + (std::size_t(m.y0 + r) * std::size_t(width) + std::size_t(m.x0)) * elem, rowBytes);
+        m.before = m.after;
+        auto copy_in = [&](std::vector<std::uint8_t>& dst, const TerrainPatch& from,
+                           const std::vector<std::uint8_t>& src) {
+            for (int r = 0; r < from.h; ++r)
+                std::memcpy(dst.data() +
+                                (std::size_t(from.y0 - m.y0 + r) * std::size_t(m.w) + std::size_t(from.x0 - m.x0)) *
+                                    elem,
+                            src.data() + std::size_t(r) * std::size_t(from.w) * elem, std::size_t(from.w) * elem);
+        };
+        // Where the new piece reaches beyond the step the plane still holds what the piece found, so `before` takes only the
+        // step's own rectangle and `after` only the new piece's.
+        copy_in(m.before, op, op.before);
+        copy_in(m.after, op, op.after);  // what the step left, then what the new piece leaves
+        copy_in(m.after, np, np.after);
+        joined.push_back({at, std::move(m)});
+    }
+    for (const TerrainPatch& p : step.patches) write_patch(p, true);  // the dirty rectangles are the new pieces' own
+    historyBytes_ -= std::min(historyBytes_, last.bytes());
+    for (Joined& j : joined) {
+        if (j.index == std::string::npos)
+            last.patches.push_back(std::move(j.patch));
+        else
+            last.patches[j.index] = std::move(j.patch);
+    }
+    TerrainCreated& made = last.created;  // a piece may be the one that makes a plane the step did not make
+    const TerrainCreated& add = step.created;
+    if (add.holes && !made.holes) {
+        made.holes = true;
+        made.holesPath = add.holesPath;
+        made.holesBefore = add.holesBefore;
+    }
+    if (add.splat[0] || add.splat[1]) {
+        if (!made.splat[0] && !made.splat[1]) {
+            made.splatMapsBefore = add.splatMapsBefore;
+            made.splatSize = add.splatSize;
+        }
+        for (std::size_t k = 0; k < add.splat.size(); ++k)
+            if (add.splat[k] && !made.splat[k]) {
+                made.splat[k] = true;
+                made.splatPath[k] = add.splatPath[k];
+            }
+    }
+    historyBytes_ += last.bytes();
+    trim_history();
+    return true;
+}
+
+namespace {
+
+// The path Terrain.splatMaps[k] had in `maps` (a JSON array, or anything else: no path).
+std::string splat_path_in(const Json& maps, std::size_t k) {
+    return maps.is_array() && k < maps.size() && maps[k].is_string() ? maps[k].get<std::string>() : std::string();
+}
+
+}  // namespace
+
+bool TerrainHeights::undo(std::string* label, TerrainCreated* created) {
+    if (undo_.empty()) return false;
+    TerrainStep step = std::move(undo_.back());
+    undo_.pop_back();
+    for (auto it = step.patches.rbegin(); it != step.patches.rend(); ++it) write_patch(*it, false);
+    // The planes the step made go away with it, and so do the paths it gave them (the caller puts the Terrain fields back).
+    if (step.created.holes) {
+        holes.clear();
+        holesSource = step.created.holesBefore;
+        holesUnsaved = false;
+        ++holesVersion;
+    }
+    for (std::size_t k = 0; k < step.created.splat.size(); ++k)
+        if (step.created.splat[k]) {
+            const std::uint64_t next = splat[k].version + 1;
+            splat[k] = TerrainSplat{};
+            splat[k].source = splat_path_in(step.created.splatMapsBefore, k);
+            splat[k].version = next;
+        }
+    if (label) *label = step.label;
+    if (created) *created = step.created;
+    redo_.push_back(std::move(step));  // (its bytes stay counted)
+    return true;
+}
+
+bool TerrainHeights::redo(std::string* label, TerrainCreated* created) {
+    if (redo_.empty()) return false;
+    TerrainStep step = std::move(redo_.back());
+    redo_.pop_back();
+    if (step.created.holes) {
+        holes.assign(std::size_t(cells()) * std::size_t(cells()), 0);
+        holesSource = step.created.holesPath;
+        ++holesVersion;
+    }
+    for (std::size_t k = 0; k < step.created.splat.size(); ++k) {
+        if (!step.created.splat[k] || splat[k].valid()) continue;
+        const std::uint64_t next = splat[k].version + 1;
+        TerrainSplat m;
+        m.size = step.created.splatSize;
+        m.rgba.assign(std::size_t(m.size) * std::size_t(m.size) * 4, 0);
+        if (k == 0)
+            for (std::size_t p = 0; p < m.rgba.size(); p += 4) m.rgba[p] = 255;  // map 0 starts as all layer 0
+        m.source = step.created.splatPath[k];
+        m.version = next;
+        splat[k] = std::move(m);
+    }
+    for (const TerrainPatch& p : step.patches) write_patch(p, true);
+    if (label) *label = step.label;
+    if (created) *created = step.created;
+    undo_.push_back(std::move(step));
+    trim_history();
+    return true;
+}
+
+std::shared_ptr<TerrainHeights> TerrainHeights::clone() const {
+    auto c = std::make_shared<TerrainHeights>();
+    c->samples = samples;
+    c->data = data;
+    c->eightBit = eightBit;
+    c->source = source;
+    c->id = g_nextId.fetch_add(1);
+    c->version = version;
+    c->oldestKept_ = version;  // no dirty rectangles: a reader that saw the original takes everything
+    c->holes = holes;
+    c->holesSource = holesSource;
+    c->holesVersion = holesVersion;
+    c->splat = splat;
+    c->heightsUnsaved = heightsUnsaved;
+    c->holesUnsaved = holesUnsaved;
+    c->planesProblem = planesProblem;
+    return c;
+}
+
+Result<int> terrain_grid_samples(int width, int height, std::string_view what) {
+    if (width != height)
+        return make_error(
+            std::format("Terrain heightmap '{}' is {} x {} samples, but a terrain heightmap must be square", what,
+                        width, height),
+            "Crop or resize the image to a square. Sizes that work: " + valid_sizes_text() +
+                " (2^n + 1), or one less (a power of two: the last row and column are repeated).");
+    if (width > kTerrainMaxSamples)
+        return make_error(
+            std::format(
+                "Terrain heightmap '{}' is {} x {} samples, more than the {} x {} ({} million samples) a terrain "
+                "is built from",
+                what, width, width, kTerrainMaxSamples, kTerrainMaxSamples,
+                std::int64_t(kTerrainMaxSamples) * kTerrainMaxSamples / 1000000),
+            "Resize the heightmap to " + std::to_string(kTerrainMaxSamples) + " x " +
+                std::to_string(kTerrainMaxSamples) +
+                " or less (one terrain covers up to 100 km: 4097 samples are one every 24 m there), or split the world "
+                "into several terrains.");
+    if (width >= kTerrainMinSamples && is_power_of_two(width - 1)) return width;
+    if (width >= kTerrainMinSamples - 1 && is_power_of_two(width)) return width + 1;
+    return make_error(
+        std::format("Terrain heightmap '{}' is {} x {} samples, but the side must be 2^n + 1 (or a power of two)", what,
+                    width, width),
+        "Resize the image to one of " + valid_sizes_text() +
+            " (a power of two from 32 to 4096 also works: one row and column are added by repeating the last).");
+}
+
+Result<TerrainLoad> decode_terrain_heightmap(const std::uint8_t* data, std::size_t size, std::string_view name) {
+    TerrainLoad out;
+    if (ends_with_ci(name, ".r16")) {
+        // Raw little-endian 16-bit samples, square: the side is the root of the sample count.
+        if (size == 0 || size % 2 != 0)
+            return make_error(
+                std::format("Terrain heightmap '{}' has {} bytes, but a .r16 file holds 2 bytes per sample", name,
+                            size),
+                "Export the heightmap as raw 16-bit little-endian samples (a square, no header).");
+        const std::uint64_t count = size / 2;
+        std::uint64_t side = std::uint64_t(std::llround(std::sqrt(double(count))));
+        while (side * side > count) --side;
+        while ((side + 1) * (side + 1) <= count) ++side;
+        if (side * side != count || side > 1000000)
+            return make_error(
+                std::format("Terrain heightmap '{}' holds {} samples, which is not a square", name, count),
+                "A .r16 file is side x side samples (e.g. 1025 x 1025 = 1050625 samples = 2101250 bytes); its "
+                "size gives the side.");
+        auto n = terrain_grid_samples(int(side), int(side), name);
+        if (!n) return n.error();
+        std::vector<std::uint16_t> src(static_cast<std::size_t>(count));
+        for (std::size_t i = 0; i < src.size(); ++i)  // little endian whatever this machine is
+            src[i] = std::uint16_t(data[i * 2] | (data[i * 2 + 1] << 8));
+        out.heights = make_heights(src.data(), int(side), *n);
+        out.heights->source = std::string(name);
+        return out;
+    }
+    // The budget from the header, before any sample is decoded.
+    auto sz = image_size(data, size);
+    if (!sz) return make_error(std::format("Terrain heightmap '{}': {}", name, sz.error().message), sz.error().hint);
+    auto n = terrain_grid_samples(sz->width, sz->height, name);
+    if (!n) return n.error();
+    auto img = decode_gray16(data, size);
+    if (!img) return make_error(std::format("Terrain heightmap '{}': {}", name, img.error().message), img.error().hint);
+    if (img->width != sz->width || img->height != sz->height)
+        return make_error(std::format("Terrain heightmap '{}' changed size while it was read", name),
+                          "The file is damaged.");
+    out.heights = make_heights(img->samples.data(), img->width, *n);
+    out.heights->source = std::string(name);
+    if (!img->sixteenBit) {
+        out.heights->eightBit = true;
+        out.warning = std::format("Terrain heightmap '{}' has 8 bits per sample: only 256 different heights, so slopes "
+                                  "show as steps (terraces). "
+                                  "Export it as a 16-bit greyscale PNG or a .r16 file for smooth ground.",
+                                  name);
+    }
+    return out;
+}
+
+Result<TerrainLoad> load_terrain_heightmap(std::string_view path) {
+    if (path.empty())
+        return make_error("Terrain.heightmap is empty", "Set it to a 16-bit greyscale PNG or a .r16 file.");
+    if (ends_with_ci(path, ".r16")) {
+        const std::int64_t bytes = fs::file_size(path);
+        const std::int64_t most = std::int64_t(kTerrainMaxSamples) * kTerrainMaxSamples * 2;
+        if (bytes > most)
+            return make_error(
+                std::format("Terrain heightmap '{}' is {} bytes, more than the {} x {} samples ({} bytes) a "
+                            "terrain is built from",
+                            path, bytes, kTerrainMaxSamples, kTerrainMaxSamples, most),
+                "Resize the heightmap to 4097 x 4097 samples or less, or split the world into several terrains.");
+    }
+    auto bytes = fs::read_bytes(path);
+    if (!bytes)
+        return make_error(
+            std::format("Terrain heightmap '{}' cannot be read: {}", path, bytes.error().message),
+            "Put the file in the project (for example assets/terrain/height.png) and set Terrain.heightmap to its "
+            "project-relative path.");
+    return decode_terrain_heightmap(bytes->data(), bytes->size(), path);
+}
+
+// ---- the splat weights ----
+
+void terrain_splat_weights(const TerrainHeights* h, int layerCount, float u, float v, float* out) {
+    const int n = std::clamp(layerCount, 0, int(kMaxTerrainLayers));
+    for (int i = 0; i < n; ++i) out[i] = i == 0 ? 1.0f : 0.0f;
+    if (!h || n <= 1) return;
+    float raw[kMaxTerrainLayers]{};
+    float sum = 0.0f;
+    for (int i = 0; i < n; ++i) {
+        const TerrainSplat& map = h->splat[std::size_t(i / 4)];
+        if (!map.valid()) continue;  // a layer no map paints: weight 0
+        // Bilinear between the four pixels around the point, texel centres at half pixels, the edge repeated (a clamped GPU sampler).
+        const float px = std::clamp(u, 0.0f, 1.0f) * float(map.size) - 0.5f;
+        const float py = std::clamp(v, 0.0f, 1.0f) * float(map.size) - 0.5f;
+        const float fx0 = std::floor(px), fy0 = std::floor(py);
+        const float fx = px - fx0, fy = py - fy0;
+        auto clampi = [&](float f) { return std::clamp(int(f), 0, map.size - 1); };
+        const int x0 = clampi(fx0), x1 = clampi(fx0 + 1.0f), y0 = clampi(fy0), y1 = clampi(fy0 + 1.0f);
+        auto at = [&](int x, int y) {
+            return float(map.rgba[(std::size_t(y) * std::size_t(map.size) + std::size_t(x)) * 4 + std::size_t(i % 4)]);
+        };
+        const float top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+        const float bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+        raw[i] = (top + (bottom - top) * fy) / 255.0f;
+        sum += raw[i];
+    }
+    if (!(sum > 1e-6f)) return;  // nothing painted: layer 0
+    for (int i = 0; i < n; ++i) out[i] = raw[i] / sum;
+}
+
+bool terrain_layer_weights(const World& world, Entity terrain, float worldX, float worldZ, TerrainLayerWeights& out) {
+    return TerrainSampler(world, terrain).layer_weights(worldX, worldZ, out);
+}
+
+TerrainSampler::TerrainSampler(const World& world, Entity terrain) {
+    t_ = world.get<Terrain3D>(terrain);
+    if (!t_) return;
+    heights_ = world.terrain().heights(world, terrain);  // may be null: the layers still answer, the heights do not
+    m_ = world.world_matrix(terrain);
+    inv_ = m_.inverse();
+}
+
+bool TerrainSampler::layer_weights(float worldX, float worldZ, TerrainLayerWeights& out) const {
+    if (!t_ || !(t_->size.x > 0.0f) || !(t_->size.y > 0.0f)) return false;
+    const Vec3 local = inv_.transform_point({worldX, m_.translation().y, worldZ});
+    const float u = local.x / t_->size.x + 0.5f, v = local.z / t_->size.y + 0.5f;
+    if (!(u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f)) return false;
+    out = TerrainLayerWeights{};
+    out.count =
+        t_->layers.is_array() ? int(std::min<std::size_t>(t_->layers.size(), std::size_t(kMaxTerrainLayers))) : 0;
+    terrain_splat_weights(heights_.get(), out.count, u, v, out.weight);
+    return true;
+}
+
+// ---- the layer textures ----
+
+Result<TerrainLayerImages> load_terrain_layer_images(const Terrain3D& t, std::string_view kind) {
+    TerrainLayerImages out;
+    const std::size_t count =
+        t.layers.is_array() ? std::min<std::size_t>(t.layers.size(), std::size_t(kMaxTerrainLayers)) : 0;
+    out.images.resize(count);
+    int firstLayer = -1;
+    std::string firstPath;
+    for (std::size_t i = 0; i < count; ++i) {
+        const Json& l = t.layers[i];
+        if (!l.is_object()) continue;
+        auto it = l.find(std::string(kind));
+        if (it == l.end() || !it->is_string() || it->get<std::string>().empty()) continue;
+        const std::string path = it->get<std::string>();
+        const std::string at = "/layers/" + std::to_string(i) + "/" + std::string(kind);
+        auto bytes = fs::read_bytes(path);
+        if (!bytes) {
+            out.problems.push_back(
+                std::format("Terrain.layers[{}].{} ({}): '{}' cannot be read ({}), so layer {} uses a neutral {}", i,
+                            kind, at, path, bytes.error().message, i, kind));
+            continue;
+        }
+        auto sz = image_size(bytes->data(), bytes->size());
+        if (!sz) {
+            out.problems.push_back(
+                std::format("Terrain.layers[{}].{} ({}): '{}' is not a picture the engine reads ({}), so layer {} "
+                            "uses a neutral {}",
+                            i, kind, at, path, sz.error().message, i, kind));
+            continue;
+        }
+        if (sz->width > kTerrainMaxLayerSide || sz->height > kTerrainMaxLayerSide)
+            return make_error(std::format("Terrain.layers[{}].{} ({}): '{}' is {} x {} pixels, more than the {} x {} a "
+                                          "layer texture can have",
+                                          i, kind, at, path, sz->width, sz->height, kTerrainMaxLayerSide,
+                                          kTerrainMaxLayerSide),
+                              "Scale the texture down (1024 or 2048 pixels cover 4 to 8 metres of ground well).");
+        if (firstLayer >= 0 && (sz->width != out.width || sz->height != out.height))
+            return make_error(std::format("Terrain.layers[{}].{} ({}): '{}' is {} x {} pixels, but layer {}'s {} '{}' "
+                                          "(/layers/{}/{}) is {} x {}",
+                                          i, kind, at, path, sz->width, sz->height, firstLayer, kind, firstPath,
+                                          firstLayer, kind, out.width, out.height),
+                              std::format("The {} textures of all layers are packed into one texture array, so they "
+                                          "must all have the same size: resize "
+                                          "one of them to {} x {} (or the other to {} x {}).",
+                                          kind, out.width, out.height, sz->width, sz->height));
+        // The GPU memory of every picture present so far (RGBA8 with a full mip chain, about 4/3 of the base level), before any decode.
+        const std::uint64_t each = std::uint64_t(sz->width) * std::uint64_t(sz->height) * 4 / 3 * 4 + 64;
+        if (each * std::uint64_t(out.present + 1) > kTerrainMaxLayerBytes)
+            return make_error(std::format("Terrain.layers[{}].{} ({}): the {} textures of the layers would take more "
+                                          "than {} MB of GPU memory ({} x {} "
+                                          "pixels each)",
+                                          i, kind, at, kind, kTerrainMaxLayerBytes >> 20, sz->width, sz->height),
+                              "Use smaller layer textures (1024 x 1024 for 8 layers is 45 MB), or fewer layers.");
+        auto img = decode_image(bytes->data(), bytes->size());
+        if (!img) {
+            out.problems.push_back(std::format("Terrain.layers[{}].{} ({}): '{}': {}, so layer {} uses a neutral {}", i,
+                                               kind, at, path, img.error().message, i, kind));
+            continue;
+        }
+        if (firstLayer < 0) {
+            firstLayer = int(i);
+            firstPath = path;
+            out.width = img->width;
+            out.height = img->height;
+        }
+        out.images[i] = std::move(*img);
+        ++out.present;
+    }
+    return out;
+}
+
+// ---- sampling ----
+
+bool terrain_local_sample(const TerrainHeights& h, const Terrain3D& t, float localX, float localZ, float& height,
+                          float& dhdx, float& dhdz, bool ignoreHoles) {
+    if (!h.valid() || !(t.size.x > 0.0f) || !(t.size.y > 0.0f)) return false;
+    const float cells = float(h.samples - 1);
+    const float u = (localX / t.size.x + 0.5f) * cells, v = (localZ / t.size.y + 0.5f) * cells;
+    if (!(u >= 0.0f && u <= cells && v >= 0.0f && v <= cells)) return false;  // also NaN
+    const int c = std::min(int(u), h.samples - 2), r = std::min(int(v), h.samples - 2);
+    if (!ignoreHoles && h.hole(c, r)) return false;  // a hole has no ground
+    const float fu = u - float(c), fv = v - float(r);
+    const float k = t.heightScale / kTerrainRawMax;
+    const float h00 = float(h.at(c, r)) * k, h01 = float(h.at(c + 1, r)) * k, h10 = float(h.at(c, r + 1)) * k,
+                h11 = float(h.at(c + 1, r + 1)) * k;
+    float dU, dV, y;  // metres per cell along the column and the row direction
+    if (fv >= fu) {   // triangle (r, c), (r + 1, c), (r + 1, c + 1)
+        dU = h11 - h10;
+        dV = h10 - h00;
+        y = h00 + (fv - fu) * dV + fu * (h11 - h00);
+    } else {  // triangle (r, c), (r + 1, c + 1), (r, c + 1)
+        dU = h01 - h00;
+        dV = h11 - h01;
+        y = h00 + fv * (h11 - h00) + (fu - fv) * dU;
+    }
+    height = t.heightOffset + y;
+    dhdx = dU * cells / t.size.x;
+    dhdz = dV * cells / t.size.y;
+    return true;
+}
+
+bool terrain_sample(const World& world, Entity terrain, float worldX, float worldZ, TerrainSample& out,
+                    bool ignoreHoles) {
+    return TerrainSampler(world, terrain).sample(worldX, worldZ, out, ignoreHoles);
+}
+
+bool TerrainSampler::sample(float worldX, float worldZ, TerrainSample& out, bool ignoreHoles) const {
+    if (!t_ || !heights_) return false;
+    const Mat4& m = m_;
+    const Mat4& inv = inv_;
+    const Vec3 local = inv.transform_point({worldX, m.translation().y, worldZ});
+    float y, dx, dz;
+    if (!terrain_local_sample(*heights_, *t_, local.x, local.z, y, dx, dz, ignoreHoles)) return false;
+    const Vec3 world3 = m.transform_point({local.x, y, local.z});
+    out.height = world3.y;
+    // The normal of the surface y = f(x, z) is (-dx, 1, -dz); normals move with the inverse transpose of the matrix.
+    const Vec3 n{-dx, 1.0f, -dz};
+    Vec3 nw{inv.at(0, 0) * n.x + inv.at(0, 1) * n.y + inv.at(0, 2) * n.z,
+            inv.at(1, 0) * n.x + inv.at(1, 1) * n.y + inv.at(1, 2) * n.z,
+            inv.at(2, 0) * n.x + inv.at(2, 1) * n.y + inv.at(2, 2) * n.z};
+    const float len = length(nw);
+    out.normal = len > 1e-12f ? nw / len : Vec3{0, 1, 0};
+    return true;
+}
+
+bool terrain_height_at(const World& world, Entity terrain, float worldX, float worldZ, float& height,
+                       bool ignoreHoles) {
+    TerrainSample s;
+    if (!terrain_sample(world, terrain, worldX, worldZ, s, ignoreHoles)) return false;
+    height = s.height;
+    return true;
+}
+
+// ---- the holes mask and the splat maps ----
+
+namespace {
+
+// Loads what Terrain.holes and Terrain.splatMaps name when it differs from what `h` holds (a path that cannot be read is
+// reported once and the plane is left empty until the path changes). It runs on every heights() call, so the entity's id (a string
+// the world builds) is only asked for when something is reported.
+void load_planes(TerrainHeights& h, const Terrain3D& t, const World& world, Entity entity) {
+    std::string problems;
+    auto fail = [&](const std::string& what, const Error& e) {
+        const std::string text =
+            std::format("entity '{}': {}: {}. Hint: {}", world.id_of(entity), what, e.message, e.hint);
+        FA_ERROR("terrain", "{}", text);
+        problems += (problems.empty() ? "" : "\n") + text;
+    };
+    if (h.holesSource != t.holes) {
+        h.holesSource = t.holes;
+        h.holes.clear();
+        h.holesUnsaved = false;
+        ++h.holesVersion;
+        if (!t.holes.empty()) {
+            auto bytes = fs::read_bytes(t.holes);
+            if (!bytes) {
+                fail("Terrain.holes (/holes)",
+                     make_error("'" + t.holes + "' cannot be read: " + bytes.error().message,
+                                "Put the greyscale PNG in the project or clear Terrain.holes."));
+            } else if (auto img = decode_gray16(bytes->data(), bytes->size()); !img) {
+                fail("Terrain.holes (/holes)",
+                     make_error("'" + t.holes + "': " + img.error().message, img.error().hint));
+            } else {
+                const int cells = h.cells();
+                std::vector<std::uint8_t> mask(std::size_t(cells) * std::size_t(cells), 0);
+                bool any = false;
+                const std::uint16_t cut = std::uint16_t(kTerrainHoleThreshold * 257);
+                for (int r = 0; r < cells; ++r) {
+                    const std::int64_t sr = std::int64_t(r) * img->height / cells;
+                    for (int c = 0; c < cells; ++c) {
+                        const std::int64_t sc = std::int64_t(c) * img->width / cells;
+                        const bool hole =
+                            img->samples[std::size_t(sr) * std::size_t(img->width) + std::size_t(sc)] >= cut;
+                        mask[std::size_t(r) * std::size_t(cells) + std::size_t(c)] = hole ? 1 : 0;
+                        any = any || hole;
+                    }
+                }
+                if (any) h.holes = std::move(mask);
+                if (img->width != cells || img->height != cells)
+                    FA_WARN(
+                        "terrain",
+                        "entity '{}': Terrain.holes '{}' is {} x {} pixels but the terrain has {} x {} cells: it was "
+                        "resampled (nearest). Make it {} x {} so one pixel is one cell.",
+                        world.id_of(entity), t.holes, img->width, img->height, cells, cells, cells, cells);
+            }
+        }
+    }
+    for (int m = 0; m < kTerrainSplatMaps; ++m) {
+        std::string want;
+        if (t.splatMaps.is_array() && std::size_t(m) < t.splatMaps.size() && t.splatMaps[std::size_t(m)].is_string())
+            want = t.splatMaps[std::size_t(m)].get<std::string>();
+        TerrainSplat& s = h.splat[std::size_t(m)];
+        if (s.source == want) continue;
+        s = TerrainSplat{};
+        s.source = want;
+        ++s.version;
+        if (want.empty()) continue;
+        auto bytes = fs::read_bytes(want);
+        const std::string what = std::format("Terrain.splatMaps[{}] (/splatMaps/{})", m, m);
+        if (!bytes) {
+            fail(what,
+                 make_error("'" + want + "' cannot be read: " + bytes.error().message,
+                            "Put the RGBA PNG in the project, or paint the terrain to create it (terrain.paint)."));
+            continue;
+        }
+        auto sz = image_size(bytes->data(), bytes->size());
+        if (!sz || sz->width != sz->height || sz->width < 1 || sz->width > kTerrainMaxSplatSide) {
+            fail(what, make_error(sz ? std::format("'{}' is {} x {} pixels", want, sz->width, sz->height)
+                                     : "'" + want + "': " + sz.error().message,
+                                  std::format("A splat map is square, at most {} x {} pixels.", kTerrainMaxSplatSide,
+                                              kTerrainMaxSplatSide)));
+            continue;
+        }
+        auto img = decode_image(bytes->data(), bytes->size());
+        if (!img) {
+            fail(what, make_error("'" + want + "': " + img.error().message, img.error().hint));
+            continue;
+        }
+        s.size = img->width;
+        s.rgba = std::move(img->rgba);
+    }
+    h.planesProblem = problems;
+}
+
+}  // namespace
+
+// ---- the store ----
+
+std::shared_ptr<TerrainHeights> TerrainStore::heights(const World& world, Entity e, std::string* problem) const {
+    const Terrain3D* t = world.get<Terrain3D>(e);
+    if (!t) return nullptr;
+    const std::string key = t->heightmap;
+    bool needLoad = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(e.bits());
+        needLoad = it == entries_.end() || !it->second.loaded || it->second.key != key;
+    }
+    // The file is read and decoded (a 4097 x 4097 map is 33 MB of samples) with no lock held, so another thread asking for
+    // another terrain's heights never waits for it. Two threads that need the same file at once both read it and the first to
+    // finish keeps its copy (the other is dropped); that costs one extra read, once.
+    Entry fresh;
+    if (needLoad) {
+        fresh.loaded = true;
+        fresh.key = key;
+        if (key.empty()) {
+            fresh.heights = TerrainHeights::flat(kTerrainMinSamples);
+        } else {
+            auto load = load_terrain_heightmap(key);
+            if (!load) {
+                fresh.problem = std::format("entity '{}': Terrain.heightmap (/heightmap): {}. Hint: {}", world.id_of(e),
+                                            load.error().message, load.error().hint);
+                FA_ERROR("terrain", "{}", fresh.problem);
+            } else {
+                fresh.heights = load->heights;
+                if (!load->warning.empty()) FA_WARN("terrain", "entity '{}': {}", world.id_of(e), load->warning);
+            }
+        }
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    Entry& entry = entries_[e.bits()];
+    if (needLoad && (!entry.loaded || entry.key != key)) entry = std::move(fresh);
+    if (entry.heights) load_planes(*entry.heights, *t, world, e);
+    if (problem) *problem = entry.problem;
+    return entry.heights;
+}
+
+std::shared_ptr<TerrainHeights> TerrainStore::find(Entity e) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = entries_.find(e.bits());
+    return it == entries_.end() ? nullptr : it->second.heights;
+}
+
+bool TerrainStore::reload(const World& world, Entity e) const {
+    const Terrain3D* t = world.get<Terrain3D>(e);
+    if (!t || t->heightmap.empty()) return false;
+    const std::string key = t->heightmap;
+    std::shared_ptr<TerrainHeights> old;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = entries_.find(e.bits());
+        if (it == entries_.end() || it->second.key != key || !it->second.loaded) return false;
+        old = it->second.heights;  // null when the first read failed: the rewritten file gets its second try below
+    }
+    if (old && old->any_unsaved()) return false;
+    auto load = load_terrain_heightmap(key);  // outside the lock: a big file takes a while
+    if (!load || !load->heights) {
+        if (!load)
+            FA_WARN("terrain", "entity '{}': Terrain.heightmap '{}' changed but cannot be read again, keeping {}: {}",
+                    world.id_of(e), key, old ? "the loaded heights" : "the terrain as it is (it never loaded)",
+                    load.error().message);
+        return false;
+    }
+    // The compare reads `old` with no lock: reload runs on the thread that draws and edits (the main thread), the only one that writes a
+    // terrain's samples, so nothing changes them under it; a write from another thread would be caught by the check under the lock.
+    if (old && load->heights->samples == old->samples && load->heights->data == old->data) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = entries_.find(e.bits());
+    // Another thread replaced the heights, or an edit started while the file was read: keep what is there.
+    if (it == entries_.end() || it->second.heights != old || (old && old->any_unsaved())) return false;
+    it->second.heights = load->heights;
+    it->second.problem.clear();
+    return true;
+}
+
+void TerrainStore::prune(const World& world) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        Entity e = Entity::from_bits(it->first);
+        if (!world.alive(e) || !world.get<Terrain3D>(e))
+            it = entries_.erase(it);
+        else
+            ++it;
+    }
+}
+
+void TerrainStore::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+}
+
+std::size_t TerrainStore::size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return entries_.size();
+}
+
+std::vector<Entity> TerrainStore::entities() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Entity> out;
+    out.reserve(entries_.size());
+    for (const auto& kv : entries_) out.push_back(Entity::from_bits(kv.first));
+    std::sort(out.begin(), out.end(), [](Entity a, Entity b) { return a.bits() < b.bits(); });
+    return out;
+}
+
+void TerrainStore::adopt(Entity e, const std::string& key, std::shared_ptr<TerrainHeights> heights) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Entry entry;
+    entry.heights = std::move(heights);
+    entry.key = key;
+    entry.loaded = true;
+    entries_[e.bits()] = std::move(entry);
+}
+
+// ---- writing the files back ----
+
+namespace {
+
+Error write_error(const std::string& path, const Error& e) {
+    return make_error(std::format("Terrain file '{}' could not be written: {}", path, e.message),
+                      e.hint.empty() ? "Check that the folder is writable and that nothing else has the file open "
+                                       "(on Windows a file open elsewhere cannot be replaced). The edit is still in "
+                                       "memory: save again."
+                                     : e.hint);
+}
+
+// Where a terrain file goes: the path of the field resolved by the project write rules (a path inside the project; an absolute
+// or escaping one only for a caller that may write anywhere), in the spelling fs::write_bytes takes.
+Result<std::string> terrain_write_target(const std::string& who, const std::string& field, const std::string& path,
+                                         bool writeAnywhere) {
+    auto r = fs::resolve_for_write(path, fs::WriteRoot::Project, writeAnywhere);
+    if (!r.ok())
+        return make_error(
+            std::format("entity '{}': {} is '{}', which cannot be written: {}", who, field, path, r.error().message),
+            "Set " + field + " to a path inside the project, such as assets/terrain/" + who +
+                ".height.png (a path outside the project needs the writeAnywhere permission).");
+    return fs::project_spelling(r.value());
+}
+
+}  // namespace
+
+std::vector<std::uint8_t> encode_terrain_heightmap(const TerrainHeights& h, std::string_view path) {
+    std::vector<std::uint8_t> bytes;
+    if (ends_with_ci(path, ".r16")) {
+        bytes.resize(h.data.size() * 2);
+        for (std::size_t i = 0; i < h.data.size(); ++i) {  // little endian whatever this machine is
+            bytes[i * 2] = std::uint8_t(h.data[i] & 0xFF);
+            bytes[i * 2 + 1] = std::uint8_t(h.data[i] >> 8);
+        }
+    } else {
+        GrayImage16 g;
+        g.width = g.height = h.samples;
+        g.sixteenBit = true;
+        g.samples = h.data;
+        bytes = encode_png_gray16(g);
+    }
+    return bytes;
+}
+
+Result<void> save_terrain_files(const World& world, Entity terrain, std::vector<std::string>* written,
+                                bool writeAnywhere) {
+    const Terrain3D* t = world.get<Terrain3D>(terrain);
+    if (!t) return {};
+    auto h = world.terrain().find(terrain);
+    if (!h || !h->any_unsaved()) return {};
+    const std::string who = world.id_of(terrain);
+    auto note = [&](const std::string& path) {
+        if (written) written->push_back(path);
+    };
+    if (h->heightsUnsaved) {
+        if (t->heightmap.empty())
+            return make_error(
+                std::format("entity '{}': the heights were edited but Terrain.heightmap is empty, so there is "
+                            "no file to write",
+                            who),
+                "Set Terrain.heightmap to a project path such as assets/terrain/" + who +
+                    ".height.png (terrain.create does it), then save again.");
+        const std::vector<std::uint8_t> bytes = encode_terrain_heightmap(*h, t->heightmap);
+        if (bytes.empty())
+            return make_error("The heightmap of '" + who + "' could not be encoded", "This is a bug: report it.");
+        auto target = terrain_write_target(who, "Terrain.heightmap", t->heightmap, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
+            return write_error(t->heightmap, r.error());
+        h->heightsUnsaved = false;
+        h->eightBit = false;
+        h->source = t->heightmap;
+        note(t->heightmap);
+    }
+    if (h->holesUnsaved) {
+        if (t->holes.empty())
+            return make_error(
+                std::format("entity '{}': the holes were edited but Terrain.holes is empty, so there is no file "
+                            "to write",
+                            who),
+                "Set Terrain.holes to a project path such as assets/terrain/" + who +
+                    ".holes.png (terrain.holes does it), then save again.");
+        const int cells = h->cells();
+        std::vector<std::uint8_t> mask(std::size_t(cells) * std::size_t(cells), 0);
+        for (std::size_t i = 0; i < mask.size() && i < h->holes.size(); ++i) mask[i] = h->holes[i] ? 255 : 0;
+        const std::vector<std::uint8_t> bytes = encode_png_gray8(cells, cells, mask.data());
+        if (bytes.empty())
+            return make_error("The holes of '" + who + "' could not be encoded", "This is a bug: report it.");
+        auto target = terrain_write_target(who, "Terrain.holes", t->holes, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
+            return write_error(t->holes, r.error());
+        h->holesUnsaved = false;
+        h->holesSource = t->holes;
+        note(t->holes);
+    }
+    for (int m = 0; m < kTerrainSplatMaps; ++m) {
+        TerrainSplat& s = h->splat[std::size_t(m)];
+        if (!s.unsaved) continue;
+        std::string path;
+        if (t->splatMaps.is_array() && std::size_t(m) < t->splatMaps.size() && t->splatMaps[std::size_t(m)].is_string())
+            path = t->splatMaps[std::size_t(m)].get<std::string>();
+        if (path.empty())
+            return make_error(
+                std::format("entity '{}': splat map {} was edited but Terrain.splatMaps[{}] is empty, so there is "
+                            "no file to write",
+                            who, m, m),
+                "Set Terrain.splatMaps to project paths such as assets/terrain/" + who +
+                    ".splat0.png (terrain.paint does it), then save again.");
+        Image img;
+        img.width = img.height = s.size;
+        img.rgba = s.rgba;
+        const std::vector<std::uint8_t> bytes = encode_png(img);
+        if (bytes.empty())
+            return make_error("The splat map of '" + who + "' could not be encoded", "This is a bug: report it.");
+        auto target = terrain_write_target(who, std::format("Terrain.splatMaps[{}]", m), path, writeAnywhere);
+        if (!target.ok()) return target.error();
+        if (auto r = fs::write_bytes(target.value(), bytes.data(), bytes.size()); !r.ok())
+            return write_error(path, r.error());
+        s.unsaved = false;
+        s.source = path;
+        note(path);
+    }
+    return {};
+}
+
+Result<void> save_all_terrain_files(const World& world, std::vector<std::string>* written, bool writeAnywhere) {
+    std::string firstProblem, hint;
+    for (Entity e : world.terrain().entities()) {
+        if (!world.alive(e)) continue;
+        if (auto r = save_terrain_files(world, e, written, writeAnywhere); !r.ok() && firstProblem.empty()) {
+            firstProblem = r.error().message;
+            hint = r.error().hint;
+        }
+    }
+    if (!firstProblem.empty()) return make_error(firstProblem, hint);
+    return {};
+}
+
+}  // namespace fa

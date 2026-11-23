@@ -8,6 +8,7 @@
 // Plain functions of (World, command name, args): no ImGui, no Editor, tested in undo_inverse_tests.cpp.
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,5 +44,43 @@ bool has_undo_builder(const std::string& name);
 // commands that need nothing from the result. False when the result is not what the builder expects: the plan is then
 // unusable (the command ran, and nothing can undo it).
 bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& plan, const Json& result);
+
+// How many terrain.undo calls of `entityId` the inverse list of `entry` holds (0 for any entry that is not a Command one).
+std::size_t terrain_undo_count(const UndoEntry& entry, const std::string& entityId);
+// What drop_terrain_steps removed.
+struct TerrainDrop {
+    std::size_t steps = 0;    // terrain.undo calls of the entity taken out of the list
+    std::size_t entries = 0;  // entries that held nothing else to undo and left the list
+};
+// Numbers the terrain calls of `entityId` that have no number yet (UndoCommand::step) in a plan about to be pushed, right after the
+// terrain made its steps: `newest` is the absolute number of the terrain's newest step (history_lost() + undo_depth()). The k unnumbered
+// terrain.undo calls of the inverse list get newest, newest-1, ... (the first one undoes the newest step) and the terrain.redo calls
+// of the forward list the same numbers, oldest first. Nothing is numbered below 1.
+void number_terrain_steps(std::vector<UndoCommand>& forward, std::vector<UndoCommand>& inverse,
+                          const std::string& entityId, std::uint64_t newest);
+// A terrain keeps its last kTerrainHistorySteps edits (and a byte budget): a step it let go can only answer "nothing to undo", and
+// its entry would stand in front of older entries that still work. `lost` is the terrain's history_lost(): every terrain.undo of
+// `entityId` numbered `lost` or less, and the terrain.redo of the same numbers, is taken out of the list (a step is judged by its own
+// number, never by the position of its entry: the list trims entries on its own, and an edit that joined a snapshot step made none).
+// An entry that holds anything else to undo (a Chain of several edits, the steps of the terrain that are still held) stays with that,
+// and one left with no inverse at all leaves the list.
+TerrainDrop drop_terrain_steps(UndoStack& stack, const std::string& entityId, std::uint64_t lost);
+
+// What drop_foliage_steps and drop_foliage_all removed.
+struct FoliageDrop {
+    std::size_t steps = 0;    // foliage.undo commands taken out of the list
+    std::size_t entries = 0;  // entries that held nothing else to undo and left the list
+};
+// A Foliage keeps its last kFoliageHistorySteps edits (and a byte budget) in memory: a step it let go can only answer
+// "nothing_to_undo", and its row would stand in front of older rows that still work. Every foliage.undo / foliage.redo command of an
+// entry carries its history's id and the absolute number of its step (finish_undo_plan). Takes out the commands of `entityId`
+// that are numbered `lost` or less (the steps the history let go of: its `historyLost`) and those of another history than
+// `historyId` (the entity was destroyed and came back, so its old steps are gone). Only those commands go: a Chain entry that
+// holds other edits stays with them. Not numbered commands (historyId 0) stay.
+FoliageDrop drop_foliage_steps(UndoStack& stack, const std::string& entityId, std::uint64_t historyId,
+                               std::uint64_t lost);
+// The history of `entityId` was cleared (a scene reload, a change of its file by hand, the total budget): every foliage command
+// of it goes, numbered or not.
+FoliageDrop drop_foliage_all(UndoStack& stack, const std::string& entityId);
 
 }  // namespace fa::editor

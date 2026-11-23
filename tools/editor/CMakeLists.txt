@@ -68,9 +68,9 @@ if(FA_BUILD_TESTS)
             # stay together in one entry only for that balance of frames. FA_EDITOR_AUTOTEST=1 alone still plays every section
             # in one window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries
-                "1:I,J,Q,R,U,X,Z,M3,P3,X2,L4"
+                "1:I,J,Q,R,U,X,Z,M3,P3,X2,L4,T3,F3"
                 "2:S,A,G,G2,H,L,V,B2,C2,E2,G3,Q3"
-                "3:B,C,D,M,M4,O,P,W,E3,S2,R4"
+                "3:B,C,D,M,M4,O,P,W,E3,S2,R4,W2"
                 "4:T,A2,A3,E,F,K,M5,N,Y,H2,K2,E4,P4"
                 "5:D2,F2,I2,J2,K3,L3,N3,O3,Q2,R2,R3,T2,S3")
             set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/autotest_sections.h)
@@ -111,8 +111,11 @@ if(FA_BUILD_TESTS)
                     COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                     WORKING_DIRECTORY ${FA_ROOT})
                 # TIMEOUT: an entry takes 45-110 s alone; under ctest -j the five share the runner's CPUs (and its software GPU),
-                # so 120 s was too tight. A hang is still caught: each wait of a section gives up after 60 s.
-                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu;window" TIMEOUT 300
+                # so 120 s was too tight, and 300 s too once the M75 sections (T3, F3, W2) came: the GCC job under Xvfb took
+                # 160-220 s per entry on one runner and went past 300 s on a slower one. Splitting into more entries does not
+                # help (ctest --parallel 4 on 4 vCPUs: the work is the same). A hang is still caught: each wait of a section gives
+                # up after 60 s.
+                set_tests_properties(editor_autotest_${editor_autotest_n} PROPERTIES LABELS "gpu;window" TIMEOUT 480
                     SKIP_RETURN_CODE 77)  # 77: every display of this Mac sleeps (engine/platform/src/display_watchdog.h)
                 # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put the Windows-rules variable in ENVIRONMENT.
                 set_property(TEST editor_autotest_${editor_autotest_n} APPEND PROPERTY ENVIRONMENT

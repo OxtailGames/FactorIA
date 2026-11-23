@@ -303,6 +303,10 @@ void Editor::at_build_tools_script() {
                 anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
+            terrain_ = TerrainUi{};  // section T3: the terrain tool is not carried over
+            showTerrainTool_ = false;
+            foliage_ = FoliageUi{};  // section F3: the foliage tool is not carried over
+            showFoliageTool_ = false;
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
             particle_close_document();  // section P3: the Particles panel, its effect and its preview are not carried over
             particle_ = ParticleUi{};
@@ -315,6 +319,9 @@ void Editor::at_build_tools_script() {
             lightmap_cancel();
             lightmap_ = LightmapUi{};  // section L4: the Lightmap panel and its job are not carried over
             showLightmap_ = false;
+            cells_.reset();  // section W2: the Cells panel and its loaded cells are not carried over
+            cellsUi_ = CellsUi{};
+            showCells_ = false;
             reset_auto_play_state();  // section S3: the Play sessions window, its list and a run still going are not carried over
             reset_review_state();  // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
             showPostFx_ =
@@ -466,6 +473,12 @@ void Editor::at_build_tools_script() {
     at_section_Q3(at);
     section("L4");
     at_section_L4(at);
+    section("T3");
+    at_section_T3(at);
+    section("F3");
+    at_section_F3(at);
+    section("W2");
+    at_section_W2(at);
     section("O3");
     at_section_O3(at);
     section("E4");

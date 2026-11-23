@@ -105,7 +105,8 @@ Entity Editor::pick_at(Vec2 design) {
     World& w = world();
     auto all = w.entities();
     // The viewport shows the game's camera, so a click selects what that camera draws (Camera.showTags / hideTags): an entity it
-    // hides is still in the Hierarchy. Screen-space items belong to the screen and are always pickable.
+    // hides is still in the Hierarchy. Screen-space items belong to the screen and are always pickable. The transient HLOD proxies of a
+    // streamed world (EntityInfo::streamedProxy) are neither listed nor picked: they are the streamer's and are never saved.
     const CameraMask mask = CameraMask::of(w, r->camera_at(design));
     if (!primary_is_ortho()) {
         Vec3 o, d;
@@ -113,7 +114,8 @@ Entity Editor::pick_at(Vec2 design) {
         Entity best = kNullEntity;
         float bestT = 1e30f;
         for (Entity e : all) {
-            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e) || !mask.draws(w, e)) continue;
+            if (!w.active_in_hierarchy(e) || !w.has<MeshRenderer>(e) || !mask.draws(w, e) || w.info(e).streamedProxy)
+                continue;
             Mat4 inv = w.world_matrix(e).inverse();
             Vec3 lo_ = inv.transform_point(o), ld = inv.transform_dir(d);
             float t;
@@ -145,7 +147,7 @@ Entity Editor::pick_at(Vec2 design) {
     std::int64_t order = 0;
     for (Entity e : all) {
         ++order;
-        if (!w.active_in_hierarchy(e)) continue;
+        if (!w.active_in_hierarchy(e) || w.info(e).streamedProxy) continue;
         const PickBounds b = pick_bounds(w, e, measure);
         if (!b.valid || (!b.screenSpace && !mask.draws(w, e))) continue;
         int layer = 0;
@@ -191,7 +193,8 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
         r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward, cam);
     }
     for (Entity e : w.entities()) {
-        if (!w.active_in_hierarchy(e)) continue;
+        if (!w.active_in_hierarchy(e) || w.info(e).streamedProxy)
+            continue;  // an HLOD proxy is the streamer's, never picked
         std::vector<Vec2> pts;
         if (w.has<MeshRenderer>(e) && !ortho) {
             if (!mask.draws(w, e)) continue;
@@ -298,6 +301,9 @@ void Editor::draw_viewport() {
     // ---- interaction (edit / paused only; while playing, events go to the game). A click on a gizmo handle starts a drag (see
     // viewport_gizmo.cpp); a click anywhere else selects what is under the cursor: the selection is how the user points at
     // something for the AI.
+    if (terrain_.stroke.active() && !terrain_tool_active())
+        terrain_stroke_end();  // the tool went away mid-stroke: as the release
+    if (foliage_.stroke.active() && !foliage_tool_active()) foliage_stroke_end();
     if (play_ != PlayState::Playing) {
         bool onHandle = false;
         if (bone_tools_active()) {  // a bone tool owns the clicks: no gizmo handles meanwhile
@@ -305,6 +311,17 @@ void Editor::draw_viewport() {
             gizmoShapes_.clear();
             gizmoHover_ = {};
             onHandle = bone_tools_frame(*r, imgMin, sz, hovered);
+        } else if (
+            terrain_tool_active()) {  // so does a terrain brush: the click paints, it does not drag a handle or select
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = terrain_tool_frame(*r, imgMin, sz, hovered);
+        } else if (foliage_tool_active()) {  // and the foliage brush: the click paints instances
+            gizmo_end_drag(false);
+            gizmoShapes_.clear();
+            gizmoHover_ = {};
+            onHandle = foliage_tool_frame(*r, imgMin, sz, hovered);
         } else {
             onHandle = gizmo_frame(*r, imgMin, sz, hovered);
         }
@@ -315,6 +332,9 @@ void Editor::draw_viewport() {
             const Entity hit = pick_at(design_of(io.MousePos));
             if (!hit.is_null()) {
                 click_in_space(selection_, w.id_of(hit), mods);
+            } else if (terrain_tool_active() || foliage_tool_active()) {
+                // A press that misses the terrain (the sky, off the edge) and every other entity keeps the terrain selected and its
+                // tool on: the empty-space click would clear the selection, and the tool with it.
             } else {
                 marquee_.pending = true;
                 marquee_.active = false;
@@ -416,6 +436,7 @@ void Editor::draw_viewport() {
         r->screen_ray(Vec2{tw * 0.5f, th * 0.5f}, eye, forward);
         draw_probe_gizmos(dl, *r, eye, forward, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
     }
+    draw_cells_overlay(dl, *r, [&](Vec3 p) { return to_vp(r->world_to_screen(p)); });
     // Every selected entity is outlined: the primary (what the Inspector and the gizmo follow) in yellow, the others in orange.
     // selection_peek(): the set is read every frame, so it is not pruned here; an id that is gone is skipped.
     auto draw_outline = [&](Entity sel, bool isPrimary) {
@@ -506,6 +527,8 @@ void Editor::draw_viewport() {
         }
     }
     bone_tools_draw(dl, *r, imgMin, sz);
+    terrain_tool_draw(dl, *r, imgMin, sz);
+    foliage_tool_draw(dl, *r, imgMin, sz);
     gizmo_draw(dl);
     if (marquee_.active) {
         dl->AddRectFilled(marquee_.start, marquee_.now, IM_COL32(80, 160, 255, 40));
