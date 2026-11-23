@@ -6,6 +6,20 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ## Unreleased
 
+### Rendering
+
+- `window.renderScale` now goes from 0.33 to 1 (it was 0.5 to 1) and the game is drawn smaller but the HUD and the UI (screen-space
+  Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up at the full window size, so their text stays sharp. Only when the post
+  stack would not change them anyway: a bloom with `bloomScreenSpace` true (the default) and no final pass makes the HUD glow, so
+  then it stays in the smaller picture, scaled up with it, as before; set `bloomScreenSpace` to false (or use no bloom) for the
+  sharp HUD. The picture
+  the engine returns for `game.screenshot` and the like is the full size picture with the HUD (before, it had the scaled size and
+  a blurred HUD); `game.renderStats().width` and `height` stay the size the game is drawn at. The scale-up keeps hard pixel edges
+  with `PixelPerfect` scaling. Scale 1 is unchanged (no extra image, the same pixels). With a camera colour filter the filter is
+  applied after the HUD. The CLI's `--render-scale` and the screenshot `scale` option still mean "an image that many times the size".
+  Internally the scale-up is a frame-graph stage (`src/render_upscale.h`) that the temporal antialiasing and the open upscalers
+  of M76 plug into; docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)".
+
 - Polish: an Occluder whose mesh could not be read is tried again after 600 frames (it was never read again until the game restarted), and the error for an unknown mesh name no longer says "collider mesh" when an Occluder asked for it.
 
 ## 0.35.2

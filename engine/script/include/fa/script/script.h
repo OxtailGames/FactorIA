@@ -246,7 +246,7 @@ public:
         if (error) *error = "this host has no renderer";
         return false;
     }
-    // The player's render scale option (`window.renderScale`, 0.5 .. 1): the game target is drawn at design size * scale.
+    // The player's render scale option (`window.renderScale`, 0.33 .. 1): the game target is drawn at design size * scale and brought back to the design size.
     // set_render_scale returns "" when done, else a sentence saying why not. The default only remembers the value, for
     // hosts without a renderer; Engine hands it to the renderer too.
     virtual double render_scale() const { return renderScale_; }

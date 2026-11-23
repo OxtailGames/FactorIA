@@ -1707,10 +1707,10 @@ test('render scale changes the drawn size', () => {
   expect(half.width).toBe(160);
   expect(half.height).toBe(90);
   expect(half.renderScale).toBe(0.5);
-  game.screenshot('shots/half.png');  // follows the render scale
+  game.screenshot('shots/half.png');  // the full size picture: the game is scaled up, the HUD drawn over it
   game.screenshot('shots/full.png', { scale: 1 });
-  expect(() => { window.renderScale = 0.25; }).toThrow('0.5 to 1');
-  expect(() => { window.renderScale = 2; }).toThrow('0.5 to 1');
+  expect(() => { window.renderScale = 0.25; }).toThrow('0.33 to 1');
+  expect(() => { window.renderScale = 2; }).toThrow('0.33 to 1');
   expect(() => { window.renderScale = 'big'; }).toThrow('renderScale');
 });
 
@@ -1763,8 +1763,8 @@ test('a new test file starts with no textures alive', () => {
     auto full = load_image((p.dir / "shots/full.png").generic_string());
     REQUIRE(half.ok());
     REQUIRE(full.ok());
-    CHECK(half->width == 160);
-    CHECK(half->height == 90);
+    CHECK(half->width == 320);  // window.renderScale: drawn at 160x90, brought back to the design size
+    CHECK(half->height == 180);
     CHECK(full->width == 320);
     CHECK(full->height == 180);
     // The command is the same thing, and the render scale was put back after the test.

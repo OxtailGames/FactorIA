@@ -489,6 +489,12 @@ void Renderer::set_render_scale(float scale) {
     impl_->shadowTargetFailed = false;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
+void Renderer::set_upscale_stage(bool on) {
+    if (!initialized() || impl_->upscaleStage == on) return;
+    impl_->upscaleStage = on;
+    impl_->free_output_targets();
+}
+bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -1125,6 +1131,9 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.screenScale =
+        hudAtOutput ? 1.0f
+                    : renderScale;  // 1: the screen-space items go over the upscaled picture (render_world decided)
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -1213,6 +1222,27 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.push_back({lastCams.front(), false, true});
     }
 
+    // The upscale stage (M76-P3a) draws the screen-space items over the upscaled picture, at the output size, when no pass after them in the
+    // old order (renderer_draw.cpp, build_graph) would have changed their pixels. The glyphs are rasterized for the size they are drawn at,
+    // so this is decided before the gather. The bloom is the only effect that reaches items drawn in the game image (bloomScreenSpace): the
+    // effects that put them over the bloom (bloomScreenSpace false, the scene-colour effects) or over the final pass leave them alone.
+    // The scene-colour effects are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
+    hudAtOutput = false;
+    if (upscale_active() && !lastCams.empty()) {
+        const CameraInfo& fc = lastCams.front();
+        const bool linearScene = world.settings().colorSpace == ColorSpace::Linear;
+        bool anyFinal = false;
+        for (const JobSpec& sp : specs)
+            anyFinal =
+                anyFinal ||
+                (sp.world &&
+                 make_post_plan(sp.cam, linearScene, forceEffects, world.frame(), renderScale, &fc).final_pass());
+        const bool glows = fc.bloom.enabled && fc.bloom.intensity > 0.0f && fc.bloom.screenSpace && !anyFinal;
+        hudAtOutput =
+            !glows && (!anyFinal || ensure_filter_target()) &&
+            ensure_output_target(outTarget, "output", anyFinal ? gpu.display_format() : gameTarget.format.color, true);
+    }
+
     std::vector<Frame> frames(specs.size());
     std::vector<Frame> targetFrames;        // one per Camera.renderTarget, in targetCams order
     std::vector<std::set<int>> targetDeps;  // targetDeps[i]: the targets that the frame of target i shows
@@ -1260,7 +1290,7 @@ void Renderer::Impl::render(World& world, float dt) {
             setup(fr);
             fr.targetW = tc.w;
             fr.targetH = tc.h;
-            fr.renderScale = 1.0f;
+            fr.renderScale = fr.screenScale = 1.0f;
             scene2d.gather(world, fr);
             if (fr.cam.studio) {
                 fr.lights2d.clear();
@@ -1291,7 +1321,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 setup(fr);
                 fr.targetW = rq.pxW;
                 fr.targetH = rq.pxH;
-                fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
+                fr.renderScale = fr.screenScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
                 scene2d.gather(world, fr);
                 if (fr.cam
                         .studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness

@@ -60,6 +60,7 @@
 #include "gi2d.h"
 #include "light_atlas.h"
 #include "render_internal.h"
+#include "render_upscale.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
 #include "transient_targets.h"
@@ -168,6 +169,22 @@ struct Renderer::Impl {
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
+    // The upscale stage (M76-P3a, render_upscale.h, renderer_upscale.cpp). upscaleStage: Renderer::set_upscale_stage (the player's
+    // render scale). While upscale_active() the finished picture of the render resolution is copied by the chosen implementation
+    // into outTarget (targetW x targetH, the format of the picture), the screen-space items are drawn over it there, and the colour
+    // filter, when it has to reach them, goes on into outFilterTarget. outActive / outFilterActive: the last frame's picture is in
+    // them (they come first in final_target()). Both are made when a frame needs them and freed with the targets.
+    bool upscaleStage = false;
+    bool hudAtOutput =
+        false;  // this frame's screen-space items are drawn over the upscaled picture (decided in render_world)
+    render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
+    Target outTarget, outFilterTarget;
+    bool outActive = false, outFilterActive = false;
+    bool upscale_active() const;
+    bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
+    void free_output_targets();
+    void run_upscale(Target& out);
+    void stretch_upscale(const render::UpscaleInput& in, Target& out);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
@@ -572,7 +589,13 @@ struct Renderer::Impl {
     bool game_targets_valid() const;
     int readW = 0, readH = 0;
     // The image of the finished frame: the final pass's (or the colour filter's) picture when the last frame had one, else the game target.
-    const Target& final_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
+    // The picture of the render resolution (what the upscale stage reads), else the image of the output size the stage made.
+    const Target& scene_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
+    const Target& final_target() const {
+        return outFilterActive ? outFilterTarget : outActive ? outTarget : scene_target();
+    }
+    int final_w() const { return final_target().w > 0 ? final_target().w : physW; }  // the size of the finished picture
+    int final_h() const { return final_target().h > 0 ? final_target().h : physH; }
     sg_image final_image() const { return final_target().texture_image(); }
     sg_view final_view() const { return final_target().texView; }
     // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
