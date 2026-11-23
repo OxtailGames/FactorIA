@@ -99,7 +99,7 @@ Json small(Json more = Json::object()) {
 
 // bake_status until the job leaves "running" (a deadline far above what the tiny bake needs).
 Json wait_done(Engine& e, const std::string& job) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(600);
     for (;;) {
         auto r = e.commands().call("lightmap.bake_status", Json::object({{"job", job}}));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -263,10 +263,13 @@ TEST_CASE("lightmap jobs: cancel stops a running bake, writes nothing and a seco
         c.call("lightmap.bake_start", Json::object({{"texelsPerMeter", 64}, {"samples", 3000}, {"maxPageSize", 1024}}));
     REQUIRE_MESSAGE(started.ok, started.error.dump());
     const std::string job = started.result["job"];
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    // The phases before "trace" (unwrap, pack, rasterize) take seconds in Debug but went past 120 s twice in a row in
+    // CI's Coverage job (instrumented code, two tests at once on a loaded runner): the wait only guards a hang.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(600);
     for (;;) {
         auto s = c.call("lightmap.bake_status", Json::object({{"job", job}}));
         REQUIRE(s.ok);
+        INFO("last status: " << s.result.dump());
         REQUIRE(s.result["state"] == "running");
         if (s.result["phase"] == "trace") {
             CHECK(s.result["progress"].get<double>() >= 0.1);
