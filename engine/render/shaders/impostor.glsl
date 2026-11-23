@@ -21,6 +21,8 @@
 @module impostor
 
 @block fa_user
+// vertex() ignores the model matrix: the prepass derives the previous position from the matrices alone (mesh_common.glsl fa_prepass_vertex).
+#define FA_VEL_STATIC_VERTEX
 #ifdef GL_VERTEX_SHADER
 layout(binding=4) uniform fa_material_vs {
     vec4 fa_i_cam; vec4 fa_i_right; vec4 fa_i_up; vec4 fa_i_misc;
