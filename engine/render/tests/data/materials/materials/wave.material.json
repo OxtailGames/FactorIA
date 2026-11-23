@@ -1,0 +1,8 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: vertex() slides every vertex along x by speed metres per second of game time (the motion vectors of the prepass read it with the time of the frame before).",
+  "shader": "shaders/wave.surface.glsl",
+  "params": {
+    "speed": { "type": "float", "default": 0.5, "doc": "Metres per second along x." }
+  }
+}

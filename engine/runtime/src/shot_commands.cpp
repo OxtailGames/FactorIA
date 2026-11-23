@@ -1386,7 +1386,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "`motionVectors` paints the per-pixel motion image the prepass "
          "writes for temporal antialiasing (the direction "
          "of the motion as a hue, its length as the brightness, black = still, grey = no mesh wrote a vector: the sky, "
-         "skinned meshes, particles, sprites); it turns that image on while it is shown. "
+         "particles, sprites, a skinned mesh of more than 32 joints); it turns that image on while it is shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
