@@ -5,6 +5,7 @@
 #include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
+#include "fa/scene/jitter.h"
 #include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
 #include "water2d.h"
@@ -700,13 +701,24 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             if (e.frame == postSerial) {
                 if (e.hadBefore) {
                     pp.prevViewProj = e.before;
+                    pp.prevJitteredViewProj = e.beforeJittered;
+                    pp.prevJitterPx = e.beforeJitterPx;
                     pp.prevValid = true;
                 }
             } else if (e.frame + 1 == postSerial && world.frame() >= e.worldFrame &&
                        world.frame() - e.worldFrame <= 8) {
                 pp.prevViewProj = e.viewProj;
+                pp.prevJitteredViewProj = e.jittered;
+                pp.prevJitterPx = e.jitterPx;
                 pp.prevValid = true;
             }
+        }
+        // The jitter this camera drew with (zero while it does not jitter) and, in NDC, of the frame before.
+        {
+            const Vec2 sizePx{float(std::max(ctx.camPx.w, 1)), float(std::max(ctx.camPx.h, 1))};
+            pp.jitterPx = fr.cam.jitterPx;
+            pp.jitterNdc = fr.cam.jitterNdc;
+            pp.prevJitterNdc = jitter_pixels_to_ndc(pp.prevJitterPx, sizePx.x, sizePx.y);
         }
         if (fr.cam.postStack)
             pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
@@ -714,8 +726,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             PrevCamera& now = prevViewProj[camKey];
             if (now.frame != postSerial) {  // the first job of the camera this frame
                 now.before = pp.prevViewProj;
+                now.beforeJittered = pp.prevJitteredViewProj;
+                now.beforeJitterPx = pp.prevJitterPx;
                 now.hadBefore = pp.prevValid;
                 now.viewProj = fr.cam.viewProj;
+                now.jittered = fr.cam.drawViewProj;
+                now.jitterPx = fr.cam.jitterPx;
                 now.frame = postSerial;
                 now.worldFrame = world.frame();
                 now.jobs = 0;
@@ -2134,7 +2150,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ctx.lightView = ctx.white->view;
     // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
     ctx.decalView = ctx.white->view;
-    copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
+    copy_mat(vuScene.fa_view_proj, fr.cam.drawViewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
     vuScene.fa_time[0] = float(world.time());
@@ -2163,7 +2179,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
     // subsurface draw reads the same view for its visibility test against the prepass.
     if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
-        const Mat4& vp = fr.cam.viewProj;
+        const Mat4& vp = fr.cam.drawViewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
             fuScene.fa_ct_vpx[c] = vp.at(c, 0);
@@ -2954,7 +2970,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
         sg_apply_bindings(&b);
         light_light_vs_params_t vu{};
-        copy_mat(vu.view_proj, fr.cam.viewProj);
+        copy_mat(vu.view_proj, fr.cam.drawViewProj);
         apply_uniforms(UB_light_light_vs_params, vu);
         light_light_fs_params_t fu{};
         fu.range[0] = 1.0f / gpu.light_range();
@@ -3180,7 +3196,7 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     pd.colorStore = SG_STOREACTION_STORE;
     gpu.begin_pass(pd);
     // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
-    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.drawViewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
                t.h);
     gpu.end_pass();
 }
@@ -4026,14 +4042,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // quad groups
         ctx.sceneCopy.live = sceneSplits;
-        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
+        draw_group(ctx, gWorld.batches, fr.cam.drawViewProj, fr.cam.perspective, camPx, litMode, nullptr,
                    ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
         ctx.sceneCopy.live = false;
-        draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
+        draw_group(ctx, gDebugWorld.batches, fr.cam.drawViewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
             quad_vs_params_t u{};
-            copy_mat(u.view_proj, fr.cam.viewProj);
+            copy_mat(u.view_proj, fr.cam.drawViewProj);
             u.cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_quad_vs_params, u);
             quad_quad_fs_params_t unlit{};

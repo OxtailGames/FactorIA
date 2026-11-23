@@ -36,6 +36,7 @@
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
+#include "fa/render/upscaler.h"
 #include "fa/scene/captions.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
@@ -254,6 +255,19 @@ public:
         renderScale_ = scale;
         return {};
     }
+    // The upscaler setting (`window.upscaler`, M76, docs/UPSCALING.md): how the picture drawn at a lower resolution reaches the screen.
+    // set_upscaler takes a partial object ({"mode", "quality", "sharpness"}: the keys present change, the rest stays) and returns ""
+    // when done, else the error sentence (what is wrong, the valid names, a "did you mean"); nothing changes on an error. It only
+    // stores and reports: the renderer draws every mode as "stretch" until the packages that draw the others land. Engine also hands
+    // the value to the renderer; the default keeps it for hosts without one.
+    virtual render::UpscalerSettings upscaler() const { return upscaler_; }
+    // `where` names the caller in the error ("window.upscaler" for a script, "render.upscaler" for the command).
+    virtual std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler") {
+        auto r = render::parse_upscaler_settings(value, where, upscaler_);
+        if (!r.ok()) return r.error().message + " Hint: " + r.error().hint;
+        upscaler_ = r.value();
+        return {};
+    }
     // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
     // "low"|"medium"|"high", steamDeck, handheld}. The default is what headless runs and tests report (fixed, so output never
     // depends on the machine): desktop, "headless", 8 GB, "high", not a Steam Deck, not handheld. steamDeck: the game runs on a
@@ -320,6 +334,7 @@ private:
     float textScale_ = 1.0f;
     float uiScale_ = 1.0f;
     double renderScale_ = 1.0;
+    render::UpscalerSettings upscaler_;
     Speech speech_;
     CaptionList captions_;
 };

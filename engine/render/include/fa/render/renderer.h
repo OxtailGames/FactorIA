@@ -38,6 +38,7 @@
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
@@ -343,6 +344,10 @@ public:
     // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
     void set_upscale_stage(bool on);
     bool upscale_stage() const;
+    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): kept and reported only. The renderer draws every mode as
+    // "stretch" until the packages that draw the others land (effective_upscaler_mode).
+    void set_upscaler(const render::UpscalerSettings& settings);
+    const render::UpscalerSettings& upscaler() const;
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();

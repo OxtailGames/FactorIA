@@ -33,6 +33,10 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"sunShafts", "half+depth",
      "Sun shafts: the bright sky scattered toward the sun (perspective cameras, half resolution)."},
     {"exposure", "", "Exposure, manual or automatic with an adaptation speed."},
+    {"temporalAA", "",
+     "Temporal antialiasing (M76): the camera is jittered by a sub-pixel amount and the frames are blended with the "
+     "history, clipped to the neighbours and reprojected with the motion vectors (or the camera's own motion where "
+     "there are none). Planned: not drawn yet."},
     {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
     {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
     {"radialBlur", "",
@@ -67,7 +71,8 @@ static_assert(effect_rows_in_order(),
               "kEffectRows: one row per effect, in the order (and with the name) of kPostEffectOrder");
 
 // The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof): every effect of kPostEffectOrder
-// today. An effect added to the order without a drawing pass is left out here and is listed as planned until it is drawn.
+// today but temporalAA (M76, drawn by P2). An effect added to the order without a drawing pass is left out here and is listed as
+// planned (effect_planned_in) until it is drawn.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
@@ -76,6 +81,9 @@ constexpr bool effect_drawn(PostEffect e) {
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
            e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
 }
+
+// The milestone an effect that is not drawn yet is planned for.
+constexpr const char* effect_planned_in(PostEffect e) { return e == PostEffect::TemporalAA ? "M76" : "M71"; }
 
 }  // namespace
 
@@ -366,11 +374,42 @@ std::vector<FeatureDef> build_table() {
         {"foliage", "",
          "Foliage: thousands of instances of a mesh drawn with instancing from a data file, with wind, LODs and a "
          "fade-out distance (the Foliage component, M75.6). Every backend.",
-         nullptr}};
-    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
+         nullptr},
+        // Temporal antialiasing and upscalers of M76 (docs/UPSCALING.md): planned "M76" until each package draws its row. The
+        // temporalAA effect has its own row below (the effects).
+        {"motionVectors", "half",
+         "A per-pixel motion image (RG16F at the render resolution: where each pixel was in the previous frame, from "
+         "unjittered matrices) written by the opaque meshes, the terrain, the foliage and the impostors, and read by "
+         "the temporal antialiasing and the temporal upscaler; where nothing wrote it the camera's own motion is "
+         "rebuilt from the depth. Planned (M76 P1a).",
+         "M76"},
+        {"spatialUpscaler", "",
+         "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
+         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "
+         "resolution. Needs no float targets, every backend. Planned (M76 P3b).",
+         "M76"},
+        {"temporalUpscaler", "half",
+         "The temporal upscaler (render.upscaler mode \"temporal\"): the jittered frames of a lower resolution are "
+         "accumulated into a picture of the output resolution (the temporal antialiasing as the resolve). A fragment "
+         "pass on every backend; without float targets the history is RGBA8, with a note in the log. Planned "
+         "(M76 P4).",
+         "M76"},
+        {"metalfx", "",
+         "MetalFX (render.upscaler mode \"metalfx\"): Apple's own spatial and temporal upscalers, on Metal "
+         "(macOS and iOS). Planned (M76 P5); elsewhere the mode \"auto\" picks \"temporal\" or \"spatial\".",
+         "M76"},
+        {"dynamicResolution", "",
+         "Dynamic resolution (render.upscaler with a frame-time target): the render scale follows the GPU time of the "
+         "last frames so the game keeps its frame rate, scaled up by the chosen upscaler. Planned (M76 P6b).",
+         "M76"}};
+    for (const Planned& p : kLighting) {
+        const bool appleOnly = std::string_view(p.name) == "metalfx";
+        t.push_back({p.name, FeatureKind::Engine, appleOnly ? bit(FeatureBackend::Metal) : kEveryGpu, p.needs,
+                     p.planned, p.doc});
+    }
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
-                     effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
+                     effect_drawn(PostEffect(i)) ? nullptr : effect_planned_in(PostEffect(i)), kEffectRows[i].doc});
     return t;
 }
 
