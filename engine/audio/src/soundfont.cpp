@@ -36,7 +36,18 @@ std::string sf2_problem(const std::vector<std::uint8_t>& file) {
     auto id_at = [&](std::uint64_t at, const char* four) { return std::memcmp(d + at, four, 4) == 0; };
     auto plausible_id = [&](std::uint64_t at) { return d[at] > ' ' && d[at] < 'z'; };
 
-    if (n < 12 || !id_at(0, "RIFF") || !id_at(8, "sfbk")) return {};
+    if (n < 12) return {};
+    // TinySoundFont takes any head whose (sub-)id is "sfbk": "RIFF" + size + "sfbk", but also "LIST" + size + "sfbk" and a bare
+    // "sfbk" + size chunk. Only the first is a SoundFont; the other two reached the loader without the index checks below.
+    if (!id_at(0, "RIFF")) {
+        if ((id_at(0, "LIST") && id_at(8, "sfbk")) || id_at(0, "sfbk"))
+            return "the file starts with a '" + std::string(reinterpret_cast<const char*>(d), 4) +
+                   "' chunk where a SoundFont starts with 'RIFF' + size + 'sfbk'";
+        return {};
+    }
+    if (!id_at(8, "sfbk")) return {};
+    // TinySoundFont subtracts the 4 bytes of the sub-id from the size without checking: a smaller size wraps around.
+    if (u32(4) < 4) return "its RIFF header gives a size smaller than the 'sfbk' id it holds";
     const std::uint64_t end = std::min<std::uint64_t>(n, 8 + std::uint64_t(u32(4)));
     static const char* const names[9] = {"phdr", "pbag", "pmod", "pgen", "inst", "ibag", "imod", "igen", "shdr"};
     static const std::uint32_t sizes[9] = {38, 4, 10, 4, 22, 4, 10, 4, 46};
@@ -49,12 +60,30 @@ std::string sf2_problem(const std::vector<std::uint8_t>& file) {
         const std::uint64_t size = u32(pos + 4), next = pos + 8 + size;
         if (next > end) return "a chunk of the file runs past its end";
         if (id_at(pos, "RIFF")) break;
-        if (id_at(pos, "LIST") && size >= 4 && id_at(pos + 8, "pdta")) {
+        // A list's size counts its 4-byte sub-id; TinySoundFont subtracts it without checking, so a smaller size wraps around and
+        // the list's children are read from past its end.
+        if (id_at(pos, "LIST") && size < 4)
+            return "a 'LIST' chunk at byte " + std::to_string(pos) + " gives a size smaller than its 4-byte id";
+        const bool pdta = id_at(pos, "LIST") && id_at(pos + 8, "pdta");
+        const bool sdta = id_at(pos, "LIST") && id_at(pos + 8, "sdta");
+        if (pdta || sdta) {
+            const char* list = pdta ? "pdta" : "sdta";
             for (std::uint64_t p = pos + 12; p < next;) {
-                if (p + 8 > next || !plausible_id(p)) return "the 'pdta' list of the file is cut short";
+                if (p + 8 > next || !plausible_id(p)) {
+                    // TinySoundFont stops reading the list there. Sample data may end with a pad byte (an odd 'sm24' chunk).
+                    if (sdta) break;
+                    return "the 'pdta' list of the file is cut short";
+                }
+                // TinySoundFont reads a nested list's sub-id as the child's name (a "LIST" + "pbag" child would be read as the
+                // 'pbag' table, 4 bytes off) and stops at a nested "RIFF". Neither is in a valid SoundFont.
+                if (id_at(p, "LIST") || id_at(p, "RIFF"))
+                    return "the '" + std::string(list) + "' list holds a nested '" +
+                           std::string(reinterpret_cast<const char*>(d + p), 4) + "' chunk at byte " +
+                           std::to_string(p) + "; its children are plain chunks";
                 const std::uint64_t inner = u32(p + 4), innerNext = p + 8 + inner;
-                if (innerNext > next) return "a table of the 'pdta' list runs past the end of the list";
-                for (int t = 0; t < 9; ++t) {
+                if (innerNext > next)
+                    return "a chunk of the '" + std::string(list) + "' list runs past the end of the list";
+                for (int t = 0; pdta && t < 9; ++t) {
                     if (!id_at(p, names[t])) continue;
                     // TinySoundFont allocates a table every time it meets one and frees only the last: a repeated
                     // table would leak, and no valid SoundFont has one.

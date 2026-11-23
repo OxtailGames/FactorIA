@@ -668,3 +668,22 @@ TEST_CASE("decode_ktx2: a damaged, truncated or lying file is an error, never a 
     REQUIRE_FALSE(unequal.ok());
     CHECK(unequal.error().message.find("mip level 0") != std::string::npos);
 }
+
+TEST_CASE(
+    "decode_ktx2: an ETC1S Huffman table that would read past its tree is refused before the transcoder uses it") {
+    // The weekly fuzz run's input: the endpoints stream of the ETC1S global data holds a Huffman table with one symbol whose
+    // code is longer than the transcoder's 10-bit fast lookup. basisu accepts the incomplete one-symbol code, grows its tree
+    // only to the last node it writes, and decode_huffman then read the missing sibling past the end of the tree.
+    std::ifstream in(stdfs::path(FA_REPO_ROOT) / "tools/fuzz/corpus/ktx2/etc1s_single_symbol_long_code.ktx2",
+                     std::ios::binary);
+    REQUIRE(in.good());
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto refused = decode_ktx2(bytes.data(), bytes.size());
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().message.find("Huffman table") != std::string::npos);
+    CHECK_FALSE(refused.error().hint.empty());
+
+    // The tables of a real ETC1S file pass the same check.
+    const std::vector<std::uint8_t> etc1s = read_fixture("etc1s_16x16.ktx2");
+    CHECK(decode_ktx2(etc1s.data(), etc1s.size()).ok());
+}

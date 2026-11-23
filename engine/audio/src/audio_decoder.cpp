@@ -1,6 +1,8 @@
 #include "audio_decoder.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -74,37 +76,8 @@ private:
 // stb_vorbis reads the lengths in the comment header (the second packet of the stream: vendor string, then the comments) as
 // signed ints and sizes a buffer from each: a length of -1 allocates nothing and is then written to at index -1, a huge one
 // loops for billions of steps. So the comment packet is assembled from its Ogg pages and every length is checked against what
-// the packet holds before stb_vorbis sees the file. Anything else stb_vorbis finds wrong with the file it reports itself.
-bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
-    constexpr std::size_t kMaxPacket = std::size_t(16) << 20;
-    std::vector<std::uint8_t> packet;
-    std::size_t pos = 0;
-    int index = 0;  // 0 = identification header, 1 = comment header
-    bool done = false;
-    while (!done) {
-        if (pos + 27 > n || std::memcmp(d + pos, "OggS", 4) != 0)
-            return index == 0;  // not Ogg at all: stb_vorbis says so; the file ends before the comments: damaged
-        const std::size_t segments = d[pos + 26];
-        if (pos + 27 + segments > n) return false;
-        std::size_t at = pos + 27 + segments;
-        for (std::size_t i = 0; i < segments && !done; ++i) {
-            const std::size_t lace = d[pos + 27 + i];
-            if (at + lace > n) return false;  // the file ends inside the packet
-            if (index == 1) {
-                packet.insert(packet.end(), d + at, d + at + lace);
-                if (packet.size() > kMaxPacket) {
-                    *tooBig = true;  // not damaged: more than the engine reads
-                    return false;
-                }
-            }
-            at += lace;
-            if (lace < 255) {
-                if (index == 1) done = true;
-                ++index;
-            }
-        }
-        pos = at;
-    }
+// the packet holds before stb_vorbis sees the file.
+bool comments_fit(const std::vector<std::uint8_t>& packet) {
     auto u32 = [&](std::size_t from) {
         return std::uint64_t(packet[from]) | std::uint64_t(packet[from + 1]) << 8 |
                std::uint64_t(packet[from + 2]) << 16 | std::uint64_t(packet[from + 3]) << 24;
@@ -129,13 +102,148 @@ bool vorbis_comments_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
     return true;
 }
 
+// The bits of a Vorbis packet, least significant first (Vorbis I spec, 2.1.4), the way stb_vorbis reads them; reading past the
+// end sets `eof` instead of returning zeros the way stb_vorbis does.
+struct VorbisBits {
+    const std::vector<std::uint8_t>& packet;
+    std::uint64_t bit = 0;
+    bool eof = false;
+    std::uint32_t get(int n) {
+        if (eof || bit + std::uint64_t(n) > std::uint64_t(packet.size()) * 8) {
+            eof = true;
+            return 0;
+        }
+        std::uint32_t v = 0;
+        for (int i = 0; i < n; ++i, ++bit) v |= std::uint32_t((packet[bit >> 3] >> (bit & 7)) & 1) << i;
+        return v;
+    }
+    bool skip(std::uint64_t n) {
+        if (eof || bit + n > std::uint64_t(packet.size()) * 8) return !(eof = true);
+        bit += n;
+        return true;
+    }
+};
+
+int vorbis_ilog(std::uint32_t v) {  // the number of bits of v (Vorbis I spec, 9.2.1): 0 -> 0, 1 -> 1, 7 -> 3
+    int bits = 0;
+    for (; v; v >>= 1) ++bits;
+    return bits;
+}
+
+// stb_vorbis's lookup1_values (C, so log, exp and pow take and return double), step for step, so the walk below skips the same
+// number of bits stb_vorbis reads. stb_vorbis casts r^dim and (r + 1)^dim to int: past the int range that cast is undefined and
+// its result differs between x86 and ARM, so such a codebook is refused (-1) instead of guessed. The spec keeps r^dim at most the
+// entry count (under 2^24); (r + 1)^dim past 2^31 takes 30-odd dimensions, which no encoder writes.
+int vorbis_lookup1_values(int entries, int dim) {
+    constexpr double kIntRange = 2147483648.0;
+    auto power = [&](float base) { return std::pow(double(base), double(dim)); };
+    int r = int(std::floor(std::exp(double(float(std::log(double(float(entries)))) / float(dim)))));
+    const double first = power(float(r) + 1.0f);
+    if (!(first < kIntRange)) return -1;
+    if (int(std::floor(first)) <= entries) ++r;
+    if (power(float(r) + 1.0f) <= double(entries)) return -1;
+    const double last = power(float(r));
+    if (!(last < kIntRange) || int(std::floor(last)) > entries) return -1;
+    return r;
+}
+
+// stb_vorbis sizes the tables of every codebook in the setup header (the third packet) from its entry and dimension counts
+// with int arithmetic and no limit: entries * dimensions overflows into a negative size that becomes a 16-exabyte request, and
+// its bit reader returns zeros past the end of the packet, so a tiny file can make it allocate and fill gigabytes. The walk
+// follows the codebooks the way stb_vorbis reads them and refuses what libvorbis refuses (ilog(dimensions) + ilog(entries) over
+// 24 bits, a lookup type over 2, a packet that ends inside its codebooks), plus more codebook entries than any encoder writes.
+bool codebooks_fit(const std::vector<std::uint8_t>& packet) {
+    if (packet.size() < 7 || packet[0] != 5 || std::memcmp(packet.data() + 1, "vorbis", 6) != 0)
+        return true;  // stb_vorbis refuses it
+    constexpr std::uint64_t kMaxEntries = std::uint64_t(1)
+                                          << 22;  // over all codebooks; libvorbis encodes under 100 000
+    VorbisBits bits{packet, 7 * 8};
+    std::uint64_t entriesInAll = 0, valuesInAll = 0;
+    const std::uint32_t count = bits.get(8) + 1;
+    for (std::uint32_t i = 0; i < count; ++i) {
+        if (bits.get(24) != 0x564342) return false;  // "BCV"
+        const std::uint32_t dimensions = bits.get(16), entries = bits.get(24);
+        const bool ordered = bits.get(1) != 0;
+        const bool sparse = !ordered && bits.get(1) != 0;
+        if (bits.eof || (dimensions == 0 && entries != 0)) return false;
+        if (vorbis_ilog(dimensions) + vorbis_ilog(entries) > 24) return false;
+        entriesInAll += entries;
+        if (entriesInAll > kMaxEntries) return false;
+        if (ordered) {
+            std::uint32_t current = 0, length = bits.get(5) + 1;
+            while (current < entries) {
+                const std::uint32_t run = bits.get(vorbis_ilog(entries - current));
+                if (bits.eof || length >= 32 || run > entries - current) return false;
+                current += run;
+                ++length;
+            }
+        } else {
+            for (std::uint32_t e = 0; e < entries; ++e)
+                if ((!sparse || bits.get(1)) && bits.get(5) + 1 == 32) return false;
+        }
+        const std::uint32_t lookup = bits.get(4);
+        if (bits.eof || lookup > 2) return false;
+        if (lookup == 0) continue;
+        bits.get(32);  // minimum value
+        bits.get(32);  // delta value
+        const std::uint32_t valueBits = bits.get(4) + 1;
+        bits.get(1);  // sequence_p
+        std::uint64_t values = 0;
+        if (lookup == 1) {
+            const int v = entries ? vorbis_lookup1_values(int(entries), int(dimensions)) : -1;
+            if (v <= 0) return false;
+            values = std::uint64_t(v);
+        } else {
+            values = std::uint64_t(entries) * dimensions;  // under 2^24: the ilog check above
+        }
+        valuesInAll += values;
+        if (values == 0 || valuesInAll > kMaxEntries || !bits.skip(values * valueBits)) return false;
+    }
+    return !bits.eof;
+}
+
+// Assembles the comment and setup packets (the second and third of the stream) from their Ogg pages and checks both before
+// stb_vorbis sees the file. Anything else stb_vorbis finds wrong with the file it reports itself.
+bool vorbis_headers_fit(const std::uint8_t* d, std::size_t n, bool* tooBig) {
+    constexpr std::size_t kMaxPacket = std::size_t(16) << 20;
+    std::vector<std::uint8_t> packets[3];  // identification (not kept), comment, setup
+    std::size_t pos = 0;
+    int index = 0;
+    while (index < 3) {
+        if (pos + 27 > n || std::memcmp(d + pos, "OggS", 4) != 0)
+            return index == 0;  // not Ogg at all: stb_vorbis says so; the file ends before the setup header: damaged
+        const std::size_t segments = d[pos + 26];
+        if (pos + 27 + segments > n) return false;
+        std::size_t at = pos + 27 + segments;
+        for (std::size_t i = 0; i < segments && index < 3; ++i) {
+            const std::size_t lace = d[pos + 27 + i];
+            if (at + lace > n) return false;  // the file ends inside the packet
+            if (index > 0) {
+                std::vector<std::uint8_t>& packet = packets[index];
+                packet.insert(packet.end(), d + at, d + at + lace);
+                if (packet.size() > kMaxPacket) {
+                    *tooBig = index == 1;  // big comments are not damage: more than the engine reads
+                    return false;
+                }
+            }
+            at += lace;
+            if (lace < 255) {
+                if (index == 1 && !comments_fit(packets[1])) return false;
+                ++index;
+            }
+        }
+        pos = at;
+    }
+    return codebooks_fit(packets[2]);
+}
+
 class OggDecoder final : public Decoder {
 public:
     ~OggDecoder() override {
         if (v_) fa_vorbis_close(v_);
     }
     bool open(const std::uint8_t* data, std::size_t size) {
-        if (size > 0x7fffffff || !vorbis_comments_fit(data, size, &commentsTooBig_)) return false;
+        if (size > 0x7fffffff || !vorbis_headers_fit(data, size, &commentsTooBig_)) return false;
         unsigned int frames = 0;
         v_ = fa_vorbis_open(data, int(size), &channels_, &rate_, &frames);
         frames_ = frames;
