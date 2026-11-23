@@ -693,7 +693,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 // and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"motionVectors", "spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
+    for (const char* name : {"spatialUpscaler", "temporalUpscaler", "metalfx", "dynamicResolution"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -704,6 +704,12 @@ TEST_CASE("features: the upscaling rows of M76 are planned, metalfx only on Meta
         CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
         CHECK(why == "planned (M76)");
     }
+    // The motion vectors are drawn since M76-P1a (the prepass writes them for a consumer: the debug view, the temporal antialiasing).
+    const int mv = find_feature("motionVectors");
+    REQUIRE(mv >= 0);
+    CHECK(feature_table()[std::size_t(mv)].kind == FeatureKind::Engine);
+    CHECK(feature_table()[std::size_t(mv)].planned == nullptr);
+    CHECK(supported(full, "motionVectors"));
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
     CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
