@@ -134,3 +134,40 @@ each.
   multiplying one to 1). `shafts-rays` makes the half resolution rays and `shafts-add` adds them; they run after the SSR passes and
   before the depth of field, on the same destination as the bloom. A camera with only fog forces no `hudAfterBloom`: only shafts, SSR,
   depth of field and motion blur do, because they work on the picture after the main pass.
+
+## Motion vectors and jitter (M76)
+
+M76 adds temporal antialiasing and the open upscalers. The shared part lands first and draws nothing: the jitter of the
+projection, the velocity contract the temporal passes read, and the data they keep from one frame to the next.
+
+- **Jitter (`include/fa/scene/jitter.h`, `src/jitter.cpp`).** `jitter_offset_pixels(frame, phases)` is the Halton(2,3)
+  point number `frame % phases + 1`, minus 0.5, in pixels of the **render** resolution (x to the right, y down; `phases` is
+  8 by default and clamped to 1..16, `kJitterPhasesDefault`, `kJitterPhasesMax`). It depends on the frame index only
+  (`postSerial`, the game frames counted by the renderer), never on a clock, so a replay jitters the same way.
+  `jitter_pixels_to_ndc` turns it into the clip-space shift `(2 jx / W, -2 jy / H)`.
+- **Which matrices are jittered.** `CameraGeometry` (`camera_geometry.h`) keeps `proj`, `viewProj` and `invViewProj` **unjittered**
+  and adds `drawProj` and `drawViewProj` (= the unjittered ones until `apply_jitter` runs). Only the draw sites use the drawn
+  ones: the `fa_view_proj` uniform of the mesh programs, the contact shadows, the light volumes, the world's quad batches, the
+  debug lines. Everything that asks a question about the world stays unjittered: culling, picking, `world_to_screen`, the
+  `query*` matrices, the cluster grid, the Hi-Z pyramid and occlusion, the terrain and foliage culling, and the inverse view
+  projection of the sky and the HDRI (they are fullscreen passes: a jitter there would shift the sky against the meshes, the
+  temporal passes undo it with the drawn matrices).
+- **When the renderer jitters (`Impl::jitter_phases`).** Only when the camera's stack has `TemporalAA` on **and** the effect
+  is drawable (`post_drawn_mask`; today it never is), or when a test forces it with `RendererTestAccess::force_jitter(r, phases)`
+  (0 returns to the rule); `RendererTestAccess::last_jitter` reads what each camera of the last frame used. Without jitter the
+  drawn matrices are the unjittered ones, bit for bit, and the frame is the one of M75.
+- **What a camera keeps (`PrevCamera`).** The previous frame's `prevViewProj` (unjittered), `jittered` (viewProj with the jitter of
+  that frame) and `jitterPx`, and the same three of the frame before (`before*`). `origin_shifted` multiplies the matrices of both
+  by the same shift as `prevViewProj`, so a floating-origin move does not read as motion. `PostPlan` carries them as
+  `prevJitteredViewProj`, `jitterPx`, `jitterNdc`, `prevJitterPx`, `prevJitterNdc`.
+- **The velocity contract (`VelocityRef` in `src/postprocess.h`, no pass yet).** An optional RG16F image at the render
+  resolution, `PostPlan::velocity`. Each texel holds `uvPrev - uvCurr` in UV units (so `uvPrev = uvCurr + velocity`),
+  computed from the **unjittered** current and previous matrices (`uvCurr` is the texel without jitter). The sentinel
+  `VelocityRef::kNone` (1024, outside the half range of any real motion; `is_none` is true for it, for NaN and for a
+  magnitude of 512 or more) means "no object wrote here: reproject from the depth with the camera's matrices". Motion
+  above `kMaxMotion` (4 UV) is not trusted by the temporal passes. The image is optional: a pass that finds none
+  reprojects every texel from the depth, which is right for everything static.
+- **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are stored and reported only;
+  `effective_upscaler_mode` is the one place that will say which mode draws (today always `stretch`). `render.supports`
+  has the rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is
+  the row of the effect itself (`PostEffect::TemporalAA`, planned M76), not a second engine row.

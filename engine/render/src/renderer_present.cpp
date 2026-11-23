@@ -175,6 +175,8 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.proj = Mat4::ortho(-ci.halfW, ci.halfW, -ci.halfH, ci.halfH, -1000.0f, 1000.0f, im.gpu.depth_zero_to_one());
     ci.viewProj = ci.proj * ci.view;
     ci.invViewProj = ci.viewProj.inverse();
+    ci.drawProj = ci.proj;  // never jittered (M76)
+    ci.drawViewProj = ci.viewProj;
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};

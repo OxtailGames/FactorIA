@@ -5,6 +5,7 @@
 #include "scene2d.h"
 #include "render_features.h"
 #include "render_scene.h"
+#include "fa/scene/jitter.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -108,6 +109,15 @@ void DebugDraw::clear() {
     impl_->texts.clear();
 }
 
+// The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on and the renderer draws that
+// effect (post_drawn_mask: none yet), or a test / pass forced it (jitterForce).
+int Renderer::Impl::jitter_phases(const CameraInfo& ci) const {
+    if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
+    const bool on = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
+                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0;
+    return on ? kJitterPhasesDefault : 0;
+}
+
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget,
                                         bool blended) {
     CameraTarget target;
@@ -137,6 +147,13 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
         if (stack->any()) ci.postStack = std::move(stack);
+    }
+    // The sub-pixel jitter of the temporal passes, on the DRAWN matrices only (CameraGeometry::apply_jitter): the frame index is the count of
+    // the game's frames, so a run draws the same jitter on every machine. The size is the camera's image in render pixels.
+    if (const int phases = jitter_phases(ci); phases > 0) {
+        const float wPx = viewSize ? viewSize->x : float(physW) * ci.viewport.w;
+        const float hPx = viewSize ? viewSize->y : float(physH) * ci.viewport.h;
+        ci.apply_jitter(jitter_offset_pixels(postSerial, phases), wPx, hPx);
     }
     // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
     // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
@@ -489,6 +506,8 @@ void Renderer::set_render_scale(float scale) {
     impl_->shadowTargetFailed = false;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
+void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
+const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -1029,6 +1048,23 @@ bool RendererTestAccess::prev_view_proj(Renderer& r, Entity camera, Mat4& out) {
     if (it == r.impl_->prevViewProj.end()) return false;
     out = it->second.viewProj;
     return true;
+}
+bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittered, Vec2& jitterPx) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->prevViewProj.find(camera.bits());
+    if (it == r.impl_->prevViewProj.end()) return false;
+    jittered = it->second.jittered;
+    jitterPx = it->second.jitterPx;
+    return true;
+}
+void RendererTestAccess::force_jitter(Renderer& r, int phases) {
+    if (r.impl_) r.impl_->jitterForce = std::max(phases, 0);
+}
+std::vector<Vec2> RendererTestAccess::last_jitter(Renderer& r) {
+    std::vector<Vec2> out;
+    if (r.impl_)
+        for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.jitterPx);
+    return out;
 }
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;

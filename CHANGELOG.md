@@ -6,6 +6,21 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ## Unreleased
 
+### Temporal antialiasing and open upscalers: the shared API (M76)
+
+- New effect `PostEffect::TemporalAA` (`PostProcess.temporalAAEnabled`, `temporalAAFeedback`, `temporalAASharpen`,
+  `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It does not draw yet:
+  `render.supports` says `planned (M76)`.
+- New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
+  `render.upscaler` and `window.upscaler` in scripts. They are stored and reported; the effective mode is always `stretch`
+  until the upscalers land (docs/UPSCALING.md).
+- New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): they answer `not_built`.
+- New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
+  (planned M76).
+- Renderer: the projection of the drawn picture can be jittered (Halton 2,3, 8 phases) and keeps the previous frame's
+  jittered matrices; culling, picking and every query use the unjittered ones. Nothing jitters while no effect needs it,
+  so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_POST.md.
+
 ## 0.35.2
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at

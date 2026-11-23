@@ -63,6 +63,14 @@ struct RendererTestAccess {
     static int hiz_cameras(Renderer& r);
     // The view-projection the renderer keeps of `camera`'s last frame (what motion blur reprojects from); false when it keeps none.
     static bool prev_view_proj(Renderer& r, Entity camera, Mat4& out);
+    // M76: the jittered view-projection and the jitter in render pixels the renderer keeps of `camera`'s last frame (what the temporal
+    // passes resolve their history with); false when it keeps none.
+    static bool prev_jittered(Renderer& r, Entity camera, Mat4& jittered, Vec2& jitterPx);
+    // M76: jitter every camera with `phases` (0 = back to the rule: only a stack with TemporalAA on that the renderer draws), so a test
+    // or the pass that turns TemporalAA on can run the jitter before the effect is drawn.
+    static void force_jitter(Renderer& r, int phases);
+    // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
+    static std::vector<Vec2> last_jitter(Renderer& r);
     static int ldr_cut_format(Renderer& r);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
