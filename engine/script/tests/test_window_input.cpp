@@ -538,7 +538,7 @@ test("render scale is remembered, bad values teach", () => {
   expect(window.renderScale).toBe(1);
   window.renderScale = 0.75;
   expect(window.renderScale).toBe(0.75);
-  expect(() => { window.renderScale = 0.4; }).toThrow("window.renderScale expects a number from 0.5 to 1");
+  expect(() => { window.renderScale = 0.3; }).toThrow("window.renderScale expects a number from 0.33 to 1");
   expect(() => { window.renderScale = NaN; }).toThrow("window.renderScale expects");
 });
 test("render scale is back at 1 in the next test", () => {

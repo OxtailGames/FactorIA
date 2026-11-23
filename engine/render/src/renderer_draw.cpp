@@ -91,6 +91,9 @@ struct Renderer::Impl::DrawContext {
     // hudAfterBloom: the screen-space items are drawn over the glowing game target (PostProcess.bloomScreenSpace false, no final pass).
     // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
     bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
+    // M76-P3a: the upscale stage draws the screen-space items after it, at the output size (hud-over-upscale), not into the game image.
+    // hudDisplay: the final pass ran, so the picture holds display values and the items are drawn as in hudAfterPost.
+    bool hudOut = false, hudDisplay = false;
     PostPlan
         postPlan;  // the post-processing stack of this job's camera (empty for the screen-only job and the view jobs)
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
@@ -922,7 +925,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
     bool frameFinal = false;  // some camera of the frame runs a final pass
     for (const DrawContext* c : postCams) frameFinal = frameFinal || c->postPlan.final_pass();
-    if (plan.last && !plan.view && frameFinal && fr.wantScreen &&
+    // With the upscale stage (M76-P3a) they are drawn after it instead, over the upscaled picture at the output size, so the glyphs
+    // and the edges stay sharp when the game is drawn below that size; hudAfterBloom and hudAfterPost keep their meaning for the
+    // effects (the bloom, the reflections and the like still do not reach them) but the items are not in the game image.
+    if (plan.last && !plan.view && fr.wantScreen && upscale_active() &&
+        (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) &&
+        ensure_output_target(outTarget, "output", frameFinal ? gpu.display_format() : gameTarget.format.color, true)) {
+        ctx.hudOut = true;
+        ctx.hudDisplay = frameFinal;
+    }
+    if (plan.last && !plan.view && frameFinal && fr.wantScreen && !ctx.hudOut &&
         (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
         ctx.hudAfterPost = true;
         ctx.hudAfterBloom =
@@ -3744,7 +3756,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
+    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost && !ctx.hudOut;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
         ctx.fuScene.fa_env_sky[3] = 0.0f;
@@ -4052,15 +4064,32 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 // Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
 // build_graph when there is something to draw.
 void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* label) {
-    const bool msaa = ctx.msaa;
-    const Px& fullPx = ctx.fullPx;
+    const bool msaa = into.samples > 1;
+    // At the output size (the upscale stage, M76-P3a) the items are clipped and rasterized at scale 1 over a picture of the design size.
+    const bool atOutput = ctx.hudOut;
+    struct SizeScope {
+        Impl& im;
+        int w, h;
+        float scale;
+        ~SizeScope() {
+            im.physW = w;
+            im.physH = h;
+            im.renderScale = scale;
+        }
+    } sizes{*this, physW, physH, renderScale};
+    if (atOutput) {
+        physW = into.w;
+        physH = into.h;
+        renderScale = 1.0f;
+    }
+    const Px fullPx = atOutput ? Px{0, 0, into.w, into.h} : ctx.fullPx;
     const Mat4& screenProj = ctx.screenProj;
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
     // The items go over the final picture, which holds display (sRGB) values: they are drawn as in a gamma scene, whatever the colour space.
     const bool saveLinear = ctx.fr.linear;
     const bool saveOver = ctx.fr.displayOverLinear;
-    if (ctx.hudAfterPost) {
+    if (ctx.hudAfterPost || ctx.hudDisplay) {
         ctx.fr.displayOverLinear = saveLinear;
         ctx.fr.linear = false;
     }
@@ -4071,8 +4100,10 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     hp.clearDepth = 1.0f;
     hp.stencilLoad = SG_LOADACTION_CLEAR;
     gpu.begin_pass(hp);
-    draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
-    draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
+    const TargetFormat* format =
+        atOutput ? &into.format : nullptr;  // the output image is not multisampled: its own pipelines
+    draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0, format);
+    draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0, format);
     gpu.end_pass();
     ctx.fr.linear = saveLinear;
     ctx.fr.displayOverLinear = saveOver;
@@ -4344,7 +4375,39 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // ---- the post-processing stack of the frame (postprocess.h): bloom -> the final pass of every camera -> the HUD -> the colour filter ----
     filterActive = false;
     hudActive = false;
+    outActive = false;
+    outFilterActive = false;
     finalEncoded = false;
+    // The upscale stage (M76-P3a, render_upscale.h): the finished picture of the render resolution (`srcRes`, held by `srcTarget`) is
+    // brought to the output size, the screen-space items are drawn over it there (hud-over-upscale), and the colour filter, which
+    // must reach them, runs after. Nothing is declared (and no image made) unless Renderer::set_upscale_stage is on and the game
+    // is drawn below the output size.
+    auto finish_output = [&](ResourceId srcRes, const Target* srcTarget, const PostPlan* filterPlan) {
+        if (!upscale_active() || plan.view) return;
+        if (!ensure_output_target(outTarget, "output", srcTarget->format.color, ctx.hudOut)) {
+            ctx.hudOut = false;  // the items stay where they were drawn (nowhere, this frame): the error was logged
+            return;
+        }
+        const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
+                                                      import_desc(targetW, targetH, outTarget.format, "output"));
+        add("upscale", {srcRes}, {outRes}, [this](const PassContext&) { run_upscale(outTarget); });
+        if (!ctx.hudOut) return;
+        std::vector<ResourceId> reads{outRes};
+        reads.insert(reads.end(), shown.begin(), shown.end());
+        add("hud-over-upscale", std::move(reads), {outRes},
+            [this, &ctx](const PassContext&) { hud_pass(ctx, outTarget, "output-hud"); });
+        if (filterPlan && filterPlan->colorFilter != 0 &&
+            ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false)) {
+            const ResourceId filtered =
+                graph.import_target("output-filtered", outFilterTarget.color.id,
+                                    import_desc(targetW, targetH, outFilterTarget.format, "output-filtered"));
+            add("output-color-filter", {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
+                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, assets->white()->view, sg_view{},
+                          outFilterTarget, "color-filter", false);
+                outFilterActive = true;
+            });
+        }
+    };
     for (auto it = autoExposures.begin(); it != autoExposures.end();) {
         if (it->second.frame + 1 < postSerial) {  // its camera has not asked for two frames
             if (it->second.exposure) it->second.exposure->release();
@@ -4353,7 +4416,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             ++it;
         }
     }
-    if (postCams.empty()) return;  // no camera drew a pixel
+    if (postCams.empty()) {  // no camera drew a pixel
+        finish_output(game, &gameTarget, nullptr);
+        return;
+    }
     for (DrawContext* c : postCams)
         if (c->postPlan.fx.outline && !c->postPlan.outline_source().valid())
             c->postPlan.skip_outline();  // no image to read
@@ -4456,7 +4522,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     custom_slot(PostSlot::AfterBloom);
     const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
-    if (ctx.hudAfterBloom && hudItems) {
+    if (ctx.hudAfterBloom && hudItems && !ctx.hudOut) {
         std::vector<ResourceId> reads{game};
         reads.insert(reads.end(), shown.begin(), shown.end());
         add("hud-over-bloom", std::move(reads), {game},
@@ -4466,6 +4532,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // in between) in one pass over the camera's rectangle.
     bool anyFinal = false;
     for (const DrawContext* c : postCams) anyFinal = anyFinal || c->postPlan.final_pass();
+    ResourceId finishRes = game;  // the picture the upscale stage reads: the last pass below that wrote it
+    const Target* finishTarget = &gameTarget;
     if (anyFinal && (ctx.hudAfterPost || ensure_filter_target())) {
         const bool hud = ctx.hudAfterPost;
         const ResourceId dest =
@@ -4475,7 +4543,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                                       import_desc(physW, physH, filterTarget.format, "game-filtered"));
         // The colour filter works on what the screen shows, the interface included: with the interface over the picture it is a pass of
         // its own after it, else it is part of each final pass.
-        const int filter = hud ? 0 : pp.colorFilter;
+        const int filter =
+            hud || ctx.hudOut ? 0 : pp.colorFilter;  // with hudOut the filter runs after the items, at the output size
+        finishRes = dest;
+        finishTarget = hud ? &hudTarget : &filterTarget;
         // The rectangles of the cameras with a final pass. When they tile the picture every pixel is written by one of them; else a first
         // pass with the plan of an empty stack (the encode of a linear scene, a copy of a gamma one, the colour filter) fills the picture and
         // the cameras draw over it. A camera without a stack that draws over one with a stack gets that plain pass over its own rectangle
@@ -4643,9 +4714,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                               filterTarget, "color-filter", false);
                     filterActive = true;
                 });
+                finishRes = filtered;
+                finishTarget = &filterTarget;
             }
         }
-    } else if (pp.colorFilter != 0 && ensure_filter_target()) {
+    } else if (pp.colorFilter != 0 && !ctx.hudOut && ensure_filter_target()) {
         // Only the colour filter (PostProcess.colorFilterEnabled / colorFilterMode): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
@@ -4654,7 +4727,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                       filterTarget, "color-filter", false);
             filterActive = true;
         });
+        finishRes = filtered;
+        finishTarget = &filterTarget;
     }
+    finish_output(finishRes, finishTarget, &pp);
 }
 
 }  // namespace fa

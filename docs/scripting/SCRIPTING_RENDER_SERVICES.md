@@ -17,7 +17,7 @@ and `Button.icon` (docs.components).
   that frame, so a group rebuilt in one frame (the old one destroyed, the new one spawned) shows only the new one in the
   next capture. In a
   test, before any frame was drawn and in headless runs it draws the current state first, like `game.screenshot`. A capture
-  the size of the game (`game.screenSize` times `window.renderScale`) has exactly the pixels of a screenshot of that frame.
+  the size of the game (`game.screenSize`) has exactly the pixels of a screenshot of that frame.
   The frame is read back from the GPU (Metal, OpenGL / GLES, Direct3D 11, WebGL2) and resampled on the CPU.
 - A run with `graphics` off has no renderer: the texture is a flat colour of the size asked and `texture.placeholder` is
   `true`. Check it before you store the picture if a flat square would mislead the player.
