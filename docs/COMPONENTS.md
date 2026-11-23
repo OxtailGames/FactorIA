@@ -1487,7 +1487,7 @@ A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, c
 | `bloomThreshold` | float | `0.7` | Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1. Range 0.0..20.0. |
 | `bloomKnee` | float | `0.5` | Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp). Range 0.0..1.0. |
 | `bloomRadius` | float | `20.0` | Only used when bloomEnabled. How far the glow reaches, in design pixels (1..128). Range 1.0..128.0. |
-| `bloomScreenSpace` | bool | `true` | Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says. |
+| `bloomScreenSpace` | bool | `true` | Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says. With window.renderScale below 1 the HUD is drawn after the scale-up, sharp at the window size, only when it would not glow or be changed by the post stack anyway (this false, or no bloom, or a final pass); with this true and a bloom the HUD stays in the smaller game picture, glow included, and is scaled up with it. |
 | `bloomLensDirt` | asset (texture) | `""` | Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. |
 | `bloomLensDirtIntensity` | float | `1.0` | Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10. Range 0.0..10.0. |
 | `colorGradingEnabled` | bool | `false` | Switches the colour grading on: white balance, lift/gamma/gain, contrast, saturation, hue shift and a .cube LUT, applied to the display picture (what the screen shows) in that order, without clipping above white. Cost: part of the final pass. |
@@ -14235,7 +14235,7 @@ declare module "factoria" {
      */
     frameCap: number;
     /**
-     * Resolution of the picture as a fraction of the window, from 0.33 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. The HUD and the UI (screen-space Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up, at the window size, so they stay sharp. Works in every run with a renderer, headless tests included (game.screenshot is then the full size picture, HUD included, and game.renderStats().width and height are the smaller size the game is drawn at); a run without graphics only remembers the value. A number outside 0.33 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
+     * Resolution of the picture as a fraction of the window, from 0.33 to 1 (default 1). 0.5 draws a quarter of the pixels and scales the picture up: the cheapest graphics option on a weak phone. The HUD and the UI (screen-space Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up, at the window size, so they stay sharp, unless the camera's PostProcess has a bloom with bloomScreenSpace true (the default) and no final pass (tonemap, exposure, grading...): then the HUD glows, so it stays in the smaller picture and is scaled up with it. Set bloomScreenSpace to false (or use no bloom) for a sharp HUD. Works in every run with a renderer, headless tests included (game.screenshot is then the full size picture, HUD included, and game.renderStats().width and height are the smaller size the game is drawn at); a run without graphics only remembers the value. A number outside 0.33 - 1 throws. The engine saves nothing: keep the player's choice with storage.set(). Example: window.renderScale = game.device.tier === "low" ? 0.6 : 1.
      * @since 0.3.0
      */
     renderScale: number;
@@ -22898,7 +22898,7 @@ declare module "factoria" {
      */
     bloomRadius: number;
     /**
-     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says.
+     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is drawn after it and never glows, whatever this says. With window.renderScale below 1 the HUD is drawn after the scale-up, sharp at the window size, only when it would not glow or be changed by the post stack anyway (this false, or no bloom, or a final pass); with this true and a bloom the HUD stays in the smaller game picture, glow included, and is scaled up with it.
      * @since 0.31.0
      */
     bloomScreenSpace: boolean;

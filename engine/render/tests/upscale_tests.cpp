@@ -3,8 +3,11 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "frame_graph.h"
@@ -48,8 +51,10 @@ struct Own {
     bool has_pass(const char* name) {
         const render::FrameGraph* graph = render::renderer_frame_graph(r);
         REQUIRE(graph != nullptr);
-        for (const std::string& n : graph->order_names())  // a pass of a camera job is named "<job>/<pass>"
-            if (n.find(name) != std::string::npos) return true;
+        const std::string tail = std::string("/") + name;  // a pass of a camera job is named "<job>/<pass>"
+        for (const std::string& n : graph->order_names())
+            if (n == name || (n.size() > tail.size() && n.compare(n.size() - tail.size(), tail.size(), tail) == 0))
+                return true;
         return false;
     }
 };
@@ -229,4 +234,94 @@ TEST_CASE("upscale stage: pixel-perfect scaling keeps hard pixel edges (Nearest)
     const Image soft = own.draw(s.w);
     REQUIRE(own.has_pass("upscale"));
     CHECK(mixed_blocks(soft, 110, 50, 160, 90) > 20);
+}
+
+// The scene of the tests below with a bloom on its camera.
+void add_bloom(Scene& s, bool screenSpace) {
+    PostProcess& p = s.w.add<PostProcess>(s.w.find("cam"));
+    p.bloomEnabled = true;
+    p.bloomIntensity = 1.5f;
+    p.bloomThreshold = 0.2f;
+    p.bloomRadius = 12.0f;
+    p.bloomScreenSpace = screenSpace;
+}
+
+// The picture of a half size image scaled up by two with a bilinear filter, as the stretch stage and the present draw it.
+float bilinear_r(const Image& small, int x, int y) {
+    const float fx = (float(x) + 0.5f) / 2.0f - 0.5f, fy = (float(y) + 0.5f) / 2.0f - 0.5f;
+    const int x0 = int(std::floor(fx)), y0 = int(std::floor(fy));
+    const float tx = fx - float(x0), ty = fy - float(y0);
+    auto at = [&](int px, int py) {
+        return small.pixel(std::clamp(px, 0, small.width - 1), std::clamp(py, 0, small.height - 1)).r;
+    };
+    return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) +
+           (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+}
+
+TEST_CASE("upscale stage: a HUD that glows (bloomScreenSpace) stays in the game image, as without the stage") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    add_bloom(s, true);
+    own.r.set_render_scale(0.5f);
+    const Image base = own.draw(s.w);  // no stage: 160x90, the HUD in the game image, glowing
+    REQUIRE(base.width == 160);
+    own.r.set_upscale_stage(true);
+    const Image out = own.draw(s.w);
+    CHECK(out.width == 320);
+    CHECK(out.height == 180);
+    CHECK(own.has_pass("upscale"));
+    CHECK_FALSE(own.has_pass("hud-over-upscale"));
+    // The same picture as the base one, scaled up: the HUD was drawn, glow included, at the render resolution. (The scene image may be
+    // filtered in linear light, so the comparison is of the mean over the picture and of the HUD's size, not of every edge pixel.)
+    double sum = 0.0;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 320; ++x) sum += std::abs(out.pixel(x, y).r - bilinear_r(base, x, y));
+    CHECK(sum / (320.0 * 180.0) * 255.0 < 1.0);
+    const Ink hudBase = ink(base, 0, 0, 70, 33);
+    const Ink hudOutInk = ink(out, 0, 0, 140, 65);
+    REQUIRE(hudBase.any());
+    REQUIRE(hudOutInk.any());
+    CHECK(std::abs(hudOutInk.w() - 2 * hudBase.w()) <= 3);  // blurred like the game, not sharp text at the output size
+    // And it does glow: next to the HUD text the picture is lighter than the black clear colour.
+    const Ink hud = ink(out, 0, 0, 140, 65);
+    REQUIRE(hud.any());
+    CHECK(out.pixel(hud.x1 + 3, (hud.y0 + hud.y1) / 2).r > 0.02f);
+}
+
+TEST_CASE(
+    "upscale stage: a bloom that does not reach the HUD, or a final pass, leaves the HUD sharp at the output size") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene plain;
+    const Image fullPlain = own.draw(plain.w);
+    const Ink hudFull = ink(fullPlain, 0, 0, 140, 65);
+    REQUIRE(hudFull.any());
+    own.r.set_render_scale(0.5f);
+    own.r.set_upscale_stage(true);
+    for (const int mode :
+         {0, 1, 2}) {  // 0: bloom, bloomScreenSpace false; 1: tonemap (a final pass); 2: no post at all
+        CAPTURE(mode);
+        Scene s;
+        if (mode == 0) add_bloom(s, false);
+        if (mode == 1) {
+            PostProcess& p = s.w.add<PostProcess>(s.w.find("cam"));
+            p.tonemapEnabled = true;
+            p.bloomEnabled = true;  // a final pass: the HUD never glows, whatever bloomScreenSpace says
+            p.bloomScreenSpace = true;
+        }
+        const Image out = own.draw(s.w);
+        CHECK(out.width == 320);
+        CHECK(own.has_pass("upscale"));
+        CHECK(own.has_pass("hud-over-upscale"));
+        const Ink hud = ink(out, 0, 0, 140, 65);
+        REQUIRE(hud.any());
+        CHECK(hud.x0 == hudFull.x0);
+        CHECK(hud.w() == hudFull.w());
+        CHECK(hud.h() == hudFull.h());
+    }
 }

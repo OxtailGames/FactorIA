@@ -920,20 +920,32 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
         }
     }
-    build_quad_stream(ctx);
-    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
-    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
     bool frameFinal = false;  // some camera of the frame runs a final pass
     for (const DrawContext* c : postCams) frameFinal = frameFinal || c->postPlan.final_pass();
-    // With the upscale stage (M76-P3a) they are drawn after it instead, over the upscaled picture at the output size, so the glyphs
-    // and the edges stay sharp when the game is drawn below that size; hudAfterBloom and hudAfterPost keep their meaning for the
-    // effects (the bloom, the reflections and the like still do not reach them) but the items are not in the game image.
-    if (plan.last && !plan.view && fr.wantScreen && upscale_active() &&
-        (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) &&
-        ensure_output_target(outTarget, "output", frameFinal ? gpu.display_format() : gameTarget.format.color, true)) {
-        ctx.hudOut = true;
-        ctx.hudDisplay = frameFinal;
+    // With the upscale stage (M76-P3a) the screen-space items are drawn over the upscaled picture at the output size, so the glyphs and the
+    // edges stay sharp when the game is drawn below that size. Only when no pass after them in the old order would have changed their
+    // pixels: hudAfterBloom (they are drawn over the bloom) and the final pass (they are drawn over its result) already keep them out of
+    // every effect; with neither, the bloom is the only effect left, and a HUD that glows (bloomScreenSpace) stays in the game image at
+    // the render resolution, as it always was. render_world decided it (hudAtOutput) before the glyphs were rasterized, for the size they are drawn at.
+    bool hudOutOk = false;
+    if (plan.last && !plan.view && fr.wantScreen && hudAtOutput && upscale_active()) {
+        const bool glowsOnHud =
+            !ctx.hudAfterBloom && !frameFinal && frameCam.bloom.enabled && frameCam.bloom.intensity > 0.0f;
+        // The format the picture has when it reaches the stage: display values after the final pass (its destination is filterTarget when the
+        // items are not drawn into it), the scene format otherwise.
+        if (!glowsOnHud && (!frameFinal || ensure_filter_target()) &&
+            ensure_output_target(outTarget, "output", frameFinal ? gpu.display_format() : gameTarget.format.color,
+                                 true)) {
+            hudOutOk = true;
+        }
     }
+    build_quad_stream(ctx);
+    if (hudOutOk && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
+        ctx.hudOut = true;
+        ctx.hudDisplay = frameFinal;  // the picture holds display values: the items are drawn as in hudAfterPost
+    }
+    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
+    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
     if (plan.last && !plan.view && frameFinal && fr.wantScreen && !ctx.hudOut &&
         (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
         ctx.hudAfterPost = true;
@@ -4384,10 +4396,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // is drawn below the output size.
     auto finish_output = [&](ResourceId srcRes, const Target* srcTarget, const PostPlan* filterPlan) {
         if (!upscale_active() || plan.view) return;
-        if (!ensure_output_target(outTarget, "output", srcTarget->format.color, ctx.hudOut)) {
-            ctx.hudOut = false;  // the items stay where they were drawn (nowhere, this frame): the error was logged
+        // With the items for it (hudOut) the image was made, with its depth, by plan_job for the format the picture has here; else it is made now.
+        // When it cannot be made the picture stays at the render resolution and the items stay in it, where plan_job (hudOut false) left them.
+        if (!ensure_output_target(outTarget, "output", ctx.hudOut ? outTarget.format.color : srcTarget->format.color,
+                                  false))
             return;
-        }
         const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
                                                       import_desc(targetW, targetH, outTarget.format, "output"));
         add("upscale", {srcRes}, {outRes}, [this](const PassContext&) { run_upscale(outTarget); });

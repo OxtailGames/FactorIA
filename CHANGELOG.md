@@ -9,7 +9,10 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 ### Rendering
 
 - `window.renderScale` now goes from 0.33 to 1 (it was 0.5 to 1) and the game is drawn smaller but the HUD and the UI (screen-space
-  Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up at the full window size, so their text stays sharp. The picture
+  Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up at the full window size, so their text stays sharp. Only when the post
+  stack would not change them anyway: a bloom with `bloomScreenSpace` true (the default) and no final pass makes the HUD glow, so
+  then it stays in the smaller picture, scaled up with it, as before; set `bloomScreenSpace` to false (or use no bloom) for the
+  sharp HUD. The picture
   the engine returns for `game.screenshot` and the like is the full size picture with the HUD (before, it had the scaled size and
   a blurred HUD); `game.renderStats().width` and `height` stay the size the game is drawn at. The scale-up keeps hard pixel edges
   with `PixelPerfect` scaling. Scale 1 is unchanged (no extra image, the same pixels). With a camera colour filter the filter is

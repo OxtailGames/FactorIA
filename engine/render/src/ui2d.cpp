@@ -365,8 +365,8 @@ void draw_camera_view(const Ctx& c, const World& world, Entity e, const CameraVi
     if (cam && c.f.viewImage && x1 > x0 && y1 > y0) {
         const float res = std::isfinite(v.resolution) ? std::clamp(v.resolution, 0.25f, 2.0f) : 1.0f;
         const Vec2 size{(x1 - x0) * c.k, (y1 - y0) * c.k};  // design pixels
-        const int pxW = std::clamp(int(std::lround(double(size.x) * c.f.screenScale * res)), 1, 4096);
-        const int pxH = std::clamp(int(std::lround(double(size.y) * c.f.screenScale * res)), 1, 4096);
+        const int pxW = std::clamp(int(std::lround(double(size.x) * c.f.renderScale * res)), 1, 4096);
+        const int pxH = std::clamp(int(std::lround(double(size.y) * c.f.renderScale * res)), 1, 4096);
         tex = c.f.viewImage(std::uint64_t(e.bits()), pxW, pxH);
         if (tex) c.f.views.push_back(ViewRequest{std::uint64_t(e.bits()), cam, size, pxW, pxH});
     }
