@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ## Unreleased
 
+## 0.35.2
+
+FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
+its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engine is the same as 0.35.1.
+
+### Fixes
+
+- Release workflow: the package jobs get 150 minutes instead of 60. The macOS universal build compiles two
+  architectures at once, which ccache does not cache, so it always builds from scratch, and with M75 its build step
+  alone went past 60 minutes; the Windows package took 57.
+
 ## 0.35.1
 
 FactorIA 0.35.1 fixes the three crashes the weekly fuzz run found in 0.35.0: a SoundFont whose head was `LIST` instead
@@ -31,6 +42,8 @@ the third-party reader sees it, and a damaged one is an error.
   and such a file is "damaged: a Huffman table of its ETC1S global data is not a valid code".
 - The three inputs are in the fuzz corpus (`list_head_instead_of_riff.sf2`, `codebook_entries_times_dimensions.bin`,
   `etc1s_single_symbol_long_code.ktx2`) and in `fa_test_audio` and `fa_test_render`.
+- Release workflow: the player size budgets of the release-only platforms (`macos-universal`, `android-x86_64`,
+  `ios-arm64`) match 0.35 again; the release runs of 0.32.0 to 0.35.0 stopped at "Player size".
 
 ## 0.35.0
 
