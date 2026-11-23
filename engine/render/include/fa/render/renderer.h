@@ -38,6 +38,7 @@
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/graphics_preset.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -353,6 +354,14 @@ public:
     // docs/UPSCALING.md, "The render scale").
     void set_upscaler(const render::UpscalerSettings& settings);
     const render::UpscalerSettings& upscaler() const;
+    // The quality layer of the graphics presets (fa/render/graphics_preset.h, docs/UPSCALING.md "Graphics presets"): limits the renderer applies
+    // to what the scene, its cameras' PostProcess and its lights ask for, from the next frame on. The default (QualityLimits{}) limits nothing.
+    // Nothing of the scene is changed, so setting the default again brings the game's own look back unchanged; the simulation never reads it.
+    void set_quality(const render::QualityLimits& limits);
+    const render::QualityLimits& quality() const;
+    // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
+    // reason of each (render.supports' status). Changes nothing; needs no frame.
+    render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
     render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
     render::UpscalerMode
     effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised

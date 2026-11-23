@@ -259,6 +259,8 @@ struct Renderer::Impl {
     int jitterForce = 0;
     UpscalerSettings
         upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
+    QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
+    bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera

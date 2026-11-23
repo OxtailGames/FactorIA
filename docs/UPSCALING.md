@@ -1,7 +1,7 @@
 # Upscaling and temporal antialiasing (M76)
 
-This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler** and the plain
-**stretch** draw today (see below); the temporal upscaler, MetalFX and the graphics presets are planned (`render.supports`
+This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the plain
+**stretch** and the **graphics presets** draw today (see below); the temporal upscaler and MetalFX are planned (`render.supports`
 says `planned (M76)` for each of them, and a setting that asks for one draws as the best mode that exists).
 
 ## The engine-wide upscaler settings
@@ -121,8 +121,72 @@ post pass cannot be placed `before` or `after` `temporalAA`; `before:depthOfFiel
 
 ## Graphics presets
 
-`graphics.preset {"name":"low|medium|high|ultra"}` and `graphics.detect` exist and answer `not_built` (nothing is changed).
-The names are `Low`, `Medium`, `High`, `Ultra` and `Custom` (what the game set itself).
+A preset is a quality layer of the renderer, not a change of the game. Each of `low`, `medium`, `high` and `ultra` is a table of
+**limits**: the most of each quality knob the renderer will use. A limit only lowers what the scene, the camera's `PostProcess` and
+the lights ask for (a scene that asks for 2 shadow cascades under a limit of 4 still draws 2), so `ultra` is the game as its author
+made it, and `custom` (no preset, the default) is exactly that too, bit for bit. Nothing is written into the scene, its components or
+`factoria.json`: leaving a preset gives the game's own look back. Presets never touch the simulation (the physics, the scripts and
+the random numbers do not read them), and the benchmark never runs inside a simulation step.
+
+| Knob | `low` | `medium` | `high` | `ultra` / `custom` |
+|---|---|---|---|---|
+| `temporalAA` | off | on | on | no limit |
+| `ssao` (quality) | off | on (medium) | on (high) | no limit (ultra) |
+| `ssr` (steps) | off | off | on (48) | no limit (128) |
+| `sunShafts` | off | off | on | no limit |
+| `depthOfField` (bokeh discs) | off | on (smooth) | on (bokeh) | no limit |
+| `motionBlur` (samples) | off | on (8) | on (16) | no limit (32) |
+| `shadowCascades` | 1 | 2 | 3 | 4 |
+| `shadowAtlasSize` / `shadowTileSize` | 1024 / 512 | 2048 / 1024 | 4096 / 2048 | 8192 / 4096 |
+| `softShadows` (PCSS lights use PCF when off) | off | off | on | on |
+| `localShadows` (point and spot) | off | on | on | on |
+| `contactShadows` | off | off | on | on |
+| `volumetricFog` (quality) | off | on (low) | on (medium) | on (high) |
+| `lodDistanceScale` (the distance a level is picked at is multiplied by it, so levels switch sooner) | 2 | 1.5 | 1 | 1 |
+| `foliageDensity` / `foliageDistance` | 0.4 / 0.5 | 0.7 / 0.75 | 1 / 1 | 1 / 1 |
+| `terrainLodQuality` | 0.5 | 0.75 | 1 | 1 |
+| `gi2d` (quality, resolution scale) | off | on (low, 0.25) | on (medium, 0.5) | on (high, 1) |
+| `lightScale` (2D light buffer) | 0.5 | 0.75 | 1 | 1 |
+| `realtimeGiProbesPerFrame` | 2 | 4 | 8 | 32 |
+| upscaler (`mode` auto, `quality`) | `performance` | `balanced` | `quality` | none: the game's own |
+
+The numbers are caps and never rise above what the scene asks for. The table is monotone (every knob of `medium` is at least as high
+as `low`, and so on), and a test keeps it so. `graphics.preset` answers the whole `limits` object by knob name.
+
+**What the GPU caps.** A knob for a feature the backend cannot draw is lowered too, with the same status `render.supports` gives:
+the volumetric fog needs half-float targets, cascaded and local shadows need 32-bit float targets, and the shadow atlas is never
+larger than the GPU's largest texture. Each cap is in the answer's `capped` list as `{knob, wanted, effective, reason}`.
+
+**The upscaler.** `low`, `medium` and `high` also write the engine-wide upscaler (mode `auto`, the quality of the last row,
+sharpness 0.5). `ultra` writes none: it leaves the game's own upscaler, so its picture is the one of `custom` bit for bit (a test
+compares them pixel by pixel). The setting the game had (`render.upscaler` in `factoria.json`, or what a script or `render.upscaler`
+set) is kept, and `custom` puts it back. An upscaler change made while a preset is on (`render.upscaler`, `window.upscaler`) applies
+at once, and it also becomes the game's own setting: the keys it names are written over the setting from before the preset (a
+change of the sharpness alone keeps the project's mode and quality), and that is what `custom` goes back to. The preset's own
+upscaler is not put back by itself: applying the preset again does.
+
+### Commands and scripts
+
+- `graphics.preset {"name": "high"}` applies a preset and answers `{preset, previous, changed, changes, limits, capped, upscaler,
+  headless}`, where `changes` lists `{knob, from, to}` for every limit (and the upscaler) that changed. With no arguments it reads
+  the preset in force and changes nothing. An unknown name or argument fails with a "did you mean". `headless` is true when the
+  engine has no GPU: the preset is stored, nothing is drawn, and nothing is capped.
+- `graphics.detect` changes nothing. It reads the GPU (`gpu`: `backend`, `name`, `vendor`, `driver`, `memoryMB`, `unifiedMemory`,
+  `software`), runs a short benchmark and answers `{preset, reason, gpu, benchmarkMs, benchmark, device}`: the preset it suggests
+  and why. The benchmark draws a fixed scene of its own (about 150 lit meshes, a sun with three cascades and two point lights, at
+  960 x 540, read back) once to warm up and five times to measure, and takes the median; `benchmarkMs` is the whole time, normally a
+  few hundred milliseconds, and it stops by itself after four seconds. It lifts the current preset while it runs and puts it back.
+  It is skipped, and the device tier decides, when there is no GPU or the renderer is a software one (llvmpipe, WARP, SwiftShader).
+  A call blocks the frame it is made in: call it once, from a loading screen, never every frame.
+- Rule: at most 4 ms for `ultra`, 8 ms for `high`, 16 ms for `medium`, more is `low`; a software renderer is `low`; a phone or tablet
+  is capped at `medium` and a handheld at `high`; a device tier of `low`, or a discrete GPU with under 2048 MB, caps at `medium`;
+  without a benchmark the tier alone decides (`low`, `medium`, `high`; never `ultra`). `reason` says which rule applied.
+- Scripts: `game.graphics.preset()` reads, `game.graphics.preset("high")` applies, `game.graphics.detect()` detects; the results
+  are the objects above, and a wrong name throws with the same hint.
+- Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
+  not written). With a preset set there, `render.upscaler` of the same file is what `custom` returns to, not what the preset
+  uses. A wrong name fails to load with the JSON pointer `/render/graphicsPreset` and a "did you mean".
+- Saving the player's choice and the settings menu page are not part of this layer yet; a game applies the preset it wants.
 
 ## What a game can already ask
 

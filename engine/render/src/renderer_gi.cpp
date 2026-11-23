@@ -119,7 +119,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
                              gi_layout_moved(layout.value(), gr.anchor);
         gr.valid = true;
         gr.layout = layout.value();
-        gr.probesPerFrame = c->probesPerFrame;
+        gr.probesPerFrame = qualityOn ? std::max(1, std::min(c->probesPerFrame, quality.realtimeGiProbesPerFrame))
+                                      : c->probesPerFrame;  // the graphics preset caps how fast the grid updates
         if (changed) {
             gr.last.assign(std::size_t(gr.layout.count), 0);
             gr.retry.assign(std::size_t(gr.layout.count), 0);
