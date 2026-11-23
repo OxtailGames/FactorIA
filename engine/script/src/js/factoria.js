@@ -1563,6 +1563,19 @@
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
     },
+    // The upscaler (M76, docs/UPSCALING.md): { mode: "stretch" | "spatial" | "temporal" | "metalfx" | "auto", quality: "native" | "quality" |
+    // "balanced" | "performance" | "ultraPerformance", sharpness: 0..1 }. Reading gives the three settings plus effectiveMode (the mode the
+    // renderer draws with: "stretch" until the other modes are built) and scale (the quality's share of the output size). Writing takes
+    // any of the three keys; the others stay. It stores and reports; nothing is drawn differently yet.
+    get upscaler() { return N.upscalerGet(); },
+    set upscaler(v) {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error(`window.upscaler expects an object like { mode: "spatial", quality: "balanced", sharpness: 0.5 } (every key is optional), but got ${inspect(v)}`);
+      }
+      const { effectiveMode, scale, ...settings } = v;  // what a read gave back can be written back
+      const err = N.upscalerSet(settings);
+      if (err) throw new Error(`window.upscaler = ${inspect(v)}: ${err}`);
+    },
     // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
     // "desktop"; fullscreen and resize setters throw otherwise), renderScale needs only a renderer. An unknown name throws

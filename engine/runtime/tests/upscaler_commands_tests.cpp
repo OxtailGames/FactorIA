@@ -1,0 +1,181 @@
+// M76: the engine-wide upscaler settings (project key, command, window.upscaler) and the graphics.* stubs.
+#include <doctest.h>
+
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+#include "fa/core/fs.h"
+#include "fa/runtime/engine.h"
+#include "fa/runtime/project.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+namespace {
+
+std::string project_text(const std::string& renderBlock) {
+    return std::string(R"({
+  "format": "factoria.project/1",
+  "name": "Upscaler Test",
+  "id": "com.example.upscalertest",
+  "mainScene": "scenes/main.scene.json",
+  "display": { "width": 320, "height": 180, "scaleMode": "pixelPerfect" })") +
+           renderBlock + "\n}";
+}
+
+const char* kScene = R"({ "format": "factoria.scene/1", "entities": [ { "id": "cam", "components": { "Camera": {} } } ] })";
+
+struct TempProject {
+    stdfs::path dir;
+    explicit TempProject(const std::string& name, const std::string& renderBlock = "") {
+        dir = fs::make_temp_dir("fa_upscaler_test_" + name).value();
+        stdfs::create_directories(dir / "scenes");
+        std::ofstream(dir / "factoria.json", std::ios::binary) << project_text(renderBlock);
+        std::ofstream(dir / "scenes" / "main.scene.json", std::ios::binary) << kScene;
+    }
+    ~TempProject() {
+        std::error_code ec;
+        stdfs::remove_all(dir, ec);
+    }
+    std::string path() const { return dir.generic_string(); }
+};
+
+EngineConfig cfg(const TempProject& p) {
+    EngineConfig c;
+    c.projectDir = p.path();
+    c.headless = true;
+    c.hotReload = false;
+    return c;
+}
+
+Json eval(Engine& e, const std::string& code) {
+    auto r = e.commands().call("script.eval", Json::object({{"code", code}}));
+    INFO(code << " -> " << r.error.dump());
+    REQUIRE(r.ok);
+    return r.result["value"];
+}
+
+}  // namespace
+
+TEST_CASE("project: render.upscaler loads, round-trips and defaults to stretch") {
+    TempProject plain("plain");
+    auto s = load_project(plain.path());
+    REQUIRE(s.ok());
+    CHECK(s->upscaler == render::UpscalerSettings{});
+    CHECK_FALSE(s->to_json().contains("render"));
+
+    TempProject set("set", R"(, "render": { "upscaler": { "mode": "temporal", "quality": "balanced", "sharpness": 0.8 } })");
+    auto t = load_project(set.path());
+    REQUIRE_MESSAGE(t.ok(), t.error().message);
+    CHECK(t->upscaler.mode == render::UpscalerMode::Temporal);
+    CHECK(t->upscaler.quality == render::UpscalerQuality::Balanced);
+    CHECK(t->upscaler.sharpness == doctest::Approx(0.8f));
+    auto j = t->to_json();
+    CHECK(j["render"]["upscaler"]["mode"] == "temporal");
+    CHECK(j["render"]["upscaler"]["quality"] == "balanced");
+}
+
+TEST_CASE("project: a wrong render.upscaler teaches with the JSON pointer") {
+    TempProject bad("bad", R"(, "render": { "upscaler": { "mode": "tempral" } })");
+    auto s = load_project(bad.path());
+    REQUIRE_FALSE(s.ok());
+    const std::string text = s.error().message + " " + s.error().hint;
+    CHECK(text.find("/render/upscaler") != std::string::npos);
+    CHECK(text.find("temporal") != std::string::npos);
+
+    TempProject range("range", R"(, "render": { "upscaler": { "sharpness": 2 } })");
+    auto r = load_project(range.path());
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("sharpness") != std::string::npos);
+}
+
+TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything") {
+    TempProject p("cmd", R"(, "render": { "upscaler": { "mode": "spatial", "quality": "quality" } })");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    const CommandInfo* info = c.info("render.upscaler");
+    REQUIRE(info != nullptr);
+    CHECK_FALSE(info->readOnly);
+    CHECK(info->description.size() < 1500);
+
+    auto r = c.call("render.upscaler", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["mode"] == "spatial");
+    CHECK(r.result["quality"] == "quality");
+    // Nothing draws yet: the effective mode stays stretch, and the scale is the quality's.
+    CHECK(r.result["effectiveMode"] == "stretch");
+    CHECK(r.result["scale"].get<double>() == doctest::Approx(1.0 / 1.5).epsilon(0.001));
+
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"performance","sharpness":0.25})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["mode"] == "temporal");
+    CHECK(r.result["quality"] == "performance");
+    CHECK(r.result["sharpness"].get<double>() == doctest::Approx(0.25));
+    CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
+
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"tempral"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("temporal") != std::string::npos);
+    r = c.call("render.upscaler", Json::parse(R"({"sharpness":3})"));
+    CHECK_FALSE(r.ok);
+    r = c.call("render.upscaler", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["mode"] == "temporal");
+    CHECK(r.result["quality"] == "performance");
+    e.shutdown();
+}
+
+TEST_CASE("window.upscaler reads and sets the same settings from a script") {
+    TempProject p("js");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    CHECK(eval(e, "window.upscaler.mode") == "stretch");
+    CHECK(eval(e, "window.upscaler.effectiveMode") == "stretch");
+    eval(e, "window.upscaler = { mode: 'spatial', quality: 'ultraPerformance' }; 0");
+    auto r = e.commands().call("render.upscaler", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["mode"] == "spatial");
+    CHECK(r.result["quality"] == "ultraPerformance");
+    CHECK(eval(e, "window.upscaler.scale").get<double>() == doctest::Approx(1.0 / 3.0).epsilon(0.001));
+    auto bad = e.commands().call("script.eval",
+                                 Json::object({{"code", "window.upscaler = { quality: 'ultra' }"}}));
+    CHECK_FALSE(bad.ok);
+    CHECK(eval(e, "window.upscaler.quality") == "ultraPerformance");
+    e.shutdown();
+}
+
+TEST_CASE("the project's upscaler is applied when the engine starts") {
+    TempProject p("start", R"(, "render": { "upscaler": { "mode": "metalfx", "quality": "native" } })");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto r = e.commands().call("render.upscaler", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["mode"] == "metalfx");
+    CHECK(r.result["quality"] == "native");
+    CHECK(r.result["effectiveMode"] == "stretch");
+    e.shutdown();
+}
+
+TEST_CASE("graphics.preset and graphics.detect are stubs that say so") {
+    TempProject p("stub");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    REQUIRE(c.info("graphics.preset") != nullptr);
+    REQUIRE(c.info("graphics.detect") != nullptr);
+    CHECK(c.info("graphics.detect")->readOnly);
+    CHECK_FALSE(c.info("graphics.preset")->readOnly);
+    auto r = c.call("graphics.detect", Json::object());
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("not built yet") != std::string::npos);
+    r = c.call("graphics.preset", Json::parse(R"({"name":"high"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("not built yet") != std::string::npos);
+    e.shutdown();
+}

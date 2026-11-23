@@ -17,6 +17,7 @@
 
 #include "fa/core/json.h"
 
+#include "fa/scene/jitter.h"
 #include "gi2d.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -450,4 +451,112 @@ TEST_CASE("floating origin render: a capture before any frame follows the rebase
     REQUIRE_MESSAGE(o.r.capture_camera(other, preview, shot, &error), error);
     s.w.rebase({4096.0f, 0.0f, 0.0f});
     CHECK(RendererTestAccess::origin_shifts(o.r) == shifts + 2);
+}
+
+// ---- M76: the jitter of the drawn matrices and what the renderer keeps of it --------------------------------------------------------------------
+
+TEST_CASE(
+    "jitter render: no camera jitters until the renderer draws TemporalAA, even with the effect on in the stack") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    Far s;
+    camera_post(s.w, s.cam).temporalAAEnabled = true;
+    o.frame(s.w, 3);
+    const std::vector<Vec2> j = RendererTestAccess::last_jitter(o.r);
+    REQUIRE(j.size() == 1);
+    CHECK(j[0].x == 0.0f);
+    CHECK(j[0].y == 0.0f);
+    Mat4 plain, jittered;
+    Vec2 jpx{9, 9};
+    REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plain));
+    REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jittered, jpx));
+    CHECK(jpx.x == 0.0f);
+    CHECK(jpx.y == 0.0f);
+    for (int i = 0; i < 16; ++i) CHECK(jittered.m[i] == plain.m[i]);  // jitter 0: the matrices of today
+}
+
+TEST_CASE("jitter render: a forced jitter walks the Halton sequence and keeps the previous jittered matrix") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    Far s;
+    RendererTestAccess::force_jitter(o.r, kJitterPhasesDefault);
+    std::vector<Vec2> seen;
+    for (int f = 0; f < kJitterPhasesDefault * 2; ++f) {
+        o.frame(s.w);
+        const std::vector<Vec2> j = RendererTestAccess::last_jitter(o.r);
+        REQUIRE(j.size() == 1);
+        seen.push_back(j[0]);
+        // The frame's jitter is one of the eight offsets, never leaves the pixel.
+        bool known = false;
+        for (int k = 0; k < kJitterPhasesDefault; ++k) {
+            const Vec2 e = jitter_offset_pixels(std::uint64_t(k));
+            if (e.x == j[0].x && e.y == j[0].y) known = true;
+        }
+        CHECK(known);
+        // What is kept for the next frame: the unjittered matrix, the jittered one and the jitter in pixels.
+        Mat4 plain, jittered;
+        Vec2 jpx;
+        REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plain));
+        REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jittered, jpx));
+        CHECK(jpx.x == j[0].x);
+        CHECK(jpx.y == j[0].y);
+        const Vec4 a = plain * Vec4{kFar - 3, 0, 0, 1.0f}, b = jittered * Vec4{kFar - 3, 0, 0, 1.0f};
+        CHECK((b.x / b.w - a.x / a.w) * 160.0f ==
+              doctest::Approx(jpx.x).epsilon(0.02).scale(1.0));  // 320 px wide image
+    }
+    // The sequence repeats every 8 frames and the 8 are different.
+    for (int f = 0; f + kJitterPhasesDefault < int(seen.size()); ++f) {
+        CHECK(seen[std::size_t(f)].x == seen[std::size_t(f + kJitterPhasesDefault)].x);
+        CHECK(seen[std::size_t(f)].y == seen[std::size_t(f + kJitterPhasesDefault)].y);
+    }
+    int distinct = 0;
+    for (int a = 0; a < kJitterPhasesDefault; ++a) {
+        bool same = false;
+        for (int b = 0; b < a; ++b)
+            same = same || (seen[std::size_t(a)].x == seen[std::size_t(b)].x &&
+                            seen[std::size_t(a)].y == seen[std::size_t(b)].y);
+        if (!same) ++distinct;
+    }
+    CHECK(distinct == kJitterPhasesDefault);
+    // Back to the rule: the next frame is not jittered.
+    RendererTestAccess::force_jitter(o.r, 0);
+    o.frame(s.w);
+    CHECK(RendererTestAccess::last_jitter(o.r)[0].x == 0.0f);
+    CHECK(RendererTestAccess::last_jitter(o.r)[0].y == 0.0f);
+}
+
+TEST_CASE("jitter render: a rebase shifts the jittered previous matrix like the plain one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    Far s;
+    RendererTestAccess::force_jitter(o.r, kJitterPhasesDefault);
+    o.frame(s.w, 3);
+    Mat4 plainBefore, jitBefore;
+    Vec2 jpxBefore;
+    REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plainBefore));
+    REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jitBefore, jpxBefore));
+    const Vec3 offset{4096.0f, 0.0f, 0.0f};
+    s.w.rebase(offset);
+    Mat4 plainAfter, jitAfter;
+    Vec2 jpxAfter;
+    REQUIRE(RendererTestAccess::prev_view_proj(o.r, s.cam, plainAfter));
+    REQUIRE(RendererTestAccess::prev_jittered(o.r, s.cam, jitAfter, jpxAfter));
+    CHECK(jpxAfter.x == jpxBefore.x);  // the jitter is in clip space: a rebase does not move it
+    CHECK(jpxAfter.y == jpxBefore.y);
+    for (Vec3 q : {Vec3{kFar - 3, 0, 0}, Vec3{kFar + 12, 1, -34.5f}}) {
+        const Vec4 a = jitBefore * Vec4{q, 1.0f};
+        const Vec4 b = jitAfter * Vec4{q - offset, 1.0f};
+        CHECK(std::fabs(a.x - b.x) < 0.02f);
+        CHECK(std::fabs(a.y - b.y) < 0.02f);
+        CHECK(std::fabs(a.z - b.z) < 0.02f);
+        CHECK(std::fabs(a.w - b.w) < 0.02f);
+        const Vec4 c = plainAfter * Vec4{q - offset, 1.0f}, d = plainBefore * Vec4{q, 1.0f};
+        CHECK(std::fabs(c.x - d.x) < 0.02f);
+    }
 }

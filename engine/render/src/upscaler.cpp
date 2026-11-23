@@ -1,0 +1,96 @@
+#include "fa/render/upscaler.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <string>
+#include <vector>
+
+#include "fa/core/strings.h"
+#include "fa/render/graphics_preset.h"
+
+namespace fa::render {
+
+UpscalerMode effective_upscaler_mode(const UpscalerSettings& s) {
+    (void)s;
+    return UpscalerMode::Stretch;  // the other modes are drawn by later packages of M76
+}
+
+Json upscaler_to_json(const UpscalerSettings& s) {
+    Json j = Json::object();
+    j["mode"] = std::string(upscaler_mode_name(s.mode));
+    j["quality"] = std::string(upscaler_quality_name(s.quality));
+    j["sharpness"] = std::round(double(s.sharpness) * 1000.0) / 1000.0;
+    return j;
+}
+
+namespace {
+
+std::vector<std::string> names_of(const auto& arr) {
+    std::vector<std::string> out;
+    for (const std::string_view n : arr) out.emplace_back(n);
+    return out;
+}
+
+// One name out of `names`: its index, or an error that lists the valid ones and the closest.
+Result<int> read_name(const Json& j, std::string_view where, const char* key, const auto& names) {
+    const std::string ptr = std::string(where) + "/" + key;
+    const std::vector<std::string> list = names_of(names);
+    if (!j.is_string()) {
+        std::string valid;
+        for (const std::string& n : list) valid += (valid.empty() ? "\"" : ", \"") + n + "\"";
+        return make_error(ptr + ": expected a name, got " + describe_json_value(j), "Use one of " + valid + ".");
+    }
+    const std::string v = j.get<std::string>();
+    for (std::size_t i = 0; i < list.size(); ++i)
+        if (list[i] == v) return int(i);
+    return make_error(ptr + ": " + describe_json_value(j) + " is not a valid " + key, did_you_mean(v, list));
+}
+
+}  // namespace
+
+Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view where, const UpscalerSettings& base) {
+    if (!j.is_object())
+        return make_error(std::string(where) + ": expected an object like {\"mode\": \"spatial\", \"quality\": \"balanced\", "
+                                                "\"sharpness\": 0.5}, got " +
+                              describe_json_value(j),
+                          "Every key is optional: mode, quality, sharpness.");
+    static const std::vector<std::string> keys = {"mode", "quality", "sharpness"};
+    for (auto e = j.begin(); e != j.end(); ++e)
+        if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
+            return make_error(std::string(where) + "/" + e.key() + ": '" + e.key() + "' is not an upscaler setting",
+                              did_you_mean(e.key(), keys));
+    UpscalerSettings s = base;
+    if (auto it = j.find("mode"); it != j.end()) {
+        auto r = read_name(*it, where, "mode", kUpscalerModeNames);
+        if (!r.ok()) return r.error();
+        s.mode = UpscalerMode(*r);
+    }
+    if (auto it = j.find("quality"); it != j.end()) {
+        auto r = read_name(*it, where, "quality", kUpscalerQualityNames);
+        if (!r.ok()) return r.error();
+        s.quality = UpscalerQuality(*r);
+    }
+    if (auto it = j.find("sharpness"); it != j.end()) {
+        const std::string ptr = std::string(where) + "/sharpness";
+        if (!it->is_number())
+            return make_error(ptr + ": expected a number from 0 to 1, got " + describe_json_value(*it),
+                              "0 = no sharpening, 1 = the strongest; 0.5 is the default.");
+        const double d = it->get<double>();
+        if (!(d >= 0.0 && d <= 1.0))
+            return make_error(ptr + ": " + describe_json_value(*it) + " is outside 0..1",
+                              "Use a number from 0 (no sharpening) to 1 (the strongest); 0.5 is the default.");
+        s.sharpness = float(d);
+    }
+    return s;
+}
+
+std::optional<GraphicsPreset> parse_graphics_preset(std::string_view name) {
+    std::string lower(name);
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    for (int i = 0; i < kGraphicsPresetCount; ++i)
+        if (kGraphicsPresetNames[std::size_t(i)] == lower) return GraphicsPreset(i);
+    return std::nullopt;
+}
+
+}  // namespace fa::render

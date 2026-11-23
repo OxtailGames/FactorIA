@@ -43,6 +43,9 @@ void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
     for (auto& [key, prev] : prevViewProj) {
         prev.viewProj = prev.viewProj * back;
         prev.before = prev.before * back;
+        prev.jittered =
+            prev.jittered * back;  // the jitter is in clip space: it moves with the matrix, not with the world
+        prev.beforeJittered = prev.beforeJittered * back;
     }
     // The 2D GI field and its irradiance history (units of the Transform: 2D pixels).
     gi2d.shift(offset.x, offset.y);

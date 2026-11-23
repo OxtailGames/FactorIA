@@ -75,6 +75,20 @@ struct PrepassRef {
     static constexpr float kFarDepth = 60000.0f;
 };
 
+// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md; no pass
+// writes it yet, so PostPlan::velocity is invalid until the one that does lands). RG16F at the render resolution of the camera's rectangle
+// (the size of the prepass). rg = uvPrev - uvCurr: where the surface drawn at this pixel was on the previous frame's image minus where it is
+// now, in uv units (0..1 over the camera's rectangle, y down), computed from the UNJITTERED matrices (the jitter of the two frames is not part
+// of a motion; the resolve adds it back with PostPlan::jitterNdc / prevJitterNdc). A pixel no object wrote holds kNone in both channels: the
+// resolve then reprojects with the camera alone, from the depth of the prepass and PostPlan::prevViewProj. A pass reads a value only when
+// it is finite and |value| < kValidLimit; the writer clamps a real motion to +-kMaxMotion.
+struct VelocityRef : PrepassRef {
+    static constexpr float kNone = 1024.0f;       // "no object wrote here" (exact in half float)
+    static constexpr float kValidLimit = 512.0f;  // below it a value is a motion, from it up it is the sentinel
+    static constexpr float kMaxMotion = 4.0f;     // a real motion is clamped to this many images
+    static bool is_none(float v) { return !(v < kValidLimit && v > -kValidLimit); }  // also true for NaN
+};
+
 // The ambient occlusion of a camera (PostProcess.ssao*, drawn by renderer_ssao.h) after clamping to the supported ranges.
 struct SsaoSettings {
     bool enabled = false;    // false: no pass (also for an intensity or a radius of 0)
@@ -151,6 +165,15 @@ struct PostPlan {
     // camera (`prevValid`), so a cut or a new camera never blurs.
     Mat4 prevViewProj;
     bool prevValid = false;
+    // M76, the jitter of the temporal passes (fa/scene/jitter.h). All unjittered / zero while the camera does not jitter (today always).
+    // jitterPx: the sub-pixel shift this frame's picture was drawn with, in render pixels (x right, y down); jitterNdc: the same as an offset
+    // of clip x / w and y / w. prevJitterPx / prevJitterNdc: the shift of the frame `prevViewProj` belongs to (valid with prevValid).
+    // prevJitteredViewProj: that frame's viewProj WITH its jitter, what its history image was drawn with.
+    Vec2 jitterPx{0, 0}, jitterNdc{0, 0};
+    Vec2 prevJitterPx{0, 0}, prevJitterNdc{0, 0};
+    Mat4 prevJitteredViewProj;
+    // The camera's velocity image (VelocityRef), valid for the passes after the pass that writes it; invalid when none does.
+    VelocityRef velocity;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
