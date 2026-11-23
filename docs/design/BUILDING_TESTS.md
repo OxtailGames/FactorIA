@@ -199,19 +199,27 @@ work is capped at 20 million steps, whatever the CPU. A glyph that the CharStrin
 FDSelect entry names no font dict (an FDSelect range that ends before it starts holds no glyph, as in stb_truetype), is
 unsafe like the glyphs above, and a CFF font's `hmtx` is checked against `maxp` like a TrueType one's. Smaller checks of
 the same kind: a picture with no rows is an error, a KTX2 level whose stored size differs from its unpacked size is
-refused before the Basis transcoder asserts on it, the comment header of an Ogg Vorbis file is walked before stb_vorbis
-allocates from its lengths (it reads them as signed; a header over 16 MB, such as one with a huge cover picture, is
-refused with an error that says it is a size limit, not damage), and `sf2_problem` follows the index chains of a
-SoundFont (preset, instrument and sample numbers, zone and generator ranges) before TinySoundFont, which trusts them,
-reads it. What stays inside `external/` and is only fuzzed: the charstrings of a CFF font (stb_truetype's interpreter
+refused before the Basis transcoder asserts on it, the Huffman tables of an ETC1S file's global data (the tables, endpoints
+and selectors streams) are read and every tree node they can reach is checked to lie inside the tree (the transcoder
+accepts an incomplete one-symbol code and builds a tree too short for a code longer than its 10-bit fast lookup), the
+comment header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed; a
+header over 16 MB, such as one with a huge cover picture, is refused with an error that says it is a size limit, not
+damage), the codebooks of its setup header are walked the way stb_vorbis reads them (`codebooks_fit`: libvorbis's
+`ilog(dimensions) + ilog(entries) <= 24`, a lookup type of at most 2, codebook data that ends inside the packet and more
+than 4 million entries or lookup values in all are refused, because stb_vorbis multiplies entries by dimensions in an
+int and its bit reader returns zeros past the packet), and `sf2_problem` follows the index chains of a SoundFont
+(preset, instrument and sample numbers, zone and generator ranges) before TinySoundFont, which trusts them, reads it; it
+also refuses the RIFF shapes TinySoundFont reads differently from a SoundFont (a `LIST` + `sfbk` or bare `sfbk` head, a
+`RIFF` or `LIST` size smaller than its 4-byte id, a list nested in `pdta` or `sdta`), whose checks it would otherwise
+skip. What stays inside `external/` and is only fuzzed: the charstrings of a CFF font (stb_truetype's interpreter
 runs on the INDEX entries the check proved lie inside the table, with an operand stack of 48 and 10 nested subroutines,
 so it has no way out of them; a hint mask that runs past its charstring entry makes `stbtt__buf_skip` assert in a build
 with assertions and is clamped to the entry without them, so it is memory-safe either way: the fuzz build is
 RelWithDebInfo, which defines `NDEBUG`, so the fuzzer does not stop on it, and the Debug `linux-asan` job only replays
 the corpus and runs the unit tests, none of which has such a charstring; no charstring walker checks it), the Basis
-transcoder's own parsing after the header and level checks, dr_wav, dr_mp3, qoa, stb_vorbis beyond the comment header
-(codebooks and setup), TinySoundFont once its tables check out (sample ranges are not checked) and the cgltf parser
-itself (`gltf_check` validates accessors, not the JSON parse). The sanitizer build silences UBSan (not ASan) inside
+transcoder's own parsing after the header, level and Huffman table checks, dr_wav, dr_mp3, qoa, stb_vorbis beyond the
+comment header and the codebooks (floors, residues, mappings, modes), TinySoundFont once its tables check out (sample
+ranges are not checked) and the cgltf parser itself (`gltf_check` validates accessors, not the JSON parse). The sanitizer build silences UBSan (not ASan) inside
 `external/` through `tools/fuzz/ubsan_ignorelist.txt`, which `cmake/FactoriaFuzz.cmake` gives the compiler
 (`-fsanitize-ignorelist`; a runtime `UBSAN_OPTIONS=suppressions` does not work with `-fno-sanitize-recover`), so a
 benign wrap-around or shift in their code does not stop a run; an out-of-bounds access there still does, and is then

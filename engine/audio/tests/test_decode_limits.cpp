@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -25,6 +26,12 @@ namespace {
 
 void set32(std::vector<std::uint8_t>& b, std::size_t at, std::uint32_t v) {
     for (int i = 0; i < 4; ++i) b[at + std::size_t(i)] = std::uint8_t(v >> (8 * i));
+}
+
+std::uint32_t get32(const std::vector<std::uint8_t>& b, std::size_t at) {
+    std::uint32_t v = 0;
+    for (int i = 0; i < 4; ++i) v |= std::uint32_t(b[at + std::size_t(i)]) << (8 * i);
+    return v;
 }
 
 }  // namespace
@@ -237,4 +244,95 @@ TEST_CASE("Soundfont::from_memory: a pdta table repeated in a second pdta LIST i
     const auto font = Soundfont::from_memory(file, "second_list.sf2");
     REQUIRE_FALSE(font.ok());
     CHECK(font.error().message.find("appears twice") != std::string::npos);
+}
+
+TEST_CASE("Soundfont::from_memory: a head or list TinySoundFont reads differently from a SoundFont is refused") {
+    using namespace fa::testing::tiny_sf2_detail;
+    const std::vector<std::uint8_t> good = fa::testing::tiny_sf2();
+    REQUIRE(Soundfont::from_memory(good, "good.sf2").ok());
+    auto refused = [](const std::vector<std::uint8_t>& bytes, const char* label, const char* why) {
+        const auto font = Soundfont::from_memory(bytes, label);
+        REQUIRE_FALSE(font.ok());
+        CHECK_MESSAGE(font.error().message.find(why) != std::string::npos, font.error().message);
+    };
+
+    // The weekly fuzz run's input: a "LIST" + size + "sfbk" head (TinySoundFont takes it) over a hydra whose preset zones
+    // point past the 'pbag' table. The engine skipped its index checks because the head was not "RIFF".
+    refused(corpus_bytes("soundfont", "list_head_instead_of_riff.sf2"), "fuzz.sf2", "starts with a 'LIST' chunk");
+    std::vector<std::uint8_t> bad = good;
+    std::memcpy(bad.data(), "LIST", 4);
+    refused(bad, "list.sf2", "starts with a 'LIST' chunk");
+    bad = good;  // a bare "sfbk" chunk, without the RIFF header
+    std::memcpy(bad.data(), "sfbk", 4);
+    refused(bad, "bare.sf2", "starts with a 'sfbk' chunk");
+
+    bad = good;  // a RIFF size smaller than its "sfbk" id wraps around in TinySoundFont
+    set32(bad, 4, 2);
+    refused(bad, "riff_size.sf2", "smaller than the 'sfbk' id");
+
+    bad = good;  // so does a LIST size smaller than its sub-id: the first top-level list is 'INFO'
+    REQUIRE(std::memcmp(bad.data() + 12, "LIST", 4) == 0);
+    set32(bad, 16, 3);
+    refused(bad, "list_size.sf2", "smaller than its 4-byte id");
+
+    // A list nested in 'pdta' or 'sdta': TinySoundFont would read "LIST" + "pbag" as the 'pbag' table, 4 bytes off.
+    auto find = [&](const char* id, std::size_t from = 0) {
+        for (std::size_t i = from; i + 4 <= good.size(); ++i)
+            if (std::memcmp(good.data() + i, id, 4) == 0) return i;
+        FAIL("no '" << id << "' chunk in the tiny SoundFont");
+        return std::size_t(0);
+    };
+    for (const char* table : {"pbag", "smpl"}) {
+        const std::size_t at = find(table);
+        const std::uint32_t size = get32(good, at + 4);
+        Bytes nested;  // "LIST" + size + "pbag" + the table's records: 4 bytes longer than the chunk it replaces
+        nested.tag("LIST");
+        nested.u32(size + 4);
+        nested.tag(table);
+        nested.b.insert(nested.b.end(), good.begin() + std::ptrdiff_t(at + 8),
+                        good.begin() + std::ptrdiff_t(at + 8 + size));
+        bad.assign(good.begin(), good.begin() + std::ptrdiff_t(at));
+        bad.insert(bad.end(), nested.b.begin(), nested.b.end());
+        bad.insert(bad.end(), good.begin() + std::ptrdiff_t(at + 8 + size), good.end());
+        // The enclosing list and the RIFF header grow by the same 4 bytes.
+        const std::size_t parent = find(std::string(table) == "pbag" ? "pdta" : "sdta") - 8;
+        set32(bad, parent + 4, get32(bad, parent + 4) + 4);
+        set32(bad, 4, std::uint32_t(bad.size() - 8));
+        refused(bad, "nested.sf2", "nested 'LIST' chunk");
+    }
+}
+
+TEST_CASE("decode_audio: an Ogg whose codebook entries times dimensions overflow is refused before stb_vorbis sizes "
+          "from them") {
+    // The weekly fuzz run's input: a codebook whose entries * dimensions overflows stb_vorbis's int into a negative size, which
+    // reached malloc as a 16-exabyte request. The first byte is the fuzz target's format selector (1 = .ogg).
+    const auto bytes = corpus_bytes("audio", "codebook_entries_times_dimensions.bin");
+    REQUIRE(bytes.size() > 1);
+    const long before = fa_vorbis_live_blocks();
+    const auto fuzz = decode_audio(std::span<const std::uint8_t>(bytes.data() + 1, bytes.size() - 1), ".ogg", 4.0);
+    REQUIRE_FALSE(fuzz.ok());
+    CHECK(fuzz.error().message.find("not a valid OGG Vorbis file") != std::string::npos);
+    CHECK(fa_vorbis_live_blocks() == before);
+
+    // A real file passes the codebook walk; the same file with its first codebook made huge does not.
+    const auto withSelector = corpus_bytes("audio", "click.ogg");
+    const std::vector<std::uint8_t> good(withSelector.begin() + 1, withSelector.end());
+    REQUIRE(decode_audio(good, ".ogg", 4.0).ok());
+    std::size_t setup = 0;
+    for (std::size_t i = 0; i + 7 <= good.size() && !setup; ++i)
+        if (good[i] == 5 && std::memcmp(good.data() + i + 1, "vorbis", 6) == 0) setup = i;
+    REQUIRE(setup > 0);
+    REQUIRE(std::memcmp(good.data() + setup + 8, "BCV", 3) ==
+            0);  // after the codebook count, the first codebook's sync
+    std::vector<std::uint8_t> bad = good;
+    for (std::size_t i = 0; i < 5; ++i) bad[setup + 11 + i] = 0xFF;  // 65535 dimensions, 16777215 entries
+    CHECK_FALSE(decode_audio(bad, ".ogg", 4.0).ok());
+    bad = good;
+    bad[setup + 11] = 0x00;  // 32768 dimensions of 1024 entries: ilog 16 + 11 is over the 24 bits libvorbis allows
+    bad[setup + 12] = 0x80;
+    bad[setup + 13] = 0x00;
+    bad[setup + 14] = 0x04;
+    bad[setup + 15] = 0x00;
+    CHECK_FALSE(decode_audio(bad, ".ogg", 4.0).ok());
+    CHECK(fa_vorbis_live_blocks() == before);
 }
