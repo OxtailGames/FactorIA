@@ -33,7 +33,7 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 
 - capabilities: `backend()`, `info()` (backend, Metal target, name), `features()`, `limits()`,
   `pixel_format_caps(format)`, `environment_defaults()` (what `PixelFormat::Default` and sample count 0 mean);
-- the natives: `native()`, `native_image()`, `native_buffer()` (MetalFX, the ImGui backend and the platform glue
+- the natives: `native()`, `native_image()`, `native_buffer()` (the platform glue and the screenshots
   need the `id<MTLDevice>`, the `ID3D11Device` or a GL texture name);
 - resources: `make_*` / `destroy_*` / `state()` for buffers, images, views, samplers, shaders and pipelines;
 - the frame: `begin_commands(label)`, `submit(list)`, `commit()`, `frame_index()`, commit listeners,
@@ -302,17 +302,55 @@ renderer_upscale, render_upscale_spatial, render_upscale_metalfx, renderer_prese
 renderer_metalfx). They share fullscreen_gpu.h: `pass_list(c, gpu)` (the frame's list, or the Gpu's own when a CPU-only
 graph has none) and `make_triangle_pipeline`. Each class remembers the `gpu::Device` of its `ready(...)` call and makes
 its pipelines before the pass begins; TaaFx::ready() and Ssao::draw_apply(Gpu&, ...) without a list are the transitional
-overloads for renderer.cpp and renderer_draw.cpp. The MetalFX wrapper itself (metalfx.h, metalfx_apple.mm, metalfx.cpp)
-stays on sokol until P5: `Scaler::encode` splits the frame with `sg_commit()` and orders its own MTLCommandBuffer
-against sokol's open one (`fa_sg_mtl_command_buffer()`), which the `Device` interface has no equivalent of, and its
-tests drive sokol directly.
+overloads for renderer.cpp and renderer_draw.cpp. The MetalFX wrapper (metalfx.h, metalfx_apple.mm, metalfx.cpp) moved in
+P5c, see "P5c: native_metal and the 2D painter" below.
 P5a: the render targets and formats are interface types. `Target` holds `gpu::Image` / `gpu::View` made on the Gpu's
 device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
 `velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
 (`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
 `gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the handles of
-`TextureAsset`, `LutAsset` and `SubMesh` (P5b), the MetalFX wrapper (P5c) and the readbacks and the storage-image
-helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+`TextureAsset`, `LutAsset` and `SubMesh` (P5b) and the readbacks and the storage-image helpers (`readback_*`,
+`storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+
+## P5c: native_metal and the 2D painter
+
+The last two sokol users outside the passes moved onto the interface.
+
+**`Device::native_metal()`** gives MetalFX the one thing the interface had no equivalent of: `MetalNative`, with
+`current_command_buffer()` (the `id<MTLCommandBuffer>` sokol has open for the frame) and `split_commit()` (ends that
+buffer with a commit and opens the next, which `Scaler::encode` uses to order its own MTLCommandBuffer against sokol's
+frame). It is null on every device that is not Metal, RecordingDevice included. `Scaler` takes the `Device`, so
+metalfx.cpp and its tests include no `sokol_gfx.h`.
+
+**The 2D painter** (`engine/render/include/fa/render/ui_painter.h`, implemented in `src/ui_painter.cpp`, private parts in
+`src/ui_painter_internal.h`) draws what a client with its own interface needs, and the editor's Dear ImGui is the one such
+client. The public header has no ImGui and no sokol type:
+
+- the input is a `UiFrame`: draw lists of `UiVertex` (position, uv, packed colour; the layout of an `ImDrawVert`), 16-bit
+  indices, and `UiDrawCommand`s (a texture view, a nearest-or-linear flag, a clip rectangle, an index range and a vertex
+  offset);
+- pictures are `UiTexture` ids made by `make_texture` (RGBA8 pixels) or `make_updatable_texture` + `update_texture` (a glyph
+  atlas), and the renderer's own game picture is `Renderer::game_target_texture()`: both are views on the same context, so
+  the editor shows the game through the painter;
+- a frame is `upload(frame)` outside a pass (vertices, indices, the queued texture updates through a staging buffer: all the
+  writes, then all the copies), `Renderer::begin_window_pass`, `draw(swapchain, frame)`, `Renderer::end_window_pass`,
+  `Renderer::commit_context()`. The pipeline is made per `TargetFormat` of the window, with SrcAlpha / OneMinusSrcAlpha blend
+  and no depth; an sRGB window gets a gamma of 2.2 on the vertex colour, as sokol_imgui did.
+
+`UiPainter::create` makes a `SokolDevice` of its own on the open context (sokol's ids are shared by every device on it).
+`make_ui_painter_on(Device&)` is the private way in for tests: the doctest "UiPainter: a frame is a pipeline, bindings per
+texture..." (gpu_interface_tests.cpp) runs a whole frame on a RecordingDevice and checks the order of the calls (pipeline,
+bindings per texture change, a scissor and a draw per command, commands outside the window skipped). One frame is capped at
+4 Mi vertices: the lists that fit are drawn and `upload` returns false with a message. The shader is
+`engine/render/shaders/ui2d.glsl` (generated header `src/shaders/ui2d.glsl.h`).
+
+`native_window_handles(swapchain)` returns what a window screenshot needs (the frame's `CAMetalDrawable` and the
+`id<MTLCommandQueue>` on Metal, the `ID3D11Device` and its context on D3D11). It is the editor's only native graphics access: the
+Metal capture in tools/editor/src/backbuffer_apple.mm is a blit on that queue, which has no portable form, and the editor's
+imgui_backend.cpp holds no `sg_` or `simgui_` call (its input still comes from `sapp_event`).
+
+Still on sokol after P5c: `Gpu::begin_pass`, the window pass of `Renderer::begin_window_pass` (P5d), and the context lifecycle
+(`open_context`, `close_context`, `commit_context`).
 
 ## How to convert an sg_* call site
 

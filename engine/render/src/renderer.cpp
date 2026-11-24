@@ -289,6 +289,12 @@ void Renderer::close_context() {
     if (sg_isvalid()) sg_shutdown();
 }
 
+bool Renderer::commit_context() {
+    if (!sg_isvalid()) return false;
+    sg_commit();
+    return true;
+}
+
 void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
     const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
     PassDesc pass = gpu::swapchain_pass(sc);
@@ -685,8 +691,10 @@ RenderStats Renderer::stats(bool passTimes) const {
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
-std::uint32_t Renderer::game_target_image_id() const { return impl_ ? impl_->display_image().id : 0; }
-std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->display_view().id : 0; }
+render::UiTexture Renderer::game_target_texture() const {
+    if (!impl_) return {};
+    return render::UiTexture{impl_->display_image().id, impl_->display_view().id};
+}
 void Renderer::set_editor_view(bool on) {
     if (!impl_) return;
     impl_->editorView = on;

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -11,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+#include "gpu/device.h"
+#include "gpu/sg_bridge.h"
 #include "metalfx.h"
 #include "render_internal.h"
 #include "shaders/blit.glsl.h"
@@ -19,6 +22,31 @@ using namespace fa;
 using namespace fa::test;
 namespace mfx = fa::render::metalfx;
 
+namespace {
+
+// The gpu::Device of a test: a SokolDevice that adopts the sokol context the test's renderer (or Gpu) opened, like the renderer's own
+// device does. One per test case (DeviceScope); the MetalFX wrapper and every image of these tests go through it.
+gpu::Device*& device_slot() {
+    static gpu::Device* slot = nullptr;
+    return slot;
+}
+gpu::Device& dev() { return *device_slot(); }
+
+struct DeviceScope {
+    std::unique_ptr<gpu::Device> device;
+    DeviceScope() {
+        auto made = gpu::make_device(gpu::built_sokol_backend());
+        if (!made.ok()) FAIL(made.error().to_string());
+        device = std::move(made).value();
+        device_slot() = device.get();
+    }
+    ~DeviceScope() { device_slot() = nullptr; }
+    DeviceScope(const DeviceScope&) = delete;
+    DeviceScope& operator=(const DeviceScope&) = delete;
+};
+
+}  // namespace
+
 // The helpers below are used by the Metal tests only: off Metal they would be unused functions (a warning, an error with
 // FA_WARNINGS_AS_ERRORS).
 #if defined(SOKOL_METAL)
@@ -26,50 +54,51 @@ namespace {
 
 // True when this host can run a scaler of `kind`; else says why in the test output.
 bool can_run(mfx::Kind kind) {
-    const mfx::Support s = mfx::support();
+    const mfx::Support s = mfx::support(dev().native().device);
     const bool ok = kind == mfx::Kind::Spatial ? s.spatial : s.temporal;
     if (!ok) MESSAGE("MetalFX is not available here, the test is skipped: " << s.reason);
     return ok;
 }
 
-sg_image make_data_image(int w, int h, sg_pixel_format format, const void* data, std::size_t bytes, const char* label) {
-    sg_image_desc d{};
-    d.type = SG_IMAGETYPE_2D;
+gpu::Image make_data_image(int w, int h, gpu::PixelFormat format, const void* data, std::size_t bytes,
+                           const char* label) {
+    gpu::ImageDesc d{};
+    d.type = gpu::ImageType::Tex2d;
     d.width = w;
     d.height = h;
-    d.num_mipmaps = 1;
-    d.pixel_format = format;
-    d.data.mip_levels[0] = {data, bytes};
+    d.numMipmaps = 1;
+    d.pixelFormat = format;
+    d.data.mipLevels[0] = {data, bytes};
     d.label = label;
-    return sg_make_image(&d);
+    return dev().make_image(d);
 }
 
 struct Output {
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
 };
 // What MetalFX writes: a storage and render-target image, with the texture view the passes after it read.
-Output make_output(int w, int h, sg_pixel_format format) {
+Output make_output(int w, int h, gpu::PixelFormat format) {
     Output o;
-    sg_image_desc d{};
-    d.type = SG_IMAGETYPE_2D;
+    gpu::ImageDesc d{};
+    d.type = gpu::ImageType::Tex2d;
     d.width = w;
     d.height = h;
-    d.num_mipmaps = 1;
-    d.pixel_format = format;
-    d.usage.storage_image = true;
-    d.usage.color_attachment = true;  // MetalFX writes it as a render target (spatial) and a storage image (temporal)
+    d.numMipmaps = 1;
+    d.pixelFormat = format;
+    d.usage.storageImage = true;
+    d.usage.colorAttachment = true;  // MetalFX writes it as a render target (spatial) and a storage image (temporal)
     d.label = "metalfx-test-output";
-    o.image = sg_make_image(&d);
-    sg_view_desc vd{};
+    o.image = dev().make_image(d);
+    gpu::ViewDesc vd{};
     vd.texture.image = o.image;
     vd.label = "metalfx-test-output-view";
-    o.view = sg_make_view(&vd);
+    o.view = dev().make_view(vd);
     return o;
 }
 void destroy_output(Output& o) {
-    if (o.view.id) sg_destroy_view(o.view);
-    if (o.image.id) sg_destroy_image(o.image);
+    if (o.view.valid()) dev().destroy_view(o.view);
+    if (o.image.valid()) dev().destroy_image(o.image);
     o = Output{};
 }
 
@@ -135,9 +164,18 @@ std::vector<std::uint8_t> bilinear_up(const std::vector<std::uint8_t>& in, int i
 
 // A read back goes through a command buffer of its own: the frame's sokol buffer must be submitted first (Scaler::encode leaves one open
 // for the passes after it), or the read back waits behind it for ever.
-bool read_back(sg_image image, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
-    sg_commit();
-    return render::readback_rgba8(image, w, h, out, error);
+bool read_back(gpu::Image image, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
+    dev().commit();
+    const Result<void> r = dev().read_image_rgba8(image, w, h, out);
+    if (!r.ok() && error) *error = r.error().to_string();
+    return r.ok();
+}
+// The same for an RGBA16F image, as floats.
+bool read_back_f16(gpu::Image image, int w, int h, std::vector<float>& out, std::string* error) {
+    dev().commit();
+    const Result<void> r = dev().read_image_rgba16f(image, w, h, out);
+    if (!r.ok() && error) *error = r.error().to_string();
+    return r.ok();
 }
 
 }  // namespace
@@ -145,7 +183,8 @@ bool read_back(sg_image image, int w, int h, std::vector<std::uint8_t>& out, std
 
 TEST_CASE("metalfx: the support answer says what is missing") {
     REQUIRE(gfx().ok);  // the Metal device exists
-    const mfx::Support s = mfx::support();
+    DeviceScope scope;
+    const mfx::Support s = mfx::support(dev().native().device);
     if (s.spatial && s.temporal) {
         CHECK(s.reason.empty());
     } else {
@@ -162,10 +201,10 @@ TEST_CASE("metalfx: the support answer says what is missing") {
     mfx::Desc d;
     d.inputWidth = d.inputHeight = 8;
     d.outputWidth = d.outputHeight = 16;
-    CHECK(!scaler.configure(d, &error));
+    CHECK(!scaler.configure(dev(), d, &error));
     CHECK(error.find("MetalFX") != std::string::npos);
     CHECK(!scaler.valid());
-    CHECK(!scaler.encode(mfx::Frame{}, &error));
+    CHECK(!scaler.encode(dev(), mfx::Frame{}, &error));
 #endif
 }
 
@@ -174,6 +213,7 @@ TEST_CASE("metalfx: the support answer says what is missing") {
 TEST_CASE("metalfx: a scaler is refused with a reason before MetalFX is asked") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     mfx::Scaler scaler;
     std::string error;
     mfx::Desc d;
@@ -181,18 +221,18 @@ TEST_CASE("metalfx: a scaler is refused with a reason before MetalFX is asked") 
     d.inputHeight = 32;
     d.outputWidth = 16;  // smaller than the input
     d.outputHeight = 16;
-    CHECK(!scaler.configure(d, &error));
+    CHECK(!scaler.configure(dev(), d, &error));
     CHECK(error.find("smaller than the input") != std::string::npos);
     d.outputWidth = d.outputHeight = 0;
-    CHECK(!scaler.configure(d, &error));
+    CHECK(!scaler.configure(dev(), d, &error));
     CHECK(error.find("at least 1x1") != std::string::npos);
     d.inputWidth = d.inputHeight = 8;
     d.outputWidth = d.outputHeight = 16;
-    d.colorFormat = SG_PIXELFORMAT_BC1_RGBA;
-    CHECK(!scaler.configure(d, &error));
+    d.colorFormat = gpu::PixelFormat::Bc1Rgba;
+    CHECK(!scaler.configure(dev(), d, &error));
     CHECK(error.find("one of") != std::string::npos);
     CHECK(!scaler.valid());
-    CHECK(!scaler.encode(mfx::Frame{}, &error));
+    CHECK(!scaler.encode(dev(), mfx::Frame{}, &error));
     CHECK(error.find("configure") != std::string::npos);
 }
 
@@ -200,15 +240,16 @@ TEST_CASE(
     "metalfx: the spatial scaler at 2x gives the picture a bilinear upscale gives, and a resize makes a new scaler") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Spatial)) return;
     const int inW = 48, inH = 32, outW = 96, outH = 64;
     const std::vector<std::uint8_t> in = scene_pixels(inW, inH, 0.0f, 0.0f);
     const std::vector<std::uint8_t> reference =
         scene_pixels(outW, outH, 0.0f, 0.0f);  // the scene itself, at the output size
-    sg_image color = make_data_image(inW, inH, SG_PIXELFORMAT_RGBA8, in.data(), in.size(), "metalfx-test-color");
-    Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
-    REQUIRE(sg_query_image_state(color) == SG_RESOURCESTATE_VALID);
-    REQUIRE(sg_query_image_state(out.image) == SG_RESOURCESTATE_VALID);
+    gpu::Image color = make_data_image(inW, inH, gpu::PixelFormat::Rgba8, in.data(), in.size(), "metalfx-test-color");
+    Output out = make_output(outW, outH, gpu::PixelFormat::Rgba8);
+    REQUIRE(dev().state(color) == gpu::ResourceState::Valid);
+    REQUIRE(dev().state(out.image) == gpu::ResourceState::Valid);
 
     mfx::Scaler scaler;
     std::string error;
@@ -218,17 +259,17 @@ TEST_CASE(
     d.inputHeight = inH;
     d.outputWidth = outW;
     d.outputHeight = outH;
-    d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA8;
+    d.colorFormat = d.outputFormat = gpu::PixelFormat::Rgba8;
     d.colorSpace = mfx::ColorSpace::Perceptual;
-    REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
     CHECK(scaler.generation() == 1);
-    CHECK(scaler.configure(d, &error));  // the same desc keeps the scaler
+    CHECK(scaler.configure(dev(), d, &error));  // the same desc keeps the scaler
     CHECK(scaler.generation() == 1);
 
     mfx::Frame f;
     f.color = color;
     f.output = out.image;
-    REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+    REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
     CHECK(scaler.encoded() == 1);
     std::vector<std::uint8_t> got;
     REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
@@ -244,62 +285,64 @@ TEST_CASE(
     // An image of the wrong size is refused before any work is done, and says what to do.
     mfx::Frame bad = f;
     bad.color = out.image;
-    CHECK(!scaler.encode(bad, &error));
+    CHECK(!scaler.encode(dev(), bad, &error));
     CHECK(error.find("configure again") != std::string::npos);
     CHECK(scaler.encoded() == 1);
     // A colour image that is not an image.
     bad = f;
-    bad.color = sg_image{};
-    CHECK(!scaler.encode(bad, &error));
+    bad.color = gpu::Image{};
+    CHECK(!scaler.encode(dev(), bad, &error));
     CHECK(error.find("not a valid image") != std::string::npos);
     // An output that is not a storage image (MetalFX could not write it).
-    sg_image plain =
-        make_data_image(outW, outH, SG_PIXELFORMAT_RGBA8, reference.data(), reference.size(), "metalfx-test-plain");
+    gpu::Image plain =
+        make_data_image(outW, outH, gpu::PixelFormat::Rgba8, reference.data(), reference.size(), "metalfx-test-plain");
     bad = f;
     bad.output = plain;
-    CHECK(!scaler.encode(bad, &error));
+    CHECK(!scaler.encode(dev(), bad, &error));
     CHECK(error.find("usage.storage_image") != std::string::npos);
-    sg_destroy_image(plain);
+    dev().destroy_image(plain);
 
     // A resize: another size makes another scaler; the old frame no longer fits it.
     const int in2W = 24, in2H = 16;
     const std::vector<std::uint8_t> in2 = scene_pixels(in2W, in2H, 0.0f, 0.0f);
-    sg_image color2 = make_data_image(in2W, in2H, SG_PIXELFORMAT_RGBA8, in2.data(), in2.size(), "metalfx-test-color2");
+    gpu::Image color2 =
+        make_data_image(in2W, in2H, gpu::PixelFormat::Rgba8, in2.data(), in2.size(), "metalfx-test-color2");
     d.inputWidth = in2W;
     d.inputHeight = in2H;
-    REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
     CHECK(scaler.generation() == 2);
     CHECK(scaler.encoded() == 0);
-    CHECK(!scaler.encode(f, &error));  // the 48x32 colour against a 24x16 scaler
+    CHECK(!scaler.encode(dev(), f, &error));  // the 48x32 colour against a 24x16 scaler
     f.color = color2;
-    REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+    REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
     REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
     const double err2 = mean_diff(got, reference, outW, outH, 4);
     CHECK_MESSAGE(err2 < 0.03, "mean error of the 4x spatial upscale: " << std::round(err2 * 10000.0) / 10000.0);
 
     scaler.release();
     CHECK(!scaler.valid());
-    sg_destroy_image(color2);
-    sg_destroy_image(color);
+    dev().destroy_image(color2);
+    dev().destroy_image(color);
     destroy_output(out);
-    sg_commit();
+    dev().commit();
 }
 
 TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on the scene at the output size") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Temporal)) return;
     const int inW = 48, inH = 32, outW = 96, outH = 64;
     const std::vector<std::uint8_t> reference = scene_pixels(outW, outH, 0.0f, 0.0f);
     const std::vector<std::uint16_t> noMotion(std::size_t(inW) * inH * 2, 0);  // RG16F zero
     const std::vector<float> depth(std::size_t(inW) * inH, 0.5f);
-    sg_image motion =
-        make_data_image(inW, inH, SG_PIXELFORMAT_RG16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
-    sg_image depthImg =
-        make_data_image(inW, inH, SG_PIXELFORMAT_R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
-    Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
-    REQUIRE(sg_query_image_state(motion) == SG_RESOURCESTATE_VALID);
-    REQUIRE(sg_query_image_state(depthImg) == SG_RESOURCESTATE_VALID);
+    gpu::Image motion =
+        make_data_image(inW, inH, gpu::PixelFormat::Rg16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
+    gpu::Image depthImg =
+        make_data_image(inW, inH, gpu::PixelFormat::R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
+    Output out = make_output(outW, outH, gpu::PixelFormat::Rgba8);
+    REQUIRE(dev().state(motion) == gpu::ResourceState::Valid);
+    REQUIRE(dev().state(depthImg) == gpu::ResourceState::Valid);
 
     mfx::Scaler scaler;
     std::string error;
@@ -309,11 +352,11 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
     d.inputHeight = inH;
     d.outputWidth = outW;
     d.outputHeight = outH;
-    d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA8;
-    d.depthFormat = SG_PIXELFORMAT_R32F;
-    d.motionFormat = SG_PIXELFORMAT_RG16F;
+    d.colorFormat = d.outputFormat = gpu::PixelFormat::Rgba8;
+    d.depthFormat = gpu::PixelFormat::R32F;
+    d.motionFormat = gpu::PixelFormat::Rg16F;
     d.autoExposure = false;
-    REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
 
     // Halton(2,3) jitter, the sequence the engine's TAA will use, in render pixels (-0.5..0.5), the scene sampled at the jittered
     // point as a jittered projection does.
@@ -334,9 +377,9 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
         for (int frame = 0; frame < 16; ++frame) {
             const float jx = halton(frame % 8 + 1, 2) - 0.5f, jy = halton(frame % 8 + 1, 3) - 0.5f;
             const std::vector<std::uint8_t> in = scene_pixels(inW, inH, jx, jy);
-            sg_image color =
-                make_data_image(inW, inH, SG_PIXELFORMAT_RGBA8, in.data(), in.size(), "metalfx-test-color");
-            REQUIRE(sg_query_image_state(color) == SG_RESOURCESTATE_VALID);
+            gpu::Image color =
+                make_data_image(inW, inH, gpu::PixelFormat::Rgba8, in.data(), in.size(), "metalfx-test-color");
+            REQUIRE(dev().state(color) == gpu::ResourceState::Valid);
             mfx::Frame f;
             f.color = color;
             f.depth = depthImg;
@@ -345,13 +388,13 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
             f.jitterX = s * jx;
             f.jitterY = s * jy;
             f.reset = frame == 0;
-            REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+            REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
             std::vector<std::uint8_t> got;
             REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
             const double e = mean_diff(got, reference, outW, outH, 4);
             if (frame == 0) first = e;
             if (frame == 15) err[run] = e;
-            sg_destroy_image(color);
+            dev().destroy_image(color);
         }
         MESSAGE(std::string(run == 0 ? "documented jitter sign" : "opposite jitter sign")
                 << ": mean error of the first frame " << std::round(first * 10000.0) / 10000.0 << ", after 16 frames "
@@ -361,15 +404,16 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
     CHECK_MESSAGE(err[0] < 0.02, "the converged temporal output is far from the scene: " << err[0]);
 
     destroy_output(out);
-    sg_destroy_image(depthImg);
-    sg_destroy_image(motion);
-    sg_commit();
+    dev().destroy_image(depthImg);
+    dev().destroy_image(motion);
+    dev().commit();
 }
 
 TEST_CASE("metalfx: a pass that writes the input and a pass that reads the output in the same frame see this frame's "
           "pictures") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Spatial)) return;
     render::Gpu gpu;
     std::string error;
@@ -383,9 +427,9 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     td.colorFormat = gpu::PixelFormat::Rgba8;
     render::Target input = render::make_target(gpu.device(), td);
     REQUIRE(input.valid(gpu.device()));
-    Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
-    REQUIRE(sg_query_image_state(out.image) == SG_RESOURCESTATE_VALID);
-    REQUIRE(sg_query_view_state(out.view) == SG_RESOURCESTATE_VALID);
+    Output out = make_output(outW, outH, gpu::PixelFormat::Rgba8);
+    REQUIRE(dev().state(out.image) == gpu::ResourceState::Valid);
+    REQUIRE(dev().state(out.view) == gpu::ResourceState::Valid);
     std::vector<render::Target> shown(frames);
     for (int i = 0; i < frames; ++i) {
         render::TargetDesc sd;
@@ -404,9 +448,9 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     d.inputHeight = inH;
     d.outputWidth = outW;
     d.outputHeight = outH;
-    d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA8;
+    d.colorFormat = d.outputFormat = gpu::PixelFormat::Rgba8;
     d.colorSpace = mfx::ColorSpace::Perceptual;
-    REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
 
     // Every frame: a pass writes a grey of its own into the input, MetalFX scales it, a later pass copies the scaled image. The
     // frames are queued without waiting for the GPU (only the read-back at the end waits), so a scaler that ran behind the passes
@@ -414,45 +458,44 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     std::vector<float> grey(static_cast<std::size_t>(frames), 0.0f);
     for (int i = 0; i < frames; ++i) grey[std::size_t(i)] = 0.08f + 0.07f * float(i);
     for (int i = 0; i < frames; ++i) {
+        gpu::CommandList& list = gpu.commands();
         render::PassDesc p = render::pass_into(input, "metalfx-test-write-input");
         p.colorLoad = gpu::LoadAction::Clear;
         p.clearColor = {grey[std::size_t(i)], grey[std::size_t(i)], grey[std::size_t(i)], 1.0f};
         p.colorStore = gpu::StoreAction::Store;
-        gpu.begin_pass(p);
-        gpu.end_pass();
+        list.begin_pass(p);
+        list.end_pass();
 
         mfx::Frame f;
-        f.color = gpu::to_sg(input.texture_image());
+        f.color = input.texture_image();
         f.output = out.image;
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
 
         render::PassDesc q = render::pass_into(shown[std::size_t(i)], "metalfx-test-read-output");
         q.colorLoad = gpu::LoadAction::DontCare;
         q.colorStore = gpu::StoreAction::Store;
-        gpu.begin_pass(q);
-        sg_apply_pipeline(gpu.blit_keep_pipeline(q.format));
-        sg_bindings b{};
-        b.vertex_buffers[0] = gpu.fullscreen_triangle();
+        list.begin_pass(q);
+        list.set_pipeline(gpu.blit_keep_pipeline(q.format));
+        gpu::Bindings b{};
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
         b.views[VIEW_blit_tex] = out.view;
-        b.samplers[SMP_blit_smp] = gpu.sampler(render::SamplerKind::Nearest);
-        sg_apply_bindings(&b);
+        b.samplers[SMP_blit_smp] = gpu::from_sg(gpu.sampler(render::SamplerKind::Nearest));
+        list.set_bindings(b);
         blit_blit_vs_params_t vu{};
         vu.flip[0] = 0.0f;
-        sg_range vr{&vu, sizeof(vu)};
-        sg_apply_uniforms(UB_blit_blit_vs_params, &vr);
+        list.set_uniforms(UB_blit_blit_vs_params, gpu::Range{&vu, sizeof(vu)});
         blit_blit_fs_params_t fu{};
-        sg_range fr{&fu, sizeof(fu)};
-        sg_apply_uniforms(UB_blit_blit_fs_params, &fr);
-        sg_draw(0, 3, 1);
-        gpu.end_pass();
+        list.set_uniforms(UB_blit_blit_fs_params, gpu::Range{&fu, sizeof(fu)});
+        list.draw(0, 3, 1);
+        list.end_pass();
     }
-    sg_commit();
+    dev().commit();
     CHECK(scaler.encoded() == frames);
 
     int wrong = 0;
     for (int i = 0; i < frames; ++i) {
         std::vector<std::uint8_t> px;
-        REQUIRE_MESSAGE(read_back(gpu::to_sg(shown[std::size_t(i)].color), outW, outH, px, &error), error);
+        REQUIRE_MESSAGE(read_back(shown[std::size_t(i)].color, outW, outH, px, &error), error);
         const std::size_t centre = (std::size_t(outH / 2) * outW + outW / 2) * 4;
         const double v = double(px[centre]) / 255.0;
         if (std::abs(v - double(grey[std::size_t(i)])) > 0.03) {
@@ -465,7 +508,7 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     for (render::Target& t : shown) render::destroy_target(gpu.device(), t);
     destroy_output(out);
     render::destroy_target(gpu.device(), input);
-    sg_commit();
+    dev().commit();
     gpu.shutdown();
 }
 
@@ -495,9 +538,9 @@ void moving_pattern_errors(bool vertical, double err[3]) {
             (vertical ? k / std::size_t(inW) < std::size_t(inH) / 2 : (k % std::size_t(inW)) < std::size_t(inW) / 2)
                 ? 0.5f
                 : 1.0f;
-    sg_image depthImg =
-        make_data_image(inW, inH, SG_PIXELFORMAT_R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
-    REQUIRE(sg_query_image_state(depthImg) == SG_RESOURCESTATE_VALID);
+    gpu::Image depthImg =
+        make_data_image(inW, inH, gpu::PixelFormat::R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
+    REQUIRE(dev().state(depthImg) == gpu::ResourceState::Valid);
     auto half = [](float f) {  // float -> IEEE half (normal numbers and zero are enough here)
         if (f == 0.0f) return std::uint16_t(0);
         std::uint32_t b;
@@ -517,10 +560,10 @@ void moving_pattern_errors(bool vertical, double err[3]) {
             mv[i * 2] = half(mx);
             mv[i * 2 + 1] = half(my);
         }
-        sg_image motion =
-            make_data_image(inW, inH, SG_PIXELFORMAT_RG16F, mv.data(), mv.size() * 2, "metalfx-test-motion");
-        REQUIRE(sg_query_image_state(motion) == SG_RESOURCESTATE_VALID);
-        Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA16F);
+        gpu::Image motion =
+            make_data_image(inW, inH, gpu::PixelFormat::Rg16F, mv.data(), mv.size() * 2, "metalfx-test-motion");
+        REQUIRE(dev().state(motion) == gpu::ResourceState::Valid);
+        Output out = make_output(outW, outH, gpu::PixelFormat::Rgba16F);
         mfx::Scaler scaler;
         std::string error;
         mfx::Desc d;
@@ -529,11 +572,11 @@ void moving_pattern_errors(bool vertical, double err[3]) {
         d.inputHeight = inH;
         d.outputWidth = outW;
         d.outputHeight = outH;
-        d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA16F;
-        d.depthFormat = SG_PIXELFORMAT_R32F;
-        d.motionFormat = SG_PIXELFORMAT_RG16F;
+        d.colorFormat = d.outputFormat = gpu::PixelFormat::Rgba16F;
+        d.depthFormat = gpu::PixelFormat::R32F;
+        d.motionFormat = gpu::PixelFormat::Rg16F;
         d.autoExposure = false;
-        REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+        REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
         double last = 1.0;
         for (int frame = 0; frame < frames; ++frame) {
             const float jx = halton(frame % 32 + 1, 2) - 0.5f, jy = halton(frame % 32 + 1, 3) - 0.5f;
@@ -545,8 +588,8 @@ void moving_pattern_errors(bool vertical, double err[3]) {
                     p[0] = p[1] = p[2] = b;
                     p[3] = half(1.0f);
                 }
-            sg_image color =
-                make_data_image(inW, inH, SG_PIXELFORMAT_RGBA16F, in.data(), in.size() * 2, "metalfx-test-color");
+            gpu::Image color =
+                make_data_image(inW, inH, gpu::PixelFormat::Rgba16F, in.data(), in.size() * 2, "metalfx-test-color");
             mfx::Frame f;
             f.color = color;
             f.depth = depthImg;
@@ -557,12 +600,12 @@ void moving_pattern_errors(bool vertical, double err[3]) {
             f.motionScaleX = float(inW);
             f.motionScaleY = float(inH);
             f.reset = frame == 0;
-            REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+            REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
             std::vector<std::uint8_t> got;
             {
                 std::vector<float> gf;
-                sg_commit();  // the read back's own command buffer must not queue behind the open sokol one (see read_back)
-                REQUIRE_MESSAGE(render::readback_rgba16f(out.image, outW, outH, gf, &error), error);
+                REQUIRE_MESSAGE(read_back_f16(out.image, outW, outH, gf, &error),
+                                error);  // commits first (see read_back)
                 got.resize(gf.size());
                 for (std::size_t k = 0; k < gf.size(); ++k)
                     got[k] = std::uint8_t(std::lround(std::clamp(gf[k], 0.0f, 1.0f) * 255.0f));
@@ -580,14 +623,14 @@ void moving_pattern_errors(bool vertical, double err[3]) {
                     }
                 last = mean_diff(got, truth, outW, outH, 6);
             }
-            sg_destroy_image(color);
+            dev().destroy_image(color);
         }
         err[run] = last;
         destroy_output(out);
-        sg_destroy_image(motion);
+        dev().destroy_image(motion);
     }
-    sg_destroy_image(depthImg);
-    sg_commit();
+    dev().destroy_image(depthImg);
+    dev().commit();
 }
 }  // namespace
 
@@ -595,6 +638,7 @@ TEST_CASE(
     "metalfx: the temporal scaler follows a moving pattern when the motion points from the pixel to where it was") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Temporal)) return;
     double err[3] = {1, 1, 1};
     moving_pattern_errors(false, err);
@@ -609,6 +653,7 @@ TEST_CASE(
 TEST_CASE("metalfx: the same in y: horizontal stripes moving down, the motion image's y runs down like the picture's") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Temporal)) return;
     double err[3] = {1, 1, 1};
     moving_pattern_errors(true, err);
@@ -629,9 +674,9 @@ mfx::Desc small_temporal_desc(bool reactiveMask) {
     d.inputHeight = 32;
     d.outputWidth = 96;
     d.outputHeight = 64;
-    d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA8;
-    d.depthFormat = SG_PIXELFORMAT_R32F;
-    d.motionFormat = SG_PIXELFORMAT_RG16F;
+    d.colorFormat = d.outputFormat = gpu::PixelFormat::Rgba8;
+    d.depthFormat = gpu::PixelFormat::R32F;
+    d.motionFormat = gpu::PixelFormat::Rg16F;
     d.autoExposure = false;
     d.reactiveMask = reactiveMask;
     return d;
@@ -639,25 +684,25 @@ mfx::Desc small_temporal_desc(bool reactiveMask) {
 
 // The images of one temporal frame of 48x32 that do not change from frame to frame (no motion, a flat depth, a reactive mask of one value).
 struct SmallFrameImages {
-    sg_image depth{}, motion{}, reactive{}, reactiveWrongSize{};
+    gpu::Image depth{}, motion{}, reactive{}, reactiveWrongSize{};
     explicit SmallFrameImages(std::uint8_t reactiveValue) {
         const int w = 48, h = 32;
         const std::vector<std::uint16_t> noMotion(std::size_t(w) * h * 2, 0);
         const std::vector<float> flat(std::size_t(w) * h, 0.5f);
         const std::vector<std::uint8_t> mask(std::size_t(w) * h, reactiveValue);
         const std::vector<std::uint8_t> small(std::size_t(w / 2) * (h / 2), reactiveValue);
-        depth = make_data_image(w, h, SG_PIXELFORMAT_R32F, flat.data(), flat.size() * 4, "metalfx-test-depth");
+        depth = make_data_image(w, h, gpu::PixelFormat::R32F, flat.data(), flat.size() * 4, "metalfx-test-depth");
         motion =
-            make_data_image(w, h, SG_PIXELFORMAT_RG16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
-        reactive = make_data_image(w, h, SG_PIXELFORMAT_R8, mask.data(), mask.size(), "metalfx-test-reactive");
-        reactiveWrongSize =
-            make_data_image(w / 2, h / 2, SG_PIXELFORMAT_R8, small.data(), small.size(), "metalfx-test-reactive-small");
+            make_data_image(w, h, gpu::PixelFormat::Rg16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
+        reactive = make_data_image(w, h, gpu::PixelFormat::R8, mask.data(), mask.size(), "metalfx-test-reactive");
+        reactiveWrongSize = make_data_image(w / 2, h / 2, gpu::PixelFormat::R8, small.data(), small.size(),
+                                            "metalfx-test-reactive-small");
     }
     ~SmallFrameImages() {
-        sg_destroy_image(depth);
-        sg_destroy_image(motion);
-        sg_destroy_image(reactive);
-        sg_destroy_image(reactiveWrongSize);
+        dev().destroy_image(depth);
+        dev().destroy_image(motion);
+        dev().destroy_image(reactive);
+        dev().destroy_image(reactiveWrongSize);
     }
     SmallFrameImages(const SmallFrameImages&) = delete;
     SmallFrameImages& operator=(const SmallFrameImages&) = delete;
@@ -674,10 +719,10 @@ double changed_scene_error(bool reactiveDesc, int maskValue) {
         return std::sin((px - phase) * (6.2831853f / period)) > 0.0f ? 242 : 13;
     };
     SmallFrameImages images(std::uint8_t(std::max(maskValue, 0)));
-    Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
+    Output out = make_output(outW, outH, gpu::PixelFormat::Rgba8);
     mfx::Scaler scaler;
     std::string error;
-    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(reactiveDesc), &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), small_temporal_desc(reactiveDesc), &error), error);
     auto halton = [](int i, int base) {
         float f = 1.0f, r = 0.0f;
         for (int n = i; n > 0; n /= base) {
@@ -700,7 +745,8 @@ double changed_scene_error(bool reactiveDesc, int maskValue) {
                 std::uint8_t* q = &in[(std::size_t(y) * inW + x) * 4];
                 q[0] = q[1] = q[2] = v;
             }
-        sg_image color = make_data_image(inW, inH, SG_PIXELFORMAT_RGBA8, in.data(), in.size(), "metalfx-test-color");
+        gpu::Image color =
+            make_data_image(inW, inH, gpu::PixelFormat::Rgba8, in.data(), in.size(), "metalfx-test-color");
         mfx::Frame f;
         f.color = color;
         f.depth = images.depth;
@@ -710,7 +756,7 @@ double changed_scene_error(bool reactiveDesc, int maskValue) {
         f.jitterY = -jy;
         f.reset = frame == 0;
         if (last && maskValue >= 0) f.reactive = images.reactive;
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
         if (last) {
             std::vector<std::uint8_t> got;
             REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
@@ -724,12 +770,12 @@ double changed_scene_error(bool reactiveDesc, int maskValue) {
             result = mean_diff(got, truth, outW, outH, 4);
             CHECK(scaler.reactive_encoded() == (maskValue >= 0 && scaler.reactive_mask() ? 1 : 0));
         } else {
-            sg_commit();
+            dev().commit();
         }
-        sg_destroy_image(color);
+        dev().destroy_image(color);
     }
     destroy_output(out);
-    sg_commit();
+    dev().commit();
     return result;
 }
 
@@ -739,11 +785,12 @@ TEST_CASE(
     "metalfx: a reactive mask given with the frame reaches the temporal scaler and makes it drop its history there") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    DeviceScope scope;
     if (!can_run(mfx::Kind::Temporal)) return;
     {
         mfx::Scaler probe;
         std::string error;
-        REQUIRE_MESSAGE(probe.configure(small_temporal_desc(true), &error), error);
+        REQUIRE_MESSAGE(probe.configure(dev(), small_temporal_desc(true), &error), error);
         if (!probe.reactive_mask()) {
             MESSAGE("this OS has no MetalFX reactive mask (it needs macOS 14.4 or iOS 17.4): the scaler is made "
                     "without it, the test is "
@@ -773,7 +820,8 @@ TEST_CASE("metalfx: the reactive mask is handed over only when the frame has one
           "(any Metal GPU)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!sg_isvalid() || !mfx::on_metal()) {
+    DeviceScope scope;
+    if (!mfx::on_metal(dev())) {
         MESSAGE("not the Metal backend, the test is skipped");
         return;
     }
@@ -782,8 +830,8 @@ TEST_CASE("metalfx: the reactive mask is handed over only when the frame has one
     hooks.emptyBuffers = true;
     SmallFrameImages images(255);
     std::vector<std::uint8_t> px(std::size_t(48) * 32 * 4, 128);
-    sg_image color = make_data_image(48, 32, SG_PIXELFORMAT_RGBA8, px.data(), px.size(), "metalfx-test-color");
-    Output out = make_output(96, 64, SG_PIXELFORMAT_RGBA8);
+    gpu::Image color = make_data_image(48, 32, gpu::PixelFormat::Rgba8, px.data(), px.size(), "metalfx-test-color");
+    Output out = make_output(96, 64, gpu::PixelFormat::Rgba8);
     mfx::Frame f;
     f.color = color;
     f.depth = images.depth;
@@ -793,37 +841,37 @@ TEST_CASE("metalfx: the reactive mask is handed over only when the frame has one
 
     mfx::Scaler without;
     without.set_test_hooks(hooks);
-    REQUIRE_MESSAGE(without.configure(small_temporal_desc(false), &error), error);
+    REQUIRE_MESSAGE(without.configure(dev(), small_temporal_desc(false), &error), error);
     CHECK_FALSE(without.reactive_mask());
     f.reactive = images.reactive;
-    REQUIRE_MESSAGE(without.encode(f, &error), error);  // a scaler without the input leaves a mask alone
+    REQUIRE_MESSAGE(without.encode(dev(), f, &error), error);  // a scaler without the input leaves a mask alone
     CHECK(without.reactive_encoded() == 0);
 
     mfx::Scaler scaler;
     scaler.set_test_hooks(hooks);
-    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(true), &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), small_temporal_desc(true), &error), error);
     if (!scaler.reactive_mask()) {
         MESSAGE("this OS has no MetalFX reactive mask (it needs macOS 14.4 or iOS 17.4): the scaler is made without it "
                 "and ignores "
                 "the mask");
         f.reactive = images.reactive;
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
         CHECK(scaler.reactive_encoded() == 0);
     } else {
-        f.reactive = sg_image{};
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);  // no mask in this frame
+        f.reactive = gpu::Image{};
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);  // no mask in this frame
         CHECK(scaler.reactive_encoded() == 0);
         f.reactive = images.reactive;
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
         CHECK(scaler.reactive_encoded() == 2);
         CHECK(scaler.encoded() == 3);
         f.reactive = images.reactiveWrongSize;  // a mask of another size is refused, and no work is done
-        CHECK_FALSE(scaler.encode(f, &error));
+        CHECK_FALSE(scaler.encode(dev(), f, &error));
         CHECK(error.find("Frame.reactive") != std::string::npos);
         CHECK(scaler.encoded() == 3);
         f.reactive = color;  // an RGBA8 image is not an R8 mask
-        CHECK_FALSE(scaler.encode(f, &error));
+        CHECK_FALSE(scaler.encode(dev(), f, &error));
         CHECK(error.find("Frame.reactive") != std::string::npos);
         CHECK(scaler.reactive_encoded() == 2);
     }
@@ -831,8 +879,8 @@ TEST_CASE("metalfx: the reactive mask is handed over only when the frame has one
     scaler.release();
     without.release();
     destroy_output(out);
-    sg_destroy_image(color);
-    sg_commit();
+    dev().destroy_image(color);
+    dev().commit();
 }
 
 TEST_CASE(
@@ -840,7 +888,8 @@ TEST_CASE(
     "GPU)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!sg_isvalid() || !mfx::on_metal()) {
+    DeviceScope scope;
+    if (!mfx::on_metal(dev())) {
         MESSAGE("not the Metal backend, the test is skipped");
         return;
     }
@@ -849,8 +898,8 @@ TEST_CASE(
     // stall for ever, so every wait here has a limit and the test fails (and lets the queue go on) instead of hanging.
     SmallFrameImages images(0);
     std::vector<std::uint8_t> px(std::size_t(48) * 32 * 4, 128);
-    sg_image color = make_data_image(48, 32, SG_PIXELFORMAT_RGBA8, px.data(), px.size(), "metalfx-test-color");
-    Output out = make_output(96, 64, SG_PIXELFORMAT_RGBA8);
+    gpu::Image color = make_data_image(48, 32, gpu::PixelFormat::Rgba8, px.data(), px.size(), "metalfx-test-color");
+    Output out = make_output(96, 64, gpu::PixelFormat::Rgba8);
     mfx::Frame f;
     f.color = color;
     f.depth = images.depth;
@@ -872,12 +921,12 @@ TEST_CASE(
         h.emptyBuffers = true;
         mfx::Scaler ok;
         ok.set_test_hooks(h);
-        REQUIRE_MESSAGE(ok.configure(small_temporal_desc(false), &error), error);
-        REQUIRE_MESSAGE(ok.encode(f, &error), error);
+        REQUIRE_MESSAGE(ok.configure(dev(), small_temporal_desc(false), &error), error);
+        REQUIRE_MESSAGE(ok.encode(dev(), f, &error), error);
         CHECK(ok.test_wait_signalled(10000));
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         CHECK_FALSE(ok.command_failed(nullptr));
-        sg_commit();
+        dev().commit();
     }
 
     mfx::Scaler::TestHooks h;
@@ -885,9 +934,9 @@ TEST_CASE(
     h.failBuffers = true;
     mfx::Scaler scaler;
     scaler.set_test_hooks(h);
-    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(false), &error), error);
+    REQUIRE_MESSAGE(scaler.configure(dev(), small_temporal_desc(false), &error), error);
     for (int round = 0; round < 3; ++round) {  // the queue goes on after a failure: later frames are released too
-        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(dev(), f, &error), error);
         REQUIRE_MESSAGE(scaler.test_wait_signalled(10000),
                         "the failed buffer's completion handler did not raise the event (round "
                             << round << "): the passes behind it would wait for ever");
@@ -902,8 +951,8 @@ TEST_CASE(
     scaler.release();
     CHECK_FALSE(scaler.command_failed(nullptr));  // a new scaler starts clear
     destroy_output(out);
-    sg_destroy_image(color);
-    sg_commit();
+    dev().destroy_image(color);
+    dev().commit();
 }
 
 #else

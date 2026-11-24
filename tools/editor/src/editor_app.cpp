@@ -28,7 +28,6 @@
 #include "sokol_app.h"
 #include "fa/platform/local_date.h"
 #include "fa/platform/sokol_entry.h"
-#include "sokol_gfx.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
 #include "fa/tooling/load_order.h"
@@ -322,8 +321,8 @@ int Editor::run() {
     s.event_cb = [](const sapp_event* e) {
         if (g_editor && !(g_editor->autotest_active() && autotest_ignores(e))) g_editor->on_event(e);
     };
-    // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
-    // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
+    // Copy and paste: the ImGui backend (imgui_backend.cpp) pastes on sokol_app's CLIPBOARD_PASTED event (it swallows
+    // the Ctrl+V key), and both need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
     s.enable_clipboard = true;
     s.clipboard_size = int(kClipboardBytes);
     sapp_run(&s);  // macOS: does not return, the platform layer exits with d.exit_code()
@@ -626,11 +625,8 @@ bool Editor::boot(const std::string& dirIn) {
     reset_phone_state();              // and the phone server of the previous project stops
     reset_auto_play_state();          // a bot still playing the previous project is stopped
     reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
-    // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
-    if (uiUp_) {
-        ui::shutdown();
-        uiUp_ = false;
-    }
+    // Tear down: the panels' pictures, then the UI (its painter made them and owns the device they live on), then the
+    // engine (owns the graphics context).
     if (engine_) {
         for (auto& [path, t] : textures_) {
             (void)path;
@@ -654,10 +650,18 @@ bool Editor::boot(const std::string& dirIn) {
         sound_.player.reset();     // before the engine: it owns a voice of the mixer
         music_.preview.reset();    // ...and so does the Music panel's preview
         music_.model.reset();      // (its render worker is joined here)
+        if (uiUp_) {
+            ui::shutdown();
+            uiUp_ = false;
+        }
         engine_->shutdown();
         engine_.reset();
-    } else if (gfxUp_) {
-        ui::gfx_shutdown();
+    } else {
+        if (uiUp_) {
+            ui::shutdown();
+            uiUp_ = false;
+        }
+        if (gfxUp_) ui::gfx_shutdown();
     }
     gfxUp_ = false;
     textures_.clear();
@@ -728,7 +732,7 @@ bool Editor::boot(const std::string& dirIn) {
         }
     }
     if (!engine_) {
-        if (!sg_isvalid()) ui::gfx_setup();
+        if (!Renderer::context_open()) ui::gfx_setup();
         gfxUp_ = true;
     }
     ui::setup(iniPath_.empty() ? nullptr : iniPath_.c_str());
@@ -1091,7 +1095,7 @@ void Editor::on_frame(double dt) {
             showProjectDialog_ = !engine_;
             dlgError_.clear();
         }
-        if (sg_isvalid()) sg_commit();
+        Renderer::commit_context();
         return;  // fresh GPU state; start rendering next frame
     }
     dpi_ = sapp_dpi_scale();
@@ -1137,11 +1141,11 @@ void Editor::on_frame(double dt) {
 
     // The window pass: the editor's UI (ImGui, its own GPU client) draws into it; the game's picture is a texture in the UI.
     const GfxSwapchain swapchain = app_gfx_swapchain();
-    ui::note_window_swapchain(swapchain.get());
+    ui::note_window_swapchain(swapchain);
     Renderer::begin_window_pass(swapchain, Color{0.08f, 0.085f, 0.095f, 1.0f});
-    ui::draw();
+    ui::draw(swapchain);
     Renderer::end_window_pass();
-    sg_commit();
+    Renderer::commit_context();
     if (engine_ && engine_->renderer()) engine_->renderer()->note_commit();
 
     // After the commit, before this callback returns: window screenshots read the frame just drawn (ui::read_backbuffer).
