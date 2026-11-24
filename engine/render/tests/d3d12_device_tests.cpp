@@ -1,15 +1,21 @@
-// The engine's own D3D12 backend (src/gpu/d3d12_*, M77-P7a). On Windows every case makes a WARP device with the debug
-// layer and checks that the layer reported no error; a Windows without WARP or D3D12 says so (MESSAGE) and passes.
+// The engine's own D3D12 backend (src/gpu/d3d12_*: resources M77-P7a, shaders, pipelines and drawing M77-P7c1). On
+// Windows every case makes a WARP device with the debug layer and checks that the layer reported no error; the drawing
+// cases read their targets back and check them per texel; a Windows without WARP or D3D12 says so (MESSAGE) and passes.
 // Elsewhere one case checks the factory's teaching error.
 #include <doctest.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "gpu/d3d12_device.h"
+#include "gpu/sg_bridge.h"
+#include "shaders/blit.glsl.h"
 
 using namespace fa::gpu;
 
@@ -151,10 +157,10 @@ TEST_CASE("d3d12: a WARP device answers what it can do") {
     CHECK(dev->native().context == dev->queue());
     CHECK(dev->environment_defaults().colorFormat == PixelFormat::Bgra8);
     CHECK(dev->environment_defaults().depthFormat == PixelFormat::DepthStencil);
-    step = "timers and async reads are M77-P7c's";
+    step = "timers and async reads are M77-P7c2's";
     std::string why;
     CHECK(!dev->timer_supported(&why));
-    CHECK(contains(why, "M77-P7c"));
+    CHECK(contains(why, "M77-P7c2"));
     CHECK(!dev->async_read_supported());
     step = "the debug layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
@@ -661,34 +667,785 @@ TEST_CASE("d3d12: a full descriptor heap fails a view with a teaching error, and
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
-TEST_CASE("d3d12: what M77-P7c builds reports a clear 'not yet' error, a list method once per device") {
+namespace {
+
+// The test shaders' HLSL: make_shader compiles it to shader model 5.1 with d3dcompiler_47.dll.
+
+// A fullscreen triangle at depth vs_params.depth.x, filled with fs_params.color.
+constexpr const char* kFillVs = R"(
+cbuffer vs_params : register(b0) { float4 depth; };
+float4 main(uint id : SV_VertexID) : SV_Position {
+    float2 p = float2(float((id << 1) & 2), float(id & 2));
+    return float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), depth.x, 1.0);
+}
+)";
+constexpr const char* kFillFs = R"(
+cbuffer fs_params : register(b0) { float4 color; };
+float4 main() : SV_Target0 { return color; }
+)";
+
+// The same triangle at depth 0, no uniforms.
+constexpr const char* kPlainVs = R"(
+float4 main(uint id : SV_VertexID) : SV_Position {
+    float2 p = float2(float((id << 1) & 2), float(id & 2));
+    return float4(p * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+}
+)";
+
+// The sum of two textures, each sampled at its centre with its own sampler, times fs_params.scale.
+constexpr const char* kTwoViewsFs = R"(
+Texture2D<float4> texA : register(t0);
+Texture2D<float4> texB : register(t1);
+SamplerState smpA : register(s0);
+SamplerState smpB : register(s1);
+cbuffer fs_params : register(b0) { float4 scale; };
+float4 main(float4 pos : SV_Position) : SV_Target0 {
+    return (texA.Sample(smpA, float2(0.5, 0.5)) + texB.Sample(smpB, float2(0.5, 0.5))) * scale;
+}
+)";
+
+// Positions from vertex buffer 0, moved right by the instance id; instance 0 is red, the others green.
+constexpr const char* kInstanceVs = R"(
+struct VsOut { float4 pos : SV_Position; nointerpolation uint inst : INSTANCE; };
+VsOut main(float2 pos : TEXCOORD0, uint inst : SV_InstanceID) {
+    VsOut o;
+    o.pos = float4(pos.x + float(inst), pos.y, 0.0, 1.0);
+    o.inst = inst;
+    return o;
+}
+)";
+constexpr const char* kInstanceFs = R"(
+float4 main(float4 pos : SV_Position, nointerpolation uint inst : INSTANCE) : SV_Target0 {
+    return inst == 0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 1.0, 0.0, 1.0);
+}
+)";
+
+// Mode 0 writes texel (x, y) of an 8x8 image and word x + 8y of a buffer; mode 1 doubles each word plus one, so it
+// reads what mode 0 wrote.
+constexpr const char* kComputeCs = R"(
+RWTexture2D<float4> img : register(u0);
+RWByteAddressBuffer words : register(u1);
+cbuffer cs_params : register(b0) { uint4 mode; };
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    uint i = id.x + id.y * 8;
+    if (mode.x == 0) {
+        img[id.xy] = float4(float(id.x * 32) / 255.0, float(id.y * 32) / 255.0, 0.0, 1.0);
+        words.Store(i * 4, i);
+    } else {
+        words.Store(i * 4, words.Load(i * 4) * 2 + 1);
+    }
+}
+)";
+
+using Vec4 = std::array<float, 4>;
+
+Range bytes_of(const Vec4& v) { return Range{v.data(), sizeof(float) * v.size()}; }
+
+ShaderDesc fill_shader_desc() {
+    ShaderDesc sd;
+    sd.vertexFunc.source = kFillVs;
+    sd.fragmentFunc.source = kFillFs;
+    sd.uniformBlocks[0].stage = ShaderStage::Vertex;
+    sd.uniformBlocks[0].size = 16;
+    sd.uniformBlocks[1].stage = ShaderStage::Fragment;
+    sd.uniformBlocks[1].size = 16;  // b0 of the fragment stage: each stage numbers its registers on its own
+    sd.label = "fill";
+    return sd;
+}
+
+ShaderDesc instance_shader_desc() {
+    ShaderDesc sd;
+    sd.vertexFunc.source = kInstanceVs;
+    sd.fragmentFunc.source = kInstanceFs;
+    sd.attrs[0].baseType = ShaderAttrBaseType::Float;
+    sd.attrs[0].hlslSemName = "TEXCOORD";
+    sd.attrs[0].hlslSemIndex = 0;
+    sd.label = "instance";
+    return sd;
+}
+
+// One uniform block, two texture views and two samplers, all in the fragment stage.
+ShaderDesc two_views_shader_desc() {
+    ShaderDesc sd;
+    sd.vertexFunc.source = kPlainVs;
+    sd.fragmentFunc.source = kTwoViewsFs;
+    sd.uniformBlocks[0].stage = ShaderStage::Fragment;
+    sd.uniformBlocks[0].size = 16;
+    for (int i = 0; i < 2; ++i) {
+        ShaderTextureView& t = sd.views[i].texture;
+        t.stage = ShaderStage::Fragment;
+        t.imageType = ImageType::Tex2d;
+        t.sampleType = ImageSampleType::Float;
+        t.binding.hlslRegister = std::uint8_t(i);
+        sd.samplers[i].stage = ShaderStage::Fragment;
+        sd.samplers[i].samplerType = SamplerType::Filtering;
+        sd.samplers[i].binding.hlslRegister = std::uint8_t(i);
+    }
+    sd.label = "two-views";
+    return sd;
+}
+
+// A render pipeline of `shader` drawing into one `color` target (plus `depth`) with `samples` samples.
+PipelineDesc render_desc(Shader shader, PixelFormat color, PixelFormat depth = PixelFormat::None, int samples = 1) {
+    PipelineDesc pd;
+    pd.shader = shader;
+    pd.colors[0].pixelFormat = color;
+    pd.depth.pixelFormat = depth;
+    pd.sampleCount = samples;
+    pd.label = "test-pipeline";
+    return pd;
+}
+
+enum class Attach { Color, Resolve, Depth };
+
+struct Target {
+    Image image{};
+    View view{};
+};
+
+// An image a pass draws into and its attachment view.
+Target make_target(D3d12Device& dev, Attach kind, int width, int height, PixelFormat format, int samples = 1) {
+    ImageDesc id;
+    id.width = width;
+    id.height = height;
+    id.pixelFormat = format;
+    id.sampleCount = samples;
+    id.usage.colorAttachment = kind == Attach::Color;
+    id.usage.resolveAttachment = kind == Attach::Resolve;
+    id.usage.depthStencilAttachment = kind == Attach::Depth;
+    id.label = "target";
+    Target t;
+    t.image = dev.make_image(id);
+    ViewDesc vd;
+    if (kind == Attach::Color)
+        vd.colorAttachment.image = t.image;
+    else if (kind == Attach::Resolve)
+        vd.resolveAttachment.image = t.image;
+    else
+        vd.depthStencilAttachment.image = t.image;
+    t.view = dev.make_view(vd);
+    return t;
+}
+
+// An immutable RGBA8 texture with `texels` and a texture view of it.
+View make_texture(D3d12Device& dev, int width, int height, const std::vector<std::uint8_t>& texels) {
+    ImageDesc id;
+    id.width = width;
+    id.height = height;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.data.mipLevels[0] = range_of(texels);
+    id.label = "texture";
+    ViewDesc vd;
+    vd.texture.image = dev.make_image(id);
+    return dev.make_view(vd);
+}
+
+Sampler make_clamped_sampler(D3d12Device& dev, Filter filter) {
+    SamplerDesc sd;
+    sd.minFilter = sd.magFilter = filter;
+    sd.wrapU = sd.wrapV = Wrap::ClampToEdge;
+    return dev.make_sampler(sd);
+}
+
+Buffer make_vertex_buffer(D3d12Device& dev, const std::vector<float>& v, bool index = false) {
+    BufferDesc bd;
+    bd.size = v.size() * sizeof(float);
+    bd.usage.vertexBuffer = !index;
+    bd.usage.indexBuffer = index;
+    bd.data = Range{v.data(), bd.size};
+    bd.label = index ? "indices" : "vertices";
+    return dev.make_buffer(bd);
+}
+
+// A pass into one colour attachment, cleared to `clear`.
+PassDesc color_pass(const Target& color, PixelFormat format, Color clear, int samples = 1) {
+    PassDesc p;
+    p.label = "test-pass";
+    p.color = color.view;
+    p.format.color = format;
+    p.format.samples = samples;
+    p.colorLoad = LoadAction::Clear;
+    p.clearColor = clear;
+    return p;
+}
+
+std::string rgba_text(const int* c) {
+    return "(" + std::to_string(c[0]) + ", " + std::to_string(c[1]) + ", " + std::to_string(c[2]) + ", " +
+           std::to_string(c[3]) + ")";
+}
+
+// The first texel of a tightly packed RGBA8 image that differs from want(x, y) by more than `tolerance` in a channel,
+// as text; empty when every texel matches.
+template <class Want>
+std::string first_mismatch(const std::vector<std::uint8_t>& px, int width, int height, int tolerance, Want want) {
+    if (px.size() != std::size_t(width) * std::size_t(height) * 4)
+        return "the readback has " + std::to_string(px.size()) + " bytes";
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+            const std::array<int, 4> e = want(x, y);
+            const std::uint8_t* p = px.data() + (std::size_t(y) * std::size_t(width) + std::size_t(x)) * 4;
+            const int got[4] = {p[0], p[1], p[2], p[3]};
+            for (std::size_t c = 0; c < 4; ++c)
+                if (std::abs(got[c] - e[c]) > tolerance)
+                    return "texel (" + std::to_string(x) + ", " + std::to_string(y) + ") is " + rgba_text(got) +
+                           " and should be " + rgba_text(e.data());
+        }
+    return {};
+}
+
+std::vector<std::uint8_t> read_rgba8(D3d12Device& dev, Image image, int width, int height) {
+    std::vector<std::uint8_t> out;
+    auto r = dev.read_image_rgba8(image, width, height, out);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    return out;
+}
+
+// The last error the device reported (each failing call below reports one).
+std::string last_error(D3d12Device& dev) {
+    const std::vector<std::string> e = dev.errors();
+    return e.empty() ? std::string() : e.back();
+}
+
+}  // namespace
+
+TEST_CASE("d3d12: a clear-only pass fills its colour attachment") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    REQUIRE_MESSAGE(dev->state(t.view) == ResourceState::Valid, all_errors(*dev));
+    CommandList& list = dev->begin_commands("clear");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{1.0f, 0.25f, 0.0f, 1.0f}));
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{255, 64, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a uniform-colour fullscreen triangle fills RGBA8 and RGBA16F targets") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    const Vec4 depth{0.0f, 0.0f, 0.0f, 0.0f};
+    const Vec4 colour{0.25f, 0.5f, 0.75f, 1.0f};
+    for (PixelFormat f : {PixelFormat::Rgba8, PixelFormat::Rgba16F}) {
+        INFO("format " << pixel_format_name(f));
+        const Pipeline pip = dev->make_pipeline(render_desc(shader, f));
+        REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+        const Target t = make_target(*dev, Attach::Color, 8, 8, f);
+        REQUIRE_MESSAGE(dev->state(t.view) == ResourceState::Valid, all_errors(*dev));
+        CommandList& list = dev->begin_commands("fill");
+        list.begin_pass(color_pass(t, f, Color{}));
+        list.set_pipeline(pip);
+        list.set_uniforms(0, bytes_of(depth));
+        list.set_uniforms(1, bytes_of(colour));
+        list.draw(0, 3);
+        list.end_pass();
+        submit_and_finish(*dev, list);
+        if (f == PixelFormat::Rgba8) {
+            const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 8, 8), 8, 8, 1,
+                                                   [](int, int) { return std::array<int, 4>{64, 128, 191, 255}; });
+            CHECK_MESSAGE(bad.empty(), bad);
+        } else {
+            std::vector<float> out;
+            auto r = dev->read_image_rgba16f(t.image, 8, 8, out);
+            REQUIRE_MESSAGE(r, r.error().to_string());
+            REQUIRE(out.size() == 8 * 8 * 4);
+            int wrong = 0;
+            for (std::size_t i = 0; i < out.size(); ++i)
+                if (out[i] != colour[i % 4]) ++wrong;  // 0.25, 0.5, 0.75 and 1 are exact in half floats
+            CHECK_MESSAGE(wrong == 0, wrong << " channels differ, the first texel is (" << out[0] << ", " << out[1]
+                                            << ", " << out[2] << ", " << out[3] << ")");
+        }
+    }
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: the engine's blit shader (sokol-shdc HLSL) copies a texture with a nearest and a linear sampler") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(from_sg(*blit_blit_keep_shader_desc(SG_BACKEND_D3D11)));
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Buffer tri = make_vertex_buffer(*dev, {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f});
+    const std::vector<std::uint8_t> texels = pattern(4 * 4 * 4, 11);
+    const View square = make_texture(*dev, 4, 4, texels);
+    const View ramp = make_texture(*dev, 2, 1, {0, 0, 0, 255, 255, 255, 255, 255});
+    const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+    const Sampler linear = make_clamped_sampler(*dev, Filter::Linear);
+    REQUIRE_MESSAGE(dev->state(linear) == ResourceState::Valid, all_errors(*dev));
+    // vs: flip.x 0 (a top-down source), region zw 0 (the whole source); fs: encode.x 0 (the texel as it is).
+    const std::array<float, 8> vsParams{};
+    const std::array<float, 8> fsParams{};
+    auto blit = [&](View src, Sampler smp, int width, int height) {
+        const Target dst = make_target(*dev, Attach::Color, width, height, PixelFormat::Rgba8);
+        CommandList& list = dev->begin_commands("blit");
+        list.begin_pass(color_pass(dst, PixelFormat::Rgba8, Color{}));
+        list.set_pipeline(pip);
+        Bindings b;
+        b.vertexBuffers[0] = tri;
+        b.views[0] = src;
+        b.samplers[0] = smp;
+        list.set_bindings(b);
+        list.set_uniforms(0, Range{vsParams.data(), sizeof vsParams});
+        list.set_uniforms(1, Range{fsParams.data(), sizeof fsParams});
+        list.draw(0, 3);
+        list.end_pass();
+        submit_and_finish(*dev, list);
+        return read_rgba8(*dev, dst.image, width, height);
+    };
+    std::string step = "nearest, 4x4 into 4x4: every texel as it is";
+    INFO("step: " << step);
+    CHECK(blit(square, nearest, 4, 4) == texels);
+    step = "nearest, 2x1 into 4x1";
+    const int nearestRamp[4] = {0, 0, 255, 255};
+    std::string bad = first_mismatch(blit(ramp, nearest, 4, 1), 4, 1, 0, [&](int x, int) {
+        const int v = nearestRamp[x];
+        return std::array<int, 4>{v, v, v, 255};
+    });
+    CHECK_MESSAGE(bad.empty(), bad);
+    step = "linear, 2x1 into 4x1: the inner texels are a quarter and three quarters of the way";
+    const int linearRamp[4] = {0, 64, 191, 255};  // u 0.125 clamps to the first texel's centre, 0.375 is 1/4 on
+    bad = first_mismatch(blit(ramp, linear, 4, 1), 4, 1, 2, [&](int x, int) {
+        const int v = linearRamp[x];
+        return std::array<int, 4>{v, v, v, 255};
+    });
+    CHECK_MESSAGE(bad.empty(), bad);
+    step = "the debug layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: an indexed instanced draw with a base vertex") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(instance_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    pd.indexType = IndexType::Uint16;
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    // Vertices 0-3: the right half (what a draw that ignored baseVertex would draw); 4-7: the left half.
+    const Buffer vertices = make_vertex_buffer(*dev, {0.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 1.0f,  //
+                                                      -1.0f, -1.0f, 0.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f});
+    const std::uint16_t idx[6] = {0, 1, 2, 0, 2, 3};
+    BufferDesc ib;
+    ib.size = sizeof idx;
+    ib.usage.indexBuffer = true;
+    ib.data = Range{idx, sizeof idx};
+    ib.label = "indices";
+    const Buffer indices = dev->make_buffer(ib);
+    REQUIRE_MESSAGE(dev->state(indices) == ResourceState::Valid, all_errors(*dev));
+    const Target t = make_target(*dev, Attach::Color, 8, 4, PixelFormat::Rgba8);
+    CommandList& list = dev->begin_commands("instanced");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 1.0f, 1.0f}));
+    list.set_pipeline(pip);
+    Bindings b;
+    b.vertexBuffers[0] = vertices;
+    b.indexBuffer = indices;
+    list.set_bindings(b);
+    list.draw_ex(0, 6, 2, 4, 0);  // instance 0 on the left half (red), instance 1 moved right by 1 (green)
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 8, 4), 8, 4, 0, [](int x, int) {
+        return x < 4 ? std::array<int, 4>{255, 0, 0, 255} : std::array<int, 4>{0, 255, 0, 255};
+    });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: the depth test keeps the nearer draw, and a viewport limits a draw") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8, PixelFormat::Depth);
+    pd.depth.compare = CompareFunc::Less;
+    pd.depth.writeEnabled = true;
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Target color = make_target(*dev, Attach::Color, 8, 8, PixelFormat::Rgba8);
+    const Target depth = make_target(*dev, Attach::Depth, 8, 8, PixelFormat::Depth);
+    REQUIRE_MESSAGE(dev->state(depth.view) == ResourceState::Valid, all_errors(*dev));
+    PassDesc pass = color_pass(color, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f});
+    pass.depth = depth.view;
+    pass.format.depth = PixelFormat::Depth;
+    pass.depthLoad = LoadAction::Clear;
+    pass.clearDepth = 1.0f;
+    CommandList& list = dev->begin_commands("depth");
+    list.begin_pass(pass);
+    list.set_pipeline(pip);
+    auto fill = [&](float z, const Vec4& c) {
+        list.set_uniforms(0, bytes_of(Vec4{z, 0.0f, 0.0f, 0.0f}));
+        list.set_uniforms(1, bytes_of(c));
+        list.draw(0, 3);
+    };
+    fill(0.5f, Vec4{1.0f, 0.0f, 0.0f, 1.0f});  // red everywhere
+    fill(0.7f, Vec4{0.0f, 1.0f, 0.0f, 1.0f});  // green behind it: hidden
+    list.set_viewport(0, 0, 4, 8);
+    fill(0.3f, Vec4{0.0f, 0.0f, 1.0f, 1.0f});  // blue in front, in the left half only
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, color.image, 8, 8), 8, 8, 0, [](int x, int) {
+        return x < 4 ? std::array<int, 4>{0, 0, 255, 255} : std::array<int, 4>{255, 0, 0, 255};
+    });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: an MSAA 4x pass resolves into a single-sample image at end_pass") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(instance_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8, PixelFormat::None, 4);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    // The lower left half of the target, cut by its diagonal: the texels on it are partly covered.
+    const Buffer tri = make_vertex_buffer(*dev, {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f});
+    const Target msaa = make_target(*dev, Attach::Color, 8, 8, PixelFormat::Rgba8, 4);
+    const Target resolved = make_target(*dev, Attach::Resolve, 8, 8, PixelFormat::Rgba8);
+    REQUIRE_MESSAGE(dev->state(msaa.view) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(resolved.view) == ResourceState::Valid, all_errors(*dev));
+    PassDesc pass = color_pass(msaa, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}, 4);
+    pass.resolve = resolved.view;
+    CommandList& list = dev->begin_commands("msaa");
+    list.begin_pass(pass);
+    list.set_pipeline(pip);
+    Bindings b;
+    b.vertexBuffers[0] = tri;
+    list.set_bindings(b);
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::vector<std::uint8_t> px = read_rgba8(*dev, resolved.image, 8, 8);
+    REQUIRE(px.size() == 8 * 8 * 4);
+    auto red = [&](int x, int y) { return int(px[(std::size_t(y) * 8 + std::size_t(x)) * 4]); };
+    CHECK(red(0, 7) == 255);  // inside
+    CHECK(red(2, 6) == 255);
+    CHECK(red(7, 0) == 0);  // outside
+    CHECK(red(6, 2) == 0);
+    std::vector<int> diagonal;
+    for (int i = 0; i < 8; ++i) diagonal.push_back(red(i, i));
+    const auto partial = std::count_if(diagonal.begin(), diagonal.end(), [](int v) { return v > 32 && v < 224; });
+    CHECK_MESSAGE(partial == 8, "the diagonal's red values: " << diagonal[0] << " " << diagonal[1] << " " << diagonal[2]
+                                                              << " " << diagonal[7]);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a compute pass writes a storage image and a storage buffer, and a second dispatch reads them") {
     auto dev = make_warp();
     if (!dev) return;
     ShaderDesc sd;
-    sd.label = "a-shader";
-    const Shader s = dev->make_shader(sd);
-    CHECK(!s.valid());
-    CHECK(contains(all_errors(*dev), "make_shader('a-shader') is not built yet (M77-P7c)"));
-    dev->clear_messages();
-    CommandList& list = dev->begin_commands("not-yet");
-    list.push_debug_group("group");
-    PassDesc pd;
-    list.begin_pass(pd);
-    list.begin_pass(pd);
+    sd.computeFunc.source = kComputeCs;
+    sd.uniformBlocks[0].stage = ShaderStage::Compute;
+    sd.uniformBlocks[0].size = 16;
+    sd.views[0].storageImage.stage = ShaderStage::Compute;
+    sd.views[0].storageImage.imageType = ImageType::Tex2d;
+    sd.views[0].storageImage.accessFormat = PixelFormat::Rgba8;
+    sd.views[1].storageBuffer.stage = ShaderStage::Compute;
+    sd.views[1].storageBuffer.hlslRegisterU = 1;
+    sd.label = "compute";
+    const Shader shader = dev->make_shader(sd);
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = shader;
+    pd.label = "compute";
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "storage-image";
+    const Image img = dev->make_image(id);
+    BufferDesc bd;
+    bd.size = 64 * 4;
+    bd.usage.storageBuffer = true;
+    bd.label = "storage-buffer";
+    const Buffer buf = dev->make_buffer(bd);
+    ViewDesc iv;
+    iv.storageImage.image = img;
+    ViewDesc bv;
+    bv.storageBuffer.buffer = buf;
+    Bindings b;
+    b.views[0] = dev->make_view(iv);
+    b.views[1] = dev->make_view(bv);
+    REQUIRE_MESSAGE(dev->state(b.views[1]) == ResourceState::Valid, all_errors(*dev));
+    const std::uint32_t write[4] = {0, 0, 0, 0};
+    const std::uint32_t update[4] = {1, 0, 0, 0};
+    CommandList& list = dev->begin_commands("compute");
+    list.begin_compute_pass("compute");
+    list.set_pipeline(pip);
+    list.set_bindings(b);
+    list.set_uniforms(0, Range{write, sizeof write});
+    list.dispatch(1, 1, 1);
+    list.set_uniforms(0, Range{update, sizeof update});
+    list.dispatch(1, 1, 1);  // after a UAV barrier: it reads the words the first one wrote
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, img, 8, 8), 8, 8, 0,
+                                           [](int x, int y) { return std::array<int, 4>{x * 32, y * 32, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    std::vector<std::uint8_t> raw;
+    auto r = dev->read_buffer(buf, 0, bd.size, raw);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    REQUIRE(raw.size() == bd.size);
+    std::vector<std::uint32_t> words(64), expected(64);
+    std::memcpy(words.data(), raw.data(), raw.size());
+    for (std::uint32_t i = 0; i < 64; ++i) expected[i] = i * 2 + 1;
+    CHECK(words == expected);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: equal descs share a PSO and a root signature; a root signature lays its slots out per stage") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string step = "two equal shaders, one root signature";
+    INFO("step: " << step);
+    const d3d12::D3d12Counters start = dev->counters();
+    const Shader a = dev->make_shader(fill_shader_desc());
+    const Shader b = dev->make_shader(fill_shader_desc());
+    REQUIRE_MESSAGE(dev->state(b) == ResourceState::Valid, all_errors(*dev));
+    CHECK(a.id != b.id);
+    d3d12::D3d12Counters c = dev->counters();
+    CHECK(c.rootSignatures == start.rootSignatures + 1);
+    CHECK(c.rootSignatureCacheHits == start.rootSignatureCacheHits + 1);
+    CHECK(dev->shader_root_layout(a) == dev->shader_root_layout(b));
+
+    step = "equal pipeline descs, one PSO (a shader with the same bytecode and slots too)";
+    const Pipeline p1 = dev->make_pipeline(render_desc(a, PixelFormat::Rgba8));
+    const Pipeline p2 = dev->make_pipeline(render_desc(a, PixelFormat::Rgba8));
+    const Pipeline p3 = dev->make_pipeline(render_desc(b, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(p3) == ResourceState::Valid, all_errors(*dev));
+    CHECK(p1.id != p2.id);
+    c = dev->counters();
+    CHECK(c.psoCacheMisses == start.psoCacheMisses + 1);
+    CHECK(c.psoCacheHits == start.psoCacheHits + 2);
+    CHECK(c.psos == start.psos + 1);
+
+    step = "another format is another PSO";
+    CHECK(dev->state(dev->make_pipeline(render_desc(a, PixelFormat::Rgba16F))) == ResourceState::Valid);
+    c = dev->counters();
+    CHECK(c.psoCacheMisses == start.psoCacheMisses + 2);
+    CHECK(c.psos == start.psos + 2);
+
+    step = "one block, two views, two samplers: a root CBV, then the fragment stage's view and sampler tables";
+    const Shader two = dev->make_shader(two_views_shader_desc());
+    REQUIRE_MESSAGE(dev->state(two) == ResourceState::Valid, all_errors(*dev));
+    const std::shared_ptr<const d3d12::RootLayout> lay = dev->shader_root_layout(two);
+    REQUIRE(lay);
+    CHECK(lay->cbvParam[0] == 0);
+    CHECK(lay->cbvParam[1] == -1);
+    CHECK(lay->viewTable[0] == -1);
+    CHECK(lay->viewTable[1] == 1);
+    CHECK(lay->samplerTable[0] == -1);
+    CHECK(lay->samplerTable[1] == 2);
+    CHECK(lay->bindlessTable == 3);  // D3d12Options::bindlessDescriptors > 0: every root signature sees the table
+    CHECK(lay->viewCount[1] == 2);
+    CHECK(lay->samplerCount[1] == 2);
+    CHECK(lay->viewStage[1] == 1);
+    CHECK(lay->viewOffset[0] == 0);
+    CHECK(lay->viewOffset[1] == 1);
+    CHECK(lay->samplerOffset[1] == 1);
+    CHECK(lay->samplerUsed == 3u);
+
+    step = "drawing with it: each view through its own sampler";
+    const Pipeline pip = dev->make_pipeline(render_desc(two, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    CommandList& list = dev->begin_commands("two-views");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(pip);
+    Bindings bind;
+    bind.views[0] = make_texture(*dev, 1, 1, {255, 0, 0, 255});
+    bind.views[1] = make_texture(*dev, 1, 1, {0, 255, 0, 255});
+    bind.samplers[0] = make_clamped_sampler(*dev, Filter::Nearest);
+    bind.samplers[1] = make_clamped_sampler(*dev, Filter::Linear);
+    list.set_bindings(bind);
+    list.set_uniforms(0, bytes_of(Vec4{1.0f, 1.0f, 1.0f, 1.0f}));
     list.draw(0, 3);
-    list.pop_debug_group();
-    dev->submit(list);
-    dev->commit();
-    REQUIRE(dev->wait_idle());
-    int passes = 0;
-    for (const std::string& e : dev->errors())
-        if (contains(e, "begin_pass is not built yet (M77-P7c)")) ++passes;
-    CHECK(passes == 1);
-    CHECK(contains(all_errors(*dev), "draw is not built yet"));
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 0,
+                                           [](int, int) { return std::array<int, 4>{255, 255, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    step = "the debug layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: make_shader and make_pipeline say what is wrong with a desc") {
+    auto dev = make_warp();
+    if (!dev) return;
+    auto shader_error = [&](const ShaderDesc& sd) {
+        const Shader s = dev->make_shader(sd);
+        CHECK(dev->state(s) == ResourceState::Failed);
+        return last_error(*dev);
+    };
+    std::string step = "make_shader";
+    INFO("step: " << step);
+    ShaderDesc empty;
+    empty.label = "a-shader";
+    CHECK(contains(shader_error(empty), "make_shader 'a-shader': the vertex stage has neither source nor bytecode"));
+    ShaderDesc sd = fill_shader_desc();
+    const char spirv[8] = {0x03, 0x02, 0x23, 0x07, 0, 0, 1, 0};
+    sd.vertexFunc.source = nullptr;
+    sd.vertexFunc.bytecode = Range{spirv, sizeof spirv};
+    CHECK(contains(shader_error(sd), "the vertex stage's bytecode is not DXBC"));
+    sd = fill_shader_desc();
+    sd.fragmentFunc.source = "float4 main() : SV_Target0 { return undeclared; }";
+    std::string e = shader_error(sd);
+    CHECK(contains(e, "the fragment stage does not compile as ps_5_1 (entry 'main')"));
+    CHECK(contains(e, "undeclared"));  // the compiler's own message
+    sd = fill_shader_desc();
+    sd.computeFunc.source = kComputeCs;
+    CHECK(contains(shader_error(sd), "it has a compute stage and a vertex or fragment stage"));
+    sd = fill_shader_desc();
+    sd.uniformBlocks[2] = sd.uniformBlocks[1];
+    CHECK(
+        contains(shader_error(sd), "uniform block 2 is on register b0, space0, which another slot of the same stage"));
+    sd = fill_shader_desc();
+    sd.views[0].texture.stage = ShaderStage::Fragment;
+    sd.views[0].texture.binding.hlslSpace = 1;
+    CHECK(contains(shader_error(sd), "space1's t registers are the bindless table's"));
+    sd = fill_shader_desc();
+    sd.samplers[0].stage = ShaderStage::Compute;
+    CHECK(contains(shader_error(sd), "sampler 0 belongs to the compute stage, which a render shader does not have"));
+    sd = fill_shader_desc();
+    sd.uniformBlocks[1].size = 0;
+    CHECK(contains(shader_error(sd), "uniform block 1 has 0 bytes"));
+
+    step = "make_pipeline";
+    auto pipeline_error = [&](const PipelineDesc& pd) {
+        const Pipeline p = dev->make_pipeline(pd);
+        CHECK(dev->state(p) == ResourceState::Failed);
+        return last_error(*dev);
+    };
+    const Shader failed = dev->make_shader(empty);
+    PipelineDesc pd = render_desc(failed, PixelFormat::Rgba8);
+    pd.label = "a-pipeline";
+    CHECK(contains(pipeline_error(pd), "make_pipeline 'a-pipeline': its shader failed"));
+    const Shader fill = dev->make_shader(fill_shader_desc());
+    const Shader inst = dev->make_shader(instance_shader_desc());
+    REQUIRE_MESSAGE(dev->state(inst) == ResourceState::Valid, all_errors(*dev));
+    pd = render_desc(fill, PixelFormat::Rgba8);
+    pd.compute = true;
+    CHECK(contains(pipeline_error(pd), "it is a compute pipeline and shader 'fill' is a render shader"));
+    pd = render_desc(inst, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Int10N2;
+    CHECK(contains(pipeline_error(pd), "vertex attribute 0 has format Int10N2"));
+    pd = render_desc(fill, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    CHECK(contains(pipeline_error(pd), "vertex attribute 0 has no HLSL semantic in shader 'fill'"));
+    pd = render_desc(fill, PixelFormat::Bc7Rgba);
+    CHECK(contains(pipeline_error(pd), "colour target 0 ("));
+    CHECK(contains(last_error(*dev), "is not a colour format this GPU renders to"));
+    pd = render_desc(fill, PixelFormat::Rgba8, PixelFormat::None, 3);
+    CHECK(contains(pipeline_error(pd), "sampleCount 3 is not 1, 2, 4 or 8"));
+
+    step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it and records nothing broken") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Shader fill = dev->make_shader(fill_shader_desc());
+    const Shader blitShader = dev->make_shader(from_sg(*blit_blit_keep_shader_desc(SG_BACKEND_D3D11)));
+    const Pipeline rgba8 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+    const Pipeline rgba16 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba16F));
+    PipelineDesc bd = render_desc(blitShader, PixelFormat::Rgba8);
+    bd.layout.attrs[0].format = VertexFormat::Float2;
+    const Pipeline blit = dev->make_pipeline(bd);
+    REQUIRE_MESSAGE(dev->state(blit) == ResourceState::Valid, all_errors(*dev));
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    const Buffer tri = make_vertex_buffer(*dev, {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f});
+    const Vec4 zero{};
+    dev->clear_messages();
+    CommandList& list = dev->begin_commands("mistakes");
+    std::string step = "outside a pass";
+    INFO("step: " << step);
+    list.set_pipeline(rgba8);
+    CHECK(contains(last_error(*dev), "CommandList::set_pipeline in list 'mistakes': outside a pass"));
+    list.end_pass();
+    CHECK(contains(last_error(*dev), "end_pass in list 'mistakes': no pass is open"));
+
+    step = "a pass into the window";
+    const Swapchain sc{};
+    PassDesc window = PassDesc::for_swapchain(sc, dev->environment_defaults());
+    window.label = "window";
+    list.begin_pass(window);
+    CHECK(contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) comes in M77-P9"));
+    std::size_t before = dev->errors().size();
+    list.set_pipeline(rgba8);  // inside a failed pass: skipped without another error
+    list.draw(0, 3);
+    list.end_pass();
+    CHECK(dev->errors().size() == before);
+
+    step = "a pass whose format is not its attachments'";
+    PassDesc wrong = color_pass(t, PixelFormat::Rgba16F, Color{});
+    list.begin_pass(wrong);
+    CHECK(contains(last_error(*dev), "is not what its attachments are"));
+    list.end_pass();
+
+    step = "a pipeline of another format";
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(rgba16);
+    CHECK(contains(last_error(*dev), "draws into"));
+    before = dev->errors().size();
+    list.draw(0, 3);  // skipped until the next set_pipeline
+    CHECK(dev->errors().size() == before);
+
+    step = "uniforms";
+    list.set_pipeline(rgba8);
+    list.draw(0, 3);
+    CHECK(contains(last_error(*dev), "uniform block slot 0 of shader 'fill' was not set since set_pipeline"));
+    list.set_uniforms(0, Range{zero.data(), 8});
+    CHECK(contains(last_error(*dev), "uniform block slot 0 of shader 'fill' has 16 bytes and the data has 8"));
+    list.set_pipeline(rgba8);
+    list.set_uniforms(3, bytes_of(zero));
+    CHECK(contains(last_error(*dev), "uniform block slot 3 is not one shader 'fill' declares"));
+
+    step = "bindings";
+    const std::array<float, 8> blitParams{};
+    list.set_pipeline(blit);
+    list.set_uniforms(0, Range{blitParams.data(), sizeof blitParams});
+    list.set_uniforms(1, Range{blitParams.data(), sizeof blitParams});
+    list.draw(0, 3);
+    CHECK(contains(last_error(*dev), "reads buffers, views or samplers and set_bindings was not called since"));
+    Bindings b;
+    list.set_bindings(b);
+    CHECK(contains(last_error(*dev), "vertex buffer slot 0 is empty and pipeline 'test-pipeline' reads it"));
+    list.set_pipeline(blit);
+    b.vertexBuffers[0] = tri;
+    list.set_bindings(b);
+    CHECK(contains(last_error(*dev), "view slot 0 is empty and shader '"));
+    list.end_pass();
+
+    step = "dispatch";
+    list.begin_compute_pass("compute");
+    list.set_pipeline(rgba8);
+    CHECK(contains(last_error(*dev), "is a render pipeline inside a compute pass"));
+    list.dispatch(70000, 1, 1);
+    CHECK(contains(last_error(*dev), "each count is 0 to 65535"));
+    list.end_pass();
+    submit_and_finish(*dev, list);
+
+    step = "the debug layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+    step = "timers and async readbacks are still M77-P7c2's";
     auto ticket = dev->request_buffer_read(Buffer{}, 0, 4);
     REQUIRE(!ticket);
-    CHECK(contains(ticket.error().message, "M77-P7c"));
+    CHECK(contains(ticket.error().message, "M77-P7c2"));
 }
 
 TEST_CASE("d3d12: commit listeners and frame counting") {

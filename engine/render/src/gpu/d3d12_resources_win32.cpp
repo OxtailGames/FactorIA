@@ -174,6 +174,7 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
             auto t = std::make_shared<TrackedResource>();
             t->resource = std::move(r);
             t->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
+            t->buffer = true;
             rec.tracked = std::move(t);
         }
     } else {
@@ -308,6 +309,13 @@ Image D3d12Device::make_image(const ImageDesc& desc) {
         error = "a depth image is a 2D, cube or array depth attachment (not storage, colour or 3D)";
     else if (u.depthStencilAttachment && !depth)
         error = std::string("a depth attachment needs a depth format, not ") + pixel_format_name(rec.format);
+    else if (u.storageImage && !caps_[std::size_t(rec.format)].write)
+        error = std::string("pixel format ") + pixel_format_name(rec.format) +
+                " cannot be a storage image on this GPU (usage storageImage needs typed UAV stores) (hint: " +
+                (rec.format == PixelFormat::Srgb8A8 || rec.format == PixelFormat::Sbgr8A8
+                     ? std::string("write the UNORM format Rgba8 and encode sRGB in the shader")
+                     : std::string("use Rgba8, Rgba16F or R32F, which every D3D12 GPU writes")) +
+                "; pixel_format_caps(format).write says which formats can)";
     if (!error.empty()) report("gpu d3d12: make_image '" + label + "': " + error);
 
     if (error.empty()) {
@@ -678,7 +686,7 @@ View D3d12Device::make_view(const ViewDesc& desc) {
                     dev->CreateDepthStencilView(res, &v, cpuHeaps_[kHeapDsv].cpu(rec.descriptor));
                 }
             }
-            // A resolve attachment needs no descriptor: the pass resolves into the resource (M77-P7c).
+            // A resolve attachment needs no descriptor: end_pass resolves into the resource.
         }
     }
 
@@ -693,8 +701,15 @@ View D3d12Device::make_view(const ViewDesc& desc) {
         rec.descriptor = rec.uavDescriptor = kNoDescriptor;
     }
     const bool ok = rec.tracked != nullptr;
+    const int heap = rec.heap;
+    const std::uint32_t descriptor = rec.descriptor, uavDescriptor = rec.uavDescriptor;
     const std::uint32_t id = views_.add(std::move(rec));
     if (id == 0) {
+        // The descriptors it took go back: no record holds them.
+        if (heap >= 0) {
+            if (descriptor != kNoDescriptor) cpuHeaps_[std::size_t(heap)].free(descriptor);
+            if (uavDescriptor != kNoDescriptor) cpuHeaps_[std::size_t(heap)].free(uavDescriptor);
+        }
         report("gpu d3d12: make_view '" + label + "': the view pool is full (" + std::to_string(views_.capacity()) +
                " views) (hint: destroy views you no longer use, or raise DeviceInit::viewPoolSize)");
         return {};

@@ -5,13 +5,15 @@
 // teaching error where D3D12 does not exist. The second part (Windows only) declares D3d12Device and its helpers; the
 // code is in d3d12_*_win32.cpp.
 //
-// What M77-P7a built: the adapter (hardware or WARP), the device, the debug layer and its InfoQueue, the direct queue,
-// the fence and the frames in flight, the deferred release of destroyed resources, the CPU descriptor heaps (free
-// lists), the shader-visible heaps (a ring of per-frame segments after a reserved bindless range), the upload ring,
-// buffers, images, views and samplers, resource-state tracking with automatic barriers, the transfers of a command
-// list, debug groups, the blocking readbacks, statistics and commit listeners. Shaders, pipelines, passes, draws,
-// dispatches, bindings, uniforms, GPU timers and asynchronous reads come in M77-P7c: until then they report a
-// "not yet (M77-P7c)" error (errors()) and do nothing.
+// What it has: the adapter (hardware or WARP), the device, the debug layer and its InfoQueue, the direct queue, the
+// fence and the frames in flight, the deferred release of destroyed resources, the CPU descriptor heaps (free lists),
+// the shader-visible heaps (a ring of per-frame segments after a reserved bindless range), the upload ring, buffers,
+// images, views and samplers, resource-state tracking with automatic barriers, the transfers of a command list, debug
+// groups, the blocking readbacks, statistics and commit listeners (M77-P7a); shaders (DXBC SM 5.1, compiled from HLSL
+// when given source) with one cached root signature per binding layout, graphics and compute pipelines with an
+// in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
+// scissors, draws and dispatches (M77-P7c1). GPU timers and asynchronous reads come in M77-P7c2 (they report a
+// "not yet" error), passes into the window in M77-P9.
 #pragma once
 
 #include <cstddef>
@@ -47,8 +49,9 @@ struct D3d12Options {
     int cpuRtvDescriptors = 0;
     int cpuDsvDescriptors = 0;
     int cpuSamplerDescriptors = 0;
-    // The shader-visible CBV/SRV/UAV heap: a range reserved for the bindless tables (M77-P7c), then one segment per
-    // frame in flight that the bindings of that frame are copied into.
+    // The shader-visible CBV/SRV/UAV heap: a range reserved for the bindless table (every root signature sees it as
+    // an unbounded SRV range at t0, space1; 0 = no bindless table), then one segment per frame in flight that the
+    // bindings of that frame are copied into.
     int bindlessDescriptors = 32768;
     int frameViewDescriptors = 32768;
     // The shader-visible sampler heap: one segment per frame in flight (D3D12 allows 2048 samplers in all).
@@ -173,6 +176,9 @@ struct TrackedResource {
     std::uint32_t mips = 1;
     std::uint32_t layers = 1;  // array layers or cube faces (1 for buffers and 3D images)
     std::uint32_t planes = 1;
+    // A buffer: the queue decays it to COMMON at the end of every ExecuteCommandLists and its first use in a list
+    // promotes it implicitly, so it never needs a fix-up barrier (states[0] is COMMON between lists).
+    bool buffer = false;
     std::uint32_t subresource(std::uint32_t mip, std::uint32_t layer, std::uint32_t plane) const {
         return mip + layer * mips + plane * mips * layers;
     }
@@ -237,7 +243,7 @@ private:
 };
 
 // A non shader-visible descriptor heap with a free list: the views and samplers are written here once, at make_*(),
-// and copied into the shader-visible heap when a draw binds them (M77-P7c).
+// and copied into the shader-visible heap when set_bindings binds them.
 class CpuDescriptorHeap {
 public:
     Result<void> init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type, std::uint32_t capacity, const char* name);
@@ -263,7 +269,7 @@ private:
     const char* name_ = "";
 };
 
-// A shader-visible descriptor heap: [0, reserved) is kept for the bindless tables (M77-P7c), then one segment of
+// A shader-visible descriptor heap: [0, reserved) is kept for the bindless table, then one segment of
 // `perFrame` descriptors per frame in flight. alloc() takes a contiguous span from the current frame's segment; the
 // segment is reused once the GPU finished the frame that last used it (begin_frame).
 class ShaderVisibleHeap {
@@ -337,6 +343,56 @@ private:
     std::deque<std::pair<std::uint64_t, std::uint64_t>> frames_;  // (frame, head at its end)
 };
 
+// What a shader declares, as the backend binds it (made once by make_shader, shared by its pipelines). Stage index 0
+// is the vertex (or compute) stage, 1 the fragment stage.
+struct ShaderInfo {
+    bool compute = false;
+    std::string label;
+    std::uint32_t uniformSize[kMaxUniformBlocks]{};  // 0 = the slot is unused
+    ViewType viewType[kMaxViews]{};                  // Invalid = the slot is unused
+    bool viewWritable[kMaxViews]{};                  // bound as a UAV (storage image, writable storage buffer)
+    std::string semName[kMaxVertexAttributes];       // the vertex attribute's HLSL semantic; empty = none
+    std::uint8_t semIndex[kMaxVertexAttributes]{};
+    std::vector<std::uint8_t> vs, fs, cs;  // DXBC
+    std::string codeKey;                   // the SHA-256 of the bytecode (the PSO cache key's part)
+};
+
+// A root signature and where each slot of a shader sits in it (cached per layout: every shader with the same
+// registers shares one). Root parameters: one root CBV per uniform block, then per stage a table of its views
+// (SRV and UAV ranges) and one of its samplers, then the bindless table.
+struct RootLayout {
+    Com<ID3D12RootSignature> signature;
+    std::string key;
+    int cbvParam[kMaxUniformBlocks]{};  // root parameter index; -1 = the slot is unused
+    int viewTable[2] = {-1, -1};        // root parameter of each stage's view table; -1 = none
+    int samplerTable[2] = {-1, -1};
+    std::uint32_t viewCount[2]{};
+    std::uint32_t samplerCount[2]{};
+    std::uint8_t viewStage[kMaxViews]{};    // the table (stage index) of the view slot
+    std::uint32_t viewOffset[kMaxViews]{};  // the slot's descriptor in that table
+    std::uint8_t samplerStage[kMaxSamplers]{};
+    std::uint32_t samplerOffset[kMaxSamplers]{};
+    std::uint32_t samplerUsed = 0;  // bit per sampler slot
+    int bindlessTable = -1;         // the unbounded SRV table at t0, space1; -1 = none
+};
+
+// A pipeline as a command list sets it: the PSO and what set_pipeline, set_bindings and the draws need.
+struct PipelineState {
+    Com<ID3D12PipelineState> pso;
+    std::shared_ptr<const RootLayout> layout;
+    std::shared_ptr<const ShaderInfo> shader;
+    bool compute = false;
+    D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    IndexType indexType = IndexType::None;
+    std::uint32_t strides[kMaxVertexBuffers]{};
+    std::uint32_t buffersUsed = 0;  // bit per vertex buffer slot the layout reads
+    float blendColor[4]{};
+    std::uint8_t stencilRef = 0;
+    TargetFormat format{};  // what the pass must have
+    int colorCount = 0;
+    std::string label;
+};
+
 class D3d12Device;
 
 // One command list of a frame: an ID3D12GraphicsCommandList and its allocator, reused once the GPU finished it. It
@@ -350,7 +406,7 @@ public:
     void begin_pass(const PassDesc& pass) override;
     void begin_compute_pass(const char* label) override;
     void end_pass() override;
-    PassState pass_state() const override { return PassState::None; }
+    PassState pass_state() const override { return passState_; }
     void set_pipeline(Pipeline pipeline) override;
     void set_bindings(const Bindings& bindings) override;
     void set_uniforms(int slot, Range data) override;
@@ -393,8 +449,19 @@ private:
     Result<void> create(const char* what);
     // Opens the list for recording (its allocator's previous commands must be finished).
     Result<void> open(const char* label);
-    void not_yet(const char* what);
     void transition(Use& u, std::uint32_t sub, StateBits state);
+    // A UAV barrier on `t` when this list already left it in the UAV state (a write before this use).
+    void uav_barrier_if_written(const std::shared_ptr<TrackedResource>& t);
+    // Reports an error of CommandList::`what` in this list.
+    void fail(const char* what, const std::string& error);
+    // The checks every draw and dispatch makes: false (reported) when it cannot run.
+    bool ready_to_run(const char* what, bool compute);
+    // Back to "no pipeline, nothing bound" (a pass ends, the list opens).
+    void reset_bind_state();
+    // set_viewport and set_viewport_f: the rectangle in the pass's pixels (y flipped when not originTopLeft).
+    void apply_viewport(const char* what, float x, float y, float width, float height, bool originTopLeft);
+    // draw and draw_ex: the checks, the barriers and the (indexed) instanced draw.
+    void record_draw(const char* what, int base, int count, int instances, int baseVertex, int baseInstance);
     // Copies texels from CPU memory into an image through the upload ring: a width x height region at (x, y) of mip
     // `mip`, `count` layers from `layer` (2D, cube, array) or `count` depth slices from `layer` (3D). Source rows are
     // `srcRowPitch` apart, slices `srcSlicePitch`. False (and errors()) when no upload room could be had.
@@ -415,32 +482,61 @@ private:
     Com<ID3D12GraphicsCommandList> fixup_;
     std::string label_;
     bool open_ = false;
-    bool internal_ = false;    // the device's own list (initial uploads, readbacks), never handed out
-    bool empty_ = true;        // no command recorded yet
-    std::uint64_t fence_ = 0;  // the fence value its last submission signals
+    bool internal_ = false;        // the device's own list (initial uploads, readbacks), never handed out
+    bool empty_ = true;            // no command recorded yet
+    std::uint64_t fence_ = 0;      // the fence value its last submission signals
+    std::uint64_t openFrame_ = 0;  // the frame it was opened in (it is submitted in the same one)
     int debugDepth_ = 0;
     std::vector<Use> uses_;
     std::unordered_map<TrackedResource*, std::size_t> useIndex_;
     std::vector<D3D12_RESOURCE_BARRIER> pending_;
     std::vector<Com<ID3D12Resource>> keep_;
+
+    // The pass and what is bound (reset by open(), begin_pass and end_pass).
+    PassState passState_ = PassState::None;
+    TargetFormat passFormat_{};
+    int passColors_ = 0;
+    std::uint32_t passWidth_ = 0, passHeight_ = 0;
+    std::shared_ptr<TrackedResource> resolveSrc_, resolveDst_;  // the MSAA resolve end_pass records
+    std::uint32_t resolveSrcSub_ = 0, resolveDstSub_ = 0;
+    DXGI_FORMAT resolveFormat_ = DXGI_FORMAT_UNKNOWN;
+    std::shared_ptr<const PipelineState> pipeline_;
+    ID3D12RootSignature* rootSignature_ = nullptr;  // the one set (kept alive by pipeline_)
+    bool rootCompute_ = false;
+    std::uint32_t uniformsSet_ = 0;  // bit per uniform block slot set since set_pipeline
+    bool bindingsSet_ = false;
+    // begin_pass failed (reported): the pass is open so end_pass matches it, but its commands are skipped.
+    bool passFailed_ = false;
+    // set_pipeline, set_bindings or set_uniforms failed (reported): the draws and dispatches are skipped until the next
+    // set_pipeline (sokol's rule, so one mistake is one error and not one per draw).
+    bool drawsFailed_ = false;
+    // The resources the bindings bind as UAVs, and whether a draw or dispatch ran with them since: the next one adds a
+    // UAV barrier on each (its writes must be visible to the next command).
+    std::vector<std::shared_ptr<TrackedResource>> boundUavs_;
+    bool uavsWritten_ = false;
 };
 
 // What the backend counted (tests, the profiler).
 struct D3d12Counters {
-    std::uint64_t uploadRingWraps = 0;          // times the ring's head went back to its start
-    std::uint64_t dedicatedUploads = 0;         // uploads that took a buffer of their own (too big, or ring full)
-    std::size_t uploadRingBytes = 0;            // the ring's size
-    std::size_t uploadRingInUse = 0;            // bytes the frames in flight still hold
-    std::size_t pendingReleases = 0;            // destroyed objects waiting for their frame's fence
-    std::uint32_t cpuViewDescriptors = 0;       // CPU descriptors in use: texture/storage views
-    std::uint32_t cpuRtvDescriptors = 0;        // colour attachments
-    std::uint32_t cpuDsvDescriptors = 0;        // depth attachments
-    std::uint32_t cpuSamplerDescriptors = 0;    // samplers
-    std::uint32_t frameViewDescriptors = 0;     // shader-visible CBV/SRV/UAV descriptors this frame took
+    std::uint64_t uploadRingWraps = 0;        // times an upload did not fit before the ring's end and went to its start
+    std::uint64_t dedicatedUploads = 0;       // uploads that took a buffer of their own (too big, or ring full)
+    std::size_t uploadRingBytes = 0;          // the ring's size
+    std::size_t uploadRingInUse = 0;          // bytes the frames in flight still hold
+    std::size_t pendingReleases = 0;          // destroyed objects waiting for their frame's fence
+    std::uint32_t cpuViewDescriptors = 0;     // CPU descriptors in use: texture/storage views
+    std::uint32_t cpuRtvDescriptors = 0;      // colour attachments
+    std::uint32_t cpuDsvDescriptors = 0;      // depth attachments
+    std::uint32_t cpuSamplerDescriptors = 0;  // samplers
+    std::uint32_t frameViewDescriptors = 0;   // shader-visible CBV/SRV/UAV descriptors this frame took
     std::uint32_t frameSamplerDescriptors = 0;  // shader-visible samplers this frame took
     std::uint64_t barriers = 0;                 // resource barriers recorded (lists and fix-ups)
     std::uint64_t fenceValue = 0;               // the last value signalled
     std::uint64_t completedFenceValue = 0;      // the last value the GPU reached
+    std::uint64_t psoCacheHits = 0;             // make_pipeline calls that found their PSO made already
+    std::uint64_t psoCacheMisses = 0;           // make_pipeline calls that made a PSO
+    std::size_t psos = 0;                       // PSOs the device keeps (they live as long as it)
+    std::uint64_t rootSignatureCacheHits = 0;   // make_shader calls that found their root signature made already
+    std::size_t rootSignatures = 0;             // root signatures the device keeps
 };
 
 // The Direct3D 12 Device. Made, used for resources and destroyed on one thread (the render thread); command lists may
@@ -482,6 +578,8 @@ public:
     ResourceState state(Sampler sampler) const override;
     ResourceState state(Shader shader) const override;
     ResourceState state(Pipeline pipeline) const override;
+    // The root signature layout of a valid shader (tests check where each slot sits); null for a failed or unknown one.
+    std::shared_ptr<const RootLayout> shader_root_layout(Shader shader) const;
 
     CommandList& begin_commands(const char* label) override;
     void submit(CommandList& list) override;
@@ -513,7 +611,7 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override {}
 
-    // ---- D3D12 only (tests, M77-P7c, M77-P9) --------------------------------------------------------------------------
+    // ---- D3D12 only (tests, M77-P7c2, M77-P9) -------------------------------------------------------------------------
     ID3D12Device* d3d_device() const { return device_.get(); }
     ID3D12CommandQueue* queue() const { return queue_.get(); }
     // The adapter's description ("Microsoft Basic Render Driver" for WARP).
@@ -577,6 +675,13 @@ private:
         std::uint32_t descriptor = kNoDescriptor;  // kNoDescriptor when the creation failed
         D3D12_SAMPLER_DESC desc{};
     };
+    struct ShaderRecord {
+        std::shared_ptr<const ShaderInfo> info;  // null when the creation failed
+        std::shared_ptr<const RootLayout> layout;
+    };
+    struct PipelineRecord {
+        std::shared_ptr<const PipelineState> state;  // null when the creation failed
+    };
     // Something destroyed while the GPU may still use it: released once `frame` was committed and the GPU finished it.
     struct Deferred {
         std::uint64_t frame = 0;
@@ -585,6 +690,9 @@ private:
         int heap = -1;
         std::uint32_t descriptor = kNoDescriptor;
         std::uint32_t descriptor2 = kNoDescriptor;
+        // The resources a submitted list used: alive until the frame it was submitted in is finished, whatever is
+        // destroyed meanwhile.
+        std::vector<std::shared_ptr<TrackedResource>> held;
     };
     enum HeapIndex { kHeapView = 0, kHeapRtv = 1, kHeapDsv = 2, kHeapSampler = 3, kHeapCount = 4 };
     struct Listener {
@@ -603,11 +711,22 @@ private:
     D3d12CommandList& prelude();
     // Executes the prelude if it recorded anything. Under queueMutex_.
     void flush_prelude();
-    // Waits (bounded) until the fence reaches `value`. Under queueMutex_ or not.
+    // Waits (bounded) until the fence reaches `value`. Under queueMutex_: every wait shares the one fence event, and
+    // two waiters at once would each take the other's signal.
     Result<void> wait_fence(std::uint64_t value, const char* what);
     // Releases what the GPU is done with and gives the finished frames' ring room back. Under queueMutex_.
     void collect();
     void defer(Deferred d);
+    // Gives a deferred entry's descriptors back (its resources go when it is destroyed). Under queueMutex_.
+    void release(Deferred& d);
+    // The root signature of a shader's slots, from the cache or new; null with `error` when the layout cannot be one.
+    std::shared_ptr<const RootLayout> root_layout(const ShaderDesc& desc, const ShaderInfo& info, std::string& error);
+    // The PSO of a desc, from the cache (`key`, the canonical text of every field) or new. The seam of the on-disk PSO
+    // cache (M77-P7b), which will key its files by a hash of `key`. Null with `error` when D3D12 refused it.
+    Com<ID3D12PipelineState> pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
+                                 const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error);
+    // The pipeline's state (under resMutex_); null when `pipeline` names nothing or failed.
+    std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
     // Moves the debug layer's messages into errors_ / warnings_.
     void drain_messages();
     std::string removed_reason() const;
@@ -650,7 +769,16 @@ private:
     Pool<ImageRecord> images_;
     Pool<ViewRecord> views_;
     Pool<SamplerRecord> samplers_;
+    Pool<ShaderRecord> shaders_;
+    Pool<PipelineRecord> pipelines_;
     std::array<CpuDescriptorHeap, kHeapCount> cpuHeaps_;
+
+    // The root signature and PSO caches (cacheMutex_; never held with another lock but the message one)
+    mutable std::mutex cacheMutex_;
+    std::unordered_map<std::string, std::shared_ptr<const RootLayout>> rootLayouts_;
+    std::unordered_map<std::string, Com<ID3D12PipelineState>> psos_;
+    std::uint64_t psoHits_ = 0, psoMisses_ = 0, rootHits_ = 0;
+    std::uint32_t bindlessDescriptors_ = 0;  // the reserved range of viewHeap_ (0 = no bindless table)
 
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;
@@ -667,6 +795,9 @@ private:
     ShaderVisibleHeap viewHeap_;
     ShaderVisibleHeap samplerHeap_;
     std::vector<Listener> listeners_;
+    // What begin_commands hands out when D3D12 gives no list: never opened, so it ignores every call (and holds no
+    // state, so every thread can share it).
+    std::unique_ptr<D3d12CommandList> dead_;
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;
