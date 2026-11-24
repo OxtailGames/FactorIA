@@ -248,7 +248,7 @@ TEST_CASE("shader cache: on Vulkan a stage given as text is base64 SPIR-V, decod
     CHECK(bytecode);
 
     // Not base64 of whole 32-bit words: the backend gets the desc as it is and reports the stage.
-    desc.fragmentFunc.source = "#version 450";
+    desc.fragmentFunc.source = "@@ text, not base64 @@";  // outside the base64 alphabet, whatever the text
     bool asIs = false;
     make_shader_via(gpu::Backend::Vulkan, desc, "spirv", [&](const gpu::ShaderDesc* prepared) {
         asIs = prepared == nullptr;
