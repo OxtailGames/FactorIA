@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -453,6 +454,129 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     render::destroy_target(input);
     sg_commit();
     gpu.shutdown();
+}
+
+TEST_CASE(
+    "metalfx: the temporal scaler follows a moving pattern when the motion points from the pixel to where it was") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!can_run(mfx::Kind::Temporal)) return;
+    const int inW = 160, inH = 90, outW = 320, outH = 180, frames = 24;
+    const float shift = 0.8f;  // render pixels the pattern moves to the right every frame
+    // A pattern with detail a single frame does not carry (about 2.6 render pixels a period): only the history, aligned by the motion, does.
+    auto pattern = [&](float px, float py, float t) {
+        (void)py;
+        return std::sin((px - shift * t) * (6.2831853f / 2.6f)) > 0.0f ? 0.95f : 0.05f;
+    };
+    auto halton = [](int i, int base) {
+        float f = 1.0f, r = 0.0f;
+        for (int n = i; n > 0; n /= base) {
+            f /= float(base);
+            r += f * float(n % base);
+        }
+        return r;
+    };
+    const std::vector<std::uint16_t> unused(1);
+    std::vector<float> depth(std::size_t(inW) * inH, 0.5f);
+    for (std::size_t k = 0; k < depth.size(); ++k)
+        depth[k] = (k % std::size_t(inW)) < std::size_t(inW) / 2 ? 0.5f : 1.0f;
+    sg_image depthImg =
+        make_data_image(inW, inH, SG_PIXELFORMAT_R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
+    REQUIRE(sg_query_image_state(depthImg) == SG_RESOURCESTATE_VALID);
+    auto half = [](float f) {  // float -> IEEE half (normal numbers and zero are enough here)
+        if (f == 0.0f) return std::uint16_t(0);
+        std::uint32_t b;
+        std::memcpy(&b, &f, 4);
+        const std::uint32_t sign = (b >> 16) & 0x8000u;
+        const int e = int((b >> 23) & 0xFF) - 127 + 15;
+        return std::uint16_t(sign | (std::uint32_t(e) << 10) | ((b >> 13) & 0x3FF));
+    };
+    double err[3] = {1, 1, 1};
+    for (int run = 0; run < 3; ++run) {
+        const float sgn = run == 0 ? 1.0f : run == 1 ? -1.0f : 0.0f;
+        // Where this pixel's surface was on the frame before, in pictures: it was `shift` pixels to the left (x = -shift / inW).
+        const float mx = -sgn * shift / float(inW);
+        std::vector<std::uint16_t> mv(std::size_t(inW) * inH * 2);
+        for (std::size_t i = 0; i < std::size_t(inW) * inH; ++i) {
+            mv[i * 2] = half(mx);
+            mv[i * 2 + 1] = 0;
+        }
+        sg_image motion =
+            make_data_image(inW, inH, SG_PIXELFORMAT_RG16F, mv.data(), mv.size() * 2, "metalfx-test-motion");
+        REQUIRE(sg_query_image_state(motion) == SG_RESOURCESTATE_VALID);
+        Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA16F);
+        mfx::Scaler scaler;
+        std::string error;
+        mfx::Desc d;
+        d.kind = mfx::Kind::Temporal;
+        d.inputWidth = inW;
+        d.inputHeight = inH;
+        d.outputWidth = outW;
+        d.outputHeight = outH;
+        d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA16F;
+        d.depthFormat = SG_PIXELFORMAT_R32F;
+        d.motionFormat = SG_PIXELFORMAT_RG16F;
+        d.autoExposure = false;
+        REQUIRE_MESSAGE(scaler.configure(d, &error), error);
+        double last = 1.0;
+        for (int frame = 0; frame < frames; ++frame) {
+            const float jx = halton(frame % 32 + 1, 2) - 0.5f, jy = halton(frame % 32 + 1, 3) - 0.5f;
+            std::vector<std::uint16_t> in(std::size_t(inW) * inH * 4);
+            for (int y = 0; y < inH; ++y)
+                for (int x = 0; x < inW; ++x) {
+                    const std::uint16_t b = half(pattern(float(x) + 0.5f + jx, float(y), float(frame)));
+                    std::uint16_t* p = &in[(std::size_t(y) * inW + x) * 4];
+                    p[0] = p[1] = p[2] = b;
+                    p[3] = half(1.0f);
+                }
+            sg_image color =
+                make_data_image(inW, inH, SG_PIXELFORMAT_RGBA16F, in.data(), in.size() * 2, "metalfx-test-color");
+            mfx::Frame f;
+            f.color = color;
+            f.depth = depthImg;
+            f.motion = motion;
+            f.output = out.image;
+            f.jitterX = -jx;
+            f.jitterY = -jy;
+            f.motionScaleX = float(inW);
+            f.motionScaleY = float(inH);
+            f.reset = frame == 0;
+            REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+            std::vector<std::uint8_t> got;
+            {
+                std::vector<float> gf;
+                REQUIRE_MESSAGE(render::readback_rgba16f(out.image, outW, outH, gf, &error), error);
+                got.resize(gf.size());
+                for (std::size_t k = 0; k < gf.size(); ++k)
+                    got[k] = std::uint8_t(std::lround(std::clamp(gf[k], 0.0f, 1.0f) * 255.0f));
+            }
+            if (frame == frames - 1) {
+                std::vector<std::uint8_t> truth(std::size_t(outW) * outH * 4);
+                for (int y = 0; y < outH; ++y)
+                    for (int x = 0; x < outW; ++x) {
+                        const float px = (float(x) + 0.5f) * float(inW) / float(outW);
+                        const std::uint8_t b = std::uint8_t(std::lround(pattern(px, float(y), float(frame)) * 255.0f));
+                        std::uint8_t* p = &truth[(std::size_t(y) * outW + x) * 4];
+                        p[0] = p[1] = p[2] = b;
+                        p[3] = 255;
+                    }
+                last = mean_diff(got, truth, outW, outH, 6);
+            }
+            sg_destroy_image(color);
+        }
+        err[run] = last;
+        destroy_output(out);
+        sg_destroy_image(motion);
+    }
+    MESSAGE("mean error after " << frames << " frames: motion = where the pixel was "
+                                << std::round(err[0] * 10000.0) / 10000.0 << ", opposite "
+                                << std::round(err[1] * 10000.0) / 10000.0 << ", none "
+                                << std::round(err[2] * 10000.0) / 10000.0);
+    // The convention the renderer hands MetalFX (docs/UPSCALING.md): the right sign is clearly the best one.
+    CHECK(err[0] < 0.8 * err[1]);
+    CHECK(err[0] < 0.8 * err[2]);
+    sg_destroy_image(depthImg);
+    sg_commit();
 }
 
 #else

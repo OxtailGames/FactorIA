@@ -14,9 +14,10 @@
 namespace fa::render {
 
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known) {
-    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal";
+    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal" || mode == "metalfx";
     if (known) *known = understood;
     if (mode == "temporal") return UpscaleImpl::Temporal;
+    if (mode == "metalfx") return UpscaleImpl::MetalFx;
     return mode == "spatial" ? UpscaleImpl::Spatial : UpscaleImpl::Stretch;
 }
 
@@ -31,6 +32,7 @@ const char* upscale_impl_name(UpscaleImpl impl) {
     switch (impl) {
         case UpscaleImpl::Stretch: return "stretch";
         case UpscaleImpl::Temporal: return "temporal";
+        case UpscaleImpl::MetalFx: return "metalfx";
         case UpscaleImpl::Spatial: return "spatial";
     }
     return "stretch";
@@ -46,7 +48,8 @@ using render::UpscaleInput;
 // What this backend and the game's display allow: the spatial upscaler runs on every GPU backend (the row of render.supports), pixel
 // art (ScaleMode::PixelPerfect) keeps its hard edges. The temporal upscaler (M76-P4) is the TAA resolve: it needs the TAA shaders (compiled
 // here the first time a temporal, metalfx or auto setting asks, as the cameras do) and histories that fit, and it works on a frame of one
-// full-viewport camera (`multiCamera`, what the last frame had). The MetalFX flag comes with its package (M76 P5).
+// full-viewport camera (`multiCamera`, what the last frame had). MetalFX (M76-P5b) is the Metal backend on an OS and a GPU that have its
+// scalers (metalfx.h, asked once), until one of its frames fails here.
 render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     if (spatialSupported < 0) {
         const int row = render::find_feature("spatialUpscaler");
@@ -59,6 +62,23 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
                          upscaler.mode == render::UpscalerMode::Auto || upscaler.mode == render::UpscalerMode::MetalFx))
         caps.temporal = taa.ready() && !taa.unavailable();
     caps.multiCamera = temporalBlocked;
+    if (sg_isvalid() && render::metalfx::on_metal() && !mfxFailed) {
+        const render::metalfx::Support& ms = metalfx_support();
+        caps.metalfx = ms.spatial || ms.temporal;
+        caps.metalfxTemporal = ms.temporal;
+    } else {
+        caps.metalfx = false;
+    }
+    // An explicit "metalfx" the GPU cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
+    if (upscaler.mode == render::UpscalerMode::MetalFx && !caps.metalfx && !mfxWarnedUnavailable && !mfxFailed &&
+        sg_isvalid()) {
+        mfxWarnedUnavailable = true;
+        FA_WARN("render",
+                "render.upscaler mode \"metalfx\" is not available: {} The temporal upscaler is used instead, then the "
+                "spatial one.",
+                metalfx_support().reason.empty() ? std::string("MetalFX is not available on this GPU.")
+                                                 : metalfx_support().reason);
+    }
     return caps;
 }
 
@@ -78,7 +98,11 @@ bool Renderer::Impl::upscale_active() {
 // Makes (or keeps) an image of the output size with `colorFormat`; `withDepth` adds the depth image the screen-space items need.
 // False (and one logged error) when the GPU cannot make it: the frame is then shown at the render resolution.
 bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth) {
-    if (t.color.id && (t.w != targetW || t.h != targetH || t.format.color != colorFormat || (withDepth && !t.depth.id)))
+    // MetalFX writes the output image (outTarget only): it needs storage usage next to the attachment (a frame that wants it, once made, keeps it).
+    const bool isOut = &t == &outTarget;
+    const bool wantStorage = isOut && outStorage;
+    if (t.color.id && (t.w != targetW || t.h != targetH || t.format.color != colorFormat ||
+                       (withDepth && !t.depth.id) || (wantStorage && !outHasStorage)))
         destroy_target(t);
     if (t.color.id) return true;
     TargetDesc d;
@@ -87,7 +111,9 @@ bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel
     d.height = targetH;
     d.colorFormat = colorFormat;
     d.depthFormat = withDepth ? kSceneDepthFormat : SG_PIXELFORMAT_NONE;
+    d.storage = wantStorage;
     t = make_target(d);
+    if (isOut) outHasStorage = wantStorage;
     if (!t.valid()) {
         FA_ERROR("render",
                  "Upscale stage: cannot create the {}x{} output image ({}); the game is shown at its render resolution "
@@ -104,6 +130,11 @@ void Renderer::Impl::free_output_targets() {
     destroy_target(spatialTarget);
     destroy_target(outTarget);
     destroy_target(outFilterTarget);
+    destroy_target(mfxDepth);
+    destroy_target(mfxMotion);
+    mfxScaler.release();
+    mfxLastWrote = false;
+    outHasStorage = false;
     outActive = false;
     outFilterActive = false;
 }
@@ -254,19 +285,26 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // temporal picture that cannot be made fall to the spatial upscaler, as the effective mode does.
     const render::UpscalerMode mode = effective_upscaler_mode();
     if (temporalFrame)
-        upscaleImpl = UpscaleImpl::Temporal;
+        upscaleImpl = mfxFrame && !mfxFailed ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal;
+    else if (mode == render::UpscalerMode::Stretch)
+        upscaleImpl = UpscaleImpl::Stretch;
     else
-        upscaleImpl = mode == render::UpscalerMode::Stretch ? UpscaleImpl::Stretch : UpscaleImpl::Spatial;
-    if (upscaleImpl == UpscaleImpl::Temporal) {
+        upscaleImpl = mode == render::UpscalerMode::MetalFx ? UpscaleImpl::MetalFx : UpscaleImpl::Spatial;
+    if (temporalFrame) {
         in.jitter[0] = upscaleTaa.jitterPx.x;
         in.jitter[1] = upscaleTaa.jitterPx.y;
-        if (!temporal_upscale(in, out, c))
-            upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
     }
+    // MetalFX first (its temporal scaler on a jittered frame, its spatial one on the others); a frame it cannot draw falls to the temporal
+    // upscaler when the frame is jittered, then to the spatial one, as the effective mode lists them.
+    if (upscaleImpl == UpscaleImpl::MetalFx && !metalfx_upscale(in, src, out, c))
+        upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
+    if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
+        upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
     switch (upscaleImpl) {
         case UpscaleImpl::Stretch: stretch_upscale(in, out); break;
         case UpscaleImpl::Spatial: spatial_upscale(in, out); break;
-        case UpscaleImpl::Temporal: break;  // drawn above
+        case UpscaleImpl::Temporal:
+        case UpscaleImpl::MetalFx: break;  // drawn above
     }
     outActive = true;
 }

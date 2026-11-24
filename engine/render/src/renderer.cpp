@@ -494,6 +494,7 @@ void Renderer::shutdown() {
         im.sceneFx.release();
         im.taa.release();
         im.spatial.release();
+        im.mfxPrep.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -1158,6 +1159,18 @@ int RendererTestAccess::upscale_impl(Renderer& r) { return r.impl_ ? int(r.impl_
 bool RendererTestAccess::upscale_used_history(Renderer& r) {
     return r.impl_ && r.impl_->taa.last_used_history(render::kUpscaleCamKey);
 }
+bool RendererTestAccess::mfx_failed(Renderer& r) { return r.impl_ && r.impl_->mfxFailed; }
+int RendererTestAccess::mfx_encoded(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.encoded() : 0; }
+int RendererTestAccess::mfx_generation(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.generation() : 0; }
+bool RendererTestAccess::mfx_reset(Renderer& r) { return r.impl_ && r.impl_->mfxLastReset; }
+void RendererTestAccess::mfx_force_create_failure(Renderer& r, bool fail) {
+    if (r.impl_) r.impl_->mfxForceCreateFail = fail;
+}
+void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSign) {
+    if (!r.impl_) return;
+    r.impl_->mfxJitterSign = jitterSign;
+    r.impl_->mfxMotionSign = motionSign;
+}
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
 void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
@@ -1296,11 +1309,18 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalFrame = false;
     upscaleTaa = TaaPlan{};
     upscaleImpl = render::UpscaleImpl::Stretch;
+    mfxFrame = false;
+    outStorage = false;
     int wantedPhases = 0;
     if (upscale_active()) {
         render::UpscalerCaps oneCamera = upscaler_caps();
         oneCamera.multiCamera = false;
-        if (render::effective_upscaler_mode(upscaler, oneCamera) == render::UpscalerMode::Temporal)
+        const render::UpscalerMode oneCameraMode = render::effective_upscaler_mode(upscaler, oneCamera);
+        // MetalFX: its temporal scaler takes the same jittered frame (and needs the TAA resolve ready, as the fallback of a frame it cannot
+        // draw); a GPU with only its spatial scaler draws an unjittered frame (run_upscale).
+        mfxFrame = oneCameraMode == render::UpscalerMode::MetalFx && oneCamera.metalfxTemporal && oneCamera.temporal;
+        outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
+        if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
     }
     temporalPhases = temporalBlocked ? 0 : wantedPhases;
@@ -1313,7 +1333,7 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalBlocked = !oneFullCamera;
     if (temporalPhases > 0) {
         temporalFrame = true;
-        upscaleImpl = render::UpscaleImpl::Temporal;
+        upscaleImpl = mfxFrame ? render::UpscaleImpl::MetalFx : render::UpscaleImpl::Temporal;
     }
     refresh_logic_cameras(world);
     occlusionPrev = std::move(

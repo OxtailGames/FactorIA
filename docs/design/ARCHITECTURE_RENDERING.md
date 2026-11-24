@@ -390,7 +390,7 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   (or `spatial` at sharpness 0), nothing changes: no pass, no image, no draw call, the same pixels.
 - **Which implementation.** `Renderer::effective_upscaler_mode()` is `render::effective_upscaler_mode(upscaler, upscaler_caps())`:
   the caps hold `pixelArt` (`ScaleMode::PixelPerfect`) and what the backend draws (`spatial` from the `spatialUpscaler` row of
-  `render_features.cpp`; the temporal and MetalFX packages add theirs). `run_upscale` maps the result to the `UpscaleImpl` every
+  `render_features.cpp`; the temporal and MetalFX (M76-P5b, `metalfx`) packages add theirs). `run_upscale` maps the result to the `UpscaleImpl` every
   frame, so what `render.upscaler` reports is what is drawn. Pixel art is always Stretch (Nearest).
 - **Interface.** `UpscaleInput` (`render_upscale.h`): `color`, `depth`, `velocity` views, `jitter`, render and output size,
   `frameIndex`, `resetHistory`, `pixelArt`. `select_upscale_impl(mode, &known)` maps a mode name to an `UpscaleImpl`; an
