@@ -381,6 +381,27 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
                 });
             }
         }
+        // The 2D quads' velocity and reactive passes (M76-P1d): only where a PostProcess asks for temporal antialiasing and the
+        // world has 2D items to draw (a 2D scene has no mesh, so this is outside the mesh block).
+        bool temporal2d = false;
+        world.each<PostProcess>([&](Entity, PostProcess& p) { temporal2d = temporal2d || p.temporalAAEnabled; });
+        bool quads = false;
+        if (temporal2d) {
+            world.each<Sprite>([&](Entity, Sprite&) { quads = true; });
+            world.each<ParticleEmitter>([&](Entity, ParticleEmitter&) { quads = true; });
+            world.each<Shape2D>([&](Entity, Shape2D&) { quads = true; });
+            world.each<Tilemap>([&](Entity, Tilemap&) { quads = true; });
+        }
+        if (quads) {
+            im.warmGroups.push_back([gpu] {
+                if (gpu->velocity_ready()) {
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1}, false);
+                }
+                if (gpu->reactive_ready()) {
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1}, true);
+                }
+            });
+        }
     }
     if (im.warmNext >= im.warmGroups.size()) return 0;
     // As many groups as fit in about 8 ms of this window frame (at least one): where a pipeline costs a few ms (GL, GLES, WebGL
@@ -507,6 +528,7 @@ void Renderer::shutdown() {
         im.assets.reset();
         destroy_target(
             im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
+        destroy_target(im.reactiveProbe);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
@@ -1128,10 +1150,31 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
-    if (!on) render::destroy_target(r.impl_->velocityProbe);
+    if (!on) {
+        render::destroy_target(r.impl_->velocityProbe);
+        render::destroy_target(r.impl_->reactiveProbe);
+    }
+}
+void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
+    if (!r.impl_) return;
+    r.impl_->probeCameraOnly = !camera.is_null();
+    r.impl_->probeCamera = camera.is_null() ? 0 : camera.bits();
 }
 void RendererTestAccess::force_no_velocity_target(Renderer& r, bool on) {
     if (r.impl_) r.impl_->noVelocityTarget = on;
+}
+void RendererTestAccess::force_no_palette_sampling(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->noPaletteSampling = on;
+}
+void RendererTestAccess::set_palette_row_cap(Renderer& r, int rows) {
+    if (r.impl_) r.impl_->paletteRowCap = rows;
+}
+bool RendererTestAccess::read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_reactive(out, w, h, error);
 }
 bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
     if (!r.initialized()) {

@@ -128,7 +128,8 @@ inline Vertex2D stream_vertex(const QuadItem& it, Vertex2D v) {
 
 }  // namespace
 
-void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut) {
+void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut,
+                       std::vector<float>* motionOut) {
     // seq is unique within a list and a NaN secondary key counts as +infinity (order_float), so the order is total:
     // any correct sort gives this one.
     rjobs::stable_sort(
@@ -191,10 +192,20 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
                 instFloats += std::size_t(it.quadCount) * 4 * std::size_t(it.use->instVec4) * 4;
         if (instFloats > 0) instOut->reserve(instOut->size() + instFloats);
     }
-    std::size_t at = base;  // the first vertex of the item in `out`
+    if (motionOut)
+        motionOut->resize(base * 4,
+                          0.0f);  // the vertices an earlier list put in `out` came with their own (or none: zeros)
+    std::size_t at = base;        // the first vertex of the item in `out`
     for (const QuadItem& it : items) {
         const std::uint32_t firstQuad = std::uint32_t(at / 4);
         at += std::size_t(it.quadCount) * 4;
+        // Additive quads are light that adds up: whatever they cover the history cannot be trusted (they carry no velocity either).
+        const float reactive = it.reactive_value();
+        if (motionOut) {
+            const float row[4] = {it.motion.x, it.motion.y, it.motion.z, reactive};
+            for (std::size_t v = 0, n = std::size_t(it.quadCount) * 4; v < n; ++v)
+                motionOut->insert(motionOut->end(), row, row + 4);
+        }
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
         // The per-vertex copy of the instanced values of the item (four vertices per quad), appended in batch order:
@@ -223,9 +234,10 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
             batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
             batches.back().plain = batches.back().plain && plain;
+            batches.back().reactive = batches.back().reactive || reactive > 0.0f;
         } else {
             batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend, it.clip, it.lit, it.instances,
-                               it.normal, plain, opaque, it.effect, it.use, instStart, it.fx});
+                               it.normal, plain, opaque, it.effect, it.use, instStart, it.fx, reactive > 0.0f});
         }
     }
 }

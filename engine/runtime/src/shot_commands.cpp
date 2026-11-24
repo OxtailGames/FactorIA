@@ -1235,19 +1235,25 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
          "frames elsewhere) and "
          "moves a factor between `minScale` and `maxScale` so the frame time stays at `targetMs` (0 or null: one "
-         "refresh of the display, 60 Hz "
-         "where the platform cannot tell). The factor multiplies window.renderScale and the upscaler's quality scale "
+         "refresh of the display: the rate the OS reports for the monitor the window is on, else one estimated from "
+         "the time between presented frames, else 60 Hz; see refreshHz). The factor multiplies window.renderScale and "
+         "the upscaler's quality scale "
          "(never below 0.25), on a "
          "grid of 32 steps, at most twice a second. Off (the default) draws at the fixed render scale, exactly as "
          "before. With no argument it "
          "returns the setting; with any key it changes those and keeps the rest. Example: render.dynamic_resolution "
          "{\"enabled\":true,\"targetMs\":16.7,\"minScale\":0.6} The reasoning and the limits: docs/UPSCALING.md, "
          "\"Dynamic resolution\"." FA_COMMAND_DETAILS
-         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, changed}: scale "
-         "is the factor in force "
+         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, refreshHz, "
+         "refreshSource, changed}: scale is the factor in force "
          "(1 while off), frameMs the smoothed measured frame time (0 until measured), source what is measured "
          "(\"gpu\", \"interval\", "
-         "\"injected\", \"none\"). The renderer makes its images again only when the factor steps. The start value is "
+         "\"injected\", \"none\"). refreshHz is the display refresh rate a targetMs of 0 follows (rounded to 0.1 Hz, "
+         "reported while off too) and refreshSource where it comes from: \"platform\" (the OS: macOS and iOS "
+         "maximumFramesPerSecond, the Windows display mode, the Linux XRandR mode, Android Display.getRefreshRate), "
+         "\"estimated\" (the median time between presented frames, where the OS does not say: the web), \"default\" "
+         "(60: no window, as with graphics=false, vsync off, window.frameCap set, or the estimate still measuring). "
+         "The renderer makes its images again only when the factor steps. The start value is "
          "factoria.json "
          "\"render\": {\"dynamicResolution\": {...}}; window.dynamicResolution in scripts is the same setting. A wrong "
          "key or number fails "
@@ -1279,6 +1285,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             out["scale"] = std::round(double(st.scale) * 1000.0) / 1000.0;
             out["frameMs"] = std::round(st.frameMs * 10.0) / 10.0;
             out["source"] = std::string(st.source);
+            out["refreshHz"] = std::round(st.refreshHz * 10.0) / 10.0;
+            out["refreshSource"] = std::string(st.refreshSource);
             out["changed"] = changed;
             return out;
         });
@@ -1446,8 +1454,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
          "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "`motionVectors` paints the per-pixel motion image the prepass "
          "writes for temporal antialiasing (the direction "
-         "of the motion as a hue, its length as the brightness, black = still, grey = no mesh wrote a vector: the sky, "
-         "particles, sprites, a skinned mesh of more than 32 joints); it turns that image on while it is shown. "
+         "of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the "
+         "sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image "
+         "on while it is shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "

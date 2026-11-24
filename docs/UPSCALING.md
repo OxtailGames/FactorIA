@@ -62,8 +62,9 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
   does: bloom, depth of field, motion blur and the other effects work on the jittered render-size image, and the resolve smooths what they
   leave. That is the price of one seam for every upscaler; thin bright details can shimmer through a strong bloom.
 - **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
-  (`render.supports` `motionVectors`). A 2D game has no velocity: a sprite that moves leaves a short trail; keep the quality high or
-  use `stretch` for it. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
+  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation since the
+  frame before) and a particle is marked in the reactive mask, so neither trails much; a sprite that turns or changes size between frames is
+  followed at its centre only. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
   as with the stretch stage (docs/RENDERING.md). The output's alpha is 1.
 - **Pixel art.** `PixelPerfect` draws as `stretch` (hard pixels, no blend, no jitter).
 - **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
@@ -193,8 +194,14 @@ behind moving objects. The history starts again (that frame shows its own pictur
 Changing `temporalAAFeedback`, `Sharpen`, `VarianceGamma` or `ReactiveScale` does not reset it. A fast thing that the reprojection cannot
 follow (particles, a flash) is clipped to its neighbours, so it leaves a short trail at most; lower `temporalAAFeedback` for fewer.
 
-Limitations of the motion vectors it reads: particles, sprites and quads write none (they are reprojected as if still, so a fast one
-trails), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
+The reactive mask (R8, `ParticleEmitter.reactive`, `Sprite.reactive`, and every additive item) tells the resolve to trust the current frame
+where a blended or additive particle is now, scaled by `temporalAAReactiveScale`. It holds the pixels the particle covers now: the trail it
+leaves behind on pixels it has left is limited by the neighbourhood clamp, not removed by the mask. Where a particle is drawn over a flat
+colour that trail is a few percent of the particle's brightness; over a busy background lower `temporalAAFeedback` if it shows.
+
+Limitations of the motion vectors it reads: the quads write a translation (a sprite that turns or changes size between two frames is
+followed at its centre, not its corners; a `Shape2D` counts as its whole box; instanced sprites and quads with a screen effect write none),
+particles write none (they are in the reactive mask), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
 than 4 extra `vec4`s; with one, 3 or more) or draws from storage buffers. Everything else, skinned meshes of up to 64 joints and a material's
 `vertex()` included, has a vector. A custom `vertex()` is run twice and only `fa_time.x` differs in the second run, so motion that depends on the
 instance data, a material parameter or the distance to the camera is not seen. A GPU with no RG16F render target has no vectors at all: one
@@ -218,8 +225,9 @@ frame of a build without the feature, bit for bit. One setting block, three plac
 - the command `render.dynamic_resolution` (no argument reads; any key changes those and keeps the rest; a wrong value fails with
   `invalid_argument` and changes nothing);
 - scripts: `window.dynamicResolution` reads `{enabled, targetMs, minScale, maxScale}` plus the read-only `effectiveTargetMs`, `scale`
-  (the factor in force, 1 while off), `frameMs` (the smoothed frame time the controller sees, 0 until one was measured) and `source`;
-  writing it takes any of the four keys (a read can be written back).
+  (the factor in force, 1 while off), `frameMs` (the smoothed frame time the controller sees, 0 until one was measured), `source`,
+  `refreshHz` and `refreshSource` (the display's refresh rate, below); writing it takes any of the four keys (a read can be written
+  back). The command returns the same keys.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -240,8 +248,25 @@ reads as 1. `game.render_stats` and `window.upscaler` report `dynamicScale` (the
 mean of the frames the renderer timed since the last tick (a result arrives a few frames late). Elsewhere (Metal, GLES3, WebGL2) and
 whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window that renders only
 on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
-`source` `"injected"`). "One refresh of the display" is 16.7 ms (60 Hz): the platform layer has no refresh-rate query on every
-platform yet, so the controller does not follow a 120 Hz or 144 Hz display by itself; set `targetMs` for those.
+`source` `"injected"`).
+
+**The display's refresh rate.** A `targetMs` of 0 holds one refresh of the display the window is on: `1000 / refreshHz` ms, 8.3 ms
+on a 120 Hz display, 6.9 ms on a 144 Hz one. `refreshHz` (rounded to 0.1 Hz, reported while the controller is off too) and
+`refreshSource` say which rate is followed and where it comes from:
+
+| `refreshSource` | Where | The rate |
+|---|---|---|
+| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's current display mode (a 59 is read as 59.94), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
+| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them |
+| `"default"` | no window (headless, tests, `graphics=false`), the editor, and an estimate that cannot be made | 60 Hz |
+
+The estimate is made only while the display paces the frames: with vsync off (`display.vsync`, `window.vsync`), a `window.frameCap`
+or a window that renders on demand the time between frames is the game's, not the display's, so the rate stays the default 60 Hz
+until they pace it again (the estimate then starts over). A game that cannot keep up with the display during the first second
+measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display); set `targetMs` where that matters. The platform is
+asked again every 2 s of frames, so a window dragged to another monitor follows that one's rate (an estimate starts over when the
+display's size changes). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
+holds, never the simulation.
 
 **How it moves** (`render::DynamicResolutionController`, deterministic: the same numbers give the same scales on every machine):
 
@@ -368,9 +393,9 @@ upscaler is not put back by itself: applying the preset again does.
 (the effect's row). `temporalAA`, `spatialUpscaler`, `temporalUpscaler` and `dynamicResolution` are `supported` on every GPU
 backend; `metalfx` is `supported` on Metal where the OS and the GPU have MetalFX (else false, with the reason: the OS version, the
 iOS simulator, the GPU, or the OpenGL/D3D11 backend of this build); `motionVectors` answers
-true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 32 joints and
-materials with a `vertex()` included, instances, terrain, foliage and impostors, and `render.debug_view {"view":"motionVectors"}`
-shows it).
+true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 64 joints and
+materials with a `vertex()` included, instances, terrain, foliage and impostors, the cutout sprites, shapes, tiles and glyphs of
+the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 
 | Row | Backends | Needs |
 |---|---|---|

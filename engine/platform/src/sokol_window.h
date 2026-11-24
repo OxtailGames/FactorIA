@@ -20,9 +20,16 @@ typedef struct fa_sapp_monitor {
     char name[64];
     int x, y, w, h;
     bool primary;
-    bool current;  // the window is on it (its centre, on Linux)
+    bool current;       // the window is on it (its centre, on Linux)
+    double refresh_hz;  // its refresh rate (the largest of a variable one); 0 = the OS does not say
 } fa_sapp_monitor;
 int fa_sapp_monitors(fa_sapp_monitor* out, int max);
+// The refresh rate of the display the window is on, in Hz: NSScreen.maximumFramesPerSecond on macOS (CGDisplayModeGetRefreshRate
+// before macOS 12), the frame rate sokol_app's view runs at on iOS (UIScreen.maximumFramesPerSecond, 60 on an iPhone whose
+// Info.plist does not lift the 60 fps cap), the current display mode's frequency on Windows, the CRTC mode of the RandR output
+// under the window's centre on Linux. 0: unknown (no window yet, the web, Android: app.cpp asks Android through JNI, a driver
+// that answers "the hardware's default", Linux without libXrandr).
+double fa_sapp_display_refresh_hz(void);
 // Moves the window onto monitor `index` (as fa_sapp_monitors lists them): a window is centred on it, a full screen (Windows,
 // Linux) or borderless (macOS) window covers it. false: no such monitor, or the platform cannot (a macOS window in its own
 // full screen Space stays where it is).
