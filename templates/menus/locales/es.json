@@ -114,6 +114,8 @@
       "uqLabel": "Calidad del escalado: {quality}",
       "renderScale": "Escala de render: {percent} %",
       "sharpness": "Nitidez: {percent} %",
+      "dynLabel": "Resolución dinámica: {choice}",
+      "dyn": { "off": "No", "30": "30 fps", "60": "60 fps", "display": "Frecuencia de la pantalla", "custom": "Personalizada" },
       "unsupNote": "No disponible aquí: {modes}.",
       "stretchNote": "Este juego se dibuja con escalado simple (pixel art), sea cual sea el modo."
     },

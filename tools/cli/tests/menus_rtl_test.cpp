@@ -120,7 +120,8 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
     // every row lies inside its section, the Back button is on screen, in each language.
     REQUIRE(eval("world.find('graphics_section').active = false; world.find('quality_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
-                 "m.overrideRenderSupports((x) => x === 'spatialUpscaler'); f.window.upscaler = { mode: 'spatial' }; "
+                 "m.overrideRenderSupports((x) => x === 'spatialUpscaler' || x === 'dynamicResolution'); "
+                 "f.window.upscaler = { mode: 'spatial' }; "
                  "return 1; })")["ok"] == true);
     engine.step(3);
     for (const char* lang : {"en", "es", "ar"}) {
@@ -133,7 +134,7 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
                                  qback = rect_of(st, "gfx_page_back"), qsharp = rect_of(st, "gfx_sharpness"),
                                  qend = rect_of(st, "options_back"), qroot = rect_of(st, "options");
         for (const char* id : {"gfx_preset_auto", "gfx_preset_custom", "gfx_mode_auto", "gfx_mode_metalfx", "gfx_uq",
-                               "gfx_render_scale", "gfx_sharpness"}) {
+                               "gfx_render_scale", "gfx_sharpness", "gfx_dynamic"}) {
             CAPTURE(id);
             const std::vector<float> r = rect_of(st, id);
             CHECK(r[0] >= qbox[0] - 0.5f);

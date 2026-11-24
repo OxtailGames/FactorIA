@@ -5,6 +5,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/render/dynamic_resolution.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/upscaler.h"
 #include "fa/tooling/json_patch.h"
@@ -26,6 +27,8 @@ Json upscaler_json(const GraphicsSettings& s) {
     j["sharpness"] = s.sharpness;
     return j;
 }
+
+Json dynamic_json(const GraphicsSettings& s) { return render::dynamic_resolution_to_json(s.dynamic); }
 
 }  // namespace
 
@@ -57,6 +60,26 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
         auto r = render::parse_upscaler_settings(one, std::string(kFile) + "#/render/upscaler", {});
         if (!r.ok()) out.push_back({std::string("/render/upscaler/") + key, r.error().message + " " + r.error().hint});
     }
+    // The dynamic resolution the same way: each key alone (against the widest range, so only its own number is judged), then the pair.
+    const std::string where = std::string(kFile) + "#/render/dynamicResolution";
+    const render::DynamicResolutionSettings wide{false, 0.0, render::kDynamicScaleFloor, render::kDynamicScaleCeiling};
+    const Json dyn = dynamic_json(s);
+    bool rangeBad = false;
+    for (const char* key : {"enabled", "targetMs", "minScale", "maxScale"}) {
+        Json one = Json::object();
+        one[key] = dyn[key];
+        if (std::string(key) != "enabled" && !(dyn[key].is_number() && std::isfinite(dyn[key].get<double>())))
+            one[key] = "not a number";
+        auto r = render::parse_dynamic_resolution_settings(one, where, wide);
+        if (!r.ok()) {
+            out.push_back({std::string("/render/dynamicResolution/") + key, r.error().message + " " + r.error().hint});
+            rangeBad = rangeBad || std::string(key).find("Scale") != std::string::npos;
+        }
+    }
+    if (!rangeBad) {
+        auto r = render::parse_dynamic_resolution_settings(dyn, where, {});
+        if (!r.ok()) out.push_back({"/render/dynamicResolution/minScale", r.error().message + " " + r.error().hint});
+    }
     return out;
 }
 
@@ -85,6 +108,14 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
         s.mode = std::string(render::upscaler_mode_name(parsed->mode));
         s.quality = std::string(render::upscaler_quality_name(parsed->quality));
         s.sharpness = double(std::round(parsed->sharpness * 100.0f)) / 100.0;
+    }
+    if (auto dr = render->find("dynamicResolution"); dr != render->end() && !dr->is_null()) {
+        auto parsed = render::parse_dynamic_resolution_settings(*dr, file + "#/render/dynamicResolution", {});
+        if (!parsed.ok()) return parsed.error();
+        s.dynamic = *parsed;
+        s.dynamic.minScale = float(std::round(double(s.dynamic.minScale) * 100.0) / 100.0);
+        s.dynamic.maxScale = float(std::round(double(s.dynamic.maxScale) * 100.0) / 100.0);
+        s.dynamic.targetMs = std::round(s.dynamic.targetMs * 10.0) / 10.0;
     }
     return s;
 }
@@ -124,6 +155,7 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
     const GraphicsSettings def;
     const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
     const bool presetDefault = s.preset == "custom";
+    const bool dynamicDefault = s.dynamic == def.dynamic;
     std::vector<JsonPatchOp> ops;
     // Would `render` be empty afterwards? Then the key goes too.
     // "render": null loads as no render settings, so it is an absent object here too.
@@ -139,6 +171,10 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
         render.erase("graphicsPreset");
     else
         render["graphicsPreset"] = s.preset;
+    if (dynamicDefault)
+        render.erase("dynamicResolution");
+    else
+        render["dynamicResolution"] = dynamic_json(s);
     if (render.empty()) {
         if (hasRender) ops.push_back({{"render"}, std::nullopt});
     } else {
@@ -148,6 +184,8 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
                        upscalerDefault ? std::optional<Json>() : std::optional<Json>(render["upscaler"])});
         ops.push_back({{"render", "graphicsPreset"},
                        presetDefault ? std::optional<Json>() : std::optional<Json>(Json(s.preset))});
+        ops.push_back({{"render", "dynamicResolution"},
+                       dynamicDefault ? std::optional<Json>() : std::optional<Json>(render["dynamicResolution"])});
     }
     auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();

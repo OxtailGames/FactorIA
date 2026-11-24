@@ -272,7 +272,8 @@ export default class Options extends Behaviour {
    * the render scale (window.renderScale). Every choice is applied at once and saved in settings.graphics (scripts/settings.js).
    * The preset drives the "Effects quality" row: picking a preset sets that quality and clears the effect switches and the upscaler keys the player
    * set, so the rows always show what the preset does; a row touched afterwards is the player's own fine adjustment and wins over the preset.
-   * gfx_dynamic_slot (inactive) is where a dynamic resolution row goes.
+   * gfx_dynamic (in gfx_dynamic_slot) cycles the dynamic resolution: off, 30 fps, 60 fps, the display's refresh (window.dynamicResolution); an old save has none
+   * (null) and the row shows what the game set.
    */
   setupQuality() {
     const g = this.s.graphics;
@@ -283,6 +284,12 @@ export default class Options extends Behaviour {
     ui.on("click", "gfx_uq", () => {
       const all = settings.UPSCALER_QUALITIES;
       this.chooseUpscaler({ quality: all[(all.indexOf(window.upscaler.quality) + 1) % all.length] });
+    });
+    ui.on("click", "gfx_dynamic", () => {
+      const all = settings.DYNAMIC_CHOICES;
+      const next = all[(all.indexOf(settings.dynamicChoice(this.s)) + 1) % all.length]; // "custom" is not in the list: -1 + 1 = off
+      g.dynamicResolution = next;
+      this.applyQuality(() => settings.applyDynamicChoice(next));
     });
     ui.on("change", "gfx_render_scale", (e) => {
       const value = Math.round(Math.min(settings.RENDER_SCALE_MAX, Math.max(settings.RENDER_SCALE_MIN, e.value)) * 100) / 100;
@@ -376,6 +383,8 @@ export default class Options extends Behaviour {
         if (!ok) unsupported.push(`${t(`options.gfx.um.${name}`)}: ${t(`options.gfx.unsup.${name}`)}`);
       }
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
+      world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");
+      world.find("gfx_dynamic").get("Button").text = t("options.gfx.dynLabel", { choice: t(`options.gfx.dyn.${settings.dynamicChoice(this.s)}`) });
       const scale = world.find("gfx_render_scale").get("Slider");
       const shownScale = g.renderScale ?? window.renderScale;
       if (Math.abs(scale.value - shownScale) > 0.004) scale.value = shownScale;
