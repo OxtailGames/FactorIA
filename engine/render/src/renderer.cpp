@@ -1109,6 +1109,9 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     r.impl_->forceVelocity = on;
     if (!on) render::destroy_target(r.impl_->velocityProbe);
 }
+void RendererTestAccess::force_no_velocity_target(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->noVelocityTarget = on;
+}
 bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
     if (!r.initialized()) {
         if (error) *error = "Renderer is not initialized";
