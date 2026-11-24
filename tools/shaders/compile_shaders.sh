@@ -94,8 +94,17 @@ for input in "$SRC"/*.glsl "$ROOT"/engine/render/tests/shaders/*.glsl; do
     # backend (engine/render/src/gpu/vulkan_*) reads while sokol runs another backend, so its guard opens to
     # FA_SHADERS_SPIRV too: a translation unit that needs the SPIR-V defines it before including the header, and every
     # other one (every GL, Metal or D3D11 player) carries none of it (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
-    sed -e 's|^\( *\)#if defined(SOKOL_VULKAN)$|\1#if defined(SOKOL_VULKAN) \|\| defined(FA_SHADERS_SPIRV)|' \
-        -e 's|^\( *\)#endif /\* SOKOL_VULKAN \*/$|\1#endif /* SOKOL_VULKAN \|\| FA_SHADERS_SPIRV */|' "$output" >"$output.tmp"
+    # Line ends are dropped to LF first (BSD sed has no \r in a regex), so a CRLF output from a Windows shdc is rewritten too.
+    tr -d '\r' <"$output" |
+        sed -e 's|^\( *\)#if defined(SOKOL_VULKAN)$|\1#if defined(SOKOL_VULKAN) \|\| defined(FA_SHADERS_SPIRV)|' \
+            -e 's|^\( *\)#endif /\* SOKOL_VULKAN \*/$|\1#endif /* SOKOL_VULKAN \|\| FA_SHADERS_SPIRV */|' >"$output.tmp"
+    # Every opening and closing guard must have been rewritten: one left over (another spelling from a newer sokol-shdc) would
+    # leave the SPIR-V behind SOKOL_VULKAN only, so the engine's own Vulkan backend would find no twin.
+    if grep -q -e '#if defined(SOKOL_VULKAN)[[:space:]]*$' -e '#endif /\* SOKOL_VULKAN \*/' "$output.tmp"; then
+        rm -f "$output.tmp"
+        echo "error: $output has a SOKOL_VULKAN guard the rewrite did not match (sokol-shdc changed its output?): fix the sed in $0" >&2
+        exit 1
+    fi
     mv "$output.tmp" "$output"
     compiled=$((compiled + 1))
 done

@@ -1036,7 +1036,8 @@ TEST_CASE("storage_image_loadable: RecordingDevice answers per format and comput
     CHECK(!gles.storage_image_loadable(PixelFormat::Rgba16F, &why));
     CHECK(contains(why, "features().compute is false"));
 
-    // The base class's answer, for a backend that has not implemented it (D3d12Device, VulkanDevice today).
+    // The base class's answer, for a backend that has not implemented it (every backend does today: this is what a new one
+    // answers until it does).
     CHECK(!dev.Device::storage_image_loadable(PixelFormat::Rgba16F, &why));
     CHECK(contains(why, "not implemented on the recording device"));
     CHECK(contains(why, "\"access\": \"write\""));
