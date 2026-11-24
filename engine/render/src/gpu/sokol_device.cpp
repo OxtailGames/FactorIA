@@ -1501,7 +1501,7 @@ CommandList& SokolDevice::begin_commands(const char* label, QueueKind queue) {
     return begin_commands(label);
 }
 
-SyncToken SokolDevice::submit_token(CommandList& list) {
+SyncToken SokolDevice::submit_token(CommandList& list, std::span<const QueueHandoff>) {
     check_thread("Device::submit_token");
     submit(list);
     return issue_token(QueueKind::Graphics);
