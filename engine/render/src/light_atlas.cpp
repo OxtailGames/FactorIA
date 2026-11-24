@@ -413,11 +413,11 @@ const LightAtlasRect* LightAtlas::rect(LightAtlasKind kind, const std::string& p
     return layout_.find(LightAtlasKey{kind, path});
 }
 
-bool LightAtlas::sync(const Loader& load, const FailureFn& onFailure) {
+bool LightAtlas::sync(gpu::Device& device, const Loader& load, const FailureFn& onFailure) {
     if (!dirty_) return view_.id != 0;
     dirty_ = false;
     if (unsupported_ || (!needLtc_ && keys_.empty())) return view_.id != 0;
-    if (!sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).filter) {
+    if (!device.pixel_format_caps(gpu::PixelFormat::Rgba16F).filter) {
         unsupported_ = true;
         FA_WARN("render", "this GPU cannot filter RGBA16F textures, which the light atlas (area lights, cookies, IES "
                           "profiles) needs: area "
@@ -447,15 +447,15 @@ bool LightAtlas::sync(const Loader& load, const FailureFn& onFailure) {
                 "use them are drawn without. Hint: use fewer different cookies and profiles.",
                 layout.dropped, kLightAtlasMaxHeight, kLightAtlasWidth);
     const std::vector<std::uint16_t> pixels = assemble_light_atlas(layout, tiles_);
-    sg_image_desc d{};
+    gpu::ImageDesc d{};
     d.width = kLightAtlasWidth;
     d.height = layout.height;
-    d.pixel_format = SG_PIXELFORMAT_RGBA16F;
-    d.data.mip_levels[0] = {pixels.data(), pixels.size() * sizeof(std::uint16_t)};
+    d.pixelFormat = gpu::PixelFormat::Rgba16F;
+    d.data.mipLevels[0] = {pixels.data(), pixels.size() * sizeof(std::uint16_t)};
     d.label = "light-atlas";
-    const sg_image image = make_image(d);
-    if (sg_query_image_state(image) != SG_RESOURCESTATE_VALID) {
-        if (image.id) sg_destroy_image(image);
+    const gpu::Image image = device.make_image(d);  // through render::make_image and its per-backend fixes
+    if (device.state(image) != gpu::ResourceState::Valid) {
+        if (image.id) device.destroy_image(image);
         unsupported_ = true;
         FA_WARN("render",
                 "the GPU could not make the {}x{} light atlas: area lights shine like point lights, cookies and "
@@ -463,33 +463,35 @@ bool LightAtlas::sync(const Loader& load, const FailureFn& onFailure) {
                 d.width, d.height);
         return false;
     }
-    sg_view_desc vd{};
+    gpu::ViewDesc vd{};
     vd.texture.image = image;
     vd.label = "light-atlas";
-    const sg_view view = sg_make_view(&vd);
+    const gpu::View view = device.make_view(vd);
     // The image the earlier views of this frame were recorded with stays alive until the frame has run.
     if (image_.id) retired_.push_back({image_, view_});
     image_ = image;
     view_ = view;
+    device_ = &device;
     layout_ = std::move(layout);
     ++bakes_;
     return true;
 }
 
-void LightAtlas::free_retired() {
+void LightAtlas::free_retired(gpu::Device& device) {
     for (Retired& r : retired_) {
-        if (r.view.id) sg_destroy_view(r.view);
-        if (r.image.id) sg_destroy_image(r.image);
+        if (r.view.id) device.destroy_view(r.view);
+        if (r.image.id) device.destroy_image(r.image);
     }
     retired_.clear();
 }
 
-void LightAtlas::destroy() {
-    free_retired();
-    if (view_.id) sg_destroy_view(view_);
-    if (image_.id) sg_destroy_image(image_);
+void LightAtlas::destroy(gpu::Device& device) {
+    free_retired(device);
+    if (view_.id) device.destroy_view(view_);
+    if (image_.id) device.destroy_image(image_);
     view_ = {};
     image_ = {};
+    device_ = nullptr;
     layout_ = {};
     tiles_.clear();
     dirty_ = !keys_.empty() || needLtc_;
