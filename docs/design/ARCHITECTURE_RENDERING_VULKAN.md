@@ -194,7 +194,7 @@ kept by the list until the list is opened again.
 views of the right kind, of one size, with the formats and sample count `PassDesc::format` says, and the resolve target
 single-sampled; a pass into the window (`PassDesc::swapchain`) reports that it comes in M77-P9. A failed pass reports
 once and skips what is recorded in it without another error. Load actions are Vulkan load operations (`Clear` takes
-`clearColor`, `clearDepth`, `clearStencil`); a resolve attachment makes the pass resolve the MSAA colour at its end.
+`clearColor` and `clearDepth`; the stencil is cleared to 0, as on D3D12); a resolve attachment makes the pass resolve the MSAA colour at its end.
 
 **Recording into a secondary command buffer.** A render pass's commands are recorded into a secondary command buffer
 (`RENDER_PASS_CONTINUE`) of the list's pool. While the pass is open the list gathers what each attachment and each
@@ -221,7 +221,7 @@ views need, so a second dispatch that reads what the first wrote waits for it.
 **Bindings and uniforms.** `set_pipeline` binds the pipeline, the blend constants and the stencil reference (the sets
 are bound at the next draw or dispatch, in order: see "The synchronization model"). `set_bindings` checks the vertex and index buffers the pipeline reads (slot by slot, with the index
 offset's alignment), each view against the type the shader declares (texture, storage buffer, storage image, its image
-type and sample type) and the storage buffer offset against `minStorageBufferOffsetAlignment`; then it writes set 1
+type; the sample type is not checked) and the storage buffer offset against `minStorageBufferOffsetAlignment`; then it writes set 1
 from the frame's descriptor pool, bound with sets 0 and 2 before the next draw or dispatch. `set_uniforms` copies the data into the upload ring, aligned to
 `minUniformBufferOffsetAlignment` (16 to 256 bytes), and checks its size against the block; before the next draw or
 dispatch set 0 is bound with one dynamic offset per block, and the set itself is made once per layout and ring buffers
