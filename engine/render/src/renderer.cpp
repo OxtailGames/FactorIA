@@ -560,9 +560,9 @@ void Renderer::set_render_scale(float scale, float baseScale) {
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
     impl_->shadowTargetFailed = false;
-    impl_->keepUpscaleHistory = dynamicStep;
+    impl_->scaleStepOnly = dynamicStep;
     impl_->create_targets(impl_->targetW, impl_->targetH);
-    impl_->keepUpscaleHistory = false;
+    impl_->scaleStepOnly = false;
 }
 void Renderer::set_gpu_frame_timing(bool on) {
     if (!initialized()) return;
@@ -729,9 +729,22 @@ bool Renderer::gpu_timing_supported(std::string* reason) const {
     return ok;
 }
 
+// Reads the answers the timer has now. The profiler's list (gpuFrames) and the dynamic resolution's (gpuFrameMs, take_gpu_frame_ms) each
+// get every result once: whoever polls (render() or take_gpu_ms()) feeds both, so neither takes the other's samples.
+void Renderer::Impl::poll_gpu_frames() {
+    const std::size_t before = gpuFrames.size();
+    gpuTimer.poll(gpuFrames);
+    if (!gpuFrameWanted) return;
+    constexpr std::size_t kKeepFrames = 64;
+    gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
+                      gpuFrames.end());
+    if (gpuFrameMs.size() > kKeepFrames)
+        gpuFrameMs.erase(gpuFrameMs.begin(), gpuFrameMs.end() - std::ptrdiff_t(kKeepFrames));
+}
+
 void Renderer::take_gpu_ms(std::vector<double>& out) {
     if (!impl_ || !Profiler::on()) return;
-    impl_->gpuTimer.poll(impl_->gpuFrames);  // render() polls too: what it read waits in gpuFrames for this call
+    impl_->poll_gpu_frames();  // render() polls too: what it read waits in gpuFrames for this call
     out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
     impl_->gpuFrames.clear();
 }
@@ -1342,19 +1355,12 @@ void Renderer::Impl::render(World& world, float dt) {
     auto t0 = std::chrono::steady_clock::now();
     if (Profiler::on() || gpuFrameWanted) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
-        const std::size_t before = gpuFrames.size();
-        gpuTimer.poll(gpuFrames);
-        if (gpuFrameWanted) {  // the dynamic resolution reads the same results (a second list: take_gpu_ms() empties gpuFrames)
-            constexpr std::size_t kKeepFrames = 64;
-            gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
-                              gpuFrames.end());
-            if (gpuFrameMs.size() > kKeepFrames)
-                gpuFrameMs.erase(gpuFrameMs.begin(), gpuFrameMs.end() - std::ptrdiff_t(kKeepFrames));
-        }
+        poll_gpu_frames();
         constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
-        if (gpuFrames.size() > kKeepGpuFrames)
+        if (!Profiler::on())
+            gpuFrames.clear();  // only the dynamic resolution asked: nobody takes these
+        else if (gpuFrames.size() > kKeepGpuFrames)
             gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
-        if (!Profiler::on()) gpuFrames.clear();  // only the dynamic resolution asked: nobody takes these
         gpuTimer.begin();
     } else {
         // Nothing is measured now: what an earlier run of the profiler left would show as the GPU time of this frame's

@@ -163,6 +163,16 @@ struct Engine::Impl {
     std::optional<double> injectedFrameMs;  // Engine::set_dynamic_resolution_frame_ms
     const char* dynSource = "none";         // what the last tick measured (DynamicResolutionState::source)
     std::vector<double> gpuFrameScratch;
+    // What keeps a measurement that says nothing about the new scale or the scene out of the controller (all counted in frames or in the
+    // frames' own dt, never read from a clock): the frames after a change of the scale whose time is the new images' (kDynSettleFrames),
+    // the seconds after a scene load while shaders compile and assets arrive (kDynFreezeS), and the frames in a row in which the GPU timer
+    // gave no result (after kGpuMissFrames the tick measures the time between frames instead).
+    static constexpr int kDynSettleFrames = 3;
+    static constexpr double kDynFreezeS = 3.0;
+    static constexpr int kGpuMissFrames = 120;
+    int dynSettle = 0;
+    double dynFreezeS = 0.0;
+    int gpuMissFrames = 0;
     std::optional<render::DynamicResolutionSettings>
         appliedProjectDynRes;  // the project's render.dynamicResolution last applied
     float dynamic_factor() const;
@@ -173,6 +183,10 @@ struct Engine::Impl {
     // from the time between presented frames while vsync paces them, else kDynamicDefaultRefreshHz. Only a windowed game
     // outside the editor tracks it; it changes the frame time the controller holds and nothing of the simulation.
     static constexpr double kRefreshPollS = 2.0;
+    static constexpr int kRefreshRetryPolls =
+        15;                                   // a given-up estimate starts over after this many polls (30 s of frames)
+    std::optional<double> injectedRefreshHz;  // Engine::set_display_refresh_hz
+    int refreshGaveUpPolls = 0;
     double refreshHz = 0.0;  // 0: the default
     const char* refreshSource = "default";
     render::RefreshRateEstimator refreshEstimator;

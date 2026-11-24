@@ -345,6 +345,8 @@ public:
     // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported() (D3D11 and OpenGL), every
     // drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms appends the milliseconds of the frames whose
     // result arrived since the last call (a few frames late, never waited for) and clears them; nothing while off. Measurement only.
+    // The profiler's take_gpu_ms() and this list each see every result (they do not take each other's). Needs an initialized renderer
+    // (before init() the call does nothing: ask again after it).
     void set_gpu_frame_timing(bool on);
     void take_gpu_frame_ms(std::vector<double>& out);
     // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is
