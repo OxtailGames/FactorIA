@@ -74,7 +74,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   fill whole blocks or a failed request is decoded on the CPU and uploaded instead, with one warning. The game's renderer does not use
   them yet. A lost device ends a read with an error that gives the removal reason, a block-compressed mip smaller than 4x4 is
   read whole, and the device closes a pack's file once the pack and its reads are gone. The reader's waits no longer hold a lock, are bounded (a warning after 30 s, the requests cancelled after 10 minutes) and are
-  never woken by another read; `FA_DIRECTSTORAGE_VERIFY=1` also checks the stored checksums of compressed blocks (a debugging aid).
+  never woken by another read; a read whose status says complete while its event does not come is checked a second later
+  with a probe event that ends the wait once DirectStorage is past the read, instead of being cancelled and stopping the process. The 2045-block limit holds only for reads
+  DirectStorage really takes (a large read that falls back to the CPU is read whole), and a partial block that finds no
+  upload memory is an error in `errors()` that names the bytes not written; `FA_DIRECTSTORAGE_VERIFY=1` also checks the stored checksums of compressed blocks (a debugging aid).
   `factoria setup directstorage` keeps NOTICES.txt next to the license; `setup.status` reports it `unsupported` off Windows (no longer
   missing, and `factoria setup` alone skips it), and the editor's setup window has an Install button for it on Windows.
 

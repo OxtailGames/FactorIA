@@ -177,6 +177,35 @@ class DirectStorageFile;  // a pack opened through DirectStorage (IDStorageFile)
 inline constexpr std::uint32_t kDirectWarnMs = 30'000;
 inline constexpr std::uint32_t kDirectGiveUpMs = 600'000;
 
+// ---- waiting for a read of the memory queue (pure, every platform) --------------------------------------------------
+// direct_storage_read waits for its read's event a second at a time. DirectStorage sets that event once the read's
+// requests and its status entry are done, so the event ends the wait; the status entry alone does not, since it may
+// still say "complete" from the slot's previous read until DirectStorage reaches this read's EnqueueStatus. When a second
+// goes by without the event while the entry says complete, the read asks for proof of progress instead of trusting the
+// entry: a probe, one more event enqueued after it, which DirectStorage sets only once everything before it in the queue
+// (the read's requests and status included) is done. A probe that comes ends the wait as the read's own event would.
+struct DirectWait {
+    bool warned = false, probed = false, cancelled = false;
+    std::uint64_t cancelledAtMs = 0;  // when the read was cancelled (ms after it was submitted)
+};
+enum class DirectWaitStep {
+    Wait,    // nothing to do: wait another second
+    Probe,   // enqueue the probe (once per read; the caller clears `probed` when the queue had no room for it)
+    Warn,    // log that the read is slow (once, kDirectWarnMs after it was submitted)
+    Cancel,  // cancel its requests (once, after kDirectGiveUpMs)
+    Abort,   // the cancellation was not confirmed within kDirectGiveUpMs either: stop the process
+};
+// The step after a second in which neither the read's event nor its probe came: `waitedMs` since the read was
+// submitted, `statusComplete` what its status entry says now. One step per call: the first timed step that is due
+// (Warn, Cancel, Abort), else Probe when it is due, else Wait, so a probe the full queue keeps putting off never holds
+// back the bounds.
+DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool statusComplete);
+
+// How a read ends once its event or its probe came: `complete` and `hr` (an HRESULT; `hrText` names it) are what its
+// status entry says then. Both were enqueued after the status, so an entry that is still not complete is DirectStorage
+// breaking the order of its queue: an error, after which the pack reader reads the pack on the CPU.
+Result<void> direct_read_result(bool complete, std::int32_t hr, const std::string& hrText);
+
 #if defined(_WIN32) && defined(_WIN64)
 namespace dstorage {
 struct Factory;

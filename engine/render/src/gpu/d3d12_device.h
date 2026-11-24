@@ -595,6 +595,8 @@ struct D3d12Counters {
     std::uint64_t packReadsDirect = 0;          // pack reads DirectStorage wrote into a buffer or image
     std::uint64_t packReadsCpu = 0;             // pack reads decoded on the CPU and uploaded (the fallback)
     std::uint64_t packBlocksDirect = 0;         // pack blocks DirectStorage read for them
+    std::uint64_t packFilesOpened = 0;          // pack files DirectStorage opened for them (one handle per live pack)
+    std::uint64_t packFilesClosed = 0;          // of those, the ones closed because their pack was gone
     std::size_t packReadsInFlight = 0;          // tickets not finished yet
 };
 

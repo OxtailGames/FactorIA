@@ -91,7 +91,8 @@ std::string layer_errors(D3d12Device& dev) {
 // bytes instead of DirectStorage's counters. FA_DIRECTSTORAGE_REQUIRE=1 (the Windows CI job) fails only when the
 // runtime itself is missing (the DLLs, the factory or its memory queue did not load): a runtime that loaded but did
 // not write this WARP device's resource (its D3D12 queue, the file or a request refused) is a MESSAGE, since WARP is not
-// a GPU DirectStorage has to serve.
+// a GPU DirectStorage has to serve; the Windows CI job greps its first words ("DirectStorage loaded but did not write
+// this WARP device") and turns it into a ::warning, so keep them.
 bool direct_missing(D3d12Device& dev) {
     const std::string why = dev.pack_reads_direct_why();
     if (why.empty()) return false;
@@ -217,6 +218,54 @@ TEST_CASE("d3d12 pack reads: a gdeflate texture region fills an RGBA8 image thro
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
+TEST_CASE("d3d12 pack reads: the 2x2 and 1x1 mips of a BC1 texture take one whole block each, with the debug layer") {
+    Scratch s;  // removed after the device, which may hold the pack's DirectStorage file open until it goes
+    auto dev = make_warp();
+    if (!dev) return;
+    // An 8x8 BC1 texture has four mips: 8x8, 4x4, 2x2 and 1x1. Each of the last two is one 8-byte block, which
+    // DirectStorage writes with the box of the whole block (0..4 x 0..4, direct_texture_box), larger than the mip; the
+    // debug layer checks that copy as it checks the device's own.
+    const std::vector<std::uint8_t> mip2 = text(8, 7), mip3 = text(8, 8);
+    fa::PackWriter w;
+    REQUIRE(w.add_bytes("tex/mip2.bc1", mip2, fa::Codec::GDeflate).ok());
+    REQUIRE(w.add_bytes("tex/mip3.bc1", mip3, fa::Codec::GDeflate).ok());
+    REQUIRE(w.write(s.dir / "game.pak").ok());
+    auto pack = fa::PackReader::open(s.dir / "game.pak");
+    REQUIRE(pack.ok());
+
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.numMipmaps = 4;
+    id.pixelFormat = PixelFormat::Bc1Rgba;
+    id.usage.writeTransient = true;
+    id.label = "pack-bc1";
+    const Image img = dev->make_image(id);
+    REQUIRE(dev->state(img) == ResourceState::Valid);
+    struct Mip {
+        int mip, size;
+        const char* path;
+    };
+    for (const Mip& m : {Mip{2, 2, "tex/mip2.bc1"}, Mip{3, 1, "tex/mip3.bc1"}}) {
+        CAPTURE(m.mip);
+        PackImageRegion region;
+        region.mip = m.mip;
+        region.width = m.size;
+        region.height = m.size;
+        auto t = dev->read_pack_to_image(PackSource{pack.value(), m.path, 0, 8}, img, region);
+        REQUIRE_MESSAGE(t.ok(), (t.ok() ? "" : t.error().to_string()));
+        const PackReadResult r = finish(*dev, t.value());
+        CHECK(r.bytes == 8);
+        if (!direct_missing(*dev)) {
+            CHECK(r.direct);
+            CHECK(r.directBlocks == 1);
+        }
+    }
+    // Compressed images are not read back (read_image_region): the reads' results and the debug layer are the check.
+    REQUIRE(dev->wait_idle());
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
 TEST_CASE("d3d12 pack reads: the device closes a pack's DirectStorage file once the pack and its reads are gone") {
     Scratch s;
     auto dev = make_warp();
@@ -240,6 +289,14 @@ TEST_CASE("d3d12 pack reads: the device closes a pack's DirectStorage file once 
     pack.reset();  // the read holds the pack now, and drops it when it is polled to its end
     const PackReadResult r = finish(*dev, t.value());
     CHECK(r.bytes == 2 * B);
+    const auto c = dev->counters();
+    if (c.packFilesOpened == 0)
+        MESSAGE("the device never opened game.pak through DirectStorage ("
+                << dev->pack_reads_direct_why()
+                << "): closing its handle once the pack is gone (prune_files) was not covered, only that the CPU "
+                   "fallback keeps no handle");
+    else
+        CHECK(c.packFilesClosed == c.packFilesOpened);
     // Nothing holds game.pak open any more, the device included: Windows lets it be deleted while the device lives.
     std::error_code ec;
     CHECK_MESSAGE(std::filesystem::remove(s.dir / "game.pak", ec), ec.message());

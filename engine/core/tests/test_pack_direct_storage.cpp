@@ -248,6 +248,57 @@ TEST_CASE("directstorage: the block limit of a read into a GPU resource holds fo
     CHECK_FALSE(direct_gpu_read_fits(kDirectGpuReadRequests + 1, true));
 }
 
+TEST_CASE("directstorage: a read's wait probes a status that says complete, warns, cancels, then aborts") {
+    SUBCASE("a status that says complete without the event: a probe at once, once") {
+        DirectWait w;
+        CHECK(direct_wait_step(w, 1000, false) == DirectWaitStep::Wait);
+        CHECK(direct_wait_step(w, 2000, true) == DirectWaitStep::Probe);
+        CHECK(direct_wait_step(w, 3000, true) == DirectWaitStep::Wait);  // the probe is in the queue
+        w.probed = false;  // what the read does when the queue had no room for the probe
+        CHECK(direct_wait_step(w, 4000, true) == DirectWaitStep::Probe);
+    }
+    SUBCASE("a read that never ends: one warning, one cancellation, then the abort") {
+        DirectWait w;
+        CHECK(direct_wait_step(w, kDirectWarnMs - 1, false) == DirectWaitStep::Wait);
+        CHECK(direct_wait_step(w, kDirectWarnMs, false) == DirectWaitStep::Warn);
+        CHECK(direct_wait_step(w, kDirectWarnMs + 1000, false) == DirectWaitStep::Wait);
+        CHECK(direct_wait_step(w, kDirectGiveUpMs, false) == DirectWaitStep::Cancel);
+        CHECK(direct_wait_step(w, 2 * std::uint64_t(kDirectGiveUpMs) - 1, false) == DirectWaitStep::Wait);
+        CHECK(direct_wait_step(w, 2 * std::uint64_t(kDirectGiveUpMs), false) == DirectWaitStep::Abort);
+    }
+    SUBCASE("the warning comes before the probe when both are due; the probe follows a second later") {
+        DirectWait w;
+        CHECK(direct_wait_step(w, kDirectWarnMs, true) == DirectWaitStep::Warn);
+        CHECK(direct_wait_step(w, kDirectWarnMs + 1000, true) == DirectWaitStep::Probe);
+    }
+    SUBCASE("a probe a full queue puts off every second still lets the warning, the cancellation and the abort come") {
+        DirectWait w;
+        bool warned = false, cancelled = false, aborted = false;
+        for (std::uint64_t ms = 1000; ms <= 2 * std::uint64_t(kDirectGiveUpMs) + 1000 && !aborted; ms += 1000) {
+            const DirectWaitStep step = direct_wait_step(w, ms, true);
+            warned = warned || step == DirectWaitStep::Warn;
+            cancelled = cancelled || step == DirectWaitStep::Cancel;
+            aborted = step == DirectWaitStep::Abort;
+            if (step == DirectWaitStep::Probe) w.probed = false;  // the queue had no room for it
+        }
+        CHECK(warned);
+        CHECK(cancelled);
+        CHECK(aborted);
+    }
+}
+
+TEST_CASE("directstorage: a read ends with its status entry, and an event before the status is an error") {
+    CHECK(direct_read_result(true, 0, "S_OK").ok());
+    const auto failed = direct_read_result(true, std::int32_t(0x80070026u), "0x80070026");  // ERROR_HANDLE_EOF
+    REQUIRE_FALSE(failed.ok());
+    CHECK(failed.error().message.find("0x80070026") != std::string::npos);
+    // The event (or the probe) came, enqueued after the status, and the entry is still not complete.
+    const auto early = direct_read_result(false, std::int32_t(0x80004005u), "E_FAIL");
+    REQUIRE_FALSE(early.ok());
+    CHECK(early.error().message.find("before it wrote the read's status entry") != std::string::npos);
+    CHECK(early.error().hint.find("factoria setup directstorage") != std::string::npos);
+}
+
 TEST_CASE("directstorage: a texture request's box is whole 4x4 blocks of a compressed mip's physical size") {
     SUBCASE("a 2x2 mip of BC1: one block row of one 8-byte block, the box 0..4 x 0..4") {
         const std::vector<DirectBlock> blocks{{16, 8, true}};
