@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -718,3 +719,158 @@ TEST_CASE("metalfx renderer: frames queued without waiting for the GPU give the 
         }
     }
 }
+
+#if defined(SOKOL_METAL)
+namespace {
+
+// A bright additive square (a Sprite, 1.5 world units across, so reactive: an additive sprite counts as 1) in front of the stripes, at x.
+Entity add_reactive_dot(World& w, float x) {
+    Entity e = make(w, "dot", {x, 0, 1});
+    auto& sp = w.add<Sprite>(e);
+    sp.size = {1.5f, 1.5f};
+    sp.color = Color{1, 1, 1, 1};
+    sp.blend = BlendMode::Additive;
+    sp.layer = 20;
+    return e;
+}
+
+// How far the picture of the last frame is from the truth (the same world drawn at the full size with no upscaler) where the dot is.
+// The dot moves 0.25 world units (about 4 output pixels) a frame over the moving stripes, with no motion vector of its own.
+double dot_error(Gfx& g, bool handMask, bool* maskInput) {
+    const int frames = 24;
+    auto world_at = [&](StripeScene& s, Entity dot, int f) {
+        s.state(float(f));
+        s.w.get<Transform>(dot)->position.x = -6.0f + 0.25f * float(f);
+    };
+    Image truth, base;
+    {
+        Own o(g);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        StripeScene s;
+        const Entity dot = add_reactive_dot(s.w, 0.0f);
+        world_at(s, dot, frames);
+        truth = o.draw(s.w, 3);
+        s.w.set_active(dot, false);
+        base = o.draw(s.w, 3);
+    }
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    StripeScene s;
+    const Entity dot = add_reactive_dot(s.w, 0.0f);
+    o.upscale(0.5f);
+    RendererTestAccess::mfx_no_reactive(o.r, !handMask);
+    for (int f = 1; f <= frames; ++f) {
+        world_at(s, dot, f);
+        o.frame(s.w);
+    }
+    CHECK_FALSE(RendererTestAccess::mfx_failed(o.r));
+    CHECK(RendererTestAccess::mfx_encoded(o.r) == frames);
+    CHECK(RendererTestAccess::mfx_reactive_frames(o.r) ==
+          (handMask && RendererTestAccess::mfx_reactive_enabled(o.r) ? frames : 0));
+    *maskInput = RendererTestAccess::mfx_reactive_enabled(o.r);
+    const Image img = o.capture();
+    double sum = 0;
+    int n = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x)
+            if (std::fabs(truth.pixel(x, y).r - base.pixel(x, y).r) > 0.15f) {  // where the dot is
+                sum += std::fabs(double(img.pixel(x, y).r) - double(truth.pixel(x, y).r));
+                ++n;
+            }
+    REQUIRE(n > 100);
+    return sum / n;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "metalfx renderer: a reactive additive sprite moving over moving stripes is drawn at once with the mask handed to "
+    "MetalFX") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!mfx_here("reactive dot")) return;
+    bool maskInput = false;
+    const double with = dot_error(g, true, &maskInput);
+    const double without = dot_error(g, false, &maskInput);
+    MESSAGE("mean error inside the dot's footprint: with the mask " << round4(with) << ", without " << round4(without));
+    if (!maskInput) return;  // an OS older than macOS 14.4 / iOS 17.4 has no mask input
+    CHECK(without > 0.04);   // without the mask MetalFX keeps stripes of the history inside the sprite
+    CHECK(with < 0.5 * without);
+}
+
+TEST_CASE("metalfx renderer: the reactive mask is handed to the scaler in the frames that have one, and only in those "
+          "(any Metal "
+          "GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!metal_here("reactive plumbing")) return;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    StripeScene s;
+    RendererTestAccess::mfx_force_support(own.r, true, true);
+    RendererTestAccess::mfx_scaler_hooks(own.r, true,
+                                         false);  // the scaler draws nothing: what is handed over is what is checked
+    own.upscale(0.5f);
+    own.frame(s.w, 3);
+    REQUIRE(RendererTestAccess::mfx_encoded(own.r) == 3);
+    CHECK(RendererTestAccess::mfx_reactive_frames(own.r) ==
+          0);  // nothing asked for a mask: none exists, none is handed
+    const Entity dot = add_reactive_dot(s.w, -2.0f);
+    own.frame(s.w, 3);
+    CHECK_FALSE(RendererTestAccess::mfx_failed(own.r));
+    CHECK(RendererTestAccess::mfx_encoded(own.r) == 6);
+    if (!RendererTestAccess::mfx_reactive_enabled(own.r)) {
+        MESSAGE("this OS has no MetalFX reactive mask (macOS 14.4 or iOS 17.4): the scaler is made without the input");
+        CHECK(RendererTestAccess::mfx_reactive_frames(own.r) == 0);
+        return;
+    }
+    CHECK(RendererTestAccess::mfx_reactive_frames(own.r) == 3);
+    RendererTestAccess::mfx_no_reactive(own.r, true);
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::mfx_reactive_frames(own.r) == 3);
+    RendererTestAccess::mfx_no_reactive(own.r, false);
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::mfx_reactive_frames(own.r) == 5);
+    s.w.set_active(dot, false);  // the sprite is gone: so is the mask
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::mfx_reactive_frames(own.r) == 5);
+    CHECK(RendererTestAccess::mfx_generation(own.r) == 1);  // the first mask did not make the scaler again
+    CHECK_FALSE(RendererTestAccess::mfx_failed(own.r));
+}
+
+TEST_CASE("metalfx renderer: a MetalFX command buffer that fails releases the passes behind it, and the renderer falls "
+          "back with "
+          "one warning (any Metal GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!metal_here("failing command buffer")) return;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    StripeScene s;
+    clear_recent_logs();
+    RendererTestAccess::mfx_force_support(own.r, true, true);
+    // The command buffer of the scaler ends as a failed one does: the handler reports the error and the buffer does not signal.
+    RendererTestAccess::mfx_scaler_hooks(own.r, true, true);
+    own.upscale(0.5f);
+    own.frame(s.w);
+    REQUIRE(RendererTestAccess::mfx_encoded(own.r) == 1);
+    // The passes after the scaler wait for the event only the completion handler raises: a handler that did not would stall the queue
+    // for ever, so this wait is limited and the test fails (and lets the queue go on) instead of hanging.
+    REQUIRE_MESSAGE(RendererTestAccess::mfx_wait_signalled(own.r, 10000),
+                    "the completion handler of the failed MetalFX buffer did not raise the event");
+    // The error comes back from Metal's thread: some frame after it sees it, at its start. Bounded by the clock, never by a frame count.
+    const auto start = std::chrono::steady_clock::now();
+    while (!RendererTestAccess::mfx_failed(own.r) &&
+           std::chrono::steady_clock::now() - start < std::chrono::seconds(30))
+        own.frame(s.w);
+    REQUIRE(RendererTestAccess::mfx_failed(own.r));
+    own.frame(s.w, 3);
+    CHECK(warnings_with("MetalFX failed") == 1);  // once, not a line a frame
+    CHECK(warnings_with("command buffer finished with an error") == 1);
+    CHECK(RendererTestAccess::mfx_images(own.r) == 0);
+    CHECK(own.r.upscaler_caps().metalfx == false);
+    CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
+    const std::vector<float> lit = linear_plane(own.capture());  // the frames still draw, the queue is not stalled
+    CHECK(*std::max_element(lit.begin(), lit.end()) > 0.5f);
+}
+#endif

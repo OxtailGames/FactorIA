@@ -1285,6 +1285,21 @@ void RendererTestAccess::mfx_force_support(Renderer& r, bool spatial, bool tempo
 void RendererTestAccess::mfx_prep_only(Renderer& r, bool only) {
     if (r.impl_) r.impl_->mfxPrepOnly = only;
 }
+bool RendererTestAccess::mfx_reactive_enabled(Renderer& r) { return r.impl_ && r.impl_->mfxScaler.reactive_mask(); }
+int RendererTestAccess::mfx_reactive_frames(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.reactive_encoded() : 0; }
+void RendererTestAccess::mfx_no_reactive(Renderer& r, bool none) {
+    if (r.impl_) r.impl_->mfxNoReactive = none;
+}
+void RendererTestAccess::mfx_scaler_hooks(Renderer& r, bool emptyBuffers, bool failBuffers) {
+    if (!r.impl_) return;
+    render::metalfx::Scaler::TestHooks h;
+    h.emptyBuffers = emptyBuffers;
+    h.failBuffers = failBuffers;
+    r.impl_->mfxScaler.set_test_hooks(h);
+}
+bool RendererTestAccess::mfx_wait_signalled(Renderer& r, int timeoutMs) {
+    return r.impl_ && r.impl_->mfxScaler.test_wait_signalled(timeoutMs);
+}
 int RendererTestAccess::mfx_images(Renderer& r) {
     return r.impl_ ? int(r.impl_->mfxDepth.color.id != 0) + int(r.impl_->mfxMotion.color.id != 0) : 0;
 }
