@@ -475,6 +475,12 @@ void Gpu::begin_pass(const PassDesc& pass) {
     passFormat_ = pass.format;
 }
 
+bool Gpu::in_pass() {
+    if (inPass_) return true;
+    const Gpu* g = active();
+    return g && g->list_ && g->list_->pass_state() != gpu::PassState::None;
+}
+
 void Gpu::end_pass() {
     if (Gpu* g = active())
         g->list_->end_pass();
@@ -1316,7 +1322,11 @@ gpu::bridged::Pipeline Gpu::light_pipeline(const TargetFormat& format) {
 void Gpu::begin_transient_writes() {
     if (!device_ || device_->backend() != gpu::Backend::Metal) return;
     if (pacedFrame_ == frame_ + 1) return;  // once per sokol frame
-    if (inPass_) {  // in a pass the frame's command buffer exists already: sokol waited for the frame at its first pass
+    if (inPass_ ||
+        (list_ &&
+         list_->pass_state() !=
+             gpu::PassState::
+                 None)) {  // in a pass the frame's command buffer exists already: sokol waited for the frame at its first pass
         pacedFrame_ = frame_ + 1;
         return;
     }

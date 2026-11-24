@@ -523,7 +523,7 @@ void Renderer::shutdown() {
         // end): sg_commit inside a pass is invalid in sokol.
         FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
         if (!im.gpu.committed()) {
-            sg_commit();
+            im.gpu.commit_frame();
             im.gpu.note_commit();
         }
         im.fonts.reset();
@@ -1320,7 +1320,7 @@ bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], 
     }
     Renderer::Impl& im = *r.impl_;
     if (!im.gpu.committed()) {  // the frame's work must be submitted before a read-back waits for it
-        sg_commit();
+        im.gpu.commit_frame();
         im.gpu.note_commit();
     }
     std::vector<std::uint8_t> depth, motion;
@@ -1941,7 +1941,7 @@ void Renderer::Impl::render(World& world, float dt) {
 void Renderer::end_frame() {
     if (!initialized()) return;
     if (impl_->desc.headless) {
-        sg_commit();
+        impl_->gpu.commit_frame();
         impl_->gpu.note_commit();
     }
     impl_->inFrame = false;

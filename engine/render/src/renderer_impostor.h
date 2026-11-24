@@ -71,7 +71,8 @@ public:
     // that names the entity and says how to fix it, when the file is missing or invalid, a picture is missing or is not the size the file says, or
     // this GPU cannot build the program: the caller keeps drawing the last level. A file that failed is read again after 64 frames and
     // whenever it is reloaded.
-    bool resolve(Assets& assets, std::uint64_t serial, const MeshRenderer& mr, Entity entity, ImpostorUse& out);
+    bool resolve(gpu::Device& device, Assets& assets, std::uint64_t serial, const MeshRenderer& mr, Entity entity,
+                 ImpostorUse& out);
 
     // Turns `item` (the entity's MeshItem as the scene gathered it) into its card: the quad, the impostor material, the world box of the card
     // and its instance data (the centre and radius in the world, the rotation world -> model). `use` came from resolve() this frame.
@@ -100,8 +101,8 @@ private:
         bool settlePending =
             false;  // a problem was held back while the files settled; the first frame after it re-reads
     };
-    MeshAsset* quad();
-    MaterialAsset* material();
+    MeshAsset* quad(gpu::Device& device);
+    MaterialAsset* material(gpu::Device& device);
 
     std::unordered_map<std::string, std::unique_ptr<Entry>> entries_;  // by normalised path
     // The entry of each path as a MeshRenderer writes it, so the frame's per-entity call normalises nothing; the last one asked is
@@ -111,8 +112,9 @@ private:
     Entry* lastEntry_ = nullptr;
     std::unique_ptr<MeshAsset> quad_;
     std::unique_ptr<MaterialAsset> material_;
-    sg_shader shaders_[3]{};  // impostor, shadow, prepass
-    int matState_ = 0;        // 0 = not tried, 1 = built, -1 = failed (said once)
+    gpu::Shader shaders_[3]{};       // impostor, shadow, prepass
+    gpu::Device* device_ = nullptr;  // the device the card and the programs were made on (destroy() frees them there)
+    int matState_ = 0;               // 0 = not tried, 1 = built, -1 = failed (said once)
 };
 
 }  // namespace fa::render
