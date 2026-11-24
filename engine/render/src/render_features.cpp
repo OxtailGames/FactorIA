@@ -411,9 +411,20 @@ std::vector<FeatureDef> build_table() {
          "(macOS and iOS). Planned (M76 P5); elsewhere the mode \"auto\" picks \"temporal\" or \"spatial\".",
          "M76"},
         {"dynamicResolution", "",
-         "Dynamic resolution (render.upscaler with a frame-time target): the render scale follows the GPU time of the "
-         "last frames so the game keeps its frame rate, scaled up by the chosen upscaler. Planned (M76 P6b).",
-         "M76"}};
+         "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
+         "window.dynamicResolution): "
+         "the render scale follows the frame time so the game holds a target (a frame time in ms, or the display's "
+         "refresh "
+         "rate), between a minimum and a maximum scale, brought up to the output size by the chosen upscaler. The "
+         "frame "
+         "time is the GPU time where the backend has timer queries (D3D11, OpenGL) and the time between frames "
+         "elsewhere "
+         "(Metal, GLES3, WebGL2). The render targets are made again at a step of the scale (at most twice a second "
+         "while it "
+         "moves, never while it holds), and the temporal upscaler keeps its history across the steps. Off by default; "
+         "every "
+         "GPU backend (M76-P6c).",
+         nullptr}};
     for (const Planned& p : kLighting) {
         const bool appleOnly = std::string_view(p.name) == "metalfx";
         t.push_back({p.name, FeatureKind::Engine, appleOnly ? bit(FeatureBackend::Metal) : kEveryGpu, p.needs,

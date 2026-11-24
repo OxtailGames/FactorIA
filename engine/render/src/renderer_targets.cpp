@@ -258,7 +258,7 @@ void Renderer::Impl::destroy_targets() {
     xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
-    taa.forget_targets();
+    taa.forget_targets(keepUpscaleHistory);
     gi2d.free_images();
     fogFx.forget_targets();
     volFx.forget_targets();
