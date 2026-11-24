@@ -282,9 +282,11 @@ editor's game view), so check `window.available` first or offer the option only 
   Space. On macOS, going from `"fullscreen"` straight to `"borderless"` throws (the Space takes a second to leave): set
   `"windowed"` first (the menu kit's button cycles windowed, borderless, fullscreen, so it never does). The web and
   phones have no borderless mode (`supports("borderless")` is false); phones are always `"fullscreen"`.
-- `monitors()` lists `[{ index, name, size, primary, current }]`, primary first; `monitor` is the index of the one the
+- `monitors()` lists `[{ index, name, size, primary, current, refreshHz }]`, primary first; `monitor` is the index of the one the
   window is on and `setMonitor(index)` moves the window there (centred when windowed, covering it when full screen or
-  borderless). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
+  borderless). `refreshHz` is the monitor's refresh rate as the OS reports it (the top of a variable-rate panel), 0 where
+  it does not say (no window, the web, Linux without XRandR); `window.dynamicResolution.refreshHz` is the rate the game
+  follows, with an estimate where the OS does not say (docs/UPSCALING.md, "The display's refresh rate"). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
   a machine without it lists the whole screen as one monitor). Elsewhere `monitors()` has one entry and `setMonitor`
   throws; on macOS it also throws while the window is in its native full screen. Two identical monitors have the same
   `name`: show the index too. A saved choice should keep the name, since indices change when a monitor is unplugged.

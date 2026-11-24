@@ -61,7 +61,9 @@
 #include "light_atlas.h"
 #include "render_internal.h"
 #include "render_upscale.h"
+#include "render_upscale_metalfx.h"
 #include "render_upscale_spatial.h"
+#include "metalfx.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
 #include "transient_targets.h"
@@ -210,6 +212,32 @@ struct Renderer::Impl {
     VelocityRef upscaleVelocity;
     PrepassRef upscaleReactive;  // the reactive mask of the camera the upscaler resolves (M76-P1d); invalid: none
     bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
+    // M76-P5b, MetalFX (renderer_metalfx.cpp). mfxFrame: this frame's jittered picture goes to MetalFX's temporal scaler (render() decides it
+    // with temporalFrame). The scaler and the preparation pass (the 0..1 depth and the UV motion it reads, made at the render resolution
+    // from the prepass and the velocity); mfxFailed: MetalFX failed once here (creation or mid-frame): every frame after draws with the
+    // temporal TAA upscaler, then the spatial one, and the caps say metalfx = false. mfxSupport: what the GPU can do, asked once
+    // (mfxSupportKnown). mfxWarnedUnavailable: the one warning of an explicit "metalfx" the GPU cannot run. mfxLast*: what the scaler's
+    // history was drawn for (the reset rule is TaaFx::upscale's). outStorage: the output image also needs storage usage (MetalFX writes it).
+    bool mfxFrame = false;
+    bool mfxFailed = false;
+    bool mfxSupportKnown = false;
+    bool mfxWarnedUnavailable = false;
+    bool outStorage = false;
+    bool outHasStorage = false;
+    render::metalfx::Support mfxSupport;
+    render::metalfx::Scaler mfxScaler;
+    render::MetalFxPrep mfxPrep;
+    Target mfxDepth, mfxMotion;
+    std::uint64_t mfxLastSerial = 0, mfxLastScene = 0, mfxLastShifts = 0, mfxLastConfig = 0;
+    bool mfxLastWrote = false;
+    bool mfxLastReset = false;  // the last MetalFX temporal frame reset the scaler's history (tests)
+    // Test hooks (RendererTestAccess): the next scaler creation fails; the sign of the jitter and of the motion handed to MetalFX.
+    bool mfxForceCreateFail = false;
+    float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
+    const render::metalfx::Support& metalfx_support();
+    bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
+    bool metalfx_fail(const std::string& why);
+    bool ensure_mfx_target(Target& t, const char* label, sg_pixel_format format, int w, int h);
     bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
     void free_output_targets();
     void run_upscale(Target& out, const PassContext& c);

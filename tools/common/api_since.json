@@ -2256,6 +2256,7 @@
     "MonitorInfo.index": "0.3.0",
     "MonitorInfo.name": "0.3.0",
     "MonitorInfo.primary": "0.3.0",
+    "MonitorInfo.refreshHz": "unreleased",
     "MonitorInfo.size": "0.3.0",
     "MouseAPI": "0.1.0",
     "MouseAPI.delta": "0.1.0",

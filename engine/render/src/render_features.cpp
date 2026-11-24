@@ -7,6 +7,8 @@
 #include "fa/scene/postprocess.h"
 #include "sokol_gfx.h"
 
+#include "metalfx.h"
+
 namespace fa::render {
 
 namespace {
@@ -407,10 +409,15 @@ std::vector<FeatureDef> build_table() {
          "log. One full-screen camera; a frame of several cameras or a split screen, and a history the GPU cannot "
          "make, are drawn with the spatial upscaler; pixel art (PixelPerfect) always stretches (M76-P4).",
          nullptr},
-        {"metalfx", "",
-         "MetalFX (render.upscaler mode \"metalfx\"): Apple's own spatial and temporal upscalers, on Metal "
-         "(macOS and iOS). Planned (M76 P5); elsewhere the mode \"auto\" picks \"temporal\" or \"spatial\".",
-         "M76"},
+        {"metalfx", "metalfx",
+         "MetalFX (render.upscaler mode \"metalfx\", also picked by \"auto\"): Apple's own temporal upscaler (the "
+         "jittered picture, the "
+         "depth and the motion of the prepass) and spatial upscaler (a frame of one image), on Metal with macOS 13 or "
+         "iOS 16 or later and "
+         "a GPU that supports it. It splits the frame once (one more command buffer). Where it is missing the mode "
+         "draws as "
+         "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
+         nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
          "window.dynamicResolution): "
@@ -452,6 +459,13 @@ bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
                "sampling the depth of the scene in a shader (a float render target for the depth prepass)");
     ok &= need("compute", env.compute, "compute shaders");
     ok &= need("float32", env.float32, "R32F and RGBA32F render targets that can be sampled");
+    // The reason is the one metalfx::support() gave (why MetalFX is missing here), else a generic sentence for an env made by hand.
+    if (std::strstr(needs, "metalfx") && !env.metalfx) {
+        if (missing && missing->empty())
+            *missing = env.metalfxWhy.empty() ? "MetalFX (macOS 13 or iOS 16 or later, a GPU that supports it)"
+                                              : env.metalfxWhy;
+        ok = false;
+    }
     return ok;
 }
 
@@ -583,6 +597,11 @@ FeatureEnv feature_env_from_sokol() {
     const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
     env.float32 = r32.render && r32.sample && f32.render && f32.sample;
     env.compute = sg_query_features().compute;
+    if (env.backend == FeatureBackend::Metal && sg_isvalid()) {
+        const metalfx::Support s = metalfx::support();
+        env.metalfx = s.spatial || s.temporal;
+        env.metalfxWhy = s.reason;
+    }
     return env;
 }
 

@@ -102,6 +102,9 @@ TEST_CASE("render.dynamic_resolution: reads, sets, and refuses without changing 
     CHECK(r.result["scale"].get<double>() == doctest::Approx(1.0));
     CHECK(r.result["source"] == "none");
     CHECK(r.result["changed"] == false);
+    // No window: the display's rate is not known, so "one refresh" is the default 60 Hz (reported while off too).
+    CHECK(r.result["refreshHz"].get<double>() == doctest::Approx(60.0));
+    CHECK(r.result["refreshSource"] == "default");
 
     r = c.call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"targetMs":33.3,"minScale":0.6})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -110,7 +113,7 @@ TEST_CASE("render.dynamic_resolution: reads, sets, and refuses without changing 
     CHECK(r.result["effectiveTargetMs"].get<double>() == doctest::Approx(33.3));
     CHECK(r.result["minScale"].get<double>() == doctest::Approx(0.6));
     CHECK(r.result["maxScale"].get<double>() == doctest::Approx(1.0));
-    // Following the display (60 Hz where the platform cannot tell).
+    // Following the display (60 Hz without a window: refreshSource "default").
     r = c.call("render.dynamic_resolution", Json::parse(R"({"targetMs":0})"));
     REQUIRE(r.ok);
     CHECK(r.result["effectiveTargetMs"].get<double>() == doctest::Approx(16.7));
@@ -147,6 +150,12 @@ TEST_CASE("window.dynamicResolution reads and sets the same setting; window.upsc
     CHECK(eval(e, "window.dynamicResolution.minScale").get<double>() == doctest::Approx(0.5));
     CHECK(eval(e, "window.dynamicResolution.effectiveTargetMs").get<double>() == doctest::Approx(16.7));
     CHECK(eval(e, "window.dynamicResolution.scale").get<double>() == doctest::Approx(1.0));
+    CHECK(eval(e, "window.dynamicResolution.refreshHz").get<double>() ==
+          doctest::Approx(60.0));  // headless: the default
+    CHECK(eval(e, "window.dynamicResolution.refreshSource") == "default");
+    // A read, refresh keys included, can be written back.
+    eval(e, "window.dynamicResolution = window.dynamicResolution; 0");
+    CHECK(eval(e, "window.dynamicResolution.minScale").get<double>() == doctest::Approx(0.5));
     // A wrong value throws and the setting stays; writing the read-only fields of window.upscaler changes nothing.
     auto bad = e.commands().call("script.eval", Json::object({{"code", "window.dynamicResolution = { minScale: 2 }"}}));
     CHECK_FALSE(bad.ok);
