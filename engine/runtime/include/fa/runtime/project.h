@@ -124,7 +124,7 @@ struct ProjectSettings {
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
     // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
-    // window.upscaler. "temporal" (and "auto") draws as the temporal upscaler, the quality sets the size the game is drawn at (M76-P4); the other modes draw as "stretch" until their packages land.
+    // window.upscaler. The renderer draws "stretch", "spatial" and "temporal"; metalfx reports what draws instead (effectiveMode).
     render::UpscalerSettings upscaler;
     FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();

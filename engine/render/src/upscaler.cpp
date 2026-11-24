@@ -10,13 +10,26 @@
 
 namespace fa::render {
 
-UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerSupport& support) {
-    if (support.pixelArt) return UpscalerMode::Stretch;  // pixel art is never blended
+UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCaps& caps) {
+    if (caps.pixelArt) return UpscalerMode::Stretch;
+    // The best the GPU can draw from here down: a mode that cannot be drawn falls to the next (the metalfx package of M76 sets its flag
+    // in the caps, so the branch below starts to answer it). Temporal needs a frame of one camera too (caps.multiCamera).
+    const bool temporal_ok = caps.temporal && !caps.multiCamera;
+    const auto best_from_metalfx = [&]() {
+        if (caps.metalfx) return UpscalerMode::MetalFx;
+        if (temporal_ok) return UpscalerMode::Temporal;
+        return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
+    };
     switch (s.mode) {
+        case UpscalerMode::Stretch: return UpscalerMode::Stretch;
+        case UpscalerMode::Spatial: return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
         case UpscalerMode::Temporal:
-        case UpscalerMode::Auto: return support.temporal ? UpscalerMode::Temporal : UpscalerMode::Stretch;
-        default: return UpscalerMode::Stretch;  // spatial and metalfx are drawn by later packages of M76
+            if (temporal_ok) return UpscalerMode::Temporal;
+            return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
+        case UpscalerMode::MetalFx:
+        case UpscalerMode::Auto: return best_from_metalfx();
     }
+    return UpscalerMode::Stretch;
 }
 
 Json upscaler_to_json(const UpscalerSettings& s) {

@@ -79,8 +79,8 @@ struct Own {
         return graph->order_names();
     }
     // The renderer draws at `scale` of the output size and the upscale stage brings it back; `mode` as a game would set it.
-    void upscale(float scale, UpscalerMode mode = UpscalerMode::Temporal, UpscalerQuality quality = UpscalerQuality::Performance,
-                 float sharpness = 0.5f) {
+    void upscale(float scale, UpscalerMode mode = UpscalerMode::Temporal,
+                 UpscalerQuality quality = UpscalerQuality::Performance, float sharpness = 0.5f) {
         r.set_render_scale(scale);
         r.set_upscale_stage(true);
         UpscalerSettings u;
@@ -149,7 +149,8 @@ std::vector<float> reference_plane(const Image& big, int k) {
         for (int x = 0; x < w; ++x) {
             float s = 0;
             for (int j = 0; j < k; ++j)
-                for (int i = 0; i < k; ++i) s += src[std::size_t(y * k + j) * std::size_t(big.width) + std::size_t(x * k + i)];
+                for (int i = 0; i < k; ++i)
+                    s += src[std::size_t(y * k + j) * std::size_t(big.width) + std::size_t(x * k + i)];
             out[std::size_t(y) * std::size_t(w) + std::size_t(x)] = s / float(k * k);
         }
     return out;
@@ -172,12 +173,15 @@ int ghost_pixels(const std::vector<float>& img, const std::vector<float>& ref, i
         for (int x = 1; x + 1 < w; ++x) {
             bool dark = true;
             for (int j = -1; j <= 1; ++j)
-                for (int i = -1; i <= 1; ++i) dark = dark && ref[std::size_t(y + j) * std::size_t(w) + std::size_t(x + i)] < 0.005f;
+                for (int i = -1; i <= 1; ++i)
+                    dark = dark && ref[std::size_t(y + j) * std::size_t(w) + std::size_t(x + i)] < 0.005f;
             if (dark && img[std::size_t(y) * std::size_t(w) + std::size_t(x)] > lit) ++n;
         }
     return n;
 }
-bool same_pixels(const Image& a, const Image& b) { return a.width == b.width && a.height == b.height && a.rgba == b.rgba; }
+bool same_pixels(const Image& a, const Image& b) {
+    return a.width == b.width && a.height == b.height && a.rgba == b.rgba;
+}
 
 // The supersampled picture of the scene (a renderer of 4 x the output size draws it) averaged down to the output size; without the marker.
 std::vector<float> supersampled(Gfx& g, float cameraX = 0.0f) {
@@ -206,15 +210,17 @@ int phys(int out, float scale) { return std::max(1, int(std::lround(double(out) 
 
 }  // namespace
 
-TEST_CASE("temporal upscaler: the jitter phases follow the area ratio of the output to the render size, 8 at the same size") {
+TEST_CASE(
+    "temporal upscaler: the jitter phases follow the area ratio of the output to the render size, 8 at the same size") {
     CHECK(render::upscale_jitter_phases(320, 180, 320, 180) == 8);
-    CHECK(render::upscale_jitter_phases(160, 90, 320, 180) == 32);  // 8 * 2^2
+    CHECK(render::upscale_jitter_phases(160, 90, 320, 180) == 32);      // 8 * 2^2
     CHECK(render::upscale_jitter_phases(1280, 720, 1920, 1080) == 18);  // 8 * 2.25
-    CHECK(render::upscale_jitter_phases(1129, 635, 1920, 1080) == 24);  // 1 / 1.7: the sizes are rounded: 8 * 2.89 = 23.1 -> 24
-    CHECK(render::upscale_jitter_phases(640, 360, 1920, 1080) == 72);   // 8 * 9
-    CHECK(render::upscale_jitter_phases(80, 45, 320, 180) == 128);      // 8 * 16: the largest
+    CHECK(render::upscale_jitter_phases(1129, 635, 1920, 1080) ==
+          24);  // 1 / 1.7: the sizes are rounded: 8 * 2.89 = 23.1 -> 24
+    CHECK(render::upscale_jitter_phases(640, 360, 1920, 1080) == 72);           // 8 * 9
+    CHECK(render::upscale_jitter_phases(80, 45, 320, 180) == 128);              // 8 * 16: the largest
     CHECK(render::upscale_jitter_phases(10, 6, 320, 180) == kJitterPhasesMax);  // clamped, never more than the table
-    CHECK(render::upscale_jitter_phases(0, 0, 0, 0) >= 1);                              // no division by zero
+    CHECK(render::upscale_jitter_phases(0, 0, 0, 0) >= 1);                      // no division by zero
     // The phases never go down when the render size goes down.
     int last = 0;
     for (const int w : {320, 240, 200, 160, 120, 100, 80}) {
@@ -224,25 +230,34 @@ TEST_CASE("temporal upscaler: the jitter phases follow the area ratio of the out
     }
 }
 
-TEST_CASE("temporal upscaler: the effective mode is temporal where it can be drawn, stretch for pixel art and for the modes that are not drawn yet") {
-    render::UpscalerSupport can;
+TEST_CASE("temporal upscaler: the effective mode is temporal where it can be drawn, spatial where it cannot, stretch "
+          "for pixel art") {
+    render::UpscalerCaps can;  // a GPU whose TAA shaders compiled, on a frame of one camera
     can.temporal = true;
-    render::UpscalerSupport pixel = can;
+    render::UpscalerCaps pixel = can;
     pixel.pixelArt = true;
+    render::UpscalerCaps several = can;  // a split screen or two cameras: one history cannot serve them
+    several.multiCamera = true;
+    render::UpscalerCaps noTaa;  // the TAA shaders failed or its histories do not fit
     UpscalerSettings s;
     s.mode = UpscalerMode::Stretch;
     CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Stretch);
     s.mode = UpscalerMode::Temporal;
     CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Temporal);
-    CHECK(render::effective_upscaler_mode(s) == UpscalerMode::Stretch);          // a host with no renderer
-    CHECK(render::effective_upscaler_mode(s, {}) == UpscalerMode::Stretch);      // the TAA shaders failed
-    CHECK(render::effective_upscaler_mode(s, pixel) == UpscalerMode::Stretch);   // pixel art is never blended
+    CHECK(render::effective_upscaler_mode(s) ==
+          UpscalerMode::Spatial);  // a host with no renderer: what the caps default to
+    CHECK(render::effective_upscaler_mode(s, noTaa) == UpscalerMode::Spatial);    // the fallback, never a bare stretch
+    CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);  // several cameras
+    CHECK(render::effective_upscaler_mode(s, pixel) == UpscalerMode::Stretch);    // pixel art is never blended
     s.mode = UpscalerMode::Auto;
     CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Temporal);
+    CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);
     CHECK(render::effective_upscaler_mode(s, pixel) == UpscalerMode::Stretch);
-    CHECK(render::effective_upscaler_mode(s, {}) == UpscalerMode::Stretch);
+    CHECK(render::effective_upscaler_mode(s, noTaa) == UpscalerMode::Spatial);
     s.mode = UpscalerMode::MetalFx;
-    CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Stretch);
+    CHECK(render::effective_upscaler_mode(s, can) ==
+          UpscalerMode::Temporal);  // metalfx is not drawn yet: the next best
+    CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);
 }
 
 TEST_CASE("temporal upscaler: its plan uses the camera's TemporalAA fields, or the defaults, and its own history key") {
@@ -269,9 +284,11 @@ TEST_CASE("temporal upscaler: its plan uses the camera's TemporalAA fields, or t
     with.fx.temporalAAEnabled = true;
     with.fx.temporalAAFeedback = 0.5f;
     with.mask = 1u << int(PostEffect::TemporalAA);
-    CHECK(render::make_upscale_taa_plan(cam, &with, true, true, 0.5f, 5, 11, 3, prev, true).feedback == doctest::Approx(0.5f));
+    CHECK(render::make_upscale_taa_plan(cam, &with, true, true, 0.5f, 5, 11, 3, prev, true).feedback ==
+          doctest::Approx(0.5f));
     // The sharpness of the upscaler scales the sharpen: 0 is none, 1 is twice the effect's own (up to 1).
-    CHECK(render::make_upscale_taa_plan(cam, &none, true, true, 0.0f, 5, 11, 3, prev, true).sharpen == doctest::Approx(0.0f));
+    CHECK(render::make_upscale_taa_plan(cam, &none, true, true, 0.0f, 5, 11, 3, prev, true).sharpen ==
+          doctest::Approx(0.0f));
     CHECK(render::make_upscale_taa_plan(cam, &none, true, true, 1.0f, 5, 11, 3, prev, true).sharpen >= a.sharpen);
     // Not the game's frame, or the shaders failed: no plan.
     CHECK_FALSE(render::make_upscale_taa_plan(cam, &none, false, true, 0.5f, 5, 11, 3, prev, true).on);
@@ -284,7 +301,8 @@ TEST_CASE("temporal upscaler: render.supports says it is drawn, on every backend
     CHECK(render::feature_table()[std::size_t(i)].planned == nullptr);
 }
 
-TEST_CASE("temporal upscaler: the stage draws at the render size with the jitter, resolves to the output size, and the camera's own TAA pass is skipped") {
+TEST_CASE("temporal upscaler: the stage draws at the render size with the jitter, resolves to the output size, and the "
+          "camera's own TAA pass is skipped") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -311,18 +329,20 @@ TEST_CASE("temporal upscaler: the stage draws at the render size with the jitter
     CHECK_FALSE(has_pass(names, "taa-resolve"));  // the camera's own TAA passes are not declared
     CHECK_FALSE(has_pass(names, "taa-output"));
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
-    CHECK(RendererTestAccess::upscale_phases(own.r) == render::upscale_jitter_phases(phys(kOutW, 0.5f), phys(kOutH, 0.5f), kOutW, kOutH));
+    CHECK(RendererTestAccess::upscale_phases(own.r) ==
+          render::upscale_jitter_phases(phys(kOutW, 0.5f), phys(kOutH, 0.5f), kOutW, kOutH));
     CHECK(RendererTestAccess::upscale_phases(own.r) == 32);
     CHECK(RendererTestAccess::upscale_used_history(own.r));
     CHECK(RendererTestAccess::taa_images(own.r) == 2);  // one history (two images), the upscaler's: none for the camera
     CHECK(own.r.effective_upscaler_mode() == UpscalerMode::Temporal);
 }
 
-TEST_CASE("temporal upscaler: quality modes give their render sizes and phase counts, the picture is always the output size") {
+TEST_CASE("temporal upscaler: quality modes give their render sizes and phase counts, the picture is always the output "
+          "size") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     for (const UpscalerQuality q : {UpscalerQuality::Quality, UpscalerQuality::Balanced, UpscalerQuality::Performance,
-                                     UpscalerQuality::UltraPerformance}) {
+                                    UpscalerQuality::UltraPerformance}) {
         CAPTURE(int(q));
         Own own(g);
         REQUIRE_MESSAGE(own.ok, own.error);
@@ -335,14 +355,16 @@ TEST_CASE("temporal upscaler: quality modes give their render sizes and phase co
         CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
         const int expected = render::upscale_jitter_phases(phys(kOutW, scale), phys(kOutH, scale), kOutW, kOutH);
         CHECK(RendererTestAccess::upscale_phases(own.r) == expected);
-        CHECK(expected == std::clamp(int(std::ceil(8.0 * double(kOutW) * kOutH / (double(phys(kOutW, scale)) * phys(kOutH, scale)) - 1e-6)), 1,
-                                     kJitterPhasesMax));
+        CHECK(expected ==
+              std::clamp(int(std::ceil(8.0 * double(kOutW) * kOutH / (double(phys(kOutW, scale)) * phys(kOutH, scale)) -
+                                       1e-6)),
+                         1, kJitterPhasesMax));
         check_marker(img);
     }
     // The phases of the four modes grow with the smaller render size.
     int last = 0;
     for (const UpscalerQuality q : {UpscalerQuality::Quality, UpscalerQuality::Balanced, UpscalerQuality::Performance,
-                                     UpscalerQuality::UltraPerformance}) {
+                                    UpscalerQuality::UltraPerformance}) {
         const float scale = render::upscaler_quality_scale(q);
         const int p = render::upscale_jitter_phases(phys(kOutW, scale), phys(kOutH, scale), kOutW, kOutH);
         CHECK(p > last);
@@ -350,7 +372,8 @@ TEST_CASE("temporal upscaler: quality modes give their render sizes and phase co
     }
 }
 
-TEST_CASE("temporal upscaler: a still scene at half size converges to the supersampled picture, far closer than stretch and than one frame") {
+TEST_CASE("temporal upscaler: a still scene at half size converges to the supersampled picture, far closer than "
+          "stretch and than one frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::vector<float> ref = supersampled(g);
@@ -386,14 +409,18 @@ TEST_CASE("temporal upscaler: a still scene at half size converges to the supers
         CHECK(RendererTestAccess::upscale_used_history(own.r));
         temporalError = edge_error(linear_plane(img), ref);
     }
-    INFO("edge pixels " << edges << ", error of stretch " << stretchError << ", of one frame " << oneFrameError << ", of 80 frames "
-                        << temporalError);
+    INFO("edge pixels " << edges << ", error of stretch " << stretchError << ", of one frame " << oneFrameError
+                        << ", of 80 frames " << temporalError);
     CHECK(stretchError > 0.05);
-    CHECK(temporalError < 0.75 * stretchError);  // the sum of the phases is as sharp as a 2 px box filter allows: the sharpen does the rest
+    CHECK(
+        temporalError <
+        0.75 *
+            stretchError);  // the sum of the phases is as sharp as a 2 px box filter allows: the sharpen does the rest
     CHECK(temporalError < 0.75 * oneFrameError);
 }
 
-TEST_CASE("temporal upscaler: the picture is the right way up, with the marker at the top left (stretch, one frame and converged)") {
+TEST_CASE("temporal upscaler: the picture is the right way up, with the marker at the top left (stretch, one frame and "
+          "converged)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -442,7 +469,8 @@ TEST_CASE("temporal upscaler: a panning camera leaves no ghost behind the edge")
     CHECK(err < 1.2 * stretchErr);
 }
 
-TEST_CASE("temporal upscaler: a cut, a resize, a render scale change and a quality change start the history again; a still frame keeps it") {
+TEST_CASE("temporal upscaler: a cut, a resize, a render scale change and a quality change start the history again; a "
+          "still frame keeps it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -494,7 +522,8 @@ TEST_CASE("temporal upscaler: a cut, a resize, a render scale change and a quali
     CHECK(RendererTestAccess::upscale_used_history(own.r));
 }
 
-TEST_CASE("temporal upscaler: the HUD is drawn at the output size, as sharp as at scale 1, and the history of the world is not touched by it") {
+TEST_CASE("temporal upscaler: the HUD is drawn at the output size, as sharp as at scale 1, and the history of the "
+          "world is not touched by it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto hud_scene = [](World& w) {
@@ -523,7 +552,8 @@ TEST_CASE("temporal upscaler: the HUD is drawn at the output size, as sharp as a
     CHECK(worst <= 2);  // the same glyph raster as at scale 1: never jittered, never resolved
 }
 
-TEST_CASE("temporal upscaler: pixel art (PixelPerfect) and a frame with two cameras stay stretch, with no jitter") {
+TEST_CASE("temporal upscaler: pixel art (PixelPerfect) stays stretch and a frame with two cameras falls back to the "
+          "spatial upscaler, with no jitter") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     {
@@ -548,7 +578,8 @@ TEST_CASE("temporal upscaler: pixel art (PixelPerfect) and a frame with two came
         CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
     }
     {
-        // Two cameras (a split screen): the jitter of one would show in the other's rectangle, so the frame is stretched.
+        // Two cameras (a split screen): the jitter of one would show in the other's rectangle, so the frame is drawn with the spatial
+        // upscaler (the same picture as the mode "spatial"), and the effective mode says so.
         Own own(g);
         REQUIRE_MESSAGE(own.ok, own.error);
         Scene s;
@@ -558,14 +589,29 @@ TEST_CASE("temporal upscaler: pixel art (PixelPerfect) and a frame with two came
         c.projection = Projection::Perspective;
         c.viewport = Rect{0.5f, 0, 0.5f, 1};
         own.upscale(0.5f);
-        own.frame(s.w, 3);
-        CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Stretch));
+        const Image fallback = own.draw(s.w, 3);
+        CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Spatial));
+        CHECK(own.r.effective_upscaler_mode() == UpscalerMode::Spatial);
         CHECK(RendererTestAccess::upscale_phases(own.r) == 0);
         CHECK(RendererTestAccess::taa_images(own.r) == 0);
+        for (const Vec2& j : RendererTestAccess::last_jitter(own.r)) {
+            CHECK(j.x == 0.0f);
+            CHECK(j.y == 0.0f);
+        }
+        own.upscale(0.5f, UpscalerMode::Spatial);
+        const Image spatial = own.draw(s.w, 3);
+        CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Spatial));
+        REQUIRE(fallback.width == spatial.width);
+        int worst = 0;
+        for (int y = 0; y < fallback.height; ++y)
+            for (int x = 0; x < fallback.width; ++x)
+                worst = std::max(worst, int(std::abs(fallback.pixel(x, y).r - spatial.pixel(x, y).r) * 255.0f + 0.5f));
+        CHECK(worst == 0);
     }
 }
 
-TEST_CASE("temporal upscaler: off (mode stretch) draws no jitter, no history and the same picture bit for bit, before and after a temporal frame") {
+TEST_CASE("temporal upscaler: off (mode stretch) draws no jitter, no history and the same picture bit for bit, before "
+          "and after a temporal frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -641,7 +687,8 @@ double mean_diff(const Image& a, const Image& b) {
     REQUIRE(a.height == b.height);
     double sum = 0;
     for (int y = 0; y < a.height; ++y)
-        for (int x = 0; x < a.width; ++x) sum += std::fabs(a.pixel(x, y).r - b.pixel(x, y).r) + std::fabs(a.pixel(x, y).g - b.pixel(x, y).g);
+        for (int x = 0; x < a.width; ++x)
+            sum += std::fabs(a.pixel(x, y).r - b.pixel(x, y).r) + std::fabs(a.pixel(x, y).g - b.pixel(x, y).g);
     return sum / (2.0 * a.width * a.height) * 255.0;
 }
 
@@ -650,7 +697,8 @@ double mean_diff(const Image& a, const Image& b) {
 // other pose is 0.77 of what it was: the depth rejection, which is for surfaces, took the history of the whole sky). The flicker is how much
 // the picture of the same pose changes between two frames four frames apart (other jitter): it is the unavoidable jitter-and-reproject
 // residue of the sun disc when the camera stands still, and about three times that with the history kept; seven times and more without it.
-TEST_CASE("temporal resolve: the history of the sky survives a fast turn of the camera (no depth rejection of what is at infinity)") {
+TEST_CASE("temporal resolve: the history of the sky survives a fast turn of the camera (no depth rejection of what is "
+          "at infinity)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     double flicker[2] = {0, 0};
@@ -662,7 +710,8 @@ TEST_CASE("temporal resolve: the history of the sky survives a fast turn of the 
         Image first, second;
         for (int n = 0; n <= 80; ++n) {
             const bool b = alternate && (n % 2 == 1);
-            s.w.get<Transform>(s.cam)->rotation = {b ? 50.0f : 10.0f, 0, 0};  // the sun is at the middle in pose A, 40 degrees below it in B
+            s.w.get<Transform>(s.cam)->rotation = {b ? 50.0f : 10.0f, 0,
+                                                   0};  // the sun is at the middle in pose A, 40 degrees below it in B
             own.frame(s.w);
             if (n == 76) first = own.capture();
             if (n == 80) second = own.capture();

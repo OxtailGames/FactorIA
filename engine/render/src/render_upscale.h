@@ -16,14 +16,15 @@
 namespace fa::render {
 
 // How the picture is brought to the output resolution. Stretch is a copy through a Linear sampler (Nearest for pixel art): the image
-// the renderer made at scale 1 is never touched by it. The packages after P3a add Spatial, Temporal and MetalFx here and a case in
-// Renderer::Impl::run_upscale. Temporal (M76-P4): the camera is jittered at the render resolution and the TAA resolve accumulates the
-// frames into a history of the OUTPUT resolution (renderer_taa.h, TaaFx::upscale).
-enum class UpscaleImpl : std::uint8_t { Stretch, Temporal };
+// the renderer made at scale 1 is never touched by it. Spatial (M76-P3b, shaders/upscale_spatial.glsl) is the edge-adaptive upsample
+// and the contrast-adaptive sharpen. Temporal (M76-P4): the camera is jittered at the render resolution and the TAA resolve accumulates the
+// frames into a history of the OUTPUT resolution (renderer_taa.h, TaaFx::upscale); where it cannot run, spatial draws. The package after
+// adds MetalFx here and a case in Renderer::Impl::run_upscale.
+enum class UpscaleImpl : std::uint8_t { Stretch, Spatial, Temporal };
 
-// The implementation a mode name selects ("stretch", later "spatial" / "temporal" / "metalfx" / "auto"). A name this build does not
-// know (a typo, a mode of a later version, an implementation the GPU cannot run) selects Stretch: the game is never left without a
-// picture. `known`, when given, says whether the name was understood.
+// The implementation a mode name selects ("stretch", "spatial", "temporal"; later "metalfx"). A name this build does not know (a
+// typo, a mode of a later version, an implementation the GPU cannot run) selects Stretch: the game is never left without a picture.
+// `known`, when given, says whether the name was understood. ("auto" is not an implementation: effective_upscaler_mode picks one.)
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known = nullptr);
 const char* upscale_impl_name(UpscaleImpl impl);
 
@@ -45,6 +46,9 @@ struct UpscaleInput {
     std::uint64_t frameIndex = 0;    // the renderer's frame counter (Renderer::Impl::frameSerial)
     bool resetHistory = false;       // a cut, a resize or a change of mode: drop what was accumulated
     bool pixelArt = false;           // ScaleMode::PixelPerfect: sample with Nearest, never blend
+    bool linear =
+        false;  // `color` holds linear light (a linear scene without a final pass): filters work on a perceptual curve
+    float sharpness = 0.0f;  // UpscalerSettings::sharpness, 0..1: the sharpen of Spatial (Stretch ignores it)
 };
 
 }  // namespace fa::render

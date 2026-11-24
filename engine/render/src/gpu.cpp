@@ -94,6 +94,16 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.attrs[weightsAttr].buffer_index = 2;
     d.layout.attrs[weightsAttr].offset = 4;
 }
+// Vertex buffer 6 of a prepass program: the previous model matrix of every instance as three rows (mesh_common.glsl fa_prev_r0..2).
+void set_prev_layout(sg_pipeline_desc& d, int firstAttr) {
+    d.layout.buffers[kPrevModelBuffer].stride = kPrevModelBytes;
+    d.layout.buffers[kPrevModelBuffer].step_func = SG_VERTEXSTEP_PER_INSTANCE;
+    for (int i = 0; i < 3; ++i) {
+        d.layout.attrs[firstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[firstAttr + i].buffer_index = kPrevModelBuffer;
+        d.layout.attrs[firstAttr + i].offset = i * 16;
+    }
+}
 // Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1,
 // at the attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
 void set_extra_layout(sg_pipeline_desc& d, int firstAttr, const MeshExtras& e) {
@@ -861,6 +871,12 @@ MaterialProgram program_slots(sg_shader shader, const sg_shader_desc* desc) {
 }
 }  // namespace
 
+bool Gpu::velocity_ready() {
+    if (!prepass_ready()) return false;
+    const sg_pixelformat_info info = sg_query_pixelformat(velocity_format());
+    return info.render && info.sample;
+}
+
 bool Gpu::prepass_ready() {
     if (prepassState_ != 0) return prepassState_ > 0;
     const sg_backend backend = sg_query_backend();
@@ -911,6 +927,9 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
     if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    // The previous model matrix (M76): in the layout of every program that declares it, drawing with the velocity image or not (a vertex
+    // layout must hold every attribute the vertex shader reads); the pass binds a buffer that has no use for it when nothing asks.
+    if (const int prev = prepass_prev_attr(skinned, shader.id != 0, extras); prev >= 0) set_prev_layout(d, prev);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;

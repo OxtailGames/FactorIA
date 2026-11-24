@@ -15,14 +15,14 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-std::string project_text(const std::string& renderBlock) {
+std::string project_text(const std::string& renderBlock, const std::string& scaleMode) {
     return std::string(R"({
   "format": "factoria.project/1",
   "name": "Upscaler Test",
   "id": "com.example.upscalertest",
   "mainScene": "scenes/main.scene.json",
-  "display": { "width": 320, "height": 180, "scaleMode": "pixelPerfect" })") +
-           renderBlock + "\n}";
+  "display": { "width": 320, "height": 180, "scaleMode": ")") +
+           scaleMode + "\" }" + renderBlock + "\n}";
 }
 
 const char* kScene =
@@ -30,10 +30,12 @@ const char* kScene =
 
 struct TempProject {
     stdfs::path dir;
-    explicit TempProject(const std::string& name, const std::string& renderBlock = "") {
+    // The display's scale mode is "pixelPerfect" unless a test asks for another ("fit": the smooth scaling the spatial upscaler draws for).
+    explicit TempProject(const std::string& name, const std::string& renderBlock = "",
+                         const std::string& scaleMode = "pixelPerfect") {
         dir = fs::make_temp_dir("fa_upscaler_test_" + name).value();
         stdfs::create_directories(dir / "scenes");
-        std::ofstream(dir / "factoria.json", std::ios::binary) << project_text(renderBlock);
+        std::ofstream(dir / "factoria.json", std::ios::binary) << project_text(renderBlock, scaleMode);
         std::ofstream(dir / "scenes" / "main.scene.json", std::ios::binary) << kScene;
     }
     ~TempProject() {
@@ -109,7 +111,7 @@ TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["mode"] == "spatial");
     CHECK(r.result["quality"] == "quality");
-    // Nothing draws yet: the effective mode stays stretch, and the scale is the quality's.
+    // The display is pixel perfect: its hard pixels are kept, so the effective mode is stretch whatever is asked for; the scale is the quality's.
     CHECK(r.result["effectiveMode"] == "stretch");
     CHECK(r.result["scale"].get<double>() == doctest::Approx(1.0 / 1.5).epsilon(0.001));
 
@@ -119,6 +121,7 @@ TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything
     CHECK(r.result["quality"] == "performance");
     CHECK(r.result["sharpness"].get<double>() == doctest::Approx(0.25));
     CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
+    CHECK(r.result["effectiveMode"] == "stretch");
 
     r = c.call("render.upscaler", Json::parse(R"({"mode":"tempral"})"));
     CHECK_FALSE(r.ok);
@@ -181,7 +184,7 @@ TEST_CASE("the project's upscaler is applied when the engine starts") {
 
 TEST_CASE("render.upscaler: a quality below native draws the game smaller with the upscale stage on, temporal says so, "
           "native undoes it") {
-    TempProject p("quality");
+    TempProject p("quality", "", "fit");  // pixel art (the default of these projects) is always stretch
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
@@ -222,4 +225,132 @@ TEST_CASE("graphics.preset and graphics.detect are stubs that say so") {
     CHECK_FALSE(r.ok);
     CHECK(r.error.dump().find("not built yet") != std::string::npos);
     e.shutdown();
+}
+
+TEST_CASE("render.upscaler spatial changes the size drawn and the effective mode; pixel perfect keeps stretch") {
+    TempProject p("spatial", "", "fit");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    auto stats = [&]() {
+        auto s = c.call("game.render_stats", Json::object());
+        REQUIRE_MESSAGE(s.ok, s.error.dump());
+        return s.result;
+    };
+    // The default: stretch at the design size, no stage.
+    Json s0 = stats();
+    CHECK(s0["width"] == 320);
+    CHECK(s0["height"] == 180);
+    CHECK(s0["renderScale"].get<double>() == doctest::Approx(1.0));
+    CHECK_FALSE(e.renderer()->upscale_stage());
+
+    auto r = c.call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["mode"] == "spatial");
+    CHECK(r.result["effectiveMode"] == "spatial");
+    CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->effective_upscaler_mode() == render::UpscalerMode::Spatial);
+    Json s1 = stats();
+    CHECK(s1["width"] == 160);  // the size the game is drawn at, not the design size
+    CHECK(s1["height"] == 90);
+    CHECK(s1["renderScale"].get<double>() == doctest::Approx(0.5));
+    CHECK(eval(e, "window.upscaler.effectiveMode") == "spatial");
+    CHECK(eval(e, "window.upscaler.scale").get<double>() == doctest::Approx(0.5));
+
+    // window.renderScale multiplies with the quality, down to the floor of 0.25.
+    eval(e, "window.renderScale = 0.75; 0");
+    Json s2 = stats();
+    CHECK(s2["renderScale"].get<double>() == doctest::Approx(0.375));
+    CHECK(s2["width"] == 120);
+    // (window.renderScale itself is 0.33 .. 1.) 0.5 x 1/3 would be 0.167: below the floor.
+    eval(e, "window.renderScale = 0.5; window.upscaler = { quality: 'ultraPerformance' }; 0");
+    CHECK(stats()["renderScale"].get<double>() == doctest::Approx(0.25));
+    CHECK(stats()["width"] == 80);
+    CHECK(eval(e, "window.renderScale").get<double>() == doctest::Approx(0.5));  // the player's option is what was set
+    eval(e, "window.upscaler = { quality: 'performance' }; 0");
+    eval(e, "window.renderScale = 1; 0");
+
+    // The scale of the quality is the same under temporal, metalfx and auto; auto picks the temporal upscaler (the best drawable here), and
+    // metalfx draws as the next best until its own package lands.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"auto"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "temporal");
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"metalfx"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "temporal");
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"spatial"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "spatial");
+
+    // Back to stretch at native: no stage, the design size.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"stretch","quality":"native"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "stretch");
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    Json s3 = stats();
+    CHECK(s3["width"] == 320);
+    CHECK(s3["renderScale"].get<double>() == doctest::Approx(1.0));
+
+    // Spatial at native with a sharpness: the stage runs for the sharpen alone at the design size; with sharpness 0 it does not.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"spatial","sharpness":0.5})"));
+    REQUIRE(r.ok);
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(stats()["width"] == 320);
+    e.shutdown();
+}
+
+TEST_CASE("render.upscaler on a pixel-perfect display: the quality still sets the size, the mode stays stretch") {
+    TempProject p("pixel");  // scaleMode pixelPerfect
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["mode"] == "spatial");
+    CHECK(r.result["effectiveMode"] == "stretch");
+    CHECK(e.renderer()->effective_upscaler_mode() == render::UpscalerMode::Stretch);
+    auto s = e.commands().call("game.render_stats", Json::object());
+    REQUIRE(s.ok);
+    CHECK(s.result["width"] == 160);
+    CHECK(s.result["height"] == 90);
+    e.shutdown();
+}
+
+TEST_CASE("without a renderer effectiveMode is what a GPU would draw: pixel perfect is stretch, smooth scaling follows "
+          "the setting") {
+    const char* spatial = R"(, "render": { "upscaler": { "mode": "spatial", "quality": "quality" } })";
+    {
+        TempProject p("nogpu_pixel", spatial, "pixelPerfect");
+        EngineConfig c = cfg(p);
+        c.graphics = false;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        REQUIRE(e.renderer() == nullptr);
+        auto r = e.commands().call("render.upscaler", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["mode"] == "spatial");
+        CHECK(r.result["effectiveMode"] == "stretch");
+        CHECK(eval(e, "window.upscaler.effectiveMode") == "stretch");
+    }
+    {
+        TempProject p("nogpu_fit", spatial, "fit");
+        EngineConfig c = cfg(p);
+        c.graphics = false;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        REQUIRE(e.renderer() == nullptr);
+        auto r = e.commands().call("render.upscaler", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["effectiveMode"] == "spatial");
+        CHECK(eval(e, "window.upscaler.effectiveMode") == "spatial");
+        r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["effectiveMode"] == "stretch");
+    }
 }

@@ -12,16 +12,95 @@
 using namespace fa;
 using namespace fa::render;
 
-TEST_CASE("upscaler: the defaults are stretch, native, 0.5, and effective_upscaler_mode is stretch for every mode") {
+TEST_CASE("upscaler: the defaults are stretch, native, 0.5, and a stretch setting draws as stretch whatever the caps") {
     const UpscalerSettings s;
     CHECK(s.mode == UpscalerMode::Stretch);
     CHECK(s.quality == UpscalerQuality::Native);
     CHECK(s.sharpness == 0.5f);
+    for (const bool spatial : {false, true})
+        for (const bool temporal : {false, true})
+            for (const bool metalfx : {false, true}) {
+                UpscalerCaps caps;
+                caps.spatial = spatial;
+                caps.temporal = temporal;
+                caps.metalfx = metalfx;
+                CHECK(effective_upscaler_mode(s, caps) == UpscalerMode::Stretch);
+            }
+    CHECK(effective_upscaler_mode(s) == UpscalerMode::Stretch);
+}
+
+TEST_CASE(
+    "upscaler: effective_upscaler_mode follows the caps: pixel art is stretch, the rest falls to the best drawable") {
+    UpscalerSettings t;
+    UpscalerCaps gpu;  // the default caps: spatial only
+    // Pixel art keeps its hard edges whatever the setting asks for.
+    UpscalerCaps art = gpu;
+    art.pixelArt = true;
+    art.temporal = art.metalfx = true;
     for (int m = 0; m < kUpscalerModeCount; ++m) {
-        UpscalerSettings t;
         t.mode = UpscalerMode(m);
-        CHECK(effective_upscaler_mode(t) == UpscalerMode::Stretch);  // nothing draws the others yet
+        CAPTURE(upscaler_mode_name(t.mode));
+        CHECK(effective_upscaler_mode(t, art) == UpscalerMode::Stretch);
     }
+    // A GPU that draws spatial only: spatial, auto, temporal and metalfx all give the spatial upscaler.
+    for (const UpscalerMode m :
+         {UpscalerMode::Spatial, UpscalerMode::Auto, UpscalerMode::Temporal, UpscalerMode::MetalFx}) {
+        t.mode = m;
+        CAPTURE(upscaler_mode_name(m));
+        CHECK(effective_upscaler_mode(t, gpu) == UpscalerMode::Spatial);
+        CHECK(effective_upscaler_mode(t) == UpscalerMode::Spatial);
+    }
+    // No renderer able to draw anything (no GPU): stretch, so what is read back says what is drawn.
+    UpscalerCaps none;
+    none.spatial = false;
+    for (int m = 0; m < kUpscalerModeCount; ++m) {
+        t.mode = UpscalerMode(m);
+        CHECK(effective_upscaler_mode(t, none) == UpscalerMode::Stretch);
+    }
+    // The branches the later packages switch on: temporal and MetalFX when they can be drawn, auto picks the best.
+    UpscalerCaps tem = gpu;
+    tem.temporal = true;
+    t.mode = UpscalerMode::Temporal;
+    CHECK(effective_upscaler_mode(t, tem) == UpscalerMode::Temporal);
+    t.mode = UpscalerMode::Auto;
+    CHECK(effective_upscaler_mode(t, tem) == UpscalerMode::Temporal);
+    t.mode = UpscalerMode::MetalFx;
+    CHECK(effective_upscaler_mode(t, tem) == UpscalerMode::Temporal);
+    UpscalerCaps fx = tem;
+    fx.metalfx = true;
+    CHECK(effective_upscaler_mode(t, fx) == UpscalerMode::MetalFx);
+    t.mode = UpscalerMode::Auto;
+    CHECK(effective_upscaler_mode(t, fx) == UpscalerMode::MetalFx);
+    t.mode = UpscalerMode::Spatial;
+    CHECK(effective_upscaler_mode(t, fx) == UpscalerMode::Spatial);  // an explicit choice is kept
+}
+
+TEST_CASE("upscaler: plan_upscale_scale multiplies the player's scale by the quality's, floors it at 0.25, and runs "
+          "the stage below 1 or for a filter") {
+    constexpr float kMin = 0.25f;
+    // The quality presets.
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).scale == 1.0f);
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Performance, UpscalerMode::Spatial, kMin).scale == 0.5f);
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Quality, UpscalerMode::Spatial, kMin).scale ==
+          doctest::Approx(1.0f / 1.5f));
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::UltraPerformance, UpscalerMode::Spatial, kMin).scale ==
+          doctest::Approx(1.0f / 3.0f));
+    // The player's scale and the quality multiply.
+    CHECK(plan_upscale_scale(0.75f, UpscalerQuality::Performance, UpscalerMode::Spatial, kMin).scale ==
+          doctest::Approx(0.375f));
+    // The floor: 0.5 x 1/3 and 0.25 x 0.5 are below 0.25.
+    CHECK(plan_upscale_scale(0.5f, UpscalerQuality::UltraPerformance, UpscalerMode::Spatial, kMin).scale == kMin);
+    CHECK(plan_upscale_scale(0.25f, UpscalerQuality::Performance, UpscalerMode::Spatial, kMin).scale == kMin);
+    CHECK(plan_upscale_scale(std::nanf(""), UpscalerQuality::Native, UpscalerMode::Spatial, kMin).scale == kMin);
+    // The stage: below 1 always; at 1 only for a mode that is not stretch (the sharpen alone); never above 1.
+    CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin)
+                    .stage);  // nothing to upscale or sharpen
+    CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
 }
 
 TEST_CASE("upscaler: the quality scales are 1, 1/1.5, 1/1.7, 1/2, 1/3 and the names round-trip") {

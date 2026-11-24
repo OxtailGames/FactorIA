@@ -689,11 +689,11 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     CHECK(why.find("depth") != std::string::npos);
 }
 
-// M76-P0: the rows of the shared API are planned until the packages that draw them land; temporalAA is the effect row of that name
-// and has been drawn since M76-P2.
-TEST_CASE("features: the upscaling rows of M76 are planned (the temporal upscaler is drawn), metalfx only on Metal") {
+// M76-P0: the rows of the shared API are planned until the packages that draw them land (motionVectors landed in P1a,
+// spatialUpscaler in P3b, temporalUpscaler in P4); temporalAA is the effect row of that name and has been drawn since M76-P2.
+TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"motionVectors", "spatialUpscaler", "metalfx", "dynamicResolution"}) {
+    for (const char* name : {"metalfx", "dynamicResolution"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -703,6 +703,30 @@ TEST_CASE("features: the upscaling rows of M76 are planned (the temporal upscale
         std::string why;
         CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
         CHECK(why == "planned (M76)");
+    }
+    // The motion vectors are drawn since M76-P1a (the prepass writes them for a consumer: the debug view, the temporal antialiasing).
+    const int mv = find_feature("motionVectors");
+    REQUIRE(mv >= 0);
+    CHECK(feature_table()[std::size_t(mv)].kind == FeatureKind::Engine);
+    CHECK(feature_table()[std::size_t(mv)].planned == nullptr);
+    CHECK(supported(full, "motionVectors"));
+    // The spatial upscaler is drawn (M76-P3b): supported on every backend with a GPU, no longer planned.
+    {
+        const int i = find_feature("spatialUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whySpatial;
+        CHECK(supported(full, "spatialUpscaler", &whySpatial));
+    }
+    // The temporal upscaler is drawn (M76-P4): on every backend with a GPU, whether or not it has half-float targets.
+    {
+        const int i = find_feature("temporalUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        CHECK(supported(full, "temporalUpscaler"));
+        CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler"));
     }
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);

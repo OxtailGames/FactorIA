@@ -385,21 +385,24 @@ std::vector<FeatureDef> build_table() {
          "A per-pixel motion image (RG16F at the render resolution: where each pixel was in the previous frame, from "
          "unjittered matrices) written by the opaque meshes, the terrain, the foliage and the impostors, and read by "
          "the temporal antialiasing and the temporal upscaler; where nothing wrote it the camera's own motion is "
-         "rebuilt from the depth. Planned (M76 P1a).",
-         "M76"},
+         "rebuilt from the depth. Written in the depth prepass as a second attachment only when something reads it "
+         "(the debug view render.debug_view \"motionVectors\"); skinned meshes, a material's vertex(), particles "
+         "and sprites do not write it yet (M76 P1b).",
+         nullptr},
         {"spatialUpscaler", "",
          "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
-         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen, the HUD drawn at the output "
-         "resolution. Needs no float targets, every backend. Planned (M76 P3b).",
-         "M76"},
+         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen (fragment passes, never compute), "
+         "the HUD drawn at the output resolution. Needs no float targets, every GPU backend. Pixel-perfect games "
+         "keep the plain nearest scaling.",
+         nullptr},
         {"temporalUpscaler", "",
          "The temporal upscaler (render.upscaler mode \"temporal\", also picked by \"auto\"): while the game is drawn "
          "below the output size the camera is jittered at the render resolution and the frames are accumulated into a "
          "history of the output resolution (the temporal antialiasing's resolve), then sharpened; the HUD and the UI "
          "are drawn over it at the output resolution. Two fragment passes on every backend, no compute. Without "
          "half-float targets the history is 8 bits per channel (no depth, colours above 1 clipped), with a note in the "
-         "log. One full-screen camera; a frame of several cameras or a split screen is stretched; pixel art "
-         "(PixelPerfect) always stretches (M76-P4).",
+         "log. One full-screen camera; a frame of several cameras or a split screen, and a history the GPU cannot "
+         "make, are drawn with the spatial upscaler; pixel art (PixelPerfect) always stretches (M76-P4).",
          nullptr},
         {"metalfx", "",
          "MetalFX (render.upscaler mode \"metalfx\"): Apple's own spatial and temporal upscalers, on Metal "

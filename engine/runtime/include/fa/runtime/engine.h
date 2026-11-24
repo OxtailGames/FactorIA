@@ -304,9 +304,11 @@ public:
     float default_ui_scale() const override;      // the ui.scale of factoria.json
     double render_scale() const override;         // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
-    render::UpscalerMode effective_upscaler_mode() const override;
     std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
         override;  // window.upscaler / render.upscaler: also the renderer's
+    render::UpscalerMode effective_upscaler_mode()
+        const override;  // the renderer's: what draws, pixel art is stretch; with no renderer, what a GPU would draw
+    render::UpscalerCaps upscaler_caps() const override;  // no renderer: pixelArt from the project's scale mode
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values
