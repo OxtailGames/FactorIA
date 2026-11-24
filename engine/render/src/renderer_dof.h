@@ -4,7 +4,11 @@
 //   dof-down        picture + prepass -> 1/2 res: the 2x2 block and its signed circle of confusion (shaders/dof.glsl)
 //   dof-gather      1/2 res -> 1/2 res: the disc blur (near field in front, far field behind)
 //   dof-composite   picture + prepass + blur -> a scratch image of the camera's size
-//   motion-blur     picture (or the scratch) + prepass -> the scratch (or the camera's rectangle of the picture)
+//   motion-blur     picture (or the scratch) + prepass -> the scratch (or the camera's rectangle of the picture): the camera's own motion
+//                   (PostProcess.motionBlurMode "camera", or no velocity image), shaders/motion_blur.glsl
+//   motion-velocity, motion-tile-x, motion-tile-y, motion-blur   the per-object blur (mode "object" with a velocity image): the velocity
+//                   image + prepass -> V (blur vector and depth), V -> the longest vector of every block (two passes), then the gather
+//                   picture + V + blocks -> the scratch (or the picture), shaders/motion_object.glsl
 //   dof-copy / motion-copy  the scratch -> the camera's rectangle of the picture
 //
 // A pass cannot read what it writes, so the effects draw into one scratch transient (the picture's format, the camera's size) and the last of
@@ -34,6 +38,7 @@ namespace fa::render {
 struct PostStack;
 struct PostRect;
 struct PrepassRef;
+struct VelocityRef;
 
 // What a camera's passes draw: the stack's numbers after clamping, the focus of this frame, the matrices of the movement. Empty (any() false) when
 // neither effect is on.
@@ -49,6 +54,11 @@ struct SceneFxPlan {
     bool motion = false;
     float shutter = 0.5f;  // the part of the screen movement that is blurred
     int motionTaps = 8;    // most taps along the movement
+    // The per-object blur (PostProcess.motionBlurMode "object"): the velocity image gives the movement of every pixel. add_passes draws it
+    // only when the camera has a velocity image and the shaders built; else the camera-only blur above.
+    bool objects = false;
+    float maxRadiusPx =
+        24.0f;  // how far a pixel's blur reaches on each side, physical pixels (1 .. 128); the longest streak is twice it
     // The matrices of the movement: a view-space position of this frame -> the clip position it had in the frame before
     // (previous view-projection * inverse view), and the projection's terms the shader needs (see motion_blur.glsl).
     Mat4 prevFromView;
@@ -82,10 +92,11 @@ public:
     // Declares the passes of one camera in `graph`: after the passes that draw `game` (the imported resource of the picture, texture view
     // `srcTex`), before bloom. `rect`: the camera's rectangle of the picture (picW x picH); `prepass`: its prepass (invalid: nothing is drawn,
     // the effects need the depth); `dst`: where the result goes, as the bloom's (BloomTarget). Each pass adds one to *drawCalls when it runs.
+    // `velocity`: the velocity image of the camera (PostPlan::velocity; invalid when none was drawn: the blur is the camera-only one).
     // Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
                    const PostRect& rect, int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
-                   const PrepassRef& prepass, int* drawCalls, const std::string& job);
+                   const PrepassRef& prepass, const VelocityRef& velocity, int* drawCalls, const std::string& job);
 
     // One full-screen copy of `src` (a texture view of the picture's format) into the pass `pd`; when `part` is not
     // null only into that rectangle (x, y, w, h in pixels of the destination: a camera's rectangle of the picture). The
@@ -102,8 +113,11 @@ public:
     void forget_targets();
 
     // The programs, and their pipelines for a target format (made on the first use; null when the program cannot be made). Used by the passes.
-    enum class Prog { Down, Gather, Composite, Copy, Motion, Count };
+    enum class Prog { Down, Gather, Composite, Copy, Motion, ObjVel, ObjTile, ObjGather, Count };
     bool ready();
+    // The three programs of the per-object blur, made on its first use (a game that only has the camera blur never compiles them); false
+    // when they could not be made (logged once: the blur is then the camera-only one).
+    bool ready_objects();
     sg_pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
@@ -114,7 +128,8 @@ private:
     };
     sg_shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
-    int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
+    int state_ = 0;     // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
+    int objState_ = 0;  // the same for the per-object blur's programs
     struct Focus {
         float distance = 10.0f;
         std::uint64_t frame = 0;

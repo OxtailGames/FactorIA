@@ -510,11 +510,16 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // motionBlur
         .field("motionBlurEnabled", &PostProcess::motionBlurEnabled,
-               "Switches the camera motion blur on: the picture smears along the way the camera moved since the frame "
-               "before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera "
-               "turns). Objects that move on their own are not blurred. There is no blur on the first frame or "
-               "after the camera did not draw the frame before (a cut); a camera that jumps to another place in "
-               "one frame blurs up to a longest streak. It runs before the bloom and the final pass.")
+               "Switches the motion blur on: the picture smears along the way things moved since the frame before. "
+               "With motionBlurMode \"object\" (the default) every moving object blurs along its own motion, read "
+               "from the velocity image the depth prepass writes (meshes, skinned meshes and the other things that "
+               "write one), and a fast object blurs over a sharp "
+               "background without the background smearing into it; where no object wrote a velocity (the sky, "
+               "static scenery of a moving camera) the camera's own motion from the depth is used. With \"camera\" "
+               "only the camera's motion blurs (objects that move on their own are not). There is no blur on the "
+               "first frame or after the camera did not draw the frame before (a cut); a camera that jumps to "
+               "another place in one frame blurs up to the longest streak. It runs after the temporal antialiasing "
+               "and before the bloom and the final pass.")
         .field(
             "motionBlurIntensity", &PostProcess::motionBlurIntensity,
             "Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole "
@@ -522,8 +527,20 @@ void register_postprocess_component(TypeRegistry& r) {
         .range(0, 1)
         .field("motionBlurSamples", &PostProcess::motionBlurSamples,
                "Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A "
-               "streak is at most 8% of the picture's larger side.")
+               "graphics preset caps it. In mode \"camera\" a streak is at most 8% of the picture's larger side.")
         .range(4, 32)
+        .enum_field(
+            "motionBlurMode", &PostProcess::motionBlurMode, {"object", "camera"},
+            "Only used when motionBlurEnabled. object (default): the blur follows the velocity image, so moving "
+            "objects blur too (a tile-max / neighbour-max filter keeps a fast object soft-edged over a sharp "
+            "background); it needs a GPU that can draw the velocity image (render.supports motionVectors) and "
+            "falls back to camera mode where it cannot. camera: only the camera's own movement, from the depth "
+            "(cheaper: one pass, no velocity image).")
+        .field("motionBlurMaxRadius", &PostProcess::motionBlurMaxRadius,
+               "Only used when motionBlurEnabled and motionBlurMode is object. 1..64 design pixels (times the render "
+               "scale): how far the blur of a pixel reaches on each side, so the longest streak is twice this. A "
+               "faster motion is cut to it. Smaller is cheaper and cleaner for very fast objects.")
+        .range(1, 64)
 
         // ssr
         .field(

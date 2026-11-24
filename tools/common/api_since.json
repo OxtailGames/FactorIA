@@ -676,6 +676,8 @@
     "PostProcess.lensDistortionScale": "0.31.0",
     "PostProcess.motionBlurEnabled": "0.31.0",
     "PostProcess.motionBlurIntensity": "0.31.0",
+    "PostProcess.motionBlurMaxRadius": "unreleased",
+    "PostProcess.motionBlurMode": "unreleased",
     "PostProcess.motionBlurSamples": "0.31.0",
     "PostProcess.outlineAlphaThreshold": "0.31.0",
     "PostProcess.outlineColor": "0.31.0",
