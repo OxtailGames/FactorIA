@@ -373,7 +373,7 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 
 ## `graphics.detect`
 
-Not released yet (on main after 0.35.2).
+Since 0.36.0.
 
 Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing.
 
@@ -385,7 +385,7 @@ The rule: a median of 4 ms or less is ultra, up to 8 ms high, up to 16 ms medium
 
 ## `graphics.preset` (modifies state)
 
-Not released yet (on main after 0.35.2).
+Since 0.36.0.
 
 Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render settings of the game.
 
@@ -432,7 +432,7 @@ A way to look at the data the depth-based post effects (ssao, depth of field, fo
 
 ## `render.dynamic_resolution` (modifies state)
 
-Not released yet (on main after 0.35.2).
+Since 0.36.0.
 
 Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.
 
@@ -660,7 +660,7 @@ Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, 
 
 ## `render.upscaler` (modifies state)
 
-Not released yet (on main after 0.35.2).
+Since 0.36.0.
 
 Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.
 
