@@ -388,3 +388,40 @@ TEST_CASE("hi-z on a GPU: a capture of the camera leaves the game's pyramid and 
     g.draw(w);
     CHECK(g.renderer.stats().meshesOccluded == 1);
 }
+
+TEST_CASE("hi-z on a GPU: a destroyed HizCamera gives its read slots back to the device") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!has_hiz()) {
+        MESSAGE("no compute shaders or no asynchronous read-back on this backend");
+        return;
+    }
+    render::Gpu& gpu = *RendererTestAccess::gpu(g.renderer);
+    gpu::Device& device = gpu.device();
+    World w, plain;
+    make_scene(w, OcclusionMode::Gpu);
+    make_scene(plain, OcclusionMode::Cpu);
+    frames(g, w, 6);
+    REQUIRE(RendererTestAccess::hiz_cameras(g.renderer) >= 1);
+    // The mode goes back to the CPU's: the renderer drops its HizCameras, each of which releases the copies it had in flight.
+    frames(g, plain, 3);
+    REQUIRE(RendererTestAccess::hiz_cameras(g.renderer) == 0);
+
+    gpu::BufferDesc bd;
+    bd.size = 16;
+    bd.usage.storageBuffer = true;
+    bd.label = "hiz slots";
+    const gpu::Buffer buf = device.make_buffer(bd);
+    REQUIRE(device.state(buf) == gpu::ResourceState::Valid);
+    gpu.commit_frame();  // the renderer's own list is open on the device: it ends the frame
+    // Every slot of the device is free again: 32 requests (eight rings of four) all get one, a 33rd is told to wait.
+    std::vector<gpu::ReadTicket> tickets;
+    for (int i = 0; i < 32; ++i) {
+        auto r = device.request_buffer_read(buf, 0, 16);
+        REQUIRE(r);
+        CHECK_MESSAGE(r.value().valid(), "request " << i << " found no free slot: a camera kept its reads");
+        tickets.push_back(r.value());
+    }
+    for (const gpu::ReadTicket& t : tickets) device.release_buffer_read(t);
+    device.destroy_buffer(buf);
+}

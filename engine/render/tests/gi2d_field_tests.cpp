@@ -21,6 +21,7 @@
 #include "fa/scene/tilemap.h"
 #include "frame_graph.h"
 #include "gi2d.h"
+#include "gpu/recording_device.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
 
@@ -771,4 +772,42 @@ TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the ca
     CHECK(report["fields"][0]["dropped"].get<int>() > 0);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() <= kGi2dMaxQuads);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() > kGi2dMaxQuads / 2);
+}
+
+TEST_CASE("gi2d system: images are destroyed on the device that made them, and release forgets the device") {
+    gpu::RecordingDevice a, b;
+    Gi2dSystem sys;
+    Gi2dGeometry small;
+    small.valid = true;
+    small.width = small.height = 32;
+    Gi2dCascadePlan plan;
+    plan.ok = true;
+    plan.gridW = plan.gridH = 8;
+
+    Gi2dField* f = sys.acquire(a, 0, small, plan);
+    REQUIRE(f != nullptr);
+    const gpu::Image emissionA = f->emission.color;
+    const gpu::Image irradianceA = f->irradiance[1].color;
+    REQUIRE(emissionA.id != 0);
+    CHECK(a.state(emissionA) == gpu::ResourceState::Valid);
+    CHECK(a.state(irradianceA) == gpu::ResourceState::Valid);
+
+    // Another size on another device: the old images go on the device that made them, the new ones live on the new one.
+    Gi2dGeometry big = small;
+    big.width = big.height = 64;
+    sys.begin_frame(false);
+    f = sys.acquire(b, 0, big, plan);
+    REQUIRE(f != nullptr);
+    CHECK(a.state(emissionA) != gpu::ResourceState::Valid);
+    CHECK(a.state(irradianceA) != gpu::ResourceState::Valid);
+    const gpu::Image emissionB = f->emission.color;
+    CHECK(b.state(emissionB) == gpu::ResourceState::Valid);
+    CHECK(b.state(f->distance.color) == gpu::ResourceState::Valid);
+
+    // Releasing frees the images on b, and the system then knows no device: a second release touches nothing.
+    sys.release();
+    CHECK(b.state(emissionB) != gpu::ResourceState::Valid);
+    sys.release();
+    CHECK(a.errors().empty());
+    CHECK(b.errors().empty());
 }

@@ -289,6 +289,7 @@ void Gi2dSystem::release() {
     }
     pipelines_.clear();
     state_ = 0;
+    device_ = nullptr;
 }
 
 bool Gi2dSystem::ready(gpu::Device& device) {

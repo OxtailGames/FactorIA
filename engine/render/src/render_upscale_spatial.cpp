@@ -60,6 +60,7 @@ void SpatialUpscaler::release() {
     pipelines_.clear();
     for (gpu::Shader& sh : shaders_) sh = {};
     state_ = 0;
+    device_ = nullptr;
 }
 
 float SpatialUpscaler::sharpen_weight(float sharpness) { return std::clamp(sharpness, 0.0f, 1.0f) * 0.18f; }
