@@ -17,6 +17,9 @@ using namespace fa;
 using namespace fa::test;
 namespace mfx = fa::render::metalfx;
 
+// The helpers below are used by the Metal tests only: off Metal they would be unused functions (a warning, an error with
+// FA_WARNINGS_AS_ERRORS).
+#if defined(SOKOL_METAL)
 namespace {
 
 // True when this host can run a scaler of `kind`; else says why in the test output.
@@ -136,6 +139,7 @@ bool read_back(sg_image image, int w, int h, std::vector<std::uint8_t>& out, std
 }
 
 }  // namespace
+#endif
 
 TEST_CASE("metalfx: the support answer says what is missing") {
     REQUIRE(gfx().ok);  // the Metal device exists

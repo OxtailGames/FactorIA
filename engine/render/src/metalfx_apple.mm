@@ -379,7 +379,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         }
         // The split: the sokol passes so far (they wrote `color`, `depth` and `motion`) are submitted; the buffer made below goes on
         // the queue behind them, and the sokol buffer of the passes after this call goes behind it. The order is made explicit on the
-        // GPU with one shared event (the CPU never waits for the GPU here): the sokol buffer of the earlier passes signals it, the
+        // GPU with one shared event (no wait of the CPU's own here): the sokol buffer of the earlier passes signals it, the
         // MetalFX buffer waits for that and signals it again at its end, and the sokol buffer of the later passes waits for that.
         // Both ends are needed in the code, one of them is the one that matters in the tests: frames queued without any of this
         // hashed differently from run to run (the test "frames queued without waiting for the GPU", 8 runs of 8 failed), and taking
@@ -392,7 +392,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         const uint64_t afterScaler = ++im.eventValue;
         id<MTLCommandBuffer> before = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
         if (before == nil) {
-            if (error) *error = "metalfx: sokol has no Metal command buffer (the device was lost?)";
+            if (error) *error = "metalfx: sokol has no Metal command buffer to order the upscale in (the graphics device was probably lost): restart the game, or set render.upscaler to temporal";
             return false;
         }
         [before encodeSignalEvent:event value:afterPasses];
@@ -459,7 +459,11 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         }
         // The sokol buffer of the passes after this call: it starts when MetalFX has written its output.
         id<MTLCommandBuffer> after = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
-        if (after != nil) [after encodeWaitForEvent:event value:afterScaler];
+        if (after != nil) {
+            [after encodeWaitForEvent:event value:afterScaler];
+            // sokol's buffers hold their resources unretained: this keeps the event alive until the buffer that waits for it has run.
+            [after addCompletedHandler:^(id<MTLCommandBuffer>) { (void)event; }];
+        }
         im.encoded += 1;
         return true;
     }
