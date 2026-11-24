@@ -295,11 +295,6 @@ void gather_water_fx(World& world, Frame& f) {
 // ---------------------------------------------------------------------------
 // WaterFx: the shaders, the copy and the draw
 // ---------------------------------------------------------------------------
-bool WaterFx::ready() {
-    if (state_ != 0) return state_ > 0;
-    return make_ready(device_ ? *device_ : Gpu::active_device());
-}
-
 bool WaterFx::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
     return make_ready(gpu.device());

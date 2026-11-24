@@ -123,8 +123,6 @@ public:
     // Can the camera's passes be drawn: the GPU supports it, both programs build and the march image of `plan` can be made (probed once per
     // size and given back to the pool). False (logged once) draws no fog: the camera keeps its analytic one.
     bool can_draw(TransientTargets& targets, Gpu& gpu, const VolPlan& plan);
-    // TRANSITIONAL (M77-P4b): for renderer_draw.cpp, which asks without a Gpu (it uses Gpu::active_device()).
-    bool can_draw(TransientTargets& targets, const VolPlan& plan);
     // The description of the march image of `plan` (a transient of the graph), labelled `job`/vol-image.
     static TransientDesc image_desc(const VolPlan& plan, const std::string& job);
 

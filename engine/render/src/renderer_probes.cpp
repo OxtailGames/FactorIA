@@ -613,7 +613,7 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
         probe_face_frame(fr, world, rp, position, face, resolution);
         assets->drop_material_cache();
         fonts->sync();
-        ramps.sync();
+        ramps.sync(gpu.device());
         TextureAsset* tex = view_image(kProbeSyncKey, resolution, resolution, true);
         if (!tex) {
             cleanup();
