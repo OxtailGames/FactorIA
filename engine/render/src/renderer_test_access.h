@@ -73,6 +73,8 @@ struct RendererTestAccess {
     // read_velocity gives that copy after a frame: `out` = w * h * 4 floats (RGBA, top row first), rg = uvPrev - uvCurr or 1024. False + `error`
     // when no frame drew one (the GPU makes no RG16F image, or no opaque mesh was drawn).
     static void force_velocity(Renderer& r, bool on);
+    // With several cameras in a frame the probe holds the last one's images; this names the only camera whose images it copies (a null entity: every camera again).
+    static void probe_camera(Renderer& r, Entity camera);
     // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.
     static void force_no_velocity_target(Renderer& r, bool on);
     // M76-P1d: behave as a GPU that cannot sample RGBA32F in the vertex stage (the previous joint palettes cannot be read: skinned draws write the

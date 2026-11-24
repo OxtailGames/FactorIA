@@ -306,7 +306,7 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   RGBA32F image read in the vertex stage with `texelFetch` (view slot 29, nearest sampler 11, block `fa_prev_palette`): 3 texels per joint, all
   `kPrevPaletteTexels` (192) of a palette padded with identity, one palette after the other as a stream of texels, texel `t` at
   `(t & 1023, t >> 10)`. `upload_prev_palettes` (called by `upload_instances`) writes the stream of every skinned batch of the frame with
-  `Gpu::write_palette_image` (an image of its own, the format and width of the light data, rows rounded up to 16 so the image is not made again for every skinned draw that comes or goes) before the frame graph runs, and the draw passes
+  `Gpu::write_palette_image` (one image per camera job and frame, from a pool of its own that restarts with the transient buffers: the frame graph runs after every job has uploaded, so a second camera must not overwrite the first one's texels; the format and width of the light data, rows rounded up to 16 so the images are not made again for every skinned draw that comes or goes) before the frame graph runs, and the draw passes
   the first texel of its palette in `fa_vel_on.w`. So there is no joint limit beyond the skin's own 64: the 40-joint and 64-joint fixtures of
   the tests have real vectors. The program reads the texture only in the previous-model run (`fa_prev_model()` is called inside
   `if (want_prev)`, so a draw with no velocity never fetches). A frame that asks for no velocity does not upload any of this: the
@@ -354,10 +354,13 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
     before, and its reactive value) says where the vertex was on the frame before: `position - motion`, through the previous view-projection.
     The translation is the item's origin now minus its origin on the frame before (`Impl::prevQuadOrigins`, keyed by the entity as
     `prevModels` is, stamped with `postSerial`, pruned once per frame, shifted with the floating origin). An item with no history (new, not
-    drawn the frame before, the first frame after a cut) has none: the camera's motion only. Sprites and tilemaps give their entity and
-    transform (`QuadList::set_motion_source` in `scene2d.cpp`). **Limitations:** a translation only (a sprite that turns or changes size
+    drawn the frame before, the first frame after a cut) has none: the camera's motion only. Sprites, shapes and tilemaps give their entity and
+    transform (`QuadList::set_motion_source` in `scene2d.cpp`); text has no source yet and counts as still in the world (the camera's motion only). **Limitations:** a translation only (a sprite that turns or changes size
     between two frames is followed at its centre, not at its corners), the whole box of a `Shape2D` counts as covered, an item that draws as
-    instances or with a screen effect writes nothing, and a particle writes no velocity at all (it is reactive instead).
+    instances or with a screen effect writes nothing, a batch with a clip rectangle or a sprite material of its own (its `discard` or `vertex()`) is skipped
+    by both passes (the passes apply neither, so they would cover other pixels than the colour: such a quad has the camera's motion and no mask), and a particle
+    writes no velocity at all (it is reactive instead). The passes rasterise with `drawViewProj`, the matrix of the colour and the prepass (the jitter
+    included), so their coverage and depth test hit the colour's pixels; the vectors use the matrices without the jitter.
 - **The reactive mask.** A pixel of the mask says "trust this frame here": `taa_resolve.glsl` lowers the weight of the history at that pixel by
   `1 - clamp(mask * temporalAAReactiveScale, 0, 1)` (the upscaler's resolve reads it the same way). Writers: a blended or additive **particle**
   or trail (`ParticleEmitter.reactive`, 0..1, default 1; 0 opts out; an `Additive` item with no value set counts as 1, as every

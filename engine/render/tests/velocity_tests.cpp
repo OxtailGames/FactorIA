@@ -1003,6 +1003,52 @@ TEST_CASE("velocity: past the rows of the palette image the skinned draws get th
     CHECK(warnings.count("skinned draws in one camera's frame") == 1);
 }
 
+TEST_CASE("velocity: two cameras with skinned meshes each read their own previous palettes") {
+    // The frame graph runs after every camera has uploaded its palettes: a second camera must not overwrite the image of the first. Each camera
+    // sees one column (the other is out of its frustum); one slides by 1 m between the frames, the other is frozen in the slid pose. The camera that drew first
+    // (the lowest depth) is the one whose velocity the probe copies, and it is the one the old shared image broke.
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_two_bone.gltf", "assets/rig.gltf");
+    for (const int first : {0, 1}) {
+        CAPTURE(first);
+        Own o(g);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        World w;
+        const float xs[2] = {-6.0f, 6.0f};
+        Entity cams[2], rigs[2];
+        for (int i = 0; i < 2; ++i) {
+            cams[i] = add_camera(w, {xs[i], 1, 10});
+            w.get<Camera>(cams[i])->depth = i == first ? 0 : 1;
+            rigs[i] = add_rig(w, "Slide", {xs[i], 0, 0});
+        }
+        // The other one stays in its pose, which is the slid one: its previous palette (1 m) is not the previous palette of the sliding one (0 m).
+        RendererTestAccess::probe_camera(o.r, cams[first]);
+        update_animators(w, 0.0f);  // both start at their first pose
+        Animator& other = *w.get<Animator>(rigs[1 - first]);
+        other.time = 0.6f;  // a seek: the pose is evaluated again
+        other.speed = 0.0f;
+        update_animators(w, 0.0f);
+        REQUIRE(other.palette.size() == 2);
+        REQUIRE(other.palette[0].at(3, 0) == doctest::Approx(1.0f));
+        REQUIRE(w.get<Animator>(rigs[first])->palette[0].at(3, 0) == doctest::Approx(0.0f));
+        o.frame(w);
+        o.frame(w);
+        update_animators(w, 0.6f);
+        o.frame(w);
+        const Mat4 vp = matrix_of(o, cams[first]);
+        const Vel v = read_vel(o);
+        const Vec3 at{xs[first] + 1.0f, 1.0f, -0.25f};  // the column slid 1 m to the right
+        const Vec2 want = front_face_motion(vp, {1, 0, 0}, at);
+        int x, y;
+        pixel_of(vp, at, x, y);
+        REQUIRE_FALSE(v.none(x, y));
+        CHECK(std::fabs(want.x) > 0.04f);
+        CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.003));
+        CHECK(v.at(x, y).y == doctest::Approx(want.y).epsilon(0.003));
+    }
+}
+
 TEST_CASE("velocity: a skinned mesh of 64 joints draws the same picture with and without the velocity image") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

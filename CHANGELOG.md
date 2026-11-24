@@ -71,9 +71,11 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (0..1, default 0: an additive sprite counts as 1; a sprite
   with a value above 0 writes the mask instead of a vector). A bright additive square moving over a busy background is six times closer to the
   truth with the mask (`quad_motion_tests.cpp`); the mask holds the pixels a particle covers now and does not clear the trail it left.
-  Limitations: translation only, the whole box of a `Shape2D`, no velocity for particles or instanced sprites. With the temporal effects off
+  Limitations: translation only, the whole box of a `Shape2D`, no velocity for particles or instanced sprites, and a batch with a clip rectangle or a
+  sprite material of its own is skipped. The passes rasterise with the jittered matrix of the colour, so they cover the colour's pixels. A tilemap moved by its
+  Transform has its own velocity. With the temporal effects off
   there is no pass and the frames are bit-identical. The motion vectors debug view shows the new writers. The tests of the two sentinel paths
-  of the previous joint palettes (a GPU with no RGBA32F sampling, more rows than the image holds) are in `velocity_tests.cpp`.
+  of the previous joint palettes (a GPU with no RGBA32F sampling, more rows than the image holds) are in `velocity_tests.cpp`. Every camera job of a frame has its own previous-palette image now (a second camera used to overwrite the first one's).
   docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity".
 - The spatial upscaler (`render.upscaler {"mode":"spatial"}`): the game drawn at a lower resolution is brought to the window's size
   by an edge-adaptive upsample (12 texels, a kernel narrow across an edge and long along it, clamped so it never rings) and a

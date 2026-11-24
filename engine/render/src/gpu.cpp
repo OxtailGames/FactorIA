@@ -322,9 +322,12 @@ void Gpu::shutdown() {
     }
     lightImages_.clear();
     lightImagesUsed_ = 0;
-    if (paletteImage_.view.id) sg_destroy_view(paletteImage_.view);
-    if (paletteImage_.image.id) sg_destroy_image(paletteImage_.image);
-    paletteImage_ = {};
+    for (auto& l : paletteImages_) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+    }
+    paletteImages_.clear();
+    paletteImagesUsed_ = 0;
     for (auto& s : samplers_) {
         sg_destroy_sampler(s);
         s = {};
@@ -1358,7 +1361,8 @@ Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
 
 Gpu::LightImage Gpu::write_palette_image(int rows, const float* texels) {
     begin_transient_writes();
-    return fill_light_image(paletteImage_, rows, texels);
+    if (paletteImagesUsed_ >= paletteImages_.size()) paletteImages_.emplace_back();
+    return fill_light_image(paletteImages_[paletteImagesUsed_++], rows, texels);
 }
 
 }  // namespace fa::render

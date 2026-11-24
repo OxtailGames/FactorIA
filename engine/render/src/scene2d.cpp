@@ -830,6 +830,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         list.set_fx(item_fx(f, assets, tm.emissive, tm.emissiveIntensity, std::string(), tm.lit, tm.lightLayers));
         // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
         list.set_material(assets.sprite_material(tm.material, tm.materialParams));
+        list.set_motion_source(e.bits(),
+                               m.translation());  // M76-P1d: a map moved by its Transform has its own velocity
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;

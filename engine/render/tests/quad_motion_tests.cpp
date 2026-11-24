@@ -17,7 +17,9 @@
 #include <string>
 #include <vector>
 
+#include "fa/scene/jitter.h"
 #include "fa/scene/particles.h"
+#include "fa/scene/tilemap.h"
 
 #include "frame_graph.h"
 #include "postprocess.h"
@@ -139,7 +141,8 @@ std::string write_busy_background() {
     img.rgba.resize(std::size_t(img.width) * std::size_t(img.height) * 4);
     for (int y = 0; y < img.height; ++y)
         for (int x = 0; x < img.width; ++x)
-            img.set_pixel(x, y, ((x / 2 + y / 2) % 2 == 0) ? Color{0.45f, 0.45f, 0.45f, 1} : Color{0.05f, 0.05f, 0.05f, 1});
+            img.set_pixel(x, y,
+                          ((x / 2 + y / 2) % 2 == 0) ? Color{0.45f, 0.45f, 0.45f, 1} : Color{0.05f, 0.05f, 0.05f, 1});
     const std::string path = "assets/quad_motion_busy.png";
     REQUIRE(save_png(img, path).ok());
     return path;
@@ -228,7 +231,7 @@ TEST_CASE("quad motion: a cutout sprite writes its translation, a blended or add
     const Plane v = read_velocity(o);
     // The mover: 4 px to the right in a picture 320 px wide, y unchanged.
     REQUIRE_FALSE(v.none(px_x(x), px_y(40)));
-    CHECK(v.r(px_x(x), px_y(40)) == doctest::Approx(-4.0f / float(kW)).epsilon(0.0).scale(1.0).epsilon(0.002));
+    CHECK(v.r(px_x(x), px_y(40)) == doctest::Approx(-4.0f / float(kW)).scale(1.0).epsilon(0.002));
     CHECK(std::fabs(v.g(px_x(x), px_y(40))) < 5.0e-4f);
     // The still sprite: zero. The pixel just outside the mover and the background: the sentinel (no quad drew them).
     REQUIRE_FALSE(v.none(px_x(60), px_y(40)));
@@ -239,12 +242,13 @@ TEST_CASE("quad motion: a cutout sprite writes its translation, a blended or add
     CHECK(v.none(px_x(x), px_y(-40)));
     CHECK(v.none(px_x(120.0f - x), px_y(-40)));
     const Plane m = read_reactive(o);
-    CHECK(m.r(px_x(120.0f - x), px_y(-40)) > 0.99f);   // additive: reactive by itself
-    CHECK(m.r(px_x(x), px_y(-40)) < 0.01f);            // alpha 0.3: a blend, but only the quads marked reactive count (a sprite is not)
-    CHECK(m.r(px_x(x), px_y(40)) < 0.01f);             // the cutout is not reactive
+    CHECK(m.r(px_x(120.0f - x), px_y(-40)) > 0.99f);  // additive: reactive by itself
+    CHECK(m.r(px_x(x), px_y(-40)) <
+          0.01f);  // alpha 0.3: a blend, but only the quads marked reactive count (a sprite is not)
+    CHECK(m.r(px_x(x), px_y(40)) < 0.01f);  // the cutout is not reactive
     CHECK(m.r(px_x(0), px_y(0)) < 0.01f);
     CHECK(v.none(px_x(0), px_y(70)));
-    CHECK(m.r(px_x(0), px_y(70)) == doctest::Approx(0.6f).epsilon(0.0).scale(1.0).epsilon(0.02));
+    CHECK(m.r(px_x(0), px_y(70)) == doctest::Approx(0.6f).scale(1.0).epsilon(0.02));
 }
 
 TEST_CASE("quad motion: a camera that pans over a still sprite gives it the camera's motion, the background keeps the "
@@ -264,12 +268,13 @@ TEST_CASE("quad motion: a camera that pans over a still sprite gives it the came
     const Plane v = read_velocity(o);
     const int x = px_x(-15), y = px_y(0);  // the sprite is 15 px left of the camera centre now
     REQUIRE_FALSE(v.none(x, y));
-    CHECK(v.r(x, y) == doctest::Approx(3.0f / float(kW)).epsilon(0.0).scale(1.0).epsilon(0.002));  // it slid 3 px to the left
+    CHECK(v.r(x, y) == doctest::Approx(3.0f / float(kW)).scale(1.0).epsilon(0.002));  // it slid 3 px to the left
     CHECK(std::fabs(v.g(x, y)) < 5.0e-4f);
     CHECK(v.none(px_x(100), y));
 }
 
-TEST_CASE("quad motion: a particle behind a mesh is not in the reactive mask (the prepass's depth hides it), one in front is, "
+TEST_CASE("quad motion: a particle behind a mesh is not in the reactive mask (the prepass's depth hides it), one in "
+          "front is, "
           "and a perspective camera's velocity is the mesh's alone") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -285,7 +290,8 @@ TEST_CASE("quad motion: a particle behind a mesh is not in the reactive mask (th
     w.settings().skyColor = w.settings().horizonColor = Color{0, 0, 0, 1};
     camera_post(w, cam).temporalAAEnabled = true;
     Entity cube = make(w, "cube", {0, 0, 0});
-    w.get<Transform>(cube)->scale = {6, 6, 6};  // 6 m wide: 134 px of a 320 x 180 picture (its front face at z = 3, 7 m from the camera)
+    w.get<Transform>(cube)->scale = {
+        6, 6, 6};  // 6 m wide: 134 px of a 320 x 180 picture (its front face at z = 3, 7 m from the camera)
     auto& mr = w.add<MeshRenderer>(cube);
     mr.mesh = "cube";
     mr.unlit = true;
@@ -303,18 +309,19 @@ TEST_CASE("quad motion: a particle behind a mesh is not in the reactive mask (th
     CHECK(o.has("quad-reactive"));
     const Plane m = read_reactive(o);
     const Plane v = read_velocity(o);
-    INFO("front " << m.r(kW / 2, kH / 2) << ", behind, on the cube " << m.r(kW / 2 + 45, kH / 2) << ", behind, past the cube "
-                  << m.r(kW / 2 + 85, kH / 2));
-    CHECK(m.r(kW / 2, kH / 2) > 0.9f);            // the particle in front of the cube
-    CHECK(m.r(kW / 2 + 45, kH / 2) < 0.01f);      // the big one is behind the cube's face there: hidden
-    CHECK(m.r(kW / 2 + 85, kH / 2) > 0.05f);      // and visible past the cube's silhouette
+    INFO("front " << m.r(kW / 2, kH / 2) << ", behind, on the cube " << m.r(kW / 2 + 45, kH / 2)
+                  << ", behind, past the cube " << m.r(kW / 2 + 85, kH / 2));
+    CHECK(m.r(kW / 2, kH / 2) > 0.9f);        // the particle in front of the cube
+    CHECK(m.r(kW / 2 + 45, kH / 2) < 0.01f);  // the big one is behind the cube's face there: hidden
+    CHECK(m.r(kW / 2 + 85, kH / 2) > 0.05f);  // and visible past the cube's silhouette
     // The velocity of the cube's pixels is the cube's (a still scene: zero), whatever particle is in front of it.
     REQUIRE_FALSE(v.none(kW / 2, kH / 2));
     CHECK(std::fabs(v.r(kW / 2, kH / 2)) < 5.0e-4f);
     CHECK(std::fabs(v.g(kW / 2, kH / 2)) < 5.0e-4f);
 }
 
-TEST_CASE("quad motion: the reactive mask is the particle's footprint, by emitter, and zero where the emitter says so") {
+TEST_CASE(
+    "quad motion: the reactive mask is the particle's footprint, by emitter, and zero where the emitter says so") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanAssets clean;
@@ -354,8 +361,9 @@ TEST_CASE("quad motion: the reactive mask is the particle's footprint, by emitte
     }
 }
 
-TEST_CASE("quad motion: a bright particle moving over a busy background has its leading edge at once with the mask, and "
-          "a measurable lag without it") {
+TEST_CASE(
+    "quad motion: a bright particle moving over a busy background has its leading edge at once with the mask, and "
+    "a measurable lag without it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanAssets clean;
@@ -415,15 +423,16 @@ TEST_CASE("quad motion: a bright particle moving over a busy background has its 
     const double eMask = error_over(withMask, last - 15, last + 15), eNo = error_over(noMask, last - 15, last + 15),
                  eZero = error_over(scaleZero, last - 15, last + 15);
     const double tMask = error_over(withMask, last - 31, last - 15), tNo = error_over(noMask, last - 31, last - 15);
-    INFO("footprint error: with the mask " << eMask << ", without " << eNo << ", reactive scale 0 " << eZero << "; trail: with the mask "
-                                           << tMask << ", without " << tNo);
+    INFO("footprint error: with the mask " << eMask << ", without " << eNo << ", reactive scale 0 " << eZero
+                                           << "; trail: with the mask " << tMask << ", without " << tNo);
     CHECK(eNo > 0.08);
     CHECK(eMask < 0.4 * eNo);
     CHECK(eZero > 0.8 * eNo);  // the camera's reactive scale multiplies the mask: at 0 it is as if there were none
     CHECK(tMask <= tNo + 0.02);
 }
 
-TEST_CASE("quad motion: with the temporal antialiasing off no pass is declared and the picture is the same bit for bit") {
+TEST_CASE(
+    "quad motion: with the temporal antialiasing off no pass is declared and the picture is the same bit for bit") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     CleanAssets clean;
@@ -477,9 +486,72 @@ TEST_CASE("quad motion: the debug view motionVectors paints what the quads wrote
     CHECK(o.has("prepass-view"));
     CHECK(o.has("quad-velocity"));
     const Color on = img.pixel(px_x(16), px_y(0)), off = img.pixel(px_x(-100), px_y(0));
-    INFO("on the sprite " << on.r << " " << on.g << " " << on.b << ", off it " << off.r << " " << off.g << " " << off.b);
+    INFO("on the sprite " << on.r << " " << on.g << " " << on.b << ", off it " << off.r << " " << off.g << " "
+                          << off.b);
     CHECK(std::fabs(off.r - 0.3f) < 0.03f);  // the sentinel is a flat grey
     CHECK(std::fabs(off.g - 0.3f) < 0.03f);
-    CHECK((std::fabs(on.r - off.r) + std::fabs(on.g - off.g) + std::fabs(on.b - off.b)) > 0.2f);  // a hue over the sprite
+    CHECK((std::fabs(on.r - off.r) + std::fabs(on.g - off.g) + std::fabs(on.b - off.b)) >
+          0.2f);  // a hue over the sprite
     o.r.set_debug_view(DebugView::None);
+}
+
+TEST_CASE("quad motion: a tilemap moved by its Transform has a velocity of its own") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    const std::string tileset = write_checker_square();
+    World w;
+    add_camera2d(w, true);
+    Entity map = make(w, "map", {-60, 40, 0});
+    auto& tm = w.add<Tilemap>(map);
+    tm.tileset = tileset;
+    tm.tileSize = {16, 16};
+    set_tilemap_tiles(tm, Json::array({Json::array({0, 0})}));
+    float x = -60;
+    for (int f = 1; f <= 5; ++f) {
+        x = -60 + 4.0f * float(f);
+        move_x(w, map, x);
+        o.frame(w);
+    }
+    const Plane v = read_velocity(o);
+    // The first tile spans x .. x + 16 and 16 px down from y = 40: its pixels moved 4 px to the right, the camera did not.
+    const int tx = px_x(x + 8), ty = px_y(32);
+    REQUIRE_FALSE(v.none(tx, ty));
+    CHECK(v.r(tx, ty) == doctest::Approx(-4.0f / float(kW)).scale(1.0).epsilon(0.002));
+    CHECK(std::fabs(v.g(tx, ty)) < 5.0e-4f);
+    CHECK(v.none(px_x(x + 8), px_y(32) + 40));  // the background
+}
+
+TEST_CASE(
+    "quad motion: with the jitter on, the velocity covers the pixels the sprite's colour covers, the edge ones too") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    RendererTestAccess::force_jitter(o.r, kJitterPhasesDefault);
+    World w;
+    add_camera2d(w, false);  // no resolve: the picture is the jittered colour as drawn
+    // Edges at .9, .3 (x) and .8, .2 (y) of a pixel: whichever way the jitter (up to half a pixel) moves the samples, some edge pixel flips.
+    const Entity box = add_sprite(w, "box", {0.1f, 0.0f, 0}, 40.4f, Color{1, 1, 1, 1});
+    w.get<Sprite>(box)->size = {40.4f, 40.6f};
+    int jitteredFrames = 0, covered = 0, mismatch = 0;
+    for (int f = 0; f < 12; ++f) {
+        const Image img = o.draw(w);
+        bool shifted = false;
+        for (const Vec2& j : RendererTestAccess::last_jitter(o.r)) shifted = shifted || j.x != 0.0f || j.y != 0.0f;
+        jitteredFrames += shifted ? 1 : 0;
+        const Plane v = read_velocity(o);
+        for (int y = 70; y < 110; ++y)
+            for (int x = 130; x < 190; ++x) {
+                const bool colour = img.pixel(x, y).r > 0.5f, vel = !v.none(x, y);
+                covered += colour ? 1 : 0;
+                mismatch += colour != vel ? 1 : 0;
+            }
+    }
+    CHECK(jitteredFrames >= 8);
+    CHECK(covered > 12 * 1500);
+    CHECK(mismatch == 0);
 }
