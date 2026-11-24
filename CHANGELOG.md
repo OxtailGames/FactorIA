@@ -74,6 +74,7 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   1.3.0 (pinned SHA-256) and keeps the two x64 DLLs; a Windows `--release` export with `export.pack.directStorage` copies them next
   to the executable, or warns to run that command and still succeeds. The Windows CI job checks the GDeflate test vectors against
   DirectStorage's own codec both ways. docs/design/ARCHITECTURE_FILES.md, "DirectStorage".
+- DirectStorage reads of game.pak no longer wait for ever when every one of the 32 read slots has been taken out of use (Windows could not make an event): the read fails with an error that says what to do, and the pack is read on the CPU.
 - **DirectStorage writes into D3D12 buffers and textures (M77):** the D3D12 backend's `read_pack_to_buffer` and `read_pack_to_image`
   read a range of a `game.pak` file into a buffer or a texture region and return a ticket that is polled. A gdeflate file goes through
   DirectStorage on a queue tied to the device, so GDeflate is decompressed on the GPU where the GPU can; DirectStorage writes in the

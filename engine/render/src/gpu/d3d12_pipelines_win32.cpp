@@ -440,7 +440,8 @@ std::string graphics_desc(const PipelineDesc& desc, const ShaderInfo& sh, const 
     st.format.depth = hasDepth ? depth : PixelFormat::None;
     st.format.samples = samples;
 
-    // The PSO's key: every value of the desc but the pointers (the code and the root signature are keyed by the caller).
+    // The PSO's key: every value of the desc but the pointers (the code and the root signature are keyed by the
+    // caller).
     KeyText& k = out.key;
     for (const D3D12_INPUT_ELEMENT_DESC& e : out.elements) {
         k.add(e.SemanticName);

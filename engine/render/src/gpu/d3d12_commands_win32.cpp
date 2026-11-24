@@ -1230,6 +1230,7 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     scratch->resource = raw;
     scratch->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
     scratch->buffer = true;
+    scratch->label = "scratch buffer";
     scratch->owner = kind_;  // this list's own, on whichever queue it runs
     require(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     flush_barriers();
