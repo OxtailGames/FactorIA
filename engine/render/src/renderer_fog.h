@@ -106,8 +106,6 @@ public:
     enum class Prog { Fog, Rays, Add, Count };
     // The program, made on the first use (false: it cannot be made; logged once), and its pipeline for a target format.
     bool ready(Gpu& gpu, Prog prog);
-    // TRANSITIONAL (M77-P4b): for renderer_draw.cpp, which asks without a Gpu (it uses Gpu::active_device()).
-    bool ready(Prog prog);
     gpu::Pipeline pipeline(gpu::Device& device, Prog prog, const TargetFormat& format);
 
 private:
