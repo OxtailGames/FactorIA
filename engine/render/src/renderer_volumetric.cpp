@@ -321,11 +321,6 @@ bool VolumetricFx::can_draw(TransientTargets& targets, Gpu& gpu, const VolPlan& 
     return can_draw(targets, gpu.device(), plan);
 }
 
-// TRANSITIONAL (M77-P4b): renderer_draw.cpp asks without a Gpu at hand; it moves to the overload with one with P4a.
-bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
-    return can_draw(targets, Gpu::active_device(), plan);
-}
-
 bool VolumetricFx::can_draw(TransientTargets& targets, gpu::Device& device, const VolPlan& plan) {
     if (!plan.on) return false;
     if (!gpu_supported(device)) {

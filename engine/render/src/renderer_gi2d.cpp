@@ -82,7 +82,7 @@ Image make_png(const std::vector<float>& px, int w, int h, int which) {
 Json Renderer::gi2d_field(std::string_view savePrefix, std::string_view job) {
     if (!initialized()) return Json::object();
     Impl& im = *impl_;
-    Json out = im.gi2d.report(backend_name());
+    Json out = im.gi2d.report(im.gpu.device(), backend_name());
     if (savePrefix.empty()) return out;
     const std::string jobName(job);
     render::Gi2dField* f = im.gi2d.find(jobName);

@@ -187,9 +187,6 @@ FogFxPlan make_fog_plan(const CameraGeometry& cam, const PostStack& stack, bool 
 
 bool FogFx::ready(Gpu& gpu, Prog prog) { return ready(gpu.device(), prog); }
 
-// TRANSITIONAL (M77-P4b): renderer_draw.cpp asks without a Gpu at hand; it moves to ready(Gpu&, Prog) with P4a.
-bool FogFx::ready(Prog prog) { return ready(Gpu::active_device(), prog); }
-
 bool FogFx::ready(gpu::Device& device, Prog prog) {
     int& st = state_[int(prog)];
     if (st != 0) return st > 0;

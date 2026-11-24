@@ -1611,12 +1611,6 @@ public:
     }
     // Ends the frame on the device: submits the frame's list, commits (Device::commit) and begins the next list.
     void commit_frame();
-    // The Gpu initialised last of those still alive (null: none). The static pass functions record on its list.
-    static Gpu* active();
-    // The device of active() (FA_ASSERTs there is one): for the helpers of the passes that have no Gpu at hand yet
-    // (TaaFx::ready(), FogFx::ready(), the overloads without a device of Gi2dSystem, GradientRamps and WaterFx).
-    // TRANSITIONAL (M77-P2..P5): the passes get the device from their Gpu once they are converted.
-    static gpu::Device& active_device();
 
     gpu::bridged::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
@@ -1879,33 +1873,20 @@ public:
     gpu::bridged::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
     TargetFormat light_target_format() const { return {light_format(), gpu::PixelFormat::None, 1}; }
 
-    // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour
-    // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass. They
-    // record on the command list of active() (its commands()), or, while no Gpu is alive, on the sokol
-    // context itself (gpu::begin_context_pass: Renderer::present_clear).
-    // begin_pass records the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline
-    // it hands out was made for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong).
-    // Outside a pass (warm-up, a getter called before the pass begins) nothing is checked.
-    // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear,
-    // which runs before any Gpu exists, begins its pass the same way.
-    // TRANSITIONAL (M77): these record on the list of Gpu::active() and keep the pass state (inPass_, passFormat_) in
-    // statics, which does not hold for D3D12/Vulkan (a list per pass or thread, one device per Gpu). New and converted
-    // code begins its passes on its own list (`ctx.commands().begin_pass(...)`, `gpu.commands()`); P4 moves the pass
-    // state into a per-list object and removes these.
-    static void begin_pass(const PassDesc& pass);
-    static void end_pass();
-    // True while a pass is open: one begun with begin_pass above, or on the frame's list directly (converted code).
-    static bool in_pass();
-    // A compute pass (Compute::dispatch): no attachments, so no PassDesc. Counts as a pass (in_pass()) until
-    // end_compute_pass().
-    static void begin_compute_pass();
-    static void end_compute_pass();
+    // Begins and ends a render pass on this Gpu's frame list (commands()) and remembers the pass's TargetFormat: in a
+    // debug build every pipeline getter then checks that the pipeline it hands out was made for that format (a mismatch
+    // GL and D3D11 validation reject, Metal only draws wrong). Outside a pass (warm-up, a getter called before the pass
+    // begins) nothing is checked. A pass begun straight on commands() (what the frame-graph passes do:
+    // `ctx.commands().begin_pass(...)`) is not remembered here, so it is not checked: begin it here to get the check.
+    void begin_pass(const PassDesc& pass);
+    void end_pass();
+    // True while a pass is open on this Gpu's list: one begun with begin_pass above, or on commands() directly.
+    bool in_pass() const;
     // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others
     // (destroy_shader drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
     gpu::bridged::Pipeline compute_pipeline(gpu::bridged::Shader shader);
-    static const TargetFormat& pass_format() {
-        return passFormat_;
-    }  // of the pass begun last; meaningful while in_pass()
+    // The format of the pass begun last with begin_pass; meaningful while in_pass().
+    const TargetFormat& pass_format() const { return passFormat_; }
 
     gpu::bridged::Buffer quad_index_buffer() const { return quadIndices_; }
     gpu::bridged::Buffer fullscreen_triangle() const { return fsTriangle_; }
@@ -2003,16 +1984,13 @@ private:
 
     std::unique_ptr<gpu::Device> device_;
     gpu::CommandList* list_ = nullptr;  // the frame's (device_->begin_commands), until commit_frame
-    // The Gpus between init() and shutdown(), in init order (the editor has several, each with its renderer). The
-    // static begin_pass / end_pass and active_device() use the last one; they all share the one sokol context.
-    static inline std::vector<Gpu*> live_;
     // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
     // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
     gpu::bridged::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
     void sweep_pipelines();
 
-    static inline bool inPass_ = false;
-    static inline TargetFormat passFormat_{};
+    bool inPass_ = false;
+    TargetFormat passFormat_{};
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int postReadyCalls_ = 0;
