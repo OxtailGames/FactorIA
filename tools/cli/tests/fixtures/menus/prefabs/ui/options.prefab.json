@@ -246,7 +246,7 @@
                 "text": "Effects quality",
                 "size": [560, 36],
                 "layer": 302,
-                "fontSize": 20
+                "fontSize": 22
               }
             }
           },
@@ -258,7 +258,7 @@
                 "text": "2D lighting",
                 "size": [560, 36],
                 "layer": 302,
-                "fontSize": 20
+                "fontSize": 22
               }
             }
           },
@@ -349,7 +349,7 @@
                 "key": "options.gfx.page",
                 "size": [560, 36],
                 "layer": 302,
-                "fontSize": 20
+                "fontSize": 22
               }
             }
           },

@@ -41,6 +41,17 @@ std::string lower(std::string_view s) {
 }
 bool has(const std::string& hay, const char* needle) { return hay.find(needle) != std::string::npos; }
 
+// `needle` as a whole word: not inside another ("arm" is in "Karma", "ati" in "Mediatek Imagination"; "ARM" and "ATI" are vendors).
+bool has_word(const std::string& hay, const char* needle) {
+    const std::size_t len = std::strlen(needle);
+    for (std::size_t at = hay.find(needle); at != std::string::npos; at = hay.find(needle, at + 1)) {
+        const bool before = at == 0 || !std::isalnum(static_cast<unsigned char>(hay[at - 1]));
+        const bool after = at + len >= hay.size() || !std::isalnum(static_cast<unsigned char>(hay[at + len]));
+        if (before && after) return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 void classify_gpu(GpuInfo& info, std::string_view vendorString) {
@@ -53,17 +64,18 @@ void classify_gpu(GpuInfo& info, std::string_view vendorString) {
         if (has(all, "swiftshader")) info.vendor = "other";
         return;
     }
-    if (has(all, "nvidia") || has(all, "geforce") || has(all, "quadro") || has(all, "rtx ") || has(all, "tegra"))
+    if (has(all, "nvidia") || has(all, "geforce") || has(all, "quadro") || has_word(all, "rtx") ||
+        has_word(all, "tegra"))
         info.vendor = "nvidia";
     else if (has(all, "apple"))
         info.vendor = "apple";
-    else if (has(all, "amd") || has(all, "radeon") || has(all, "ati ") || has(all, "advanced micro"))
+    else if (has(all, "amd") || has(all, "radeon") || has_word(all, "ati") || has(all, "advanced micro"))
         info.vendor = "amd";
     else if (has(all, "intel"))
         info.vendor = "intel";
     else if (has(all, "adreno") || has(all, "qualcomm"))
         info.vendor = "qualcomm";
-    else if (has(all, "mali") || has(all, "arm"))
+    else if (has(all, "mali") || has_word(all, "arm"))
         info.vendor = "arm";
     else if (has(all, "microsoft"))
         info.vendor = "microsoft";
@@ -157,8 +169,8 @@ GpuInfo query_gpu_info() {
         glGetIntegerv(0x87FC /* GL_TEXTURE_FREE_MEMORY_ATI */, v);
         info.memoryMB = v[0] / 1024;
     }
-    while (glGetError() != GL_NO_ERROR) {
-    }  // an extension query must leave no error for the frame that follows
+    for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
+    }  // an extension query must leave no error for the frame that follows (a lost context repeats one for ever: 16 at most)
 #endif
     classify_gpu(info, vendorString);
     sg_reset_state_cache();

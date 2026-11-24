@@ -1,14 +1,14 @@
 // The Graphics settings window (View > Graphics): the project's graphics preset, upscaler and dynamic resolution, the keys
 // `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness} and `render.dynamicResolution` {enabled, targetMs,
 // minScale, maxScale} of factoria.json (M76, docs/UPSCALING.md). It
-// edits a working copy: Save writes only those three keys (graphics_settings_model.h, validated by the engine's own parsers),
+// edits a working copy: Save writes only those three keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
 #include <cmath>
 
 #include "editor_internal.h"
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 #include "imgui_internal.h"
 
 namespace fa::editor {
