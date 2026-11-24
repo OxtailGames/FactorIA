@@ -393,7 +393,8 @@ std::vector<FeatureDef> build_table() {
          "attachment only when something reads it (temporal antialiasing, the debug view render.debug_view "
          "\"motionVectors\"); skinned meshes of up to 64 joints (the engine's maximum) and the vertex() of a material "
          "move their pixels "
-         "too (bigger skins, particles and sprites do not write it yet).",
+         "too, and the 2D sprites, shapes, tiles and quads write their own per-corner motion; particles write none "
+         "(they mark the reactive mask instead).",
          nullptr},
         {"spatialUpscaler", "",
          "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
