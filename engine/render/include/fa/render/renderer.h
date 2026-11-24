@@ -11,7 +11,8 @@
 //     (apex at the top-middle of its box) has its centroid at pivot [0.5, 1/3]: use that to spin it without wobble.
 //   * Screen space: position is in design pixels from the TOP-LEFT, +Y down, drawn after the world.
 //     `anchor` shifts the position by anchor * target size, e.g. anchor [1,0], pivot [1,1], position [-20,20]
-//     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the edges.
+//     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the
+//     edges.
 //   * Blend: Alpha, Additive (dst + src*a), Multiply (dst * mix(1, src, a)); items sort by layer as usual and
 //     batches split where the blend changes.
 //

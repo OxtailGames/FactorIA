@@ -60,7 +60,7 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     caps.spatial = spatialSupported > 0;
     if (sg_isvalid() && (upscaler.mode == render::UpscalerMode::Temporal ||
                          upscaler.mode == render::UpscalerMode::Auto || upscaler.mode == render::UpscalerMode::MetalFx))
-        caps.temporal = taa.ready() && !taa.unavailable();
+        caps.temporal = taa.ready() && !taa.upscale_unavailable();
     caps.multiCamera = temporalBlocked;
     if (sg_isvalid() && render::metalfx::on_metal() && !mfxFailed) {
         const render::metalfx::Support& ms = metalfx_support();
@@ -126,6 +126,14 @@ bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel
     return true;
 }
 
+// The depth image is made only for a frame that has items to draw (`depth`), and kept after it: a frame without them neither asks for it
+// nor drops it (ensure_output_target keeps a target that has one), so a HUD that comes and goes does not churn the image.
+bool Renderer::Impl::ensure_hud_output(bool display, bool filter, bool depth) {
+    if (display && !ensure_filter_target()) return false;
+    if (filter && !ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false)) return false;
+    return ensure_output_target(outTarget, "output", display ? gpu.display_format() : gameTarget.format.color, depth);
+}
+
 void Renderer::Impl::free_output_targets() {
     destroy_target(spatialTarget);
     destroy_target(outTarget);
@@ -153,8 +161,8 @@ void Renderer::Impl::stretch_upscale(const UpscaleInput& in, Target& out) {
     b.views[VIEW_blit_tex] = in.color;
     b.samplers[SMP_blit_smp] = gpu.sampler(in.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear);
     sg_apply_bindings(&b);
-    blit_blit_vs_params_t
-        u{};  // a copy between two render targets: the storage layout is kept, so flip is 1 on OpenGL (bottom-up)
+    // A copy between two render targets: the storage layout is kept, so flip is 1 on OpenGL (bottom-up).
+    blit_blit_vs_params_t u{};
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};  // encode 0: copied as it is
@@ -181,6 +189,8 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
     // quality; a change of either drops it) and the quality. Not the render size: a step of the dynamic resolution changes that every few
     // seconds and the resolve takes the size of each frame (inSize), so the history lives on across it. A change of the output size makes
     // another history by itself (TaaFx::slot_for). The jitter phases follow the size, so a step also changes the length of the sequence.
+    // The key is two fields of a number: bits 20..39 the base scale in thousandths (20 bits hold up to 1048, far above the 0.25..4 a scale
+    // can have, so a clamp is never reached) and bits 0..7 the quality; the other bits are 0. It is only compared for equality.
     const std::uint64_t config =
         (std::uint64_t(std::clamp(std::lround(double(renderBaseScale) * 1000.0), 0L, 0xFFFFFL)) & 0xFFFFF) << 20 |
         (std::uint64_t(int(upscaler.quality)) & 0xFF);

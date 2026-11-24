@@ -233,7 +233,9 @@ public:
                               std::string* error) override;
     // The picture now at the held render scale as pixels (ScriptHost::capture_frame: render.captureTexture).
     bool capture_frame(Image& out, std::string* error) override;
-    // The same picture as screenshot_scaled, as pixels (row 0 = top).
+    // The same picture as screenshot_scaled, as pixels (row 0 = top). A scale other than the held one draws the frame again natively at
+    // that scale (sharp, never upscaled). A scale equal to the held one is the picture as the player sees it: with the player's render
+    // scale below 1 that is the design-size image the upscale stage made (capture_frame is this call), not a smaller native image.
     bool capture_scaled(Image& out, double scale, std::string* error);
     // The picture now, or the part of it inside `region` ({x, y, w, h} in design pixels; w or h <= 0 = the whole view),
     // magnified `zoom` times (0.25 .. 32, the result at most 8192 px per side). Up to 4x the frame is drawn again at that
@@ -251,6 +253,8 @@ public:
     static RegionPlan plan_region(Vec2 viewSize, const Rect& region, double zoom);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
     // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
+    // A held scale is a size: it replaces the player's option (window.renderScale, Engine::set_render_scale) and the upscaler's quality,
+    // and has no upscale stage, until set_render_scale sets the player's option again.
     bool hold_render_scale(double scale, std::string* error);
     // JSON dump of the world for AIs: entities, components, physics, logs, errors.
     Json state(const Json& query = Json::object());

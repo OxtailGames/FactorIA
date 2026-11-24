@@ -203,9 +203,40 @@ TEST_CASE("render.upscaler: a quality below native draws the game smaller with t
     CHECK(r.result["effectiveMode"] == "stretch");
     CHECK(e.renderer()->upscale_stage());
     // Native: the whole size, no stage.
-    r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"native"})"));
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"stretch","quality":"native"})"));
     REQUIRE(r.ok);
     CHECK_FALSE(e.renderer()->upscale_stage());
+    // A temporal mode at native keeps the flag on (a frame with several cameras makes it spatial: the renderer decides each frame),
+    // and draws nothing: the render size is the design size.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"native"})"));
+    REQUIRE(r.ok);
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->render_scale() == 1.0f);
+    e.shutdown();
+}
+
+TEST_CASE("hold_render_scale after the player's render scale is a held size: no quality, no stage, until the player "
+          "sets it again") {
+    TempProject p("holdsize", "", "fit");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    REQUIRE(c.call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})")).ok);
+    eval(e, "window.renderScale = 0.75; 0");  // the player's option: 0.75 x 0.5
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
+    // The video recorder or --render-scale: a size of its own, the quality does not multiply into it and the stage is off.
+    REQUIRE_MESSAGE(e.hold_render_scale(2.0, &err), err);
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->render_scale() == doctest::Approx(2.0f));
+    // The same size again changes nothing; the player's option takes over again from a later set.
+    REQUIRE_MESSAGE(e.hold_render_scale(2.0, &err), err);
+    CHECK(e.renderer()->render_scale() == doctest::Approx(2.0f));
+    eval(e, "window.renderScale = 0.75; 0");
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
     e.shutdown();
 }
 
