@@ -20,8 +20,10 @@ double round1(double v) { return std::round(v * 10.0) / 10.0; }
 
 // The fixed scene: a ground, a 13 x 11 field of spheres and cubes with a spread of metals and roughnesses, a sun with cascaded shadows
 // and two point lights. Nothing of it comes from the game, so every GPU draws the same work.
-Entity build_scene(World& w) {
+Entity build_scene(World& w, ColorSpace space) {
     SceneSettings& ss = w.settings();
+    ss.colorSpace =
+        space;  // the renderer's own: another would make the game's targets again (TAA and upscaler histories lost)
     ss.ambientLight = Color{0.2f, 0.2f, 0.25f, 1.0f};
     ss.shadowCascades = 3;
     ss.shadowAtlasSize = 2048;
@@ -89,6 +91,12 @@ GpuBenchmark run_gpu_benchmark(Renderer& renderer, const GpuInfo& info) {
         b.why = "the renderer is the CPU (" + info.name + "): a benchmark would only measure the CPU";
         return b;
     }
+#if defined(__EMSCRIPTEN__)
+    // The warm-up picture makes the pipelines on the one thread of the page and has no time cap: seconds of a frozen tab. The device
+    // tier decides on the web.
+    b.why = "a web page would freeze while the benchmark makes its pipelines";
+    return b;
+#endif
     using Clock = std::chrono::steady_clock;
     const auto ms = [](Clock::time_point a, Clock::time_point z) {
         return std::chrono::duration<double, std::milli>(z - a).count();
@@ -96,7 +104,7 @@ GpuBenchmark run_gpu_benchmark(Renderer& renderer, const GpuInfo& info) {
     const QualityLimits previous = renderer.quality();
     renderer.set_quality(QualityLimits{});  // every GPU draws the same work, whatever preset the game is on
     World world;
-    const Entity cam = build_scene(world);
+    const Entity cam = build_scene(world, renderer.color_space());
     Renderer::CameraCapture spec;
     spec.camera = cam;
     spec.width = kBenchWidth;
@@ -144,15 +152,23 @@ PresetSuggestion suggest_graphics_preset(const GpuInfo& gpu, const GpuBenchmark&
     if (bench.ran) {
         // The fixed scene (960x540, 150 lit meshes, cascaded shadows) with the picture read back: a discrete or recent GPU draws it in a
         // few ms, an integrated one in ten or more.
-        if (bench.frameMs <= 4.0)
+        // The reason names the budget the picture fit in, never the measured time: the time is machine-dependent and is in
+        // `benchmark.frameMs` for tools, while the reason may reach scripts (game.graphics.detect).
+        const char* budget;
+        if (bench.frameMs <= 4.0) {
             p = GraphicsPreset::Ultra;
-        else if (bench.frameMs <= 8.0)
+            budget = "at most 4 ms";
+        } else if (bench.frameMs <= 8.0) {
             p = GraphicsPreset::High;
-        else if (bench.frameMs <= 16.0)
+            budget = "at most 8 ms";
+        } else if (bench.frameMs <= 16.0) {
             p = GraphicsPreset::Medium;
-        else
+            budget = "at most 16 ms";
+        } else {
             p = GraphicsPreset::Low;
-        reason = std::format("the benchmark scene took {:.1f} ms per picture", bench.frameMs);
+            budget = "more than 16 ms";
+        }
+        reason = std::string("the benchmark scene took ") + budget + " per picture";
     } else {
         // Nothing was drawn (no GPU to measure, or the benchmark could not run): the class of the machine decides.
         p = device.tier == "high" ? GraphicsPreset::High

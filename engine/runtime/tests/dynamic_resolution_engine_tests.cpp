@@ -189,7 +189,11 @@ TEST_CASE("dynamic resolution with injected frame times: the scale follows the t
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(1.0));
 
     e.set_dynamic_resolution_frame_ms(40.0);  // every frame takes 40 ms: far over the target
-    e.step(60 * 8);
+    // The scene was just loaded: the controller waits for it to settle (shaders compile, assets arrive) and the scale stays.
+    e.step(60 * 2);
+    CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(1.0));
+    CHECK(stats(e)["frameMs"].get<double>() == doctest::Approx(0.0));
+    e.step(60 * 10);
     const Json heavy = stats(e);
     CHECK(heavy["dynamicScale"].get<double>() == doctest::Approx(0.5));
     CHECK(heavy["renderScale"].get<double>() == doctest::Approx(0.5));
@@ -202,8 +206,9 @@ TEST_CASE("dynamic resolution with injected frame times: the scale follows the t
     // window.renderScale is what the player set, not what is drawn.
     CHECK(eval(e, "window.renderScale").get<double>() == doctest::Approx(1.0));
 
-    e.set_dynamic_resolution_frame_ms(5.0);  // the scene is light again
-    e.step(60 * 40);
+    e.set_dynamic_resolution_frame_ms(
+        5.0);  // the scene is light again: it comes back in steps of an eighth of the range
+    e.step(60 * 12);
     const Json light = stats(e);
     CHECK(light["dynamicScale"].get<double>() == doctest::Approx(1.0));
     CHECK(light["width"] == 320);
@@ -211,7 +216,7 @@ TEST_CASE("dynamic resolution with injected frame times: the scale follows the t
 
     // Turned off, it is the fixed scale again whatever the controller had.
     e.set_dynamic_resolution_frame_ms(40.0);
-    e.step(60 * 4);
+    e.step(60 * 3);
     CHECK(stats(e)["dynamicScale"].get<double>() < 1.0);
     REQUIRE(c.call("render.dynamic_resolution", Json::parse(R"({"enabled":false})")).ok);
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(1.0));
@@ -228,7 +233,7 @@ TEST_CASE("dynamic resolution multiplies into window.renderScale and the upscale
     REQUIRE(c.call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})")).ok);  // 0.5
     REQUIRE(c.call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"minScale":0.25})")).ok);
     e.set_dynamic_resolution_frame_ms(80.0);
-    e.step(60 * 12);
+    e.step(60 * 14);
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(0.25));
     CHECK(stats(e)["renderScale"].get<double>() == doctest::Approx(0.25));  // 0.5 x 0.25 = 0.125: the renderer's floor
     CHECK(stats(e)["width"] == 80);
@@ -282,7 +287,7 @@ TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the sa
             REQUIRE(
                 e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"minScale":0.5})")).ok);
             e.set_dynamic_resolution_frame_ms(60.0);
-            e.step(60 * 8);
+            e.step(60 * 12);
             REQUIRE(e.renderer()->render_scale() == doctest::Approx(0.5f));
         },
         dynamic));
@@ -291,4 +296,41 @@ TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the sa
     CHECK(dynamic.height == fixed.height);
     CHECK(dynamic.rgba == fixed.rgba);
     CHECK(dynamic.rgba != reference.rgba);  // and it is not the full-size picture
+}
+
+TEST_CASE(
+    "the display's refresh rate: the platform's answer sets the target a targetMs of 0 follows and is asked again as "
+    "frames pass") {
+    TempProject p("refresh");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    REQUIRE(c.call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"targetMs":0})")).ok);
+    auto read = [&] { return c.call("render.dynamic_resolution", Json::object()).result; };
+    // No window and no answer: the default, as a headless run always has.
+    e.step(3);
+    CHECK(read()["refreshSource"] == "default");
+    CHECK(read()["effectiveTargetMs"].get<double>() == doctest::Approx(16.7));
+    // The platform says 120 Hz: read at the next frame.
+    e.set_display_refresh_hz(120.0);
+    e.step(1);
+    Json r = read();
+    CHECK(r["refreshSource"] == "platform");
+    CHECK(r["refreshHz"].get<double>() == doctest::Approx(120.0));
+    CHECK(r["effectiveTargetMs"].get<double>() == doctest::Approx(8.3));
+    // The window moves to a 144 Hz monitor: the next poll (every 2 s of frames) follows it, and nothing sooner.
+    e.set_display_refresh_hz(144.0);
+    e.step(60);  // a second of frames: not asked yet
+    CHECK(read()["refreshHz"].get<double>() == doctest::Approx(120.0));
+    e.step(70);
+    r = read();
+    CHECK(r["refreshSource"] == "platform");
+    CHECK(r["refreshHz"].get<double>() == doctest::Approx(144.0));
+    CHECK(r["effectiveTargetMs"].get<double>() == doctest::Approx(6.9));
+    // An answer under 20 Hz is no answer: the estimate (or the default) takes over at the next poll.
+    e.set_display_refresh_hz(1.0);
+    e.step(130);
+    CHECK(read()["refreshSource"] != "platform");
+    e.shutdown();
 }

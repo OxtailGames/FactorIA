@@ -220,8 +220,9 @@ bias = log2(render width / output width) + offset      (never above 0, never bel
 - **Which cameras.** The camera drawn for the temporal upscaler (`mode` `temporal`, `metalfx` and `auto` when they draw it: one jittered
   full-window camera) takes `log2(render / output)` (0 at native quality, -1 at half the size, -1.58 at a third) plus the offset. A camera
   with `temporalAAEnabled` and no upscaler (render scale 1) takes the offset alone. Every other frame has bias 0: `stretch`, `spatial`,
-  pixel art, a frame of several cameras (drawn spatially), cameras that draw into a texture, probe captures, shadow maps and a camera with
-  no temporal effect read the textures as they always did, bit for bit.
+  pixel art, a frame of several cameras (the upscaler draws it `spatial`, so it adds no ratio; a camera of that frame whose own stack has
+  `temporalAAEnabled` still takes the offset, as the temporal antialiasing alone does), cameras that draw into a texture, probe captures,
+  shadow maps and a camera with no temporal effect read the textures as they always did, bit for bit.
 - **The offset** is `PostProcess.temporalAAMipBias` (-2..0, default -0.5) of the camera's stack when its `TemporalAA` is on (the upscaler
   uses the same stack for its other fields); a camera without the effect uses the default. -0.5 is a conservative choice (FSR 2 asks -1):
   the accumulated picture gains the detail and the shimmer of fine textures stays low. 0 gives the pure resolution ratio at upscaling
@@ -234,6 +235,8 @@ bias = log2(render width / output width) + offset      (never above 0, never bel
   `texture(sampler2D(t, t_smp), uv, fa_mip_bias)` (a `float`, in the fragment stage of mesh materials and full shaders; `0` and no
   `fa_mip_bias` in sprite, sky and post materials). Sprites, tiles, text, the UI, the shadow maps and the post passes never take a bias
   (pixel art and the HUD stay as drawn); the splat control maps of a terrain are data and are read as they are.
+- **The depth prepass.** The prepass draws with the same fragment block as the colour pass, so a material with alpha test (`alphaMode`
+  `clip`, a cut-out leaf) reads the same bias in both: the holes the prepass cuts are the holes the colour pass draws.
 - **Cost.** One float in the fragment uniform block that already existed (`fa_env_horizon.w`), `texture` with a bias instead of without:
   no extra pass, image or bandwidth.
 
@@ -269,9 +272,13 @@ reads as 1. `game.render_stats` and `window.upscaler` report `dynamicScale` (the
 `window.upscaler` ignores them). Nothing of the simulation reads the factor, so a replay or a script's result never depends on it.
 
 **What it measures.** Where the backend has timer queries (Direct3D 11 and OpenGL), the GPU time of the frame: `source` is `"gpu"`, the
-mean of the frames the renderer timed since the last tick (a result arrives a few frames late). Elsewhere (Metal, GLES3, WebGL2) and
-whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window that renders only
-on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
+mean of the frames the renderer timed since the last tick (a result arrives a few frames late). It is the span from the first command
+of the frame to the last one the GPU finishes, not the time the GPU was busy: a frame that waits for the CPU (heavy scripts, a
+present that blocks) reads long although the GPU idled, and the controller then lowers the scale for nothing, down to `minScale`
+at worst (the profiler and the controller each see every result; one never takes the other's). A GPU timer that gives no result
+for 120 frames in a row (a driver that reports every query as disjoint) is given up for the time between frames. Elsewhere (Metal,
+GLES3, WebGL2) and whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window
+that renders only on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
 `source` `"injected"`).
 
 **The display's refresh rate.** A `targetMs` of 0 holds one refresh of the display the window is on: `1000 / refreshHz` ms, 8.3 ms
@@ -280,16 +287,17 @@ on a 120 Hz display, 6.9 ms on a 144 Hz one. `refreshHz` (rounded to 0.1 Hz, rep
 
 | `refreshSource` | Where | The rate |
 |---|---|---|
-| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's current display mode (a 59 is read as 59.94), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
-| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them |
+| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's **current** display mode (a 59 is read as 59.94; a laptop panel with Windows 11's dynamic refresh rate flips between its modes, so the rate and the target follow the one in force at each poll: set `targetMs` there), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
+| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them, and when the intervals are not a steady beat (their median absolute deviation over 15 % of the median: a driver that ignores the swap interval, a game that never settles) there is no rate |
 | `"default"` | no window (headless, tests, `graphics=false`), the editor, and an estimate that cannot be made | 60 Hz |
 
 The estimate is made only while the display paces the frames: with vsync off (`display.vsync`, `window.vsync`), a `window.frameCap`
 or a window that renders on demand the time between frames is the game's, not the display's, so the rate stays the default 60 Hz
 until they pace it again (the estimate then starts over). A game that cannot keep up with the display during the first second
-measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display); set `targetMs` where that matters. The platform is
+measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display), and a driver that ignores the swap interval yet
+paces the game very steadily at a few hundred fps looks like a display of that rate: set `targetMs` where that matters. The platform is
 asked again every 2 s of frames, so a window dragged to another monitor follows that one's rate (an estimate starts over when the
-display's size changes). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
+display's size changes, and one that found no steady rate tries again after 15 polls, 30 s of frames). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
 holds, never the simulation.
 
 **How it moves** (`render::DynamicResolutionController`, deterministic: the same numbers give the same scales on every machine):
@@ -305,14 +313,26 @@ holds, never the simulation.
 - with only the interval time the headroom is hidden (vsync pins it at the refresh rate while the game is fast enough), so the
   controller goes down by prediction and tries one step up after 3 s inside the band. A try that fails (the time goes over again within
   3 s) doubles the next wait (up to 48 s) and the step that failed is not tried again for a minute or more, so it settles under it
-  instead of swinging.
+  instead of swinging;
+- what is measured around a step or a load says nothing about the scale and is kept out: the next 3 frames after a step (the images
+  are made at the step, and a GPU result arrives a few frames late), and the first 3 seconds of frames after every scene load
+  (shaders compile and assets arrive: the scale does not move, and a game that starts at the full size is not pushed down by its
+  own warm-up).
+
+A `window.frameCap` slower than the target (a cap of 30 fps against a 16.7 ms target) makes the time between frames the cap's, not
+the game's: the controller sees a frame that is always over the target and brings the scale down to `minScale`. Set `targetMs` to
+the cap's frame time or more, or do not use both.
 
 **Reallocation.** A step makes the render targets again (the scene's color, depth and post chain at the new size); it does not
-change the window or the swap chain. That costs a few milliseconds at the step, which is why the controller is rate-limited to two
+change the window or the swap chain. That costs a hitch at the step (the time depends on the GPU, the driver and the size, and has not
+been measured on every backend), which is why the controller ignores the next 3 frames' times, is rate-limited to two
 changes a second and quantised, never per frame: a viewport inside fixed-size targets would avoid it at the price of every pass
 reading a sub-rectangle (the post chain, the temporal history and the bloom chain all assume the whole texture). The **temporal history
 survives the steps**: the history of the `temporal` upscaler lives at the output size and is kept, and its key follows the scale the
-game asked for, without the factor, so a step does not reset it. The jitter sequence is rounded up to a multiple of 4 phases while a
+game asked for, without the factor, so a step does not reset it. A step also keeps what does not depend on the render size: the
+automatic exposure each camera has adapted to (the picture does not flash brighter or darker at a step), and the images of
+CameraViews, render targets and probes. What is at the render size starts again (the other cameras' temporal histories, SSR, fog,
+volumetrics, SSAO and the depth-of-field chain). The jitter sequence is rounded up to a multiple of 4 phases while a
 factor is on, so the phase changes smoothly when the size does.
 
 **Presets.** No preset turns it on. A preset is a static set of limits that gives the same picture on every machine; this one decides
@@ -329,7 +349,8 @@ A preset is a quality layer of the renderer, not a change of the game. Each of `
 the lights ask for (a scene that asks for 2 shadow cascades under a limit of 4 still draws 2), so `ultra` is the game as its author
 made it, and `custom` (no preset, the default) is exactly that too, bit for bit. Nothing is written into the scene, its components or
 `factoria.json`: leaving a preset gives the game's own look back. Presets never touch the simulation (the physics, the scripts and
-the random numbers do not read them), and the benchmark never runs inside a simulation step.
+the random numbers do not read them). The benchmark of `graphics.detect` draws a world of its own and never touches the game's world, clock or random
+numbers, but it blocks the frame it is called in, from a script's `update` too (below).
 
 | Knob | `low` | `medium` | `high` | `ultra` / `custom` |
 |---|---|---|---|---|
@@ -353,7 +374,9 @@ the random numbers do not read them), and the benchmark never runs inside a simu
 | `realtimeGiProbesPerFrame` | 2 | 4 | 8 | 32 |
 | upscaler (`mode` auto, `quality`) | `performance` | `balanced` | `quality` | none: the game's own |
 
-The numbers are caps and never rise above what the scene asks for. The table is monotone (every knob of `medium` is at least as high
+The numbers are caps and never rise above what the scene asks for. `shadowTileSize` caps the map of the sun's cascades and of every
+local light: one with `Light.shadowResolution` above it gets the cap, and one with no `shadowResolution` of its own (spot maps are up to
+1024 texels, point faces up to 512) gets the cap too when the cap is smaller than its own size. The table is monotone (every knob of `medium` is at least as high
 as `low`, and so on), and a test keeps it so. `graphics.preset` answers the whole `limits` object by knob name.
 
 **What the GPU caps.** A knob for a feature the backend cannot draw is lowered too, with the same status `render.supports` gives:
@@ -378,14 +401,27 @@ upscaler is not put back by itself: applying the preset again does.
   `software`), runs a short benchmark and answers `{preset, reason, gpu, benchmarkMs, benchmark, device}`: the preset it suggests
   and why. The benchmark draws a fixed scene of its own (about 150 lit meshes, a sun with three cascades and two point lights, at
   960 x 540, read back) once to warm up and five times to measure, and takes the median; `benchmarkMs` is the whole time, normally a
-  few hundred milliseconds, and it stops by itself after four seconds. It lifts the current preset while it runs and puts it back.
-  It is skipped, and the device tier decides, when there is no GPU or the renderer is a software one (llvmpipe, WARP, SwiftShader).
-  A call blocks the frame it is made in: call it once, from a loading screen, never every frame.
+  few hundred milliseconds. The five timed pictures stop after four seconds in all (at least one is taken); the warm-up, which makes
+  the pipelines, has no cap of its own and takes seconds on a slow GPU or a cold shader cache. It lifts the current preset while it
+  runs and puts it back, and it draws in the colour space the game's targets are in, so a linear game's targets and their TAA and
+  upscaler histories are not made again. It is skipped, and the device tier decides, when there is no GPU, when the renderer is a
+  software one (llvmpipe, WARP, SwiftShader) and on the web (the page would freeze while the pipelines are made). A call blocks the
+  frame it is made in, whether it comes from a command or from a script's `update`: call it once, from a loading screen, never every
+  frame. `reason` names the budget the picture fit in ("at most 8 ms"), never the measured time.
 - Rule: at most 4 ms for `ultra`, 8 ms for `high`, 16 ms for `medium`, more is `low`; a software renderer is `low`; a phone or tablet
   is capped at `medium` and a handheld at `high`; a device tier of `low`, or a discrete GPU with under 2048 MB, caps at `medium`;
   without a benchmark the tier alone decides (`low`, `medium`, `high`; never `ultra`). `reason` says which rule applied.
 - Scripts: `game.graphics.preset()` reads, `game.graphics.preset("high")` applies, `game.graphics.detect()` detects; the results
-  are the objects above, and a wrong name throws with the same hint.
+  are the objects above, and a wrong name throws with the same hint. `game.graphics.detect()` leaves out `benchmarkMs`,
+  `benchmark.frameMs` and `benchmark.totalMs`: they differ from machine to machine and from run to run, and a script that branched
+  on one would not play the same twice. A game decides on `preset`, `gpu` and `device`; the command `graphics.detect` (CLI, MCP,
+  tests) answers the times too, for tools that tune the thresholds.
+- Saving for tools: `project.graphics` (CLI, MCP) reads, and with `preset`, `upscaler` {mode, quality, sharpness} or
+  `dynamicResolution` writes, the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of `factoria.json`,
+  the same code the editor's View > Graphics window saves with: the keys given replace the file's, a value at its default removes
+  its key, the rest of the file stays, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
+  written. `graphics.preset` and `render.upscaler` change only the running game. Example: `factoria call project.graphics
+  '{"preset":"medium"}'`.
 - Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
   not written). With a preset set there, `render.upscaler` of the same file is what `custom` returns to, not what the preset
   uses. A wrong name fails to load with the JSON pointer `/render/graphicsPreset` and a "did you mean".
@@ -396,7 +432,8 @@ upscaler is not put back by itself: applying the preset again does.
 
 - **Menu kit.** The options panel of the menu kit (docs/MENUS.md, the Graphics tab) has a second page in its Graphics tab, opened by
   the "Preset and upscaling" button: a **Preset** row (Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (Auto and
-  each mode, with the modes this GPU does not draw greyed out and the reason shown, read from `render.supports`), the upscaling
+  each mode, with the modes this GPU does not draw greyed out and the reasons in one note under the page, not on each button, read from
+  `render.supports`; "needs a window with a GPU" is the reason of Spatial in a run without graphics), the upscaling
   quality, the render scale (0.33 to 1, `window.renderScale`) and the sharpness (only while `window.upscaler.effectiveMode` is not
   `stretch`). Auto runs `game.graphics.detect()` once, keeps its pick in the save and shows it. A preset drives the tab's own
   "quality" row of the screen effects (Low, Medium, High and Ultra pick low, medium, high and high), so the two never disagree. The

@@ -1,6 +1,7 @@
-// The Graphics settings window's rules (graphics_settings_model.h): reading, checking and saving render.graphicsPreset,
+// The Graphics settings window's rules (fa/tooling/graphics_settings.h): reading, checking and saving render.graphicsPreset,
 // render.upscaler and render.dynamicResolution in factoria.json, with the engine's own validation. No window, no GPU.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -9,10 +10,9 @@
 #include "doctest.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/project.h"
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 
 using namespace fa;
-using namespace fa::editor;
 namespace stdfs = std::filesystem;
 
 namespace {
@@ -246,4 +246,81 @@ TEST_CASE("graphics settings: a hand-written wrong dynamicResolution opens with 
     REQUIRE_FALSE(s.ok());
     CHECK(s.error().message.find("/render/dynamicResolution") != std::string::npos);
     CHECK((s.error().hint + s.error().message).find("enabled") != std::string::npos);
+}
+
+TEST_CASE("graphics settings: a sharpness of the file is read as written, not as the parser's float") {
+    Dir d;
+    d.write("{\"format\": \"factoria.project/1\", \"name\": \"G\", \"render\": {\"upscaler\": {\"mode\": \"spatial\", "
+            "\"sharpness\": 0.123}}}\n");
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK(s->sharpness == 0.123);
+    // Saving another key leaves the number as it was.
+    s->preset = "low";
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    const std::string text = d.read();
+    const std::size_t at = text.find("0.123");
+    REQUIRE(at != std::string::npos);
+    CHECK_FALSE(std::isdigit(static_cast<unsigned char>(text[at + 5])));  // not 0.12300000339
+}
+
+TEST_CASE("project.graphics reads and writes the graphics keys of factoria.json") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    REQUIRE(registry.info("project.graphics") != nullptr);
+    CHECK_FALSE(registry.info("project.graphics")->readOnly);
+    CHECK_FALSE(registry.info("project.graphics")->description.empty());
+
+    // A read changes nothing.
+    auto r = registry.call("project.graphics", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["preset"] == "custom");
+    CHECK(r.result["written"] == false);
+    CHECK(d.read() == kBare);
+
+    // A write: only the keys given change, the rest of the upscaler stays, the rest of the file is byte for byte.
+    r = registry.call("project.graphics",
+                      Json::parse(R"({"preset":"medium","upscaler":{"mode":"auto","quality":"balanced"}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["written"] == true);
+    CHECK(r.result["upscaler"]["mode"] == "auto");
+    CHECK(r.result["upscaler"]["sharpness"] == 0.5);
+    CHECK(d.read().find("\"physics\": { \"fixedHz\": 60 }") != std::string::npos);
+    r = registry.call("project.graphics", Json::parse(R"({"upscaler":{"sharpness":0.25}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["upscaler"]["mode"] == "auto");
+    CHECK(r.result["upscaler"]["quality"] == "balanced");
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->graphicsPreset == render::GraphicsPreset::Medium);
+    CHECK(project->upscaler.mode == render::UpscalerMode::Auto);
+    CHECK(project->upscaler.sharpness == doctest::Approx(0.25f));
+    // The same values again write nothing.
+    r = registry.call("project.graphics", Json::parse(R"({"preset":"medium"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["written"] == false);
+
+    // A wrong value or key is named with a hint, and the file is not touched.
+    const std::string before = d.read();
+    r = registry.call("project.graphics", Json::parse(R"({"preset":"hihg"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("high") != std::string::npos);
+    r = registry.call("project.graphics", Json::parse(R"({"upscaler":{"mode":"sptial"}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("spatial") != std::string::npos);
+    r = registry.call("project.graphics", Json::parse(R"({"presets":"low"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("preset") != std::string::npos);
+    r = registry.call("project.graphics", Json::parse(R"({"dynamicResolution":{"minScale":0.9,"maxScale":0.6}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(d.read() == before);
+
+    // Back to the defaults removes the keys and the empty `render` object.
+    r = registry.call(
+        "project.graphics",
+        Json::parse(R"({"preset":"custom","upscaler":{"mode":"stretch","quality":"native","sharpness":0.5}})"));
+    REQUIRE(r.ok);
+    CHECK(d.read().find("render") == std::string::npos);
 }

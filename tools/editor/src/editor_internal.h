@@ -38,7 +38,7 @@
 #include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 #include "level_gen_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -751,7 +751,7 @@ public:
 
     // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset and
     // render.upscaler {mode, quality, sharpness} in factoria.json, a working copy with Save and Revert, checked by the
-    // engine's own parsers (graphics_settings_model.h). The autotest drives the same functions and widgets.
+    // engine's own parsers (fa/tooling/graphics_settings.h). The autotest drives the same functions and widgets.
     void draw_graphics_settings_panel();
     void graphics_settings_reload();                            // reads factoria.json again (opening, Revert)
     bool graphics_settings_save(std::string* error = nullptr);  // Save: false and a message when refused

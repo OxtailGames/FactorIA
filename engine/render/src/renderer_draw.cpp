@@ -1753,6 +1753,14 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
             // ... and, like any other light, smaller the farther the camera is (the size the light would get with resolution 0).
             in.resolution = std::min(px, render::local_shadow_wanted_tile(in, length(pos - fr.cam.position)));
         }
+        // The graphics preset's shadowTileSize also caps a light with no Light.shadowResolution (its own size is up to 1024 per spot map,
+        // 512 per point face): a cap under that size asks for the cap, never for more than the light would have had.
+        if (qualityOn && in.resolution <= 0) {
+            const int own = render::local_shadow_wanted_tile(in, length(pos - fr.cam.position));
+            if (own > quality.shadowTileSize)
+                in.resolution =
+                    std::max(render::kLocalShadowMinTile, render::pow2_floor(std::max(quality.shadowTileSize, 64)));
+        }
         in.shadowDistance = ld.shadow.distance;
         ctx.localInputs.push_back(in);
     }
@@ -5184,7 +5192,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
-                           gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+                           gameTarget.texView, fxDst, c->postPlan.prepass, c->postPlan.velocity, &stats.drawCalls,
+                           c->plan.name);
     }
     custom_slot(PostSlot::AfterDof);
     if (pp.bloom.enabled) {

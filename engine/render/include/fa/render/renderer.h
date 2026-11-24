@@ -345,6 +345,8 @@ public:
     // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported() (D3D11 and OpenGL), every
     // drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms appends the milliseconds of the frames whose
     // result arrived since the last call (a few frames late, never waited for) and clears them; nothing while off. Measurement only.
+    // The profiler's take_gpu_ms() and this list each see every result (they do not take each other's). Needs an initialized renderer
+    // (before init() the call does nothing: ask again after it).
     void set_gpu_frame_timing(bool on);
     void take_gpu_frame_ms(std::vector<double>& out);
     // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is
@@ -367,6 +369,9 @@ public:
     // Nothing of the scene is changed, so setting the default again brings the game's own look back unchanged; the simulation never reads it.
     void set_quality(const render::QualityLimits& limits);
     const render::QualityLimits& quality() const;
+    // The colour space the game target is in now (the last drawn world's SceneSettings.colorSpace; Gamma before the first frame). A caller
+    // that draws a world of its own (the GPU benchmark) gives it this one, so the draw does not make the game's targets again.
+    ColorSpace color_space() const;
     // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
     // reason of each (render.supports' status). Changes nothing; needs no frame.
     render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
