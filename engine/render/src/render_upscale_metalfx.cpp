@@ -49,6 +49,7 @@ void MetalFxPrep::release() {
     pipelines_.clear();
     shader_ = {};
     state_ = 0;
+    device_ = nullptr;
 }
 
 #else

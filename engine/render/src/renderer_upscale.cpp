@@ -202,7 +202,7 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
     const std::uint64_t config =
         (std::uint64_t(std::clamp(std::lround(double(renderBaseScale) * 1000.0), 0L, 0xFFFFFL)) & 0xFFFFF) << 20 |
         (std::uint64_t(int(upscaler.quality)) & 0xFF);
-    if (!taa.upscale(gpu, upscaleTaa, r, config, out)) return false;
+    if (!taa.upscale(pass_list(c, gpu), gpu, upscaleTaa, r, config, out)) return false;
     stats.drawCalls += 2;  // the resolve and the sharpened copy
     return true;
 }

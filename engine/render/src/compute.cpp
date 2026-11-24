@@ -759,8 +759,7 @@ Result<Json> Compute::read_buffer(int id, std::uint64_t first, std::uint64_t cou
     if (auto read =
             s.gpu->device().read_buffer(b.buffer, std::size_t(first * b.stride), std::size_t(count * b.stride), raw);
         !read.ok())
-        return make_error("compute.read_buffer: " + read.error().message,
-                          "This is a graphics driver problem on this backend; report it.");
+        return make_error(read.error().message, "This is a graphics driver problem on this backend; report it.");
     Json out = Json::array();
     for (std::uint64_t i = 0; i < count; ++i) out.push_back(unpack_element(b, raw.data() + std::size_t(i) * b.stride));
     return out;
@@ -1125,8 +1124,7 @@ Result<Json> Compute::read_image(int id, int x, int y, int width, int height) {
     std::vector<std::uint8_t> raw;
     gpu::Device& device = s.gpu->device();
     if (auto read = device.read_storage_image(im.gpu.image, im.format, x, y, width, height, raw); !read.ok())
-        return make_error("compute.read_image: " + read.error().message,
-                          "This is a graphics driver problem on this backend; report it.");
+        return make_error(read.error().message, "This is a graphics driver problem on this backend; report it.");
     const std::size_t pixelBytes = std::size_t(device.pixel_format_caps(im.format).bytesPerPixel);
     if (raw.size() < pixelBytes * std::size_t(width) * std::size_t(height))
         return make_error("compute.read_image: the driver returned fewer bytes than the rectangle holds",

@@ -285,6 +285,7 @@ void TaaFx::release() {
     state_ = 0;
     forget_targets();
     warnedFormat_ = false;
+    device_ = nullptr;
 }
 
 namespace {
@@ -377,7 +378,8 @@ bool TaaFx::reserve_upscale(gpu::Device& device, int outW, int outH, std::uint64
     return true;
 }
 
-bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {
+bool TaaFx::upscale(gpu::CommandList& list, Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey,
+                    Target& out) {
     if (!plan.on || !in.color.id || !in.dummy.id || !ready(gpu.device()) || !out.valid(gpu.device()) || upscaleRefused_)
         return false;
     in.outW = out.w;
@@ -405,7 +407,7 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     in.history = readIdx >= 0 ? slot->img[readIdx].texView : gpu::View{};
     PassDesc pd = pass_into(slot->img[writeIdx], "upscale-resolve");
     pd.colorLoad = gpu::LoadAction::DontCare;
-    if (!resolve(gpu.commands(), gpu, pd, in)) return false;
+    if (!resolve(list, gpu, pd, in)) return false;
     slot->last = writeIdx;
     slot->wrote = true;
     slot->serial = plan.serial;
@@ -418,7 +420,7 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     od.colorLoad = gpu::LoadAction::Clear;
     od.clearColor = gpu::Color{0.0f, 0.0f, 0.0f, 1.0f};
     od.colorStore = gpu::StoreAction::Store;
-    return output(gpu.commands(), gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
+    return output(list, gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
 int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rectIn, int picW, int picH,

@@ -375,6 +375,7 @@ void AutoExposure::release() {
     lumaChecked_ = false;
     declaredBefore_ = false;
     cur_ = 0;
+    device_ = nullptr;
 }
 
 #if defined(_MSC_VER)

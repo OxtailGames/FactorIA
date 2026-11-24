@@ -204,6 +204,7 @@ void CustomPost::destroy_images(HistorySlot& slot) {
 void CustomPost::release_history() {
     for (auto& entry : history_) destroy_images(*entry.second);
     history_.clear();
+    device_ = nullptr;
 }
 
 void CustomPost::sweep_history(std::uint64_t frame) {

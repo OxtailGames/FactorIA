@@ -17,6 +17,7 @@
 #include "gpu/sokol_context.h"
 #include "gpu/sokol_device.h"
 #include "gpu/sokol_shaders.h"
+#include "fullscreen_gpu.h"
 #include "gpu_types.h"
 #include "render_internal.h"
 #include "render_features.h"
@@ -1303,6 +1304,187 @@ TEST_CASE("SokolDevice: reads in flight are not limited to four: eight cameras k
     CHECK(again.value().valid());
     dev.release_buffer_read(again.value());
     dev.destroy_buffer(buf);
+}
+
+TEST_CASE("SokolDevice: read tickets out of range name nothing, and a release in a later ring frees that slot") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the async read case is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    if (!dev.async_read_supported() || !dev.features().compute) {
+        MESSAGE("this backend reads buffers back only by waiting: the async read case is skipped");
+        return;
+    }
+    std::uint8_t bytes[16];
+    for (int i = 0; i < 16; ++i) bytes[i] = std::uint8_t(50 + i);
+    BufferDesc bd;
+    bd.size = sizeof(bytes);
+    bd.usage.storageBuffer = true;
+    bd.data = Range{bytes, sizeof(bytes)};
+    bd.label = "gpu_interface tickets";
+    const Buffer buf = dev.make_buffer(bd);
+    REQUIRE(dev.state(buf) == ResourceState::Valid);
+    dev.commit();
+
+    // A ticket that was never issued, however wrong its slot: not valid, not polled, not released, no crash.
+    std::vector<std::uint8_t> out;
+    for (const ReadTicket t : {ReadTicket{-1, 1}, ReadTicket{0, 0}, ReadTicket{31, 1}, ReadTicket{32, 1},
+                               ReadTicket{4096, 1}, ReadTicket{INT_MAX, 1}}) {
+        CHECK_FALSE(dev.poll_buffer_read(t, out, false));
+        CHECK_FALSE(dev.poll_buffer_read(t, out, true));
+        dev.release_buffer_read(t);
+    }
+
+    // Thirty-two reads fill every ring; releasing one of ring 5 frees its slot (the ring hands slots out in order).
+    std::vector<ReadTicket> tickets;
+    for (int i = 0; i < 32; ++i) {
+        auto r = dev.request_buffer_read(buf, std::size_t(i % 4), 4);
+        REQUIRE_MESSAGE(r, (r ? "" : r.error().message));
+        REQUIRE(r.value().valid());
+        tickets.push_back(r.value());
+    }
+    const ReadTicket released = tickets[21];
+    dev.release_buffer_read(released);
+    CHECK_FALSE(dev.poll_buffer_read(released, out, false));  // released: stale
+    dev.commit();
+    for (int i = 0; i < 32; ++i) {
+        if (i == 21) continue;
+        REQUIRE(dev.poll_buffer_read(tickets[std::size_t(i)], out, true));
+        REQUIRE(out.size() == 4u);
+        CHECK(out[0] == std::uint8_t(50 + i % 4));
+    }
+    CHECK_FALSE(dev.poll_buffer_read(released, out, true));  // the old ticket still names nothing
+    // Every slot is free again, the released one included: 32 more reads find a slot, and none shares it with a live one.
+    std::vector<ReadTicket> next;
+    for (int i = 0; i < 32; ++i) {
+        auto r = dev.request_buffer_read(buf, 0, 4);
+        REQUIRE(r);
+        CHECK_MESSAGE(r.value().valid(), "request " << i << " found no free slot");
+        next.push_back(r.value());
+    }
+    for (const ReadTicket& t : next) dev.release_buffer_read(t);
+    CHECK_FALSE(dev.poll_buffer_read(next[0], out, false));
+    dev.destroy_buffer(buf);
+}
+
+TEST_CASE("SokolDevice: a poll that does not wait leaves the read in flight") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the async read case is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    if (!dev.async_read_supported() || !dev.features().compute) {
+        MESSAGE("this backend reads buffers back only by waiting: the async read case is skipped");
+        return;
+    }
+    std::uint8_t bytes[8];
+    for (int i = 0; i < 8; ++i) bytes[i] = std::uint8_t(7 * i + 1);
+    BufferDesc bd;
+    bd.size = sizeof(bytes);
+    bd.usage.storageBuffer = true;
+    bd.data = Range{bytes, sizeof(bytes)};
+    bd.label = "gpu_interface nowait";
+    const Buffer buf = dev.make_buffer(bd);
+    REQUIRE(dev.state(buf) == ResourceState::Valid);
+    dev.commit();
+    auto r = dev.request_buffer_read(buf, 0, 8);
+    REQUIRE(r);
+    const ReadTicket t = r.value();
+    REQUIRE(t.valid());
+    // Without wait the answer is "not yet" or the bytes (a GPU may be quick): either way the ticket is not spent by
+    // a poll that said no, and the wait that follows gets the bytes.
+    std::vector<std::uint8_t> out;
+    bool got = dev.poll_buffer_read(t, out, false);
+    if (!got) {
+        dev.commit();
+        got = dev.poll_buffer_read(t, out, true);
+    }
+    REQUIRE(got);
+    REQUIRE(out.size() == 8u);
+    for (int i = 0; i < 8; ++i) CHECK(out[std::size_t(i)] == bytes[i]);
+    CHECK_FALSE(dev.poll_buffer_read(t, out, false));  // read to the end: stale
+    dev.destroy_buffer(buf);
+}
+
+TEST_CASE("SokolDevice: a device destroyed with reads in flight leaves the context usable") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the async read case is skipped");
+        return;
+    }
+    for (int round = 0; round < 2; ++round) {
+        auto made = make_device(built_sokol_backend());
+        REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+        Device& dev = *made.value();
+        if (!dev.async_read_supported() || !dev.features().compute) {
+            MESSAGE("this backend reads buffers back only by waiting: the async read case is skipped");
+            return;
+        }
+        std::uint8_t bytes[16] = {};
+        BufferDesc bd;
+        bd.size = sizeof(bytes);
+        bd.usage.storageBuffer = true;
+        bd.data = Range{bytes, sizeof(bytes)};
+        bd.label = "gpu_interface in flight";
+        const Buffer buf = dev.make_buffer(bd);
+        REQUIRE(dev.state(buf) == ResourceState::Valid);
+        dev.commit();
+        // Eleven reads over three rings; round 1 also commits them, round 0 does not. None is polled or released.
+        for (int i = 0; i < 11; ++i) {
+            auto r = dev.request_buffer_read(buf, 0, 16);
+            REQUIRE(r);
+            CHECK(r.value().valid());
+        }
+        if (round == 1) dev.commit();
+        dev.destroy_buffer(buf);
+        // `made` goes out of scope here: the staging buffers of the reads die with the device.
+    }
+    // The context is still the test's: another device works.
+    auto again = make_device(built_sokol_backend());
+    REQUIRE(again);
+    CHECK(again.value()->async_read_supported());
+}
+
+TEST_CASE("make_triangle_pipeline: the full-screen pipeline takes the format of its pass and checks out on a device") {
+    RecordingDevice dev;
+    const Shader shader = dev.make_shader(textured_shader("triangle shader"));
+    REQUIRE(dev.state(shader) == ResourceState::Valid);
+
+    const fa::render::TargetFormat colorOnly{PixelFormat::Rgba8, PixelFormat::None, 1};
+    const Pipeline a = fa::render::make_triangle_pipeline(dev, shader, colorOnly, "triangle color");
+    CHECK(dev.state(a) == ResourceState::Valid);
+    const fa::render::TargetFormat withDepth{PixelFormat::Rgba8, PixelFormat::DepthStencil, 1};
+    const Pipeline b = fa::render::make_triangle_pipeline(dev, shader, withDepth, "triangle depth");
+    CHECK(dev.state(b) == ResourceState::Valid);
+    const Pipeline c = fa::render::make_triangle_pipeline(dev, shader, colorOnly, "triangle masked", 0, ColorMask::Rgb);
+    CHECK(dev.state(c) == ResourceState::Valid);
+    CHECK(a.id != b.id);
+    CHECK(a.id != c.id);
+    // The shader declares no attribute at location 1: a position there is a mistake the device reports and refuses.
+    const Pipeline wrong = fa::render::make_triangle_pipeline(dev, shader, colorOnly, "triangle wrong attr", 1);
+    CHECK(dev.state(wrong) == ResourceState::Failed);
+    CHECK_FALSE(dev.take_errors().empty());
+
+    // A pass of the same format draws with it; the whole stream is a clean one.
+    Scene s(dev);
+    PassDesc pass = s.pass();
+    CommandList& list = dev.begin_commands("triangle");
+    list.begin_pass(pass);
+    list.set_pipeline(b);
+    list.end_pass();
+    dev.submit(list);
+    CHECK(dev.errors().empty());
+    dev.destroy_pipeline(a);
+    dev.destroy_pipeline(b);
+    dev.destroy_pipeline(c);
+    dev.destroy_shader(shader);
 }
 
 // The 2D painter (render/ui_painter.h) on a RecordingDevice: the order of the calls of a frame, without a GPU.
