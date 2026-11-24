@@ -400,17 +400,30 @@ The readers of the image: the temporal antialiasing and the temporal upscaler (r
     leaves the mesh's vector alone. A blended or additive batch writes **no** velocity: it never overwrites the opaque surface behind it.
   - `quad-reactive` writes the **reactive mask**: R8, cleared to 0, the MAX blend of the item's reactive value times its coverage (so
     overlapping particles do not add up past 1), with the same depth test. See the next entry.
-  - **The motion.** Per vertex a second stream (vertex buffer 1, `kQuadMotionBuffer`, 4 floats: the item's translation since the frame
+  - **The motion.** Per vertex a second stream (vertex buffer 1, `kQuadMotionBuffer`, 4 floats: how far the vertex moved since the frame
     before, and its reactive value) says where the vertex was on the frame before: `position - motion`, through the previous view-projection.
-    The translation is the item's origin now minus its origin on the frame before (`Impl::prevQuadOrigins`, keyed by the entity as
-    `prevModels` is, stamped with `postSerial`, pruned once per frame, shifted with the floating origin). An item with no history (new, not
-    drawn the frame before, the first frame after a cut) has none: the camera's motion only. Sprites, shapes and tilemaps give their entity and
-    transform (`QuadList::set_motion_source` in `scene2d.cpp`); text has no source yet and counts as still in the world (the camera's motion only). **Limitations:** a translation only (a sprite that turns or changes size
-    between two frames is followed at its centre, not at its corners), the whole box of a `Shape2D` counts as covered, an item that draws as
-    instances or with a screen effect writes nothing, a batch with a clip rectangle or a sprite material of its own (its `discard` or `vertex()`) is skipped
-    by both passes (the passes apply neither, so they would cover other pixels than the colour: such a quad has the camera's motion and no mask), and a particle
-    writes no velocity at all (it is reactive instead). The passes rasterise with `drawViewProj`, the matrix of the colour and the prepass (the jitter
-    included), so their coverage and depth test hit the colour's pixels; the vectors use the matrices without the jitter.
+    The item keeps its matrix on the frame before (`Impl::prevQuadOrigins`, keyed by the entity as `prevModels` is, stamped with
+    `postSerial`, pruned once per frame, shifted with the floating origin) and `fill_quad_motion` turns the two matrices into a translation
+    (`motion`, the origin now minus the origin before) and a 3x3 `turn = I - Lprev * Lcur^-1`, so `QuadList::flatten` writes, per vertex,
+    `motion + turn * (p - origin)`: a sprite that turns or grows between two frames has the tangential or radial vectors of each corner, not
+    one vector for the whole box. An item whose 3x3 did not change (or is singular) writes the constant translation, as before. An item with
+    no history (new, not drawn the frame before, the first frame after a cut) has none: the camera's motion only. A **teleport** (the matrix
+    jumps) gives a large vector, up to the +-4 clamp of the velocity image, as a mesh does: the temporal passes reject a vector that long.
+    Sprites, shapes and tilemaps give their entity and transform (`QuadList::set_motion_source` in `scene2d.cpp`); text has no source yet and
+    counts as still in the world (the camera's motion only). **Limitations:** a change of `size`, `region` or of the vertices themselves
+    (a tile map that scrolls its cells, a sprite sheet that changes frame) is not followed, only the matrix of the entity; the whole box of
+    a `Shape2D` counts as covered; an item that draws as instances or with a screen effect writes nothing; a batch with a clip rectangle writes
+    nothing (the passes do not apply the clip, so they would cover other pixels than the colour: such a quad has the camera's motion and
+    no mask; only screen items have a clip and they are in the HUD list anyway); a batch with a sprite material of its own writes **no
+    velocity** (its `discard` or `vertex()` change the footprint) but, when it is reactive, **does write the mask** over the built-in footprint
+    of its quads (the shape and the texture alpha, not the material's `discard`: a conservative mask, a little wider than the colour, that
+    only lowers the weight of the history); and a particle writes no velocity at all (it is reactive instead). The 2D passes have no depth
+    when the camera has no prepass, so a **particle behind an opaque sprite still marks the mask** there (it is drawn in the list order, and
+    the mask does not know what covers it); in a perspective camera with a prepass the depth test removes it. The passes rasterise with
+    `drawViewProj`, the matrix of the colour and the prepass (the jitter included), so their coverage and depth test hit the colour's
+    pixels; the vectors use the matrices without the jitter. With `taa.on` false (a capture: `capture_world`, no temporal frame) the
+    camera asks for neither image, and no velocity or mask pass is built even for a sprite with `reactive` set (`needsVelocity` only stays
+    when a debug view or an effect pins it).
 - **The reactive mask.** A pixel of the mask says "trust this frame here": `taa_resolve.glsl` lowers the weight of the history at that pixel by
   `1 - clamp(mask * temporalAAReactiveScale, 0, 1)` (the upscaler's resolve reads it the same way). Writers: a blended or additive **particle**
   or trail (`ParticleEmitter.reactive`, 0..1, default 1; 0 opts out; an `Additive` item with no value set counts as 1, as every
@@ -423,8 +436,13 @@ The readers of the image: the temporal antialiasing and the temporal upscaler (r
   left (nothing says they are stale), and on a flat background the neighbourhood clamp of the resolve already limits that trail; the mask is
   for the leading edge and the fine detail of a fast particle over a busy picture, where the history it would blend is a different picture
   (`quad_motion_tests.cpp`: the leading edge of a checkered additive square over a busy background is 6 times closer to the truth with the mask).
-  Flags: `Sprite.reactive` (0..1) marks a sprite or an in-world UI-like quad; a `Shape2D` or a material has no flag of its own yet
-  (a gap: mark a quad item reactive from C++ with `set_reactive`, or use a `Sprite` or an emitter). Screen-space quads (`space: screen`)
+  **Not a persistent mask.** A mask that cleared a trail would need the mask of the frame before at the pixels the particle left, read
+  by the TAA, the upscaler and the MetalFX resolves; those resolves belong to other work and the clamp already bounds the trail, so the mask
+  stays "this frame, here". **Flags:** `Sprite.reactive` (-1..1, default -1 = by blend: an `Additive` sprite counts as 1, others as 0;
+  0 = never reactive, which is how an `Additive` sprite opts out; above 0 = that value) marks a sprite or an in-world UI-like quad. A
+  `Shape2D` has no flag of its own (mark a quad item from C++ with `set_reactive`, or use a `Sprite` or an emitter). There is no
+  material-level flag either: a sprite material is a `.material.json` whose format is owned by the material-graph work, and
+  `Sprite.reactive` already says it per sprite, so a second switch would only be a second place to look. Screen-space quads (`space: screen`)
   are in the HUD list, not the world list: they write neither velocity nor mask, and are drawn after the world picture is resolved.
 - **No RG16F.** A GPU that cannot render to RG16F (`Gpu::velocity_ready()` false) gets no second attachment and no previous-model
   work (`ctx.collectPrev` is false); the renderer logs a warning once (`warnedNoVelocity`) and the temporal passes reproject from the depth.

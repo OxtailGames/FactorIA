@@ -92,11 +92,12 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   orthographic camera) and behind meshes in a perspective one (tested against the prepass's depth). Blended and additive quads never overwrite
   a velocity: a new reactive mask (R8, the MAX of the values) marks them, and the temporal resolve and the temporal upscaler trust the
   current frame where it is set, scaled by `PostProcess.temporalAAReactiveScale`. New fields `ParticleEmitter.reactive` (0..1, default 1; an
-  additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (0..1, default 0: an additive sprite counts as 1; a sprite
+  additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (-1..1, default -1 = by blend: an additive sprite counts as 1; 0 opts out, an additive sprite too; a sprite
   with a value above 0 writes the mask instead of a vector). A bright additive square moving over a busy background is six times closer to the
   truth with the mask (`quad_motion_tests.cpp`); the mask holds the pixels a particle covers now and does not clear the trail it left.
-  Limitations: translation only, the whole box of a `Shape2D`, no velocity for particles or instanced sprites, and a batch with a clip rectangle or a
-  sprite material of its own is skipped. The passes rasterise with the jittered matrix of the colour, so they cover the colour's pixels. A tilemap moved by its
+  The vectors follow the entity's rotation and scale per corner (a sprite that turns has tangential vectors), a sprite
+  material of its own writes the mask but no velocity, and a capture with `taa.on` false builds neither pass.
+  Limitations: a change of `size` or `region` is not followed, the whole box of a `Shape2D`, no velocity for particles or instanced sprites, and a batch with a clip rectangle is skipped. The passes rasterise with the jittered matrix of the colour, so they cover the colour's pixels. A tilemap moved by its
   Transform has its own velocity. With the temporal effects off
   there is no pass and the frames are bit-identical. The motion vectors debug view shows the new writers. The tests of the two sentinel paths
   of the previous joint palettes (a GPU with no RGBA32F sampling, more rows than the image holds) are in `velocity_tests.cpp`. Every camera job of a frame has its own previous-palette image now (a second camera used to overwrite the first one's).

@@ -202,9 +202,22 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         // Additive quads are light that adds up: whatever they cover the history cannot be trusted (they carry no velocity either).
         const float reactive = it.reactive_value();
         if (motionOut) {
-            const float row[4] = {it.motion.x, it.motion.y, it.motion.z, reactive};
-            for (std::size_t v = 0, n = std::size_t(it.quadCount) * 4; v < n; ++v)
-                motionOut->insert(motionOut->end(), row, row + 4);
+            const std::size_t n = std::size_t(it.quadCount) * 4;
+            if (!it.turned) {  // every vertex moved as the origin did
+                const float row[4] = {it.motion.x, it.motion.y, it.motion.z, reactive};
+                for (std::size_t v = 0; v < n; ++v) motionOut->insert(motionOut->end(), row, row + 4);
+            } else {  // a rotation or a scale between the two frames: each vertex moved by its own amount (QuadItem::turn)
+                const Vertex2D* src = raw.data() + it.firstVert;
+                const Vec3 o = it.origin();
+                const float* k = it.turn;
+                for (std::size_t v = 0; v < n; ++v) {
+                    const float dx = src[v].x - o.x, dy = src[v].y - o.y, dz = src[v].z - o.z;
+                    const float row[4] = {it.motion.x + k[0] * dx + k[3] * dy + k[6] * dz,
+                                          it.motion.y + k[1] * dx + k[4] * dy + k[7] * dz,
+                                          it.motion.z + k[2] * dx + k[5] * dy + k[8] * dz, reactive};
+                    motionOut->insert(motionOut->end(), row, row + 4);
+                }
+            }
         }
         const bool plain = it.plain && !it.lit && it.blend != BlendMode::Multiply;
         const bool opaque = it.opaque && it.blend == BlendMode::Alpha;
