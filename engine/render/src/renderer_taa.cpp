@@ -109,8 +109,9 @@ TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, boo
 bool TaaFx::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
-    shaders_[int(Prog::Resolve)] = make_shader(dev, gpu::generated_shader_desc(taa_taa_shader_desc), "taa_resolve");
-    shaders_[int(Prog::Out)] = make_shader(dev, gpu::generated_shader_desc(taa_out_shader_desc), "taa_out");
+    shaders_[int(Prog::Resolve)] =
+        make_shader(dev, gpu::generated_shader_desc(dev, taa_taa_shader_desc), "taa_resolve");
+    shaders_[int(Prog::Out)] = make_shader(dev, gpu::generated_shader_desc(dev, taa_out_shader_desc), "taa_out");
     bool ok = true;
     for (gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {

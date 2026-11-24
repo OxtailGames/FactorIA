@@ -13,8 +13,9 @@
 // when given source) with one cached root signature per binding layout, graphics and compute pipelines with an
 // in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
 // scissors, draws and dispatches (M77-P7c1); GPU timers (timestamp queries) and asynchronous reads of buffers and
-// texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). Passes into the
-// window come in M77-P9.
+// texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). The renderer draws
+// through it offscreen (RendererDesc::backend D3d12, make_device); it has no window path yet (create_swapchain and a
+// pass into the window fail with a teaching error).
 #pragma once
 
 #include <cstddef>
@@ -39,6 +40,10 @@ struct D3d12Options {
     bool gpuValidation = false;
     // Frames the CPU may record ahead of the GPU: 1 to 3.
     int framesInFlight = kInflightFrames;
+    // A COMPUTE queue (Features::asyncCompute: QueueKind::Compute lists run on it) and a COPY queue
+    // (QueueKind::Transfer lists, the copy engine). False = only the direct queue, every list runs there
+    // (CommandList::queue() is Graphics), as when D3D12 cannot make them.
+    bool asyncQueues = true;
     // Pool sizes (buffers, images, views, samplers, shaders, pipelines) and the environment defaults (the default
     // colour and depth formats and the sample count of a swapchain pass).
     DeviceInit init{};
@@ -208,11 +213,30 @@ struct TrackedResource {
     // A buffer: the queue decays it to COMMON at the end of every ExecuteCommandLists and its first use in a list
     // promotes it implicitly, so it never needs a fix-up barrier (states[0] is COMMON between lists).
     bool buffer = false;
+    // The queue that owns it (a new resource: Graphics; a QueueHandoff at submit_token moves it) and the token the
+    // owner's next list must wait for before it touches it (invalid once a list of the owner waited for it). `states`
+    // is the owner queue's view. Under queueMutex_.
+    QueueKind owner = QueueKind::Graphics;
+    SyncToken handoff{};
+    std::string label;  // "buffer 'x'" or "image 'x'", for the ownership errors of submit_token
+    // What the errors call it: the label, or a default for a resource nothing named.
+    std::string display_name() const {
+        return !label.empty() ? label : buffer ? "an unnamed buffer" : "an unnamed image";
+    }
     std::uint32_t subresource(std::uint32_t mip, std::uint32_t layer, std::uint32_t plane) const {
         return mip + layer * mips + plane * mips * layers;
     }
     std::uint32_t subresource_count() const { return mips * layers * planes; }
 };
+
+// The D3D12 queue and command list type of a (mapped) queue.
+inline D3D12_COMMAND_LIST_TYPE list_type(QueueKind q) {
+    switch (q) {
+        case QueueKind::Compute: return D3D12_COMMAND_LIST_TYPE_COMPUTE;
+        case QueueKind::Transfer: return D3D12_COMMAND_LIST_TYPE_COPY;
+        default: return D3D12_COMMAND_LIST_TYPE_DIRECT;
+    }
+}
 
 // A fixed-size table of records with generation-counted 32-bit ids (sokol's scheme): id = generation << 16 | (index +
 // 1), so a destroyed id never names the next record of its slot.
@@ -453,8 +477,10 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    // The queue it runs on: the one begin_commands asked for, or the queue that stands in for it (map_queue).
+    QueueKind queue() const override { return kind_; }
 
-    // ---- the backend's side ------------------------------------------------------------------------------------------
+    // ---- the backend's side -----------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
     static constexpr std::uint32_t kAllSubresources = 0xFFFFFFFFu;
     void require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
@@ -483,7 +509,9 @@ private:
         std::vector<StateBits> first;    // the state the list needs at its start; kStateUnknown = not used
         std::vector<StateBits> current;  // the state the list leaves it in; kStateUnknown = not used
     };
-    Result<void> create(const char* what);
+    // Makes the allocator and the list of `kind`'s type (DIRECT, COMPUTE or COPY); a list made for another queue
+    // before is replaced, its fix-up list too.
+    Result<void> create(const char* what, QueueKind kind);
     // Opens the list for recording (its allocator's previous commands must be finished).
     Result<void> open(const char* label);
     void transition(Use& u, std::uint32_t sub, StateBits state);
@@ -515,15 +543,18 @@ private:
                      std::uint32_t height);
 
     D3d12Device& device_;
+    QueueKind kind_ = QueueKind::Graphics;  // the queue its allocator and list are made for
     Com<ID3D12CommandAllocator> allocator_;
     Com<ID3D12GraphicsCommandList> list_;
     Com<ID3D12CommandAllocator> fixupAllocator_;  // the fix-up list submit() records before this one
     Com<ID3D12GraphicsCommandList> fixup_;
+    // The tokens of other queues its work waits for (Device::wait_list; reset by open()), mapped to real queues.
+    std::vector<SyncToken> waits_;
     std::string label_;
     bool open_ = false;
     bool internal_ = false;        // the device's own list (initial uploads, readbacks), never handed out
     bool empty_ = true;            // no command recorded yet
-    std::uint64_t fence_ = 0;      // the fence value its last submission signals
+    std::uint64_t fence_ = 0;      // the value its last submission signals on its queue's fence
     std::uint64_t openFrame_ = 0;  // the frame it was opened in (it is submitted in the same one)
     int debugDepth_ = 0;
     std::vector<Use> uses_;
@@ -649,7 +680,10 @@ struct PipelineCacheFile {
 };
 
 // The Direct3D 12 Device. Made, used for resources and destroyed on one thread (the render thread); command lists may
-// be recorded on other threads (a mutex guards the queue, the pools and the rings).
+// be recorded on other threads (Features::multiThreadRecording: a mutex guards the queues, the pools and the rings, and
+// a list reads a view's CPU descriptor under the pools' lock). Three queues: direct (Graphics), compute (Compute) and
+// copy (Transfer), each with its own 64-bit fence (D3d12Options::asyncQueues; the contract is device.h's "Queues,
+// threads and bindless", this backend's side docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Queues").
 class D3d12Device final : public Device {
 public:
     static Result<std::unique_ptr<D3d12Device>> create(const D3d12Options& options);
@@ -690,8 +724,16 @@ public:
     // The root signature layout of a valid shader (tests check where each slot sits); null for a failed or unknown one.
     std::shared_ptr<const RootLayout> shader_root_layout(Shader shader) const;
 
+    using Device::begin_commands;
+    using Device::submit_token;
     CommandList& begin_commands(const char* label) override;
+    CommandList& begin_commands(const char* label, QueueKind queue) override;
     void submit(CommandList& list) override;
+    SyncToken submit_token(CommandList& list, std::span<const QueueHandoff> handoffs) override;
+    void wait_list(CommandList& list, SyncToken token) override;
+    void wait_queue(QueueKind queue, SyncToken token) override;
+    // The view's slot in the bindless table (t0 space1): every live Texture view of a device with a table has one.
+    std::uint32_t bindless_index(View view) const override;
     void commit() override;
     std::uint64_t frame_index() const override { return frame_; }
     bool add_commit_listener(void (*func)(void* user), void* user) override;
@@ -728,7 +770,7 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override;
 
-    // ---- D3D12 only (tests, M77-P9) ----------------------------------------------------------------------------------
+    // ---- D3D12 only (tests) -----------------------------------------------------------------------------------------
     // The asynchronous read of a texel region: mip `mip` of layer `layer` (array layer, cube face or 3D slice), the
     // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
     // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.
@@ -812,6 +854,11 @@ public:
     int timer_slots_busy() const;
     // Tests: the next timed frame to end is dropped, as when its resolve cannot be submitted (a failed Close).
     void drop_next_timed_frame();
+    // Tests: the timer slot the open timed frame holds (-1 = none open).
+    int timer_current_slot() const;
+    // Ticks per second of the compute queue's timestamps (0: no compute queue, or it cannot time; its lists' timed
+    // scopes are then not measured).
+    std::uint64_t compute_timestamp_frequency() const { return side_[0].timestampFrequency; }
 
 private:
     friend class D3d12CommandList;
@@ -840,6 +887,7 @@ private:
         int heap = -1;  // index into cpuHeaps_ (-1: no descriptor, a resolve attachment)
         std::uint32_t descriptor = kNoDescriptor;
         std::uint32_t uavDescriptor = kNoDescriptor;  // a storage buffer's UAV (its SRV is `descriptor`)
+        std::uint32_t bindless = kNoBindlessIndex;    // a Texture view's slot in the bindless table
     };
     struct SamplerRecord {
         std::uint32_t descriptor = kNoDescriptor;  // kNoDescriptor when the creation failed
@@ -860,6 +908,7 @@ private:
         int heap = -1;
         std::uint32_t descriptor = kNoDescriptor;
         std::uint32_t descriptor2 = kNoDescriptor;
+        std::uint32_t bindless = kNoBindlessIndex;  // a bindless slot: a null descriptor again, then free
         // The resources a submitted list used: alive until the frame it was submitted in is finished, whatever is
         // destroyed meanwhile.
         std::vector<std::shared_ptr<TrackedResource>> held;
@@ -873,17 +922,52 @@ private:
     Result<void> init(const D3d12Options& options);
     Result<void> init_adapter(const D3d12Options& options);
     void init_caps();
-    // A free command list (open for recording), from the pool or new; null with errors() when D3D12 failed.
-    D3d12CommandList* acquire_list(const char* label, bool internal);
-    // Closes `list`, executes its fix-up list and it, signals the fence. Under queueMutex_.
+    // The compute and copy queues (init, D3d12Options::asyncQueues); none when D3D12 cannot make them (logged).
+    void init_side_queues(bool wanted);
+    // A free command list for `kind` (a mapped queue), open for recording, from the pool or new; null with errors()
+    // when D3D12 failed. Under queueMutex_.
+    D3d12CommandList* acquire_list(const char* label, bool internal, QueueKind kind = QueueKind::Graphics);
+    // Closes `list`, executes its waits, its fix-up list and it on its queue, signals the queue's fence. Under
+    // queueMutex_.
     void execute(D3d12CommandList& list);
+    // Closes `list` without running it: its resources and upload buffers are released with the frame, its timed
+    // scopes give their slot back. Under queueMutex_.
+    void drop_list(D3d12CommandList& list);
+    // A list's timed scopes once it is closed: their slots count it no longer as open; when it `ran`, its queue writes
+    // them at its next signal and the scopes of the open timed frame are reported. Under queueMutex_ (takes
+    // timerMutex_).
+    void timer_list_done(D3d12CommandList& list, bool ran);
+    // submit()'s checks of a list the caller recorded (open, debug groups, pass, frame, the owner queue of every
+    // resource it uses, the handoffs it waits for); false (reported, the list dropped) when it must not run. Under
+    // queueMutex_.
+    bool check_submit(D3d12CommandList& list, const char* what);
+    // The queue that runs `q`'s lists here: Compute without a compute queue is Graphics, Transfer without a copy queue
+    // is Compute (or Graphics).
+    QueueKind map_queue(QueueKind q) const;
+    // A mapped queue's D3D12 queue, fence, last signalled value (queueMutex_) and completed value.
+    ID3D12CommandQueue* queue_of(QueueKind q) const;
+    ID3D12Fence* fence_of(QueueKind q) const;
+    std::uint64_t& fence_value(QueueKind q);
+    std::uint64_t completed_value(QueueKind q) const;
+    // Signals `q`'s fence with its next value, which it returns (reported on failure). Under queueMutex_.
+    std::uint64_t signal(QueueKind q, const char* what);
+    // Whether `token` (mapped) names a value its queue has signalled: a token a submit_token of this device returned.
+    // Under queueMutex_.
+    bool token_issued(SyncToken token) const;
+    // Makes queue `waiter` wait (on the GPU) for `token` (mapped, issued, of another queue) and remembers it. Under
+    // queueMutex_.
+    void queue_wait(QueueKind waiter, SyncToken token);
+    // Bindless slots (bindlessMutex_): a slot that holds a copy of the CPU descriptor `src`, or kNoBindlessIndex when
+    // the table is full or there is none; and a slot given back (a null descriptor first).
+    std::uint32_t take_bindless(D3D12_CPU_DESCRIPTOR_HANDLE src);
+    void free_bindless(std::uint32_t index);
     // The device's own list for initial uploads and readbacks, opened on first use. Under queueMutex_.
     D3d12CommandList& prelude();
     // Executes the prelude if it recorded anything. Under queueMutex_.
     void flush_prelude();
-    // Waits (bounded) until the fence reaches `value`. Under queueMutex_: every wait shares the one fence event, and
-    // two waiters at once would each take the other's signal.
-    Result<void> wait_fence(std::uint64_t value, const char* what);
+    // Waits (bounded) until the fence of queue `queue` (mapped) reaches `value`. Under queueMutex_: every wait shares
+    // the one fence event, and two waiters at once would each take the other's signal.
+    Result<void> wait_fence(std::uint64_t value, const char* what, QueueKind queue = QueueKind::Graphics);
     // Releases what the GPU is done with and gives the finished frames' ring room back. Under queueMutex_.
     void collect();
     void defer(Deferred d);
@@ -956,8 +1040,17 @@ private:
     Com<IDXGIAdapter1> adapter_;
     Com<ID3D12Device> device_;
     Com<ID3D12InfoQueue> infoQueue_;
-    Com<ID3D12CommandQueue> queue_;
+    Com<ID3D12CommandQueue> queue_;  // the direct queue (Graphics), with its fence
     Com<ID3D12Fence> fence_;
+    // The compute queue ([0], Compute) and the copy queue ([1], Transfer), each with a fence of its own; null when not
+    // made (map_queue then names the queue that runs their lists).
+    struct SideQueue {
+        Com<ID3D12CommandQueue> queue;
+        Com<ID3D12Fence> fence;
+        std::uint64_t value = 0;               // the last value signalled (queueMutex_)
+        std::uint64_t timestampFrequency = 0;  // the compute queue's (0: its lists' timed scopes are not measured)
+    };
+    std::array<SideQueue, 2> side_;
     HANDLE fenceEvent_ = nullptr;
     std::string adapterName_;
     bool warp_ = false;
@@ -992,13 +1085,14 @@ private:
     std::unordered_map<std::string, std::shared_ptr<const RootLayout>> rootLayouts_;
     std::unordered_map<std::string, Com<ID3D12PipelineState>> psos_;
     std::uint64_t psoHits_ = 0, psoMisses_ = 0, rootHits_ = 0;
-    std::uint32_t bindlessDescriptors_ = 0;  // the reserved range of viewHeap_ (0 = no bindless table)
+    std::uint32_t bindlessDescriptors_ = 0;  // the reserved range of viewHeap_ (0 = no bindless table; set by init)
     int bindingTier_ = 0;                    // D3D12_OPTIONS.ResourceBindingTier (1, 2 or 3)
     D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;  // the device's
     bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
 
     // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). libraryBlob_, the
-    // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded from it.
+    // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded
+    // from it.
     mutable std::mutex libraryMutex_;
     Com<ID3D12PipelineLibrary> library_;
     bool libraryDirty_ = false;  // holds PSOs the file does not
@@ -1025,9 +1119,15 @@ private:
         std::uint64_t serial = 0;      // the timed frame it holds
         std::uint64_t fence = 0;       // the fence value after its resolve
         std::vector<std::string> names;
-        std::vector<bool> submitted;  // scope i's list ran before timer_end_frame (else it is not reported)
+        std::vector<bool> submitted;        // scope i's list ran before timer_end_frame (else it is not reported)
+        std::vector<QueueKind> scopeQueue;  // the queue scope i's list ran on (its ticks are that queue's)
         // Held by a timed frame (open, or ended and waiting for its fence): timer_begin_frame takes a slot that is not.
         bool busy = false;
+        // Lists still open that wrote a query of this slot: submitted later, they would write it again, so the slot
+        // is not taken again before they are submitted or dropped, and each queue reached its last write (lastWrite).
+        int openLists = 0;
+        std::array<std::uint64_t, std::size_t(kQueueKinds)> lastWrite{};
+        std::uint64_t computeWait = 0;  // the compute fence value its frame's compute scopes end at (the resolve waits)
     };
     mutable std::mutex timerMutex_;
     bool timerOk_ = false;
@@ -1067,8 +1167,15 @@ private:
     D3d12CommandList* prelude_ = nullptr;
     std::uint64_t fenceValue_ = 0;
     std::uint64_t frame_ = 0;
-    std::uint64_t completedFrames_ = 0;  // frames [0, completedFrames_) are finished on the GPU
-    std::deque<std::pair<std::uint64_t, std::uint64_t>> frameFences_;  // (frame, fence value of its commit)
+    std::uint64_t completedFrames_ = 0;  // frames [0, completedFrames_) are finished on the GPU, on every queue
+    // A committed frame: the value of each queue's fence its work ends at (Graphics: its commit's signal).
+    struct FrameFence {
+        std::uint64_t frame = 0;
+        std::array<std::uint64_t, std::size_t(kQueueKinds)> values{};
+    };
+    std::deque<FrameFence> frameFences_;
+    // waited_[a][b]: the highest value of queue b's fence that queue a waited for (wait_list, wait_queue, handoffs).
+    std::array<std::array<std::uint64_t, std::size_t(kQueueKinds)>, std::size_t(kQueueKinds)> waited_{};
     std::deque<Deferred> deferred_;
     UploadRing ring_;
     std::atomic<std::uint64_t> dedicatedUploads_{0};
@@ -1077,8 +1184,15 @@ private:
     ShaderVisibleHeap samplerHeap_;
     std::vector<Listener> listeners_;
     // What begin_commands hands out when D3D12 gives no list: never opened, so it ignores every call (and holds no
-    // state, so every thread can share it).
+    // state, so every thread can share it). Its queue() is always Graphics, whatever queue
+    // begin_commands was asked for: a list that never runs has no queue.
     std::unique_ptr<D3d12CommandList> dead_;
+
+    // The bindless table's free slots (bindlessMutex_, taken last): slots [0, bindlessNext_) were handed out once,
+    // bindlessFree_ holds those given back.
+    mutable std::mutex bindlessMutex_;
+    std::uint32_t bindlessNext_ = 0;
+    std::vector<std::uint32_t> bindlessFree_;
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;

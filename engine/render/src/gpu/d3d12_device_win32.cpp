@@ -2,10 +2,12 @@
 // deferred releases, the capabilities, the statistics and the commit listeners
 // (docs/design/ARCHITECTURE_RENDERING_GPU.md, "D3D12 backend").
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <format>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -299,6 +301,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     if (!fenceEvent_)
         return make_error("gpu d3d12: CreateEventW failed (GetLastError " + std::to_string(GetLastError()) + ")",
                           "the process ran out of kernel handles");
+    init_side_queues(options.asyncQueues);
 
     const DeviceInit& in = options.init;
     buffers_.init(in.bufferPoolSize);
@@ -363,6 +366,11 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::D3d12);
     init_caps();
+    // Lists record on any thread (each its own allocator; the shared state is under locks), compute lists run on the
+    // compute queue, and every live Texture view has a slot in the bindless table when there is one.
+    features_.asyncCompute = bool(side_[0].queue);
+    features_.multiThreadRecording = true;
+    features_.bindless = bindlessDescriptors_ > 0;
     init_timer();
     pipelineCacheFile_ = options.pipelineCacheFile;
     init_pipeline_library();
@@ -679,54 +687,174 @@ D3d12Counters D3d12Device::counters() const {
 // The frame: lists, submission, fences, deferred releases
 // ---------------------------------------------------------------------------------------------------------------------
 
-D3d12CommandList* D3d12Device::acquire_list(const char* label, bool internal) {
+void D3d12Device::init_side_queues(bool wanted) {
+    if (!wanted) return;
+    const struct {
+        D3D12_COMMAND_LIST_TYPE type;
+        const char* what;
+        const char* queue;
+        const char* fence;
+    } want[2] = {
+        {D3D12_COMMAND_LIST_TYPE_COMPUTE, "compute", "fa-d3d12-compute-queue", "fa-d3d12-compute-fence"},
+        {D3D12_COMMAND_LIST_TYPE_COPY, "copy", "fa-d3d12-copy-queue", "fa-d3d12-copy-fence"},
+    };
+    for (std::size_t i = 0; i < side_.size(); ++i) {
+        SideQueue& s = side_[i];
+        D3D12_COMMAND_QUEUE_DESC qd{};
+        qd.Type = want[i].type;
+        HRESULT hr = device_->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), s.queue.put_void());
+        if (SUCCEEDED(hr))
+            hr = device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), s.fence.put_void());
+        if (FAILED(hr)) {
+            FA_WARN("render", "gpu d3d12: {} could not make its {} queue ({}): those lists run on another queue",
+                    adapterName_, want[i].what, hr_text(hr));
+            s.queue.reset();
+            s.fence.reset();
+            continue;
+        }
+        set_name(s.queue.get(), want[i].queue);
+        set_name(s.fence.get(), want[i].fence);
+    }
+    if (!side_[0].queue && side_[1].queue) {  // map_queue sends every list to the direct queue then: keep no idle one
+        side_[1].queue.reset();
+        side_[1].fence.reset();
+    }
+}
+
+QueueKind D3d12Device::map_queue(QueueKind q) const {
+    // No compute queue (asyncCompute is false): every queue is the graphics one, a copy queue made on its own too.
+    if (!side_[0].queue) return QueueKind::Graphics;
+    if (q == QueueKind::Transfer) {
+        if (side_[1].queue) return QueueKind::Transfer;
+        q = QueueKind::Compute;  // copies run on the compute queue just as well
+    }
+    if (q == QueueKind::Compute && side_[0].queue) return QueueKind::Compute;
+    return QueueKind::Graphics;
+}
+
+ID3D12CommandQueue* D3d12Device::queue_of(QueueKind q) const {
+    switch (map_queue(q)) {
+        case QueueKind::Compute: return side_[0].queue.get();
+        case QueueKind::Transfer: return side_[1].queue.get();
+        default: return queue_.get();
+    }
+}
+
+ID3D12Fence* D3d12Device::fence_of(QueueKind q) const {
+    switch (map_queue(q)) {
+        case QueueKind::Compute: return side_[0].fence.get();
+        case QueueKind::Transfer: return side_[1].fence.get();
+        default: return fence_.get();
+    }
+}
+
+std::uint64_t& D3d12Device::fence_value(QueueKind q) {
+    switch (map_queue(q)) {
+        case QueueKind::Compute: return side_[0].value;
+        case QueueKind::Transfer: return side_[1].value;
+        default: return fenceValue_;
+    }
+}
+
+std::uint64_t D3d12Device::completed_value(QueueKind q) const { return fence_of(q)->GetCompletedValue(); }
+
+std::uint64_t D3d12Device::signal(QueueKind q, const char* what) {
+    std::uint64_t& value = fence_value(q);
+    const HRESULT hr = queue_of(q)->Signal(fence_of(q), ++value);
+    if (FAILED(hr))
+        report(hr_error(std::string("ID3D12CommandQueue::Signal (") + what + ", the " + queue_name(map_queue(q)) +
+                            " queue)",
+                        hr, "the device was lost")
+                   .to_string() +
+               removed_reason());
+    return value;
+}
+
+bool D3d12Device::token_issued(SyncToken token) const {
+    if (!token.valid()) return false;
+    const QueueKind q = map_queue(token.queue);
+    const std::uint64_t last = q == QueueKind::Compute    ? side_[0].value
+                               : q == QueueKind::Transfer ? side_[1].value
+                                                          : fenceValue_;
+    return token.value <= last;
+}
+
+void D3d12Device::queue_wait(QueueKind waiter, SyncToken token) {
+    waiter = map_queue(waiter);
+    const QueueKind from = map_queue(token.queue);
+    if (!token.valid() || from == waiter) return;  // a queue's own order covers its tokens
+    std::uint64_t& seen = waited_[std::size_t(waiter)][std::size_t(from)];
+    if (token.value <= seen) return;
+    const HRESULT hr = queue_of(waiter)->Wait(fence_of(from), token.value);
+    if (FAILED(hr)) {
+        report(hr_error(std::string("ID3D12CommandQueue::Wait (the ") + queue_name(waiter) + " queue for the " +
+                            queue_name(from) + " queue's value " + std::to_string(token.value) + ")",
+                        hr, "the device was lost")
+                   .to_string() +
+               removed_reason());
+        return;
+    }
+    seen = token.value;
+}
+
+D3d12CommandList* D3d12Device::acquire_list(const char* label, bool internal, QueueKind kind) {
     collect();
+    kind = map_queue(kind);
+    auto ready = [&](D3d12CommandList& l) -> D3d12CommandList* {
+        if (auto r = l.open(label); !r) {
+            report(r.error().to_string());
+            return nullptr;
+        }
+        l.internal_ = internal;
+        l.openFrame_ = frame_;
+        return &l;
+    };
     for (;;) {
-        const std::uint64_t completed = fence_->GetCompletedValue();
+        const std::uint64_t completed = completed_value(kind);
         for (auto& l : lists_)
-            if (!l->open_ && l->fence_ <= completed) {
-                if (auto r = l->open(label); !r) {
+            if (!l->open_ && l->kind_ == kind && l->fence_ <= completed) return ready(*l);
+        if (lists_.size() < kMaxLists) break;
+        // The pool is full: a finished list of another queue is made again for this one.
+        for (auto& l : lists_)
+            if (!l->open_ && l->fence_ <= completed_value(l->kind_)) {
+                if (auto r = l->create(label, kind); !r) {
                     report(r.error().to_string());
                     return nullptr;
                 }
-                l->internal_ = internal;
-                l->openFrame_ = frame_;
-                return l.get();
+                return ready(*l);
             }
-        if (lists_.size() < kMaxLists) break;
-        // Every list is open or in flight: wait for the oldest submitted one.
-        std::uint64_t oldest = 0;
-        for (auto& l : lists_)
-            if (!l->open_ && (oldest == 0 || l->fence_ < oldest)) oldest = l->fence_;
-        if (oldest == 0) {
+        // Every list is open or in flight: wait for the oldest submitted one of this queue (else of any queue).
+        D3d12CommandList* oldest = nullptr;
+        for (int pass = 0; pass < 2 && !oldest; ++pass)
+            for (auto& l : lists_)
+                if (!l->open_ && (pass == 1 || l->kind_ == kind) && (!oldest || l->fence_ < oldest->fence_))
+                    oldest = l.get();
+        if (!oldest) {
             report("gpu d3d12: begin_commands: " + std::to_string(kMaxLists) +
                    " command lists are open and none was submitted (hint: submit() each list begin_commands() "
                    "returned)");
             return nullptr;
         }
-        if (auto r = wait_fence(oldest, "begin_commands (every command list is in flight)"); !r) {
+        if (auto r = wait_fence(oldest->fence_, "begin_commands (every command list is in flight)", oldest->kind_);
+            !r) {
             report(r.error().to_string());
             return nullptr;
         }
     }
     auto l = std::make_unique<D3d12CommandList>(*this);
-    if (auto r = l->create(label); !r) {
+    if (auto r = l->create(label, kind); !r) {
         report(r.error().to_string());
         return nullptr;
     }
-    if (auto r = l->open(label); !r) {
-        report(r.error().to_string());
-        return nullptr;
-    }
-    l->internal_ = internal;
-    l->openFrame_ = frame_;
     lists_.push_back(std::move(l));
-    return lists_.back().get();
+    return ready(*lists_.back());
 }
 
-CommandList& D3d12Device::begin_commands(const char* label) {
+CommandList& D3d12Device::begin_commands(const char* label) { return begin_commands(label, QueueKind::Graphics); }
+
+CommandList& D3d12Device::begin_commands(const char* label, QueueKind queue) {
     std::lock_guard<std::mutex> lock(queueMutex_);
-    if (D3d12CommandList* l = acquire_list(label ? label : "", false)) return *l;
+    if (D3d12CommandList* l = acquire_list(label ? label : "", false, queue)) return *l;
     // D3D12 could not give a list (reported): hand out the one that ignores everything, so the frame goes on.
     return *dead_;
 }
@@ -744,83 +872,225 @@ void D3d12Device::flush_prelude() {
     }
 }
 
-void D3d12Device::submit(CommandList& l) {
+void D3d12Device::submit(CommandList& l) { (void)submit_token(l, {}); }
+
+SyncToken D3d12Device::submit_token(CommandList& l, std::span<const QueueHandoff> handoffs) {
     auto* list = dynamic_cast<D3d12CommandList*>(&l);
     if (!list || &list->device_ != this) {
         report("gpu d3d12: submit: the list was not made by this device (hint: submit the list begin_commands() of "
                "this device returned)");
-        return;
+        return {};
+    }
+    // The handoffs' resources, looked up before queueMutex_ (the lookups take resMutex_).
+    struct Move {
+        std::shared_ptr<TrackedResource> res;
+        QueueKind to = QueueKind::Graphics;
+    };
+    std::vector<Move> moves;
+    moves.reserve(handoffs.size());
+    for (std::size_t i = 0; i < handoffs.size(); ++i) {
+        const QueueHandoff& h = handoffs[i];
+        const std::string at =
+            "gpu d3d12: submit_token: handoff " + std::to_string(i) + " of list '" + list->label_ + "'";
+        if (h.image.valid() == h.buffer.valid()) {
+            report(at + " names " + (h.image.valid() ? "both an image and a buffer" : "no resource") +
+                   " (hint: set exactly one of QueueHandoff::image and QueueHandoff::buffer)");
+            continue;
+        }
+        Move m;
+        m.to = map_queue(h.to);
+        if (h.buffer.valid()) {
+            m.res = buffer_tracked(h.buffer, nullptr, nullptr);
+        } else if (ImageRecord rec; image_info(h.image, rec)) {
+            m.res = rec.tracked;
+        }
+        if (!m.res) {
+            report(at + " names a " + (h.image.valid() ? "destroyed image" : "destroyed buffer") +
+                   " (hint: hand a resource over before destroying it)");
+            continue;
+        }
+        moves.push_back(std::move(m));
     }
     std::lock_guard<std::mutex> lock(queueMutex_);
     if (!list->open_) {
         if (list->list_)  // the dead list of a failed begin_commands() needs no second report
             report("gpu d3d12: submit: list '" + list->label_ +
                    "' is not open (hint: submit each list once; take a new one with begin_commands())");
-        return;
+        return {};
     }
-    if (list->debugDepth_ != 0) {
-        report("gpu d3d12: submit: list '" + list->label_ + "' still has " + std::to_string(list->debugDepth_) +
+    const QueueKind kind = list->kind_;
+    const std::uint64_t before = fence_value(kind);
+    if (check_submit(*list, "submit")) {
+        std::vector<Move*> moving;
+        for (Move& m : moves) {
+            if (m.res->owner != kind) {
+                report("gpu d3d12: submit_token: list '" + list->label_ + "' (the " + queue_name(kind) +
+                       " queue) hands over " + m.res->display_name() + ", which the " + queue_name(m.res->owner) +
+                       " queue owns (hint: a resource is handed over by a list of the queue that owns it; it stays "
+                       "where it is)");
+                continue;
+            }
+            if (m.to == kind) continue;  // stays on this queue
+            // The destination queue type takes a texture from COMMON (buffers are COMMON between lists anyway).
+            if (!m.res->buffer) list->require(m.res, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+            moving.push_back(&m);
+        }
+        flush_prelude();  // the initial uploads of resources this list may use go first
+        execute(*list);
+        if (list->fence_ > before)
+            for (Move* m : moving) {
+                m->res->owner = m->to;
+                m->res->handoff = SyncToken{kind, list->fence_};
+            }
+    }
+    // A list that did not run still gives a token its consumers can wait for.
+    const std::uint64_t value = list->fence_ > before ? list->fence_ : signal(kind, "submit");
+    return SyncToken{kind, value};
+}
+
+bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
+    const std::string at = std::string("gpu d3d12: ") + what + ": list '" + list.label_ + "'";
+    if (list.debugDepth_ != 0) {
+        report(at + " still has " + std::to_string(list.debugDepth_) +
                " debug group(s) open (hint: pop_debug_group() once for each push_debug_group())");
-        for (; list->debugDepth_ > 0; --list->debugDepth_) list->list_->EndEvent();
+        for (; list.debugDepth_ > 0; --list.debugDepth_) list.list_->EndEvent();
     }
-    if (list->passState_ != PassState::None) {
-        report("gpu d3d12: submit: list '" + list->label_ +
-               "' is still inside a pass (hint: end_pass() before submit(); it was ended here)");
-        list->end_pass();
+    if (list.passState_ != PassState::None) {
+        report(at + " is still inside a pass (hint: end_pass() before submit(); it was ended here)");
+        list.end_pass();
     }
-    if (list->openFrame_ != frame_) {
+    if (list.openFrame_ != frame_) {
         // Its uniforms and descriptors are in the ring room and the descriptor segment of the frame it was opened in,
         // which commit() handed back to the frames after it: running it could read what a later frame wrote there.
-        report("gpu d3d12: submit: list '" + list->label_ + "' was begun in frame " + std::to_string(list->openFrame_) +
-               " and submitted in frame " + std::to_string(frame_) +
+        report(at + " was begun in frame " + std::to_string(list.openFrame_) + " and submitted in frame " +
+               std::to_string(frame_) +
                "; it was dropped (hint: submit() every list in the frame begin_commands() returned it, before "
                "commit())");
-        list->list_->Close();
-        list->open_ = false;
-        list->uses_.clear();
-        list->useIndex_.clear();
-        list->pending_.clear();
-        for (Com<ID3D12Resource>& r : list->keep_) {
-            Deferred d;
-            d.frame = frame_;
-            d.raw = std::move(r);
-            deferred_.push_back(std::move(d));
-        }
-        list->keep_.clear();
-        return;
+        drop_list(list);
+        return false;
     }
-    flush_prelude();  // the initial uploads of resources this list may use go first
-    execute(*list);
+    for (auto it = list.waits_.begin(); it != list.waits_.end();) {
+        if (token_issued(*it)) {
+            ++it;
+            continue;
+        }
+        report(at + " waits for value " + std::to_string(it->value) + " of the " + queue_name(it->queue) +
+               " queue, which no submit_token() of this device returned; the wait was dropped (hint: wait_list() "
+               "only for a token submit_token() returned, after that call)");
+        it = list.waits_.erase(it);
+    }
+    const QueueKind kind = list.kind_;
+    for (const D3d12CommandList::Use& u : list.uses_) {
+        const TrackedResource& t = *u.res;
+        if (t.owner == kind) continue;
+        const char* owner = queue_name(t.owner);
+        report(at + " runs on the " + queue_name(kind) + " queue and uses " + t.display_name() + ", which the " +
+               owner + " queue owns; the list was dropped (hint: the last " + owner +
+               " list that uses it hands it over with submit_token(list, {QueueHandoff{..., QueueKind::" +
+               (kind == QueueKind::Compute    ? "Compute"
+                : kind == QueueKind::Transfer ? "Transfer"
+                                              : "Graphics") +
+               "}}), and this list waits for that token with wait_list())");
+        drop_list(list);
+        return false;
+    }
+    for (const D3d12CommandList::Use& u : list.uses_) {
+        const TrackedResource& t = *u.res;
+        if (!t.handoff.valid() || !token_issued(t.handoff)) continue;  // never wait for a value nothing signals
+        const QueueKind from = map_queue(t.handoff.queue);
+        bool covered = waited_[std::size_t(kind)][std::size_t(from)] >= t.handoff.value;
+        for (const SyncToken& w : list.waits_)
+            if (map_queue(w.queue) == from && w.value >= t.handoff.value) covered = true;
+        if (covered) continue;
+        report(at + " uses " + t.display_name() + ", which the " + queue_name(from) +
+               " queue handed over to it, without waiting for that handoff's token; the wait was added (hint: "
+               "wait_list(list, token) with the token the producer's submit_token() returned)");
+        list.waits_.push_back(t.handoff);
+    }
+    return true;
+}
+
+void D3d12Device::timer_list_done(D3d12CommandList& list, bool ran) {
+    if (list.scopes_.empty()) return;
+    std::lock_guard<std::mutex> lock(timerMutex_);
+    const QueueKind kind = list.kind_;
+    for (std::size_t i = 0; i < list.scopes_.size(); ++i) {
+        const D3d12CommandList::ScopeRef& s = list.scopes_[i];
+        if (s.slot < 0) continue;
+        TimerSlot& slot = timerSlots_[std::size_t(s.slot)];
+        const bool first = std::none_of(list.scopes_.begin(), list.scopes_.begin() + std::ptrdiff_t(i),
+                                        [&](const D3d12CommandList::ScopeRef& o) { return o.slot == s.slot; });
+        if (first) {
+            if (slot.openLists > 0) --slot.openLists;
+            if (ran) {
+                std::uint64_t& last = slot.lastWrite[std::size_t(kind)];
+                last = std::max(last, list.fence_);
+            }
+        }
+        // The scopes of the timed frame still open run before its end: timer_end_frame reports them. Only once the
+        // list ran, and only scopes of the frame their slot holds now.
+        if (!ran || s.slot != timerCurrent_ || slot.serial != s.serial) continue;
+        if (s.scope < slot.submitted.size()) slot.submitted[s.scope] = true;
+        if (kind == QueueKind::Compute) slot.computeWait = std::max(slot.computeWait, list.fence_);
+    }
+    list.scopes_.clear();
+}
+
+void D3d12Device::drop_list(D3d12CommandList& list) {
+    if (list.list_) list.list_->Close();
+    list.open_ = false;
+    list.scopeOpen_ = false;
+    timer_list_done(list, false);
+    list.uses_.clear();
+    list.useIndex_.clear();
+    list.pending_.clear();
+    list.waits_.clear();
+    for (Com<ID3D12Resource>& r : list.keep_) {
+        Deferred d;
+        d.frame = frame_;
+        d.raw = std::move(r);
+        deferred_.push_back(std::move(d));
+    }
+    list.keep_.clear();
 }
 
 void D3d12Device::execute(D3d12CommandList& list) {
+    const QueueKind kind = list.kind_;
+    // The device's own lists (uploads, readbacks: graphics) may touch what another queue owns: they leave its textures
+    // in COMMON, which every queue type takes, and the owner queue goes on from there.
+    std::array<bool, std::size_t(kQueueKinds)> foreign{};
+    if (list.internal_) {
+        for (std::size_t i = 0; i < list.uses_.size(); ++i) {
+            const std::shared_ptr<TrackedResource> t = list.uses_[i].res;
+            if (t->owner == kind) continue;
+            foreign[std::size_t(t->owner)] = true;
+            if (!t->buffer) list.require(t, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+        }
+    }
     list.flush_barriers();
     if (list.scopeOpen_) list.close_scope();  // a timed scope left open ends with its list
     list.open_ = false;
     HRESULT hr = list.list_->Close();
-    if (SUCCEEDED(hr) && !list.scopes_.empty()) {
-        // The scopes of the timed frame still open run before its end: timer_end_frame reports them. Only once the
-        // list closed (a list that fails to close never runs), and only scopes of the frame their slot holds now (a
-        // list kept open over kTimerSlots timed frames names a slot another frame took since: stale, skipped).
-        std::lock_guard<std::mutex> lock(timerMutex_);
-        for (const D3d12CommandList::ScopeRef& s : list.scopes_) {
-            if (s.slot != timerCurrent_ || s.slot < 0) continue;
-            TimerSlot& slot = timerSlots_[std::size_t(s.slot)];
-            if (slot.serial == s.serial && s.scope < slot.submitted.size()) slot.submitted[s.scope] = true;
-        }
-    }
-    list.scopes_.clear();
     if (FAILED(hr)) {
         report(hr_error("ID3D12GraphicsCommandList::Close of '" + list.label_ + "'", hr,
                         "the debug layer's message before this one names the command that was wrong")
                    .to_string() +
                removed_reason());
+        timer_list_done(list, false);
         list.uses_.clear();
         list.useIndex_.clear();
         list.keep_.clear();
+        list.waits_.clear();
         drain_messages();
         return;
     }
+    // The waits go first: on the queue, everything submitted after them (the fix-up list too) waits.
+    for (const SyncToken& w : list.waits_) queue_wait(kind, w);
+    list.waits_.clear();
+    for (int q = 0; q < kQueueKinds; ++q)
+        if (foreign[std::size_t(q)]) queue_wait(kind, SyncToken{QueueKind(q), fence_value(QueueKind(q))});
+    for (const D3d12CommandList::Use& u : list.uses_)
+        if (list.internal_ && u.res->owner == kind) queue_wait(kind, u.res->handoff);
     // The fix-up barriers: from the state the queue leaves each resource in to the state the list starts with. Not for
     // buffers: the queue decayed them to COMMON and their first use promotes them (a COMMON -> state barrier would
     // also be one the debug layer checks against a state it promoted itself, BEFORE_AFTER_MISMATCH #527).
@@ -844,10 +1114,10 @@ void D3d12Device::execute(D3d12CommandList& list) {
     if (!fix.empty()) {
         bool ok = true;
         if (!list.fixup_) {
-            hr = device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+            hr = device_->CreateCommandAllocator(list_type(kind), __uuidof(ID3D12CommandAllocator),
                                                  list.fixupAllocator_.put_void());
             if (SUCCEEDED(hr))
-                hr = device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, list.fixupAllocator_.get(), nullptr,
+                hr = device_->CreateCommandList(0, list_type(kind), list.fixupAllocator_.get(), nullptr,
                                                 __uuidof(ID3D12GraphicsCommandList), list.fixup_.put_void());
             if (SUCCEEDED(hr)) hr = list.fixup_->Close();
             ok = SUCCEEDED(hr);
@@ -869,16 +1139,22 @@ void D3d12Device::execute(D3d12CommandList& list) {
         }
     }
     lists[n++] = list.list_.get();
-    queue_->ExecuteCommandLists(n, lists);
-    // What the list leaves each resource in; buffers decay to COMMON once the queue finished ExecuteCommandLists.
+    queue_of(kind)->ExecuteCommandLists(n, lists);
+    // What the list leaves each resource in. Buffers decay to COMMON once the queue finished ExecuteCommandLists,
+    // and so does everything a copy queue touched.
     Deferred held;
     held.frame = frame_;
     held.held.reserve(list.uses_.size());
     for (D3d12CommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
+        const bool decays = t.buffer || kind == QueueKind::Transfer;
         for (std::size_t s = 0; s < u.current.size(); ++s)
             if (u.current[s] != kStateUnknown)
-                t.states[s] = t.buffer ? StateBits(D3D12_RESOURCE_STATE_COMMON) : u.current[s];
+                t.states[s] = decays ? StateBits(D3D12_RESOURCE_STATE_COMMON) : u.current[s];
+        // A handoff this queue waited for is done with.
+        if (t.owner == kind && t.handoff.valid() &&
+            waited_[std::size_t(kind)][std::size_t(map_queue(t.handoff.queue))] >= t.handoff.value)
+            t.handoff = {};
         held.held.push_back(std::move(u.res));
     }
     // The resources stay alive until the frame it was submitted in is finished, even when destroyed meanwhile.
@@ -892,10 +1168,43 @@ void D3d12Device::execute(D3d12CommandList& list) {
         deferred_.push_back(std::move(d));
     }
     list.keep_.clear();
-    hr = queue_->Signal(fence_.get(), ++fenceValue_);
-    if (FAILED(hr))
-        report(hr_error("ID3D12CommandQueue::Signal", hr, "the device was lost").to_string() + removed_reason());
-    list.fence_ = fenceValue_;
+    list.fence_ = signal(kind, "execute");
+    timer_list_done(list, true);
+    // What it touched of another queue's: that queue waits for it before its next work.
+    for (int q = 0; q < kQueueKinds; ++q)
+        if (foreign[std::size_t(q)]) queue_wait(QueueKind(q), SyncToken{kind, list.fence_});
+}
+
+void D3d12Device::wait_list(CommandList& l, SyncToken token) {
+    auto* list = dynamic_cast<D3d12CommandList*>(&l);
+    if (!list || &list->device_ != this) {
+        report("gpu d3d12: wait_list: the list was not made by this device (hint: pass a list begin_commands() of this "
+               "device returned)");
+        return;
+    }
+    if (!list->open_) {
+        if (list->list_)
+            report("gpu d3d12: wait_list: list '" + list->label_ +
+                   "' is not open (hint: wait_list() between begin_commands() and submit())");
+        return;
+    }
+    if (!token.valid()) return;
+    token.queue = map_queue(token.queue);
+    if (token.queue == list->kind_) return;  // the queue's own order covers it
+    list->waits_.push_back(token);           // checked (issued?) and executed at submit
+}
+
+void D3d12Device::wait_queue(QueueKind queue, SyncToken token) {
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    if (!token.valid()) return;
+    if (!token_issued(token)) {
+        report("gpu d3d12: wait_queue: the " + std::string(queue_name(map_queue(queue))) +
+               " queue would wait for value " + std::to_string(token.value) + " of the " + queue_name(token.queue) +
+               " queue, which no submit_token() of this device returned; ignored (hint: wait only for a token "
+               "submit_token() returned)");
+        return;
+    }
+    queue_wait(queue, token);
 }
 
 void D3d12Device::commit() {
@@ -907,19 +1216,26 @@ void D3d12Device::commit() {
             if (l->open_ && !l->internal_)
                 report("gpu d3d12: commit: list '" + l->label_ +
                        "' was not submitted (hint: submit() every list begin_commands() returned before commit())");
-        HRESULT hr = queue_->Signal(fence_.get(), ++fenceValue_);
-        if (FAILED(hr))
-            report(hr_error("ID3D12CommandQueue::Signal (commit)", hr, "the device was lost").to_string() +
-                   removed_reason());
-        frameFences_.emplace_back(frame_, fenceValue_);
+        // The frame ends where every queue is now (the graphics queue at a signal of its own).
+        FrameFence ended;
+        ended.frame = frame_;
+        ended.values[std::size_t(QueueKind::Graphics)] = signal(QueueKind::Graphics, "commit");
+        ended.values[std::size_t(QueueKind::Compute)] = side_[0].value;
+        ended.values[std::size_t(QueueKind::Transfer)] = side_[1].value;
+        frameFences_.push_back(ended);
         ring_.end_frame(frame_);
         ++frame_;
         // The frame that starts now reuses the slot (descriptor segment, ring room) of frame_ - framesInFlight_.
         if (frame_ >= std::uint64_t(framesInFlight_)) {
             const std::uint64_t old = frame_ - std::uint64_t(framesInFlight_);
-            for (const auto& [frame, value] : frameFences_)
-                if (frame == old) {
-                    if (auto r = wait_fence(value, "commit (frames in flight)"); !r) report(r.error().to_string());
+            for (const FrameFence& f : frameFences_)
+                if (f.frame == old) {
+                    for (int q = 0; q < kQueueKinds; ++q)
+                        if (f.values[std::size_t(q)] > 0)
+                            if (auto r =
+                                    wait_fence(f.values[std::size_t(q)], "commit (frames in flight)", QueueKind(q));
+                                !r)
+                                report(r.error().to_string());
                     break;
                 }
         }
@@ -934,22 +1250,24 @@ void D3d12Device::commit() {
     for (const Listener& l : calls) l.func(l.user);
 }
 
-Result<void> D3d12Device::wait_fence(std::uint64_t value, const char* what) {
-    std::uint64_t completed = fence_->GetCompletedValue();
+Result<void> D3d12Device::wait_fence(std::uint64_t value, const char* what, QueueKind queue) {
+    ID3D12Fence* fence = fence_of(queue);
+    std::uint64_t completed = fence->GetCompletedValue();
     if (completed == UINT64_MAX)
         return make_error(std::string("gpu d3d12: ") + what + ": the GPU device was lost" + removed_reason(),
                           "the debug layer (D3d12Options::debugLayer) usually says which command caused it");
     if (completed >= value) return {};
-    const HRESULT hr = fence_->SetEventOnCompletion(value, fenceEvent_);
+    const HRESULT hr = fence->SetEventOnCompletion(value, fenceEvent_);
     if (FAILED(hr))
         return hr_error(std::string("ID3D12Fence::SetEventOnCompletion (") + what + ")", hr,
                         "the device was lost" + removed_reason());
     const DWORD r = WaitForSingleObject(fenceEvent_, kFenceWaitMs);
-    completed = fence_->GetCompletedValue();
+    completed = fence->GetCompletedValue();
     if (r != WAIT_OBJECT_0 || completed == UINT64_MAX || completed < value)
-        return make_error(std::string("gpu d3d12: ") + what + ": the GPU did not reach fence value " +
-                              std::to_string(value) + " within " + std::to_string(kFenceWaitMs / 1000) +
-                              " s (it is at " + std::to_string(completed) + ")" + removed_reason(),
+        return make_error(std::string("gpu d3d12: ") + what + ": the " + queue_name(map_queue(queue)) +
+                              " queue did not reach fence value " + std::to_string(value) + " within " +
+                              std::to_string(kFenceWaitMs / 1000) + " s (it is at " + std::to_string(completed) + ")" +
+                              removed_reason(),
                           "the GPU hung or the device was lost: run with D3d12Options::debugLayer for the cause");
     return {};
 }
@@ -957,9 +1275,13 @@ Result<void> D3d12Device::wait_fence(std::uint64_t value, const char* what) {
 Result<void> D3d12Device::wait_idle() {
     std::lock_guard<std::mutex> lock(queueMutex_);
     flush_prelude();
-    const HRESULT hr = queue_->Signal(fence_.get(), ++fenceValue_);
-    if (FAILED(hr)) return hr_error("ID3D12CommandQueue::Signal (wait_idle)", hr, "the device was lost");
-    auto r = wait_fence(fenceValue_, "wait_idle");
+    Result<void> r;
+    for (int q = 0; q < kQueueKinds; ++q) {
+        const auto kind = QueueKind(q);
+        if (map_queue(kind) != kind) continue;  // no such queue: its lists ran on another one
+        const std::uint64_t value = signal(kind, "wait_idle");
+        if (auto w = wait_fence(value, "wait_idle", kind); !w && r) r = w;
+    }
     collect();
     if (r) {
         // The GPU finished everything submitted: what waits for the open frame can go too (a list still recording
@@ -976,20 +1298,66 @@ void D3d12Device::release(Deferred& d) {
         if (d.descriptor2 != kNoDescriptor) cpuHeaps_[std::size_t(d.heap)].free(d.descriptor2);
     }
     d.heap = -1;
+    if (d.bindless != kNoBindlessIndex) free_bindless(d.bindless);
+    d.bindless = kNoBindlessIndex;
 }
 
 void D3d12Device::collect() {
-    const std::uint64_t completed = fence_->GetCompletedValue();
-    if (completed == UINT64_MAX) return;  // device lost: keep everything (the destructor drops it)
-    while (!frameFences_.empty() && frameFences_.front().second <= completed) {
-        completedFrames_ = frameFences_.front().first + 1;
-        ring_.frame_done(frameFences_.front().first);
+    // A frame is finished once every queue reached the value its work ended at.
+    std::array<std::uint64_t, std::size_t(kQueueKinds)> completed{};
+    for (int q = 0; q < kQueueKinds; ++q) {
+        completed[std::size_t(q)] = completed_value(QueueKind(q));
+        if (completed[std::size_t(q)] == UINT64_MAX) return;  // device lost: keep everything (the destructor drops it)
+    }
+    auto done = [&](const FrameFence& f) {
+        for (int q = 0; q < kQueueKinds; ++q)
+            if (f.values[std::size_t(q)] > completed[std::size_t(q)]) return false;
+        return true;
+    };
+    while (!frameFences_.empty() && done(frameFences_.front())) {
+        completedFrames_ = frameFences_.front().frame + 1;
+        ring_.frame_done(frameFences_.front().frame);
         frameFences_.pop_front();
     }
     while (!deferred_.empty() && deferred_.front().frame < completedFrames_) {
         release(deferred_.front());
         deferred_.pop_front();
     }
+}
+
+std::uint32_t D3d12Device::take_bindless(D3D12_CPU_DESCRIPTOR_HANDLE src) {
+    const ShaderVisibleHeap::Span table = viewHeap_.reserved();
+    if (!table.ok()) return kNoBindlessIndex;
+    std::uint32_t index = kNoBindlessIndex;
+    std::lock_guard<std::mutex> lock(bindlessMutex_);
+    if (!bindlessFree_.empty()) {
+        index = bindlessFree_.back();
+        bindlessFree_.pop_back();
+    } else if (bindlessNext_ < table.count) {
+        index = bindlessNext_++;
+    } else {
+        return kNoBindlessIndex;
+    }
+    // The root signatures are version 1.0 (descriptors volatile): a slot no running list reads may be written now.
+    D3D12_CPU_DESCRIPTOR_HANDLE at = table.cpu;
+    at.ptr += SIZE_T(index) * viewHeap_.increment();
+    device_->CopyDescriptorsSimple(1, at, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    return index;
+}
+
+void D3d12Device::free_bindless(std::uint32_t index) {
+    const ShaderVisibleHeap::Span table = viewHeap_.reserved();
+    if (!table.ok() || index >= table.count) return;
+    D3D12_SHADER_RESOURCE_VIEW_DESC none{};
+    none.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    none.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    none.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    none.Texture2D.MipLevels = 1;
+    D3D12_CPU_DESCRIPTOR_HANDLE at = table.cpu;
+    at.ptr += SIZE_T(index) * viewHeap_.increment();
+    std::lock_guard<std::mutex> lock(bindlessMutex_);
+    device_->CreateShaderResourceView(nullptr, &none, at);  // a shader that still indexes it reads zero
+    bindlessFree_.push_back(index);
 }
 
 void D3d12Device::defer(Deferred d) {

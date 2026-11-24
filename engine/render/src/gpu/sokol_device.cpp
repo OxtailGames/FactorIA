@@ -1699,3 +1699,74 @@ void SokolDevice::release_buffer_read(ReadTicket ticket) {
 }
 
 }  // namespace fa::gpu
+
+namespace fa::gpu {
+
+// ---- the window: sokol_app's swapchain ------------------------------------------------------------------------------
+
+Result<void> SokolDevice::create_swapchain(const SwapchainDesc& desc) {
+    check_thread("Device::create_swapchain");
+    if (swapchain_)
+        return make_error("gpu: create_swapchain on a device that has one already",
+                          "call destroy_swapchain() first, or resize_swapchain() for a new size");
+    if (desc.width < 0 || desc.height < 0 || desc.sampleCount < 1)
+        return make_error("gpu: create_swapchain with a size of " + std::to_string(desc.width) + "x" +
+                              std::to_string(desc.height) + " and " + std::to_string(desc.sampleCount) + " samples",
+                          "the size is 0 (the window's) or more, the sample count 1 or more");
+    std::string why;
+    if (!swapchain_format_supported(desc.colorFormat, &why))
+        return make_error("gpu: create_swapchain: " + why, "ask for PixelFormat::Default (the SDR format)");
+    swapchainDesc_ = desc;
+    swapchainDesc_.label = nullptr;  // not kept: the caller's string need not outlive the call
+    swapchain_ = true;
+    return {};
+}
+
+Result<void> SokolDevice::resize_swapchain(int width, int height) {
+    check_thread("Device::resize_swapchain");
+    if (!swapchain_) return make_error("gpu: resize_swapchain without a swapchain", "call create_swapchain() first");
+    if (width < 0 || height < 0)
+        return make_error("gpu: resize_swapchain to " + std::to_string(width) + "x" + std::to_string(height),
+                          "the size is 0 (the window's) or more");
+    swapchainDesc_.width = width;  // sokol_app resized the real one already (it owns the window's swapchain)
+    swapchainDesc_.height = height;
+    return {};
+}
+
+Result<Swapchain> SokolDevice::acquire_swapchain(const Swapchain& windowFrame) {
+    check_thread("Device::acquire_swapchain");
+    if (!swapchain_) return make_error("gpu: acquire_swapchain without a swapchain", "call create_swapchain() first");
+    return windowFrame;  // the frame's surface as sokol_app gave it (gpu::swapchain_of(GfxSwapchain))
+}
+
+Result<void> SokolDevice::present() {
+    check_thread("Device::present");
+    if (!swapchain_) return make_error("gpu: present without a swapchain", "call create_swapchain() first");
+    return {};  // sokol_app presents after the frame callback; commit() ended the frame
+}
+
+void SokolDevice::destroy_swapchain() {
+    swapchain_ = false;
+    swapchainDesc_ = SwapchainDesc{};
+}
+
+bool SokolDevice::has_swapchain() const { return swapchain_; }
+
+bool SokolDevice::swapchain_format_supported(PixelFormat format, std::string* why) const {
+    if (format == PixelFormat::Default) return true;
+    if (sg_isvalid() && format == from_sg(sg_query_desc().environment.defaults).colorFormat) return true;
+    // The HDR swapchains the platform layer makes: RGBA16F for EDR (Metal) and scRGB (D3D11), RGB10A2 for HDR10 (D3D11,
+    // single-sampled). GL presents through the window system's default framebuffer, which is SDR.
+    const bool d3d11 = info_.backend == Backend::D3d11, metal = info_.backend == Backend::Metal;
+    if (format == PixelFormat::Rgba16F && (d3d11 || metal)) return true;
+    if (format == PixelFormat::Rgb10A2 && d3d11) return true;
+    if (why)
+        *why = std::string("the ") + backend_name(info_.backend) + " swapchain does not take " +
+               pixel_format_name(format) +
+               (d3d11   ? " (it takes RGBA16F for scRGB and RGB10A2 for HDR10)"
+                : metal ? " (it takes RGBA16F for EDR)"
+                        : " (it presents SDR only)");
+    return false;
+}
+
+}  // namespace fa::gpu

@@ -32,6 +32,9 @@ NativeDevice context_native();
 EnvironmentDefaults context_defaults();
 // The engine's description of the window's swapchain `sc` (its images, formats and native objects).
 Swapchain swapchain_of(const GfxSwapchain& sc);
+// The default formats and sample count of the window's environment `env` (what Default means in its swapchain pass),
+// for a device that does not run on the sokol context (RendererDesc::backend D3d12, Vulkan, Recording).
+EnvironmentDefaults environment_defaults_of(const GfxEnvironment& env);
 
 // Begins / ends a pass directly on the open context. Only for a pass that can run while no Device exists
 // (Renderer::present_clear runs before the renderer is made, and the window passes share it); everything else begins

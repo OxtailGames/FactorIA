@@ -8,13 +8,33 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
+  `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
+  a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is
+  dropped with an error that names the handoff to add). `features()` now says `asyncCompute`, `multiThreadRecording` (lists record on any
+  thread) and `bindless` (every live texture view has a slot of the bindless table, `bindless_index`). Compute lists' timed scopes are
+  measured, copy lists' are ignored, and a list kept open no longer lets the timer ring reuse its slot. On binding tier 1 a writable view
+  that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The
   backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
   `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
-  the device was lost. The renderer
-  will turn the file on when it draws through D3D12 (from M77-P9).
+  the device was lost. A renderer on D3D12 (`RendererDesc::backend`, M77-P9b) uses the file.
+- The renderer draws through the device `RendererDesc::backend` names (`GpuBackend`, M77-P9b): `Default` is the platform's sokol
+  backend as before; `D3d12` (Windows) and `Vulkan` draw offscreen (`headless`) on the engine's own backends, and `Recording` on
+  none (tests). Asked for a window they fail `init()` with an error that says to draw offscreen or pick the sokol backend (their
+  swapchains come later); a backend the build lacks names the one it has. Each built-in shader is taken in the device's dialect
+  (`gpu::generated_shader_desc(device, ...)`), `gpu_info().backend` names the device's backend ("d3d12", "vulkan"), the window goes
+  through a swapchain interface of the device (create, acquire, present, resize, the HDR format question), and
+  `UiPainter::create(Renderer&, error)` paints where the renderer draws (its device, or on the sokol backend a device of its own over
+  the same context). `FA_RENDER_VULKAN` (`AUTO`, worked out at every configure: ON on Windows; on Linux, Android and macOS only in a
+  build with the tests, so the suite draws on lavapipe and MoltenVK; OFF on iOS and the web) compiles the SPIR-V of the built-in
+  shaders (about 3.4 MB) into `fa_render`: the Windows player now carries it, with D3D11, D3D12 and Vulkan in one binary, and its
+  size budget grew with it; the Linux, Android, Apple and web players do not. A test draws a 2D and a 3D frame on Vulkan and on the
+  sokol backend and compares them. The renderer now gives every pipeline explicit vertex offsets (the
+  per-buffer packing of sokol_gfx, `gpu::resolve_vertex_offsets`), says `vertexBuffer` on its mesh and UI vertex buffers, and binds
+  only the slots the lean 2D program declares, which the stricter backends ask for.
 - The editor draws its interface through a public 2D painter of the renderer, `fa::render::UiPainter` (`fa/render/ui_painter.h`): triangle lists
   with a texture and a scissor rectangle per command, pictures made by `make_texture`, the game's picture from `Renderer::game_target_texture()`
   (it replaces `game_target_image_id()` / `game_target_view_id()`). The editor no longer calls sokol_gfx or sokol_imgui, and the screenshots
@@ -24,9 +44,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   and probe reads) go through the private GPU interface, `gpu::Device`.
 - Shaders for the Vulkan backend (M77): `tools/shaders/compile_shaders.sh` also asks sokol-shdc for `spirv_vk`, so every built-in
   shader (the compute Hi-Z one too) has its SPIR-V in the generated headers, behind `#if defined(SOKOL_VULKAN) ||
-  defined(FA_SHADERS_SPIRV)`: no other backend's player carries a byte of it (the headers grow by a quarter, 75 MB to 95 MB in the
-  repository). The pinned sokol-shdc already supports it, so the pin does not move. Nothing in the player reads the SPIR-V yet.
-- The engine's own Vulkan backend draws and computes (M77, for its tests and tools; the renderer does not run on it yet): shaders from
+  defined(FA_SHADERS_SPIRV)`, which only a build that can run the renderer on Vulkan sets (`FA_RENDER_VULKAN`,
+  above); the headers grow by a quarter, 75 MB to 95 MB in the repository. The pinned sokol-shdc already supports it, so the pin
+  does not move.
+- The engine's own Vulkan backend draws and computes (M77; the renderer runs on it offscreen, above): shaders from
   sokol-shdc's SPIR-V with its descriptor sets (uniform blocks in set 0, views and samplers in set 1, the bindless table in set 2),
   cached set layouts, pipeline layouts, render passes and pipelines over a `VkPipelineCache`, render and compute passes with
   load/store/clear and MSAA resolve, viewports, scissors, bindings, uniforms, indexed and instanced draws with a base vertex, and
@@ -75,6 +96,7 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   1.3.0 (pinned SHA-256) and keeps the two x64 DLLs; a Windows `--release` export with `export.pack.directStorage` copies them next
   to the executable, or warns to run that command and still succeeds. The Windows CI job checks the GDeflate test vectors against
   DirectStorage's own codec both ways. docs/design/ARCHITECTURE_FILES.md, "DirectStorage".
+- DirectStorage reads of game.pak no longer wait for ever when every one of the 32 read slots has been taken out of use (Windows could not make an event): the read fails with an error that says what to do, and the pack is read on the CPU.
 - **DirectStorage writes into D3D12 buffers and textures (M77):** the D3D12 backend's `read_pack_to_buffer` and `read_pack_to_image`
   read a range of a `game.pak` file into a buffer or a texture region and return a ticket that is polled. A gdeflate file goes through
   DirectStorage on a queue tied to the device, so GDeflate is decompressed on the GPU where the GPU can; DirectStorage writes in the

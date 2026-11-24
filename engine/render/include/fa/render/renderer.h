@@ -104,6 +104,14 @@ std::string mesh_template_hash();
 // twins' "template".
 std::string mesh_full_template_hash();
 
+// The GPU backend a renderer draws through (RendererDesc::backend). Default = the sokol backend this binary was built
+// with (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, GLES3 on Android, WebGL2 on the web): the only one with
+// a window path for now. D3d12 (Windows) and Vulkan (Linux, Windows, Android; macOS through MoltenVK in a build with
+// the tests) are the engine's own backends: they draw offscreen only (RendererDesc::headless) until their swapchains
+// land, and init() fails with a teaching error where they are not built or there is no such GPU. Recording draws on no
+// GPU at all (it validates and records every call: tests).
+enum class GpuBackend : std::uint8_t { Default, Gl, Gles3, WebGl2, D3d11, Metal, D3d12, Vulkan, Recording };
+
 struct RendererDesc {
     int designWidth = 1280;
     int designHeight = 720;
@@ -114,6 +122,10 @@ struct RendererDesc {
     // (close_context() closes it). Ignored (a normal init) when no context is open. A context that is open when init() runs
     // is never closed by shutdown(), with this flag or without it.
     bool adoptContext = false;
+    // The GPU backend (GpuBackend). A sokol one (Default, or the one this binary was built with) runs on the sokol
+    // context as above; any other sokol backend is an init() error. D3d12, Vulkan and Recording make a device of their
+    // own and never open, adopt or close the sokol context; without `headless` init() fails (no window path yet).
+    GpuBackend backend = GpuBackend::Default;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -767,7 +779,8 @@ public:
     struct Impl;
 
 private:
-    friend struct RendererTestAccess;  // tests (src/renderer_test_access.h)
+    friend struct RendererTestAccess;    // tests (src/renderer_test_access.h)
+    friend struct RendererDeviceAccess;  // the renderer's GPU device for fa_render's own code (src/render_internal.h)
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;

@@ -299,6 +299,23 @@ TEST_CASE("directstorage: a read ends with its status entry, and an event before
     CHECK(early.error().hint.find("factoria setup directstorage") != std::string::npos);
 }
 
+TEST_CASE("directstorage: with every status slot retired a read fails with an error that says what to do") {
+    DirectSlotRetirement slots(3);
+    CHECK_FALSE(slots.exhausted());
+    slots.retire();
+    slots.retire();
+    CHECK_FALSE(slots.exhausted());  // one slot left: reads still wait for it
+    slots.retire();
+    CHECK(slots.exhausted());
+    CHECK(slots.retired() == 3);
+    slots.retire();  // never counts past the slots
+    CHECK(slots.retired() == 3);
+    const Error e = direct_slots_exhausted_error(32);
+    CHECK(e.message.find("all 32 status slots") != std::string::npos);
+    CHECK(e.hint.find("FA_DIRECTSTORAGE=0") != std::string::npos);
+    CHECK(e.hint.find("read on the CPU") != std::string::npos);
+}
+
 TEST_CASE("directstorage: a texture request's box is whole 4x4 blocks of a compressed mip's physical size") {
     SUBCASE("a 2x2 mip of BC1: one block row of one 8-byte block, the box 0..4 x 0..4") {
         const std::vector<DirectBlock> blocks{{16, 8, true}};

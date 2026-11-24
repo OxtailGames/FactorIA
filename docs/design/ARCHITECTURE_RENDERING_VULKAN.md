@@ -5,7 +5,9 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 (loader, device, memory, resources, barriers, transfers, descriptors, readbacks), M77-P8c the shaders, pipelines,
 passes, draws and dispatches, M77-P8b1 the GPU timers, the asynchronous reads and the synchronization fixes that
 lavapipe's synchronization validation asks for, M77-P8b2 the pipeline cache on disk, the descriptor pool chains, the
-eviction of the caches, the framebuffer cache and the SPIR-V checks. Passes into the window are M77-P9's.
+eviction of the caches, the framebuffer cache and the SPIR-V checks. M77-P9b lets the renderer draw through it
+offscreen (`RendererDesc::backend = GpuBackend::Vulkan`, [ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md),
+"The renderer on its backend"); the window (its swapchain) is a later package.
 
 ## Where it is built
 
@@ -16,8 +18,11 @@ where `make_vulkan_device` returns a teaching error. The sources compile with `V
 Khronos headers (`external/vulkan_headers`) and link no Vulkan library: the loader is opened at run time
 (`libvulkan.so.1`, `vulkan-1.dll`, `libvulkan.1.dylib` with the Homebrew prefixes on macOS, or
 `VulkanOptions::loaderPath`), so a binary on a system without Vulkan starts and the error says what to install. There is
-no volk and no VMA. `make_device(Backend::Vulkan)` still answers "not built yet" until the renderer can run on it;
-tests and tools make it with `make_vulkan_device(VulkanOptions)`.
+no volk and no VMA. `make_device(Backend::Vulkan)` makes it (`DeviceInit` and the other options at their defaults)
+where `FA_RENDER_VULKAN` is on: the renderer's built-in shaders need their SPIR-V, which that option compiles into
+`fa_render` (by default ON on Windows; on Linux, Android and macOS only in a build with the tests; never on iOS or
+the web).
+Tests make it with `make_vulkan_device(VulkanOptions)`.
 
 ## The core (M77-P8a)
 
@@ -227,6 +232,8 @@ sees such bytes. `tools/shaders/compile_shaders.sh` asks for
 `spirv_vk` for every built-in shader and opens the guard of its SPIR-V to `FA_SHADERS_SPIRV` next to `SOKOL_VULKAN`: a
 translation unit that drives this backend while sokol runs another one defines `FA_SHADERS_SPIRV` before including a
 generated header and calls `<program>_shader_desc(SG_BACKEND_VULKAN)`; every other translation unit carries none of it.
+`fa_render` defines it where `FA_RENDER_VULKAN` is on, and `generated_shader_desc(device, ...)` asks a Vulkan device's
+headers for `SG_BACKEND_VULKAN`.
 A custom material's `spirv_vk` twin keeps each stage in base64 (`custom_shader.cpp`'s dialect for `Backend::Vulkan`);
 `render::make_shader` (`shader_cache.cpp`) decodes the stages given as text into bytecode before the device sees them,
 and a stage that is not base64 of whole 32-bit words goes to the device as it is, which reports it. There is no disk
@@ -346,7 +353,9 @@ A texture view and a storage image view of one subresource in the same dispatch 
 refused at the dispatch with the mip and layer and what to do instead (bind another mip or layer, read the storage
 image in the shader, or copy the image).
 
-**Not yet.** M77-P9: a pass into the window, and the renderer's path for the pipeline cache file.
+**Not yet.** The window: a pass into it reports an error, and `create_swapchain` and the calls after it fail with the
+`Device` default's teaching error (draw offscreen, or pick the sokol backend). `make_device(Backend::Vulkan)` makes the
+device with its options at their defaults, so the renderer's path for the pipeline cache file is still to come.
 
 ## Tests
 
