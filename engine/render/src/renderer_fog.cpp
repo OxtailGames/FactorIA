@@ -45,8 +45,7 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 void draw_fullscreen(FogFx& fx, Gpu& gpu, gpu::CommandList& list, FogFx::Prog prog, const PassDesc& pd, gpu::View tc,
                      gpu::View tp, const void* fu, std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return;  // the target of the pass is gone
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part->x, part->y, part->w, part->h, true);
         list.set_scissor(part->x, part->y, part->w, part->h, true);
@@ -234,8 +233,8 @@ gpu::Pipeline FogFx::pipeline(gpu::Device& device, Prog prog, const TargetFormat
     d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;
-    d.depth.pixelFormat = gpu::from_sg(format.depth);
-    d.colors[0].pixelFormat = gpu::from_sg(format.color);
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
     d.sampleCount = format.samples;
     d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Fog || prog == Prog::Add) {
@@ -316,7 +315,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     if (!plan.shafts || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
-    const sg_pixel_format fmt = gpu.scene_format();
+    const gpu::PixelFormat fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
     const int hw = std::max(1, (rw + 1) / 2), hh = std::max(1, (rh + 1) / 2);
     const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
@@ -330,8 +329,9 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     ha.height = hh;
     // One channel of rays: R16F where the GPU renders to and samples it (half the memory), else RGBA16F.
     const gpu::PixelFormatCaps r16 = gpu.device().pixel_format_caps(gpu::PixelFormat::R16F);
-    ha.format = TargetFormat{r16.render && r16.sample && r16.filter ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F,
-                             SG_PIXELFORMAT_NONE, 1};
+    ha.format =
+        TargetFormat{r16.render && r16.sample && r16.filter ? gpu::PixelFormat::R16F : gpu::PixelFormat::Rgba16F,
+                     gpu::PixelFormat::None, 1};
     ha.label = job + "/shafts-half";
     if (doShafts) {
         if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) {
@@ -364,7 +364,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     TransientTargets* tt = &targets;
     auto tex = [tt](const PassContext& c, ResourceId r) {
         const Target* t = tt->get(c.handle(r));
-        return t ? gpu::from_sg(t->texView) : gpu::View{};
+        return t ? t->texView : gpu::View{};
     };
     auto add = [&](const char* name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass gp;
@@ -382,15 +382,15 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     const PostRectUv ruv = post_rect_uv(rectIn, picW, picH);
     const float gl = gpu.is_gl() ? 1.0f : 0.0f;
     // The pass that draws into the camera's rectangle of the picture, keeping what is there (the shafts add to it).
-    const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     auto into_picture = [dst, dstFormat](const char* label) {
         PassDesc pd;
         pd.label = label;
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
+        pd.colorLoad = gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
         return pd;
     };
 
@@ -419,9 +419,9 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             const Target* ht = tt->get(c.handle(half));
             if (!pt || !ht || !srcTex.id) return;
             PassDesc pd = pass_into(*ht, "shafts-rays");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
+            pd.colorLoad = gpu::LoadAction::DontCare;
             draw_fullscreen(*self, *g, c.commands() ? *c.commands() : g->commands(), Prog::Rays, pd, srcTex,
-                            gpu::from_sg(pt->texView), &u, sizeof(u), nullptr);
+                            pt->texView, &u, sizeof(u), nullptr);
             ++*drawCalls;
         });
         add("shafts-add", {half, game}, {game}, [=](const PassContext& c) {

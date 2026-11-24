@@ -46,7 +46,7 @@ XmitLayout xmit_layout(int w, int h);
 struct XmitImages {
     std::uint64_t atlas = 0;
     std::uint64_t reduced[kXmitMaxLevels]{};  // the images of levels 1.., index = level
-    sg_view atlasView{};
+    gpu::View atlasView{};
     int levels = 0;
 };
 

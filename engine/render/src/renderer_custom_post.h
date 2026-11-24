@@ -67,7 +67,7 @@ struct CustomPostEntry {
         0;  // how many entries before it in the plan use the same material: with the material, which history slot it is
     float params[kMaxMaterialParams][4]{};
     int textureCount = 0;
-    sg_view views[kMaxMaterialTextures]{};
+    gpu::View views[kMaxMaterialTextures]{};
     SamplerKind samplers[kMaxMaterialTextures]{};
 };
 
@@ -155,8 +155,8 @@ public:
     // places); `time`: the game clock; `copier`: draws the copy of a one-pass chain. Each pass adds one to *drawCalls
     // when it runs. Returns the number of passes declared (0: nothing is drawn).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, SceneFx& copier, const CustomPostPlan& plan,
-                   std::uint32_t slots, const PostRect& rect, int picW, int picH, ResourceId game, sg_view srcTex,
-                   const BloomTarget& dst, sg_pixel_format format, const PrepassRef& prepass, bool linear, float time,
+                   std::uint32_t slots, const PostRect& rect, int picW, int picH, ResourceId game, gpu::View srcTex,
+                   const BloomTarget& dst, gpu::PixelFormat format, const PrepassRef& prepass, bool linear, float time,
                    int* drawCalls, std::vector<std::string>& fallbacks, const std::string& job);
 
     // Forgets that creating the intermediate images failed (the game target was resized or recreated) and frees every
@@ -191,7 +191,7 @@ private:
     struct HistorySlot {
         Target img[2];
         int w = 0, h = 0;
-        sg_pixel_format format = SG_PIXELFORMAT_NONE;
+        gpu::PixelFormat format = gpu::PixelFormat::None;
         std::uint64_t camera = 0, serial = 0, planned = 0, scene = 0;
         int last = 0;        // the image the pass wrote in frame `serial`
         bool wrote = false;  // it did
@@ -203,13 +203,13 @@ private:
     // camera, job, material path, how many entries before it use the same material
     using HistoryKey = std::tuple<std::uint64_t, int, std::string, int>;
     std::shared_ptr<HistorySlot> plan_history(const CustomHistoryFrame& hf, const HistoryKey& key, int w, int h,
-                                              sg_pixel_format format, const std::string& label);
+                                              gpu::PixelFormat format, const std::string& label);
     std::map<HistoryKey, std::shared_ptr<HistorySlot>> history_;
     // The slots whose images the GPU refused, with the shape (w, h, format) it refused: plan_history does not try them
     // again until the shape changes or forget_targets.
     struct RefusedShape {
         int w = 0, h = 0;
-        sg_pixel_format format = SG_PIXELFORMAT_NONE;
+        gpu::PixelFormat format = gpu::PixelFormat::None;
         std::uint64_t seq = 0;  // when it was refused: the oldest is the one dropped at the cap
     };
     std::map<HistoryKey, RefusedShape> historyRefused_;

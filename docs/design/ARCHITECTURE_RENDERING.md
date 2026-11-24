@@ -43,7 +43,7 @@ pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_re
 `runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
 may leave behind (temporary ones, pruning) is `fa/core/screenshot_files.h`. Pipelines (`Gpu`, `gpu.cpp`) are keyed by what
 they draw (the getter's flags, a custom material program) AND by the `TargetFormat` of the pass they draw into (colour format,
-depth format, sample count; `gpu_types.h`): every getter has an overload taking that format (`quad_pipeline(format, ...)`) and
+depth format, sample count; `gpu/types.h`): every getter has an overload taking that format (`quad_pipeline(format, ...)`) and
 a thin wrapper for the usual target (`scene_target_format()` for quads, meshes and the sky). So the same program in an RGBA8 and
 an RGBA16F target, or with 1 and 4 samples, are two entries of one cache, and nothing is flushed when a format changes (the
 RGBA16F fall-back above, a float render target). The cache is bounded by use: `begin_frame()` counts frames, and once it holds more

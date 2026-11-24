@@ -880,7 +880,7 @@ sg_environment to_sg(const Environment& e) {
     return s;
 }
 
-// The same body as render::PassDesc::to_sg() (gpu_types.h), so a converted call site begins the same sokol pass.
+// The sokol pass of a PassDesc: how a pass reaches sg_begin_pass.
 sg_pass to_sg(const PassDesc& p) {
     sg_pass s{};
     s.action.colors[0].load_action = to_sg(p.colorLoad);
@@ -980,46 +980,10 @@ ResourceTotals from_sg(const sg_total_resource_stats& t) {
     return o;
 }
 
-TargetFormat from_render(const render::TargetFormat& f) {
-    TargetFormat o;
-    o.color = from_sg(f.color);
-    o.depth = from_sg(f.depth);
-    o.samples = f.samples;
-    o.color1 = from_sg(f.color1);
-    return o;
-}
-
-render::TargetFormat to_render(const TargetFormat& f) {
-    render::TargetFormat o;
-    o.color = to_sg(f.color);
-    o.depth = to_sg(f.depth);
-    o.samples = f.samples;
-    o.color1 = to_sg(f.color1);
-    return o;
-}
-
-PassDesc from_render(const render::PassDesc& p, Swapchain& swapchain) {
-    PassDesc o;
-    o.label = p.label;
-    o.color = from_sg(p.color);
-    o.color1 = from_sg(p.color1);
-    o.resolve = from_sg(p.resolve);
-    o.depth = from_sg(p.depth);
-    if (p.swapchain) {
-        swapchain = from_sg(*p.swapchain);
-        o.swapchain = &swapchain;
-    }
-    o.format = from_render(p.format);
-    o.colorLoad = from_sg(p.colorLoad);
-    o.colorStore = from_sg(p.colorStore);
-    o.clearColor = from_sg(p.clearColor);
-    o.clearColor1 = from_sg(p.clearColor1);
-    o.depthLoad = from_sg(p.depthLoad);
-    o.clearDepth = p.clearDepth;
-    o.stencilLoad = from_sg(p.stencilLoad);
-    o.depthStore = from_sg(p.depthStore);
-    o.stencilStore = from_sg(p.stencilStore);
-    return o;
+PassDesc swapchain_pass(const Swapchain& sc) {
+    EnvironmentDefaults d{};
+    if (sg_isvalid()) d = from_sg(sg_query_desc().environment.defaults);
+    return PassDesc::for_swapchain(sc, d);
 }
 
 ShaderDesc generated_shader_desc(GeneratedShader fn) {

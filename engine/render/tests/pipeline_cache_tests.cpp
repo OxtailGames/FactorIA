@@ -47,16 +47,16 @@ struct GpuGuard {
 
 // The colour formats of the cache cases that can be rendered into: one colour-filter pipeline each, no depth.
 std::vector<render::TargetFormat> color_formats() {
-    const sg_pixel_format colors[] = {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_BGRA8, SG_PIXELFORMAT_RGB10A2,
-                                      SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_RGBA32F};
+    const gpu::PixelFormat colors[] = {gpu::PixelFormat::Rgba8, gpu::PixelFormat::Bgra8, gpu::PixelFormat::Rgb10A2,
+                                       gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Rgba32F};
     std::vector<render::TargetFormat> formats;
-    for (sg_pixel_format c : colors)
-        if (sg_query_pixelformat(c).render) formats.push_back({c, SG_PIXELFORMAT_NONE, 1});
+    for (gpu::PixelFormat c : colors)
+        if (sg_query_pixelformat(gpu::to_sg(c)).render) formats.push_back({c, gpu::PixelFormat::None, 1});
     return formats;
 }
 
-bool can_render(sg_pixel_format f, bool msaa = false) {
-    const sg_pixelformat_info i = sg_query_pixelformat(f);
+bool can_render(gpu::PixelFormat f, bool msaa = false) {
+    const sg_pixelformat_info i = sg_query_pixelformat(gpu::to_sg(f));
     return i.render && i.blend && (!msaa || i.msaa);
 }
 
@@ -79,18 +79,18 @@ TEST_CASE("pipeline cache: the number of pipelines is the same from one frame to
 }
 
 TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process with nothing flushed") {
-    gfx();                                      // the sokol context
-    if (!can_render(SG_PIXELFORMAT_RGBA16F)) {  // a GPU without float targets has no second format to compare
+    gfx();                                         // the sokol context
+    if (!can_render(gpu::PixelFormat::Rgba16F)) {  // a GPU without float targets has no second format to compare
         MESSAGE("RGBA16F cannot be rendered into with blending on this GPU: the two-format comparison is skipped");
-        CHECK(can_render(SG_PIXELFORMAT_RGBA8));  // at least the first format is there
+        CHECK(can_render(gpu::PixelFormat::Rgba8));  // at least the first format is there
         return;
     }
     render::Gpu gpu;
     GpuGuard guard(gpu);
     std::string error;
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
-    const render::TargetFormat f8{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
-    const render::TargetFormat f16{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
+    const render::TargetFormat f8{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
+    const render::TargetFormat f16{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::DepthStencil, 1};
     sg_pipeline q8 = gpu.quad_pipeline(f8, false, false);
     CHECK(sg_query_pipeline_state(q8) == SG_RESOURCESTATE_VALID);
     const std::size_t one = gpu.pipeline_count();
@@ -105,7 +105,7 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
     gpu.set_scene_pick(0);  // the chain of a gamma scene starts with RGBA16F here
     CHECK(gpu.quad_pipeline(false, false).id == q16.id);
     REQUIRE(gpu.next_scene_format());  // the fall-back to RGBA8: a new key, not a flush
-    CHECK(gpu.scene_format() == SG_PIXELFORMAT_RGBA8);
+    CHECK(gpu.scene_format() == gpu::PixelFormat::Rgba8);
     CHECK(gpu.quad_pipeline(false, false).id == q8.id);
     CHECK(gpu.pipeline_count() == one + 1);
     CHECK(sg_query_pipeline_state(q16) == SG_RESOURCESTATE_VALID);
@@ -113,17 +113,17 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
 
 TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
     gfx();
-    if (!can_render(SG_PIXELFORMAT_RGBA8, true)) {
+    if (!can_render(gpu::PixelFormat::Rgba8, true)) {
         MESSAGE("RGBA8 cannot be multisampled on this GPU: the sample-count comparison is skipped");
-        CHECK(can_render(SG_PIXELFORMAT_RGBA8));
+        CHECK(can_render(gpu::PixelFormat::Rgba8));
         return;
     }
     render::Gpu gpu;
     GpuGuard guard(gpu);
     std::string error;
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
-    const render::TargetFormat one{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
-    const render::TargetFormat four{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 4};
+    const render::TargetFormat one{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
+    const render::TargetFormat four{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 4};
     sg_pipeline m1 = gpu.mesh_pipeline(one, false, false);
     sg_pipeline m4 = gpu.mesh_pipeline(four, false, false);
     CHECK(sg_query_pipeline_state(m1) == SG_RESOURCESTATE_VALID);
@@ -133,8 +133,8 @@ TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
     CHECK(gpu.mesh_pipeline(four, false, false).id == m4.id);
     // The bloom stages do the same without a depth attachment.
     if (gpu.bloom_ready()) {
-        const render::TargetFormat b1{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
-        const render::TargetFormat b4{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 4};
+        const render::TargetFormat b1{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1};
+        const render::TargetFormat b4{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 4};
         CHECK(gpu.bloom_pipeline(render::BloomStage::Composite, b1).id !=
               gpu.bloom_pipeline(render::BloomStage::Composite, b4).id);
     }

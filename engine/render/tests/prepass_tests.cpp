@@ -925,7 +925,8 @@ TEST_CASE("prepass (split screen): the graph has one prepass per camera that nee
 TEST_CASE("postprocess (split screen): each camera adapts its own exposure, by camera and not by place in the frame") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false)
+        return;  // the measure needs float targets
     auto build = [](World& w, bool stacks, bool swapped) {
         w.settings().colorSpace = ColorSpace::Linear;
         add_camera(w, {0, 0, 10});

@@ -14,6 +14,7 @@
 #include "gpu/recording_device.h"
 #include "gpu/sokol_device.h"
 #include "gpu_types.h"
+#include "render_internal.h"
 #include "render_features.h"
 #include "shaders/blit.glsl.h"
 #include "test_util.h"
@@ -244,54 +245,44 @@ TEST_CASE("gpu interface: handles, enums and descs convert to sokol unchanged") 
     CHECK(sback.texture_sampler_pairs[0].view_slot == blit->texture_sampler_pairs[0].view_slot);
 }
 
-TEST_CASE("gpu interface: to_sg(PassDesc) is render::PassDesc::to_sg") {
-    auto same = [](const sg_pass& a, const sg_pass& b) {
-        for (int i = 0; i < 2; ++i) {
-            CHECK(a.action.colors[i].load_action == b.action.colors[i].load_action);
-            CHECK(a.action.colors[i].store_action == b.action.colors[i].store_action);
-            CHECK(std::memcmp(&a.action.colors[i].clear_value, &b.action.colors[i].clear_value, sizeof(sg_color)) == 0);
-            CHECK(a.attachments.colors[i].id == b.attachments.colors[i].id);
-        }
-        CHECK(a.attachments.resolves[0].id == b.attachments.resolves[0].id);
-        CHECK(a.attachments.depth_stencil.id == b.attachments.depth_stencil.id);
-        CHECK(a.action.depth.load_action == b.action.depth.load_action);
-        CHECK(a.action.depth.store_action == b.action.depth.store_action);
-        CHECK(a.action.depth.clear_value == b.action.depth.clear_value);
-        CHECK(a.action.stencil.load_action == b.action.stencil.load_action);
-        CHECK(a.action.stencil.store_action == b.action.stencil.store_action);
-        CHECK(a.swapchain.width == b.swapchain.width);
-        CHECK(a.swapchain.height == b.swapchain.height);
-        CHECK(a.swapchain.sample_count == b.swapchain.sample_count);
-        CHECK(a.swapchain.color_format == b.swapchain.color_format);
-        CHECK(a.swapchain.depth_format == b.swapchain.depth_format);
-        CHECK(std::string(a.label ? a.label : "") == std::string(b.label ? b.label : ""));
-    };
-
-    fa::render::PassDesc off;
+TEST_CASE("gpu interface: to_sg(PassDesc) maps both colour attachments, the actions and a swapchain") {
+    PassDesc off;
     off.label = "subsurface";
-    off.color = sg_view{3};
-    off.color1 = sg_view{4};
-    off.resolve = sg_view{5};
-    off.depth = sg_view{6};
-    off.format.color = SG_PIXELFORMAT_RGBA16F;
-    off.format.color1 = SG_PIXELFORMAT_RG16F;
-    off.format.depth = SG_PIXELFORMAT_DEPTH_STENCIL;
+    off.color = View{3};
+    off.color1 = View{4};
+    off.resolve = View{5};
+    off.depth = View{6};
+    off.format.color = PixelFormat::Rgba16F;
+    off.format.color1 = PixelFormat::Rg16F;
+    off.format.depth = PixelFormat::DepthStencil;
     off.format.samples = 4;
-    off.colorLoad = SG_LOADACTION_CLEAR;
-    off.colorStore = SG_STOREACTION_DONTCARE;
-    off.clearColor = sg_color{0.25f, 0.5f, 0.75f, 1.0f};
-    off.clearColor1 = sg_color{-1.0f, 2.0f, 0.0f, 0.0f};
-    off.depthLoad = SG_LOADACTION_CLEAR;
+    off.colorLoad = LoadAction::Clear;
+    off.colorStore = StoreAction::DontCare;
+    off.clearColor = Color{0.25f, 0.5f, 0.75f, 1.0f};
+    off.clearColor1 = Color{-1.0f, 2.0f, 0.0f, 0.0f};
+    off.depthLoad = LoadAction::Clear;
     off.clearDepth = 0.0f;
-    off.stencilLoad = SG_LOADACTION_CLEAR;
-    off.depthStore = SG_STOREACTION_STORE;
-    off.stencilStore = SG_STOREACTION_DONTCARE;
-    Swapchain unused;
-    const PassDesc g = from_render(off, unused);
-    CHECK(g.swapchain == nullptr);
-    CHECK(g.format == from_render(off.format));
-    CHECK(to_render(g.format) == off.format);
-    same(to_sg(g), off.to_sg());
+    off.stencilLoad = LoadAction::Clear;
+    off.depthStore = StoreAction::Store;
+    off.stencilStore = StoreAction::DontCare;
+    const sg_pass p = to_sg(off);
+    for (int i = 0; i < 2; ++i) {
+        CHECK(p.action.colors[i].load_action == SG_LOADACTION_CLEAR);
+        CHECK(p.action.colors[i].store_action == SG_STOREACTION_DONTCARE);
+    }
+    CHECK(p.action.colors[0].clear_value.g == doctest::Approx(0.5f));
+    CHECK(p.action.colors[1].clear_value.r == doctest::Approx(-1.0f));
+    CHECK(p.action.colors[1].clear_value.g == doctest::Approx(2.0f));
+    CHECK(p.attachments.colors[0].id == 3);
+    CHECK(p.attachments.colors[1].id == 4);
+    CHECK(p.attachments.resolves[0].id == 5);
+    CHECK(p.attachments.depth_stencil.id == 6);
+    CHECK(p.action.depth.load_action == SG_LOADACTION_CLEAR);
+    CHECK(p.action.depth.clear_value == 0.0f);
+    CHECK(p.action.depth.store_action == SG_STOREACTION_STORE);
+    CHECK(p.action.stencil.load_action == SG_LOADACTION_CLEAR);
+    CHECK(p.action.stencil.store_action == SG_STOREACTION_DONTCARE);
+    CHECK(std::string(p.label) == "subsurface");
 
     sg_swapchain sc{};
     sc.width = 1280;
@@ -303,16 +294,66 @@ TEST_CASE("gpu interface: to_sg(PassDesc) is render::PassDesc::to_sg") {
     defaults.color_format = SG_PIXELFORMAT_BGRA8;
     defaults.depth_format = SG_PIXELFORMAT_DEPTH_STENCIL;
     defaults.sample_count = 1;
-    fa::render::PassDesc win = fa::render::PassDesc::for_swapchain(sc, defaults);
+    const Swapchain converted = from_sg(sc);
+    PassDesc win = PassDesc::for_swapchain(converted, from_sg(defaults));
     win.label = "present";
-    win.colorLoad = SG_LOADACTION_CLEAR;
-    Swapchain converted;
-    const PassDesc gw = from_render(win, converted);
-    REQUIRE(gw.swapchain == &converted);
+    win.colorLoad = LoadAction::Clear;
+    REQUIRE(win.swapchain == &converted);
     CHECK(converted.width == 1280);
-    same(to_sg(gw), win.to_sg());
-    // for_swapchain of the interface gives the same format as the renderer's.
-    CHECK(PassDesc::for_swapchain(converted, from_sg(defaults)).format == from_render(win.format));
+    const sg_pass q = to_sg(win);
+    CHECK(q.swapchain.width == 1280);
+    CHECK(q.swapchain.height == 720);
+    CHECK(q.swapchain.color_format == SG_PIXELFORMAT_BGRA8);
+    CHECK(q.attachments.colors[0].id == 0);
+    CHECK(q.action.colors[0].load_action == SG_LOADACTION_CLEAR);
+    CHECK(win.format == TargetFormat{PixelFormat::Bgra8, PixelFormat::DepthStencil, 1});
+}
+
+TEST_CASE("Target: made on a RecordingDevice, its handles are the device's and a pass into it records cleanly") {
+    RecordingDevice dev;
+    fa::render::TargetDesc d;
+    d.label = "unit";
+    d.width = 32;
+    d.height = 16;
+    d.colorFormat = PixelFormat::Rgba8;
+    d.depthFormat = PixelFormat::DepthStencil;
+    d.samples = 4;
+    d.resolveAsColor = true;
+    fa::render::Target t = fa::render::make_target(dev, d);
+    INFO(joined(dev.errors()));
+    REQUIRE(t.valid(dev));
+    CHECK(t.format == TargetFormat{PixelFormat::Rgba8, PixelFormat::DepthStencil, 4});
+    for (const Image i : {t.color, t.resolve, t.depth}) CHECK(dev.state(i) == ResourceState::Valid);
+    for (const View v : {t.colorAtt, t.resolveAtt, t.resolveColorAtt, t.depthAtt, t.texView})
+        CHECK(dev.state(v) == ResourceState::Valid);
+    CHECK(t.texture_image().id == t.resolve.id);  // a multisampled target is sampled through its resolve image
+
+    PassDesc p = fa::render::pass_into(t, "unit-pass");
+    CHECK(p.color.id == t.colorAtt.id);
+    CHECK(p.resolve.id == t.resolveAtt.id);
+    CHECK(p.depth.id == t.depthAtt.id);
+    p.colorLoad = LoadAction::Clear;
+    CommandList& cl = dev.begin_commands("main");
+    cl.begin_pass(p);
+    cl.end_pass();
+    dev.submit(cl);
+    CHECK(dev.errors().empty());
+    CHECK(dev.stream_text() == "frame 0 [main] begin_pass 'unit-pass' color=RGBA8 depth=DEPTH_STENCIL samples=4\n"
+                               "frame 0 [main] end_pass\n");
+    const auto cmds = dev.commands();
+    REQUIRE(cmds.size() == 2);
+    CHECK(cmds[0].kind == CommandKind::BeginPass);
+
+    fa::render::destroy_target(dev, t);
+    CHECK(t.color.id == 0);
+    CHECK(!t.valid(dev));
+    CHECK(dev.take_errors().empty());
+    // A pass into the freed views is reported by the device that made them (the handles were its own).
+    CommandList& stale = dev.begin_commands("stale");
+    stale.begin_pass(p);
+    stale.end_pass();
+    dev.submit(stale);
+    CHECK(has_error(dev.errors(), {"PassDesc::color"}));
 }
 
 TEST_CASE("RecordingDevice: handles carry a generation, and a stale handle is named in the error") {

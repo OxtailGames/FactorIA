@@ -41,9 +41,9 @@ static_assert(VIEW_gi2d_r_occ_dist == 1, "the irradiance program's view and samp
 static_assert(VIEW_gi2d_r_emit_dist == 2, "the irradiance program's view and sampler slots");
 static_assert(SMP_gi2d_r_near == 0, "the irradiance program's view and sampler slots");
 
-constexpr sg_pixel_format kFormat = SG_PIXELFORMAT_RGBA16F;
+constexpr gpu::PixelFormat kFormat = gpu::PixelFormat::Rgba16F;
 
-TargetFormat field_format() { return TargetFormat{kFormat, SG_PIXELFORMAT_NONE, 1}; }
+TargetFormat field_format() { return TargetFormat{kFormat, gpu::PixelFormat::None, 1}; }
 
 void apply_vec4(gpu::CommandList& list, int slot, float a, float b, float c, float d) {
     const float v[4] = {a, b, c, d};
@@ -51,16 +51,15 @@ void apply_vec4(gpu::CommandList& list, int slot, float a, float b, float c, flo
 }
 
 // One full-screen triangle with `prog` (seed or a jump-flooding step) into the pass `pd`, reading `src`.
-void draw_fullscreen(Gi2dSystem& sys, Gpu& gpu, Gi2dSystem::Prog prog, const PassDesc& pd, sg_view src,
+void draw_fullscreen(Gi2dSystem& sys, Gpu& gpu, Gi2dSystem::Prog prog, const PassDesc& pd, gpu::View src,
                      const float fs[4], int* drawCalls) {
     if (!pd.color.id || !src.id) return;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(sys.pipeline(prog, pd.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[0] = gpu::from_sg(src);
+    b.views[0] = src;
     b.samplers[0] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     apply_vec4(list, 0, gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
@@ -72,23 +71,22 @@ void draw_fullscreen(Gi2dSystem& sys, Gpu& gpu, Gi2dSystem::Prog prog, const Pas
 
 // One radiance cascade into `pd`: reads the two distance fields, the emission, the occluders, the cascade above and the history.
 struct CascadeViews {
-    sg_view occDist, emitDist, emission, albedo, upper, hist;
+    gpu::View occDist, emitDist, emission, albedo, upper, hist;
 };
 void draw_cascade(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, const CascadeViews& v, const float p[4][4],
                   int* drawCalls) {
     if (!pd.color.id) return;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(sys.pipeline(Gi2dSystem::Prog::Cascade, pd.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_gi2d_c_occ_dist] = gpu::from_sg(v.occDist);
-    b.views[VIEW_gi2d_c_emit_dist] = gpu::from_sg(v.emitDist);
-    b.views[VIEW_gi2d_c_emission] = gpu::from_sg(v.emission);
-    b.views[VIEW_gi2d_c_albedo] = gpu::from_sg(v.albedo);
-    b.views[VIEW_gi2d_c_upper] = gpu::from_sg(v.upper);
-    b.views[VIEW_gi2d_c_hist] = gpu::from_sg(v.hist);
+    b.views[VIEW_gi2d_c_occ_dist] = v.occDist;
+    b.views[VIEW_gi2d_c_emit_dist] = v.emitDist;
+    b.views[VIEW_gi2d_c_emission] = v.emission;
+    b.views[VIEW_gi2d_c_albedo] = v.albedo;
+    b.views[VIEW_gi2d_c_upper] = v.upper;
+    b.views[VIEW_gi2d_c_hist] = v.hist;
     b.samplers[SMP_gi2d_c_near] = gpu.sampler(SamplerKind::Nearest);
     b.samplers[SMP_gi2d_c_lin] = gpu.sampler(SamplerKind::LinearClamp);
     list.set_bindings(b);
@@ -100,18 +98,17 @@ void draw_cascade(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, const CascadeVi
 }
 
 // The irradiance image: the rays of every probe of cascade 0 averaged.
-void draw_irradiance(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, sg_view cascade0, sg_view occDist, sg_view emitDist,
-                     const float fs[4], int* drawCalls) {
+void draw_irradiance(Gi2dSystem& sys, Gpu& gpu, const PassDesc& pd, gpu::View cascade0, gpu::View occDist,
+                     gpu::View emitDist, const float fs[4], int* drawCalls) {
     if (!pd.color.id) return;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(sys.pipeline(Gi2dSystem::Prog::Irradiance, pd.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_gi2d_r_cascade] = gpu::from_sg(cascade0);
-    b.views[VIEW_gi2d_r_occ_dist] = gpu::from_sg(occDist);
-    b.views[VIEW_gi2d_r_emit_dist] = gpu::from_sg(emitDist);
+    b.views[VIEW_gi2d_r_cascade] = cascade0;
+    b.views[VIEW_gi2d_r_occ_dist] = occDist;
+    b.views[VIEW_gi2d_r_emit_dist] = emitDist;
     b.samplers[SMP_gi2d_r_near] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     apply_vec4(list, 0, gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
@@ -133,12 +130,12 @@ void destroy_images(gpu::Device* device, Gi2dField& f) {
 }
 
 // Clears `t` to zero and draws the gather's triangles into it, one draw call per batch.
-void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi2dSystem::Prog prog, sg_view white,
+void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi2dSystem::Prog prog, gpu::View white,
                const std::vector<GiVertex>& verts, const std::vector<GiBatch>& batches, int* drawCalls) {
     PassDesc pd = pass_into(t, label);
-    pd.colorLoad = SG_LOADACTION_CLEAR;
+    pd.colorLoad = gpu::LoadAction::Clear;
     pd.clearColor = {0, 0, 0, 0};
-    pd.colorStore = SG_STOREACTION_STORE;
+    pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = gpu.commands();
     // The vertices are written before the pass opens: acquire_transient's Metal pacing copy cannot run inside one (the pass is on this
     // list, so Gpu::in_pass() does not know it).
@@ -151,8 +148,7 @@ void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi
         wd.buffer = buf;
         list.write_buffer(wd);
     }
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (anyDraw) {
         list.set_pipeline(sys.pipeline(prog, pd.format));
         apply_vec4(list, 0, 2.0f / float(t.w), 2.0f / float(t.h), gpu.is_gl() ? 1.0f : -1.0f, 0.0f);
@@ -160,7 +156,7 @@ void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi
             if (batch.count == 0) continue;
             gpu::Bindings b;
             b.vertexBuffers[0] = buf;
-            b.views[0] = gpu::from_sg(batch.tex ? batch.tex->gpu_view() : white);
+            b.views[0] = batch.tex ? gpu::from_sg(batch.tex->gpu_view()) : white;
             b.samplers[0] = gpu.sampler(batch.sampler);
             list.set_bindings(b);
             apply_vec4(list, 1, float(batch.mode), batch.threshold, float(batch.fix), 0.0f);
@@ -336,7 +332,7 @@ gpu::Pipeline Gi2dSystem::pipeline(Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
     if (state_ <= 0 || !device_) return {};
-    const gpu::TargetFormat target = gpu::from_render(format);
+    const gpu::TargetFormat target = format;
     gpu::PipelineDesc d;
     const bool draw = prog == Prog::DrawAdd || prog == Prog::DrawReplace;
     static constexpr int kShaderOf[] = {0, 0, 1, 2, 3, 4, 5};  // by Prog
@@ -411,7 +407,7 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
     Gpu* g = &gpu;
     TransientTargets* tt = &targets;
     const std::shared_ptr<Gi2dGather> gather = plan.gather;
-    const sg_view white = plan.white;
+    const gpu::View white = plan.white;
 
     add("gi-emission", {}, {plan.emission}, [=](const PassContext&) {
         draw_list(*self, *g, f->emission, "gi2d-emission", Prog::DrawAdd, white, gather->emitVerts, gather->emitBatches,
@@ -442,7 +438,7 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             const Target* out = tt->get(c.handle(seedRes));
             if (!out) return;
             PassDesc pd = pass_into(*out, "gi2d-seed");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
+            pd.colorLoad = gpu::LoadAction::DontCare;
             const float fs[4] = {size[0], size[1], 0.0f, 0.0f};
             draw_fullscreen(*self, *g, seedProg, pd, sourceTarget->texView, fs, drawCalls);
         });
@@ -459,7 +455,7 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                 const Target* dst = last && finalTarget ? finalTarget : tt->get(c.handle(out));
                 if (!dst) return;
                 PassDesc pd = pass_into(*dst, "gi2d-jfa");
-                pd.colorLoad = SG_LOADACTION_DONTCARE;
+                pd.colorLoad = gpu::LoadAction::DontCare;
                 draw_fullscreen(*self, *g, Prog::Jfa, pd, src->texView, fs, drawCalls);
                 if (last && finalTarget == &f->distance) f->valid = true;
             });
@@ -539,7 +535,7 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                     v.upper = upT ? upT->texView : f->emission.texView;  // the top cascade never reads it
                     v.hist = useHist && histT ? histT->texView : f->emission.texView;
                     PassDesc pd = pass_into(*out, "gi2d-cascade");
-                    pd.colorLoad = SG_LOADACTION_DONTCARE;
+                    pd.colorLoad = gpu::LoadAction::DontCare;
                     draw_cascade(*self, *g, pd, v, params, drawCalls);
                 });
                 upper = res;
@@ -552,7 +548,7 @@ int Gi2dSystem::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                 const Target* ed = tt->get(c.handle(emitDist));
                 if (!c0 || !ed) return;
                 PassDesc pd = pass_into(*outT, "gi2d-irradiance");
-                pd.colorLoad = SG_LOADACTION_DONTCARE;
+                pd.colorLoad = gpu::LoadAction::DontCare;
                 draw_irradiance(*self, *g, pd, c0->texView, f->distance.texView, ed->texView, irrParams, drawCalls);
                 if (commit) {
                     f->irrCur = outT == &f->irradiance[0] ? 0 : 1;
@@ -658,7 +654,7 @@ bool gi2d_read(const Target& t, bool isGl, std::vector<float>& out, std::string*
         if (error) *error = "the field image does not exist";
         return false;
     }
-    if (!readback_rgba16f(t.color, t.w, t.h, out, error)) return false;
+    if (!readback_rgba16f(gpu::to_sg(t.color), t.w, t.h, out, error)) return false;
     // readback_rgba16f returns the picture top row first: on OpenGL that is the highest texture row, elsewhere the lowest. The field's
     // contract is "texture row 0 first" on every backend.
     if (isGl) {

@@ -104,7 +104,7 @@ bool Renderer::Impl::upscale_active() {
 
 // Makes (or keeps) an image of the output size with `colorFormat`; `withDepth` adds the depth image the screen-space items need.
 // False (and one logged error) when the GPU cannot make it: the frame is then shown at the render resolution.
-bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth) {
+bool Renderer::Impl::ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth) {
     // MetalFX writes the output image (outTarget only): it needs storage usage next to the attachment (a frame that wants it, once made, keeps it).
     const bool isOut = &t == &outTarget;
     const bool wantStorage = isOut && outStorage;
@@ -117,7 +117,7 @@ bool Renderer::Impl::ensure_output_target(Target& t, const char* label, sg_pixel
     d.width = targetW;
     d.height = targetH;
     d.colorFormat = colorFormat;
-    d.depthFormat = withDepth ? kSceneDepthFormat : SG_PIXELFORMAT_NONE;
+    d.depthFormat = withDepth ? kSceneDepthFormat : gpu::PixelFormat::None;
     d.storage = wantStorage;
     t = make_target(gpu.device(), d);
     if (isOut) outHasStorage = wantStorage;
@@ -159,15 +159,14 @@ void Renderer::Impl::free_output_targets() {
 // display values, and present() encodes it as it would have the render-resolution picture.
 void Renderer::Impl::stretch_upscale(const UpscaleInput& in, Target& out, const PassContext& c) {
     PassDesc p = pass_into(out, "upscale-stretch");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = pass_list(c, gpu);
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(p, swapchain));
+    list.begin_pass(p);
     list.set_pipeline(gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = gpu::from_sg(in.color);
+    b.views[VIEW_blit_tex] = in.color;
     b.samplers[SMP_blit_smp] = gpu.sampler(in.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear);
     list.set_bindings(b);
     // A copy between two render targets: the storage layout is kept, so flip is 1 on OpenGL (bottom-up).
@@ -188,7 +187,7 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
     if (!upscaleTaa.on || !assets || !assets->white()) return false;
     render::TaaResolveInput r;
     r.color = in.color;
-    r.dummy = assets->white()->view;
+    r.dummy = gpu::from_sg(assets->white()->view);
     if (const Target* t = upscalePrepass.target(c)) r.depth = t->texView;
     if (const Target* t = upscaleVelocity.target(c)) r.velocity = t->texView;
     if (const Target* t = upscaleReactive.target(c)) r.reactive = t->texView;
@@ -210,7 +209,7 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
 
 // The image between the two passes of the spatial upscaler: the output size, no depth, the format of the output image. False (and one
 // logged error) when the GPU cannot make it: the sharpen is then left out of that frame.
-bool Renderer::Impl::ensure_spatial_target(sg_pixel_format colorFormat) {
+bool Renderer::Impl::ensure_spatial_target(gpu::PixelFormat colorFormat) {
     if (spatialTarget.color.id &&
         (spatialTarget.w != targetW || spatialTarget.h != targetH || spatialTarget.format.color != colorFormat))
         destroy_target(gpu.device(), spatialTarget);
@@ -220,7 +219,7 @@ bool Renderer::Impl::ensure_spatial_target(sg_pixel_format colorFormat) {
     d.width = targetW;
     d.height = targetH;
     d.colorFormat = colorFormat;
-    d.depthFormat = SG_PIXELFORMAT_NONE;
+    d.depthFormat = gpu::PixelFormat::None;
     spatialTarget = make_target(gpu.device(), d);
     if (!spatialTarget.valid(gpu.device())) {
         FA_ERROR(
@@ -247,19 +246,18 @@ void Renderer::Impl::spatial_upscale(const UpscaleInput& in, Target& out, const 
     const bool both = resize && weight > 0.0f;
     if (both && !ensure_spatial_target(out.format.color)) weight = 0.0f;
     const bool sharpen = weight > 0.0f;
-    const sg_view mid = both && sharpen ? spatialTarget.texView : sg_view{};
-    auto run = [&](render::SpatialUpscaler::Prog prog, const char* label, sg_view src, int srcW, int srcH,
+    const gpu::View mid = both && sharpen ? spatialTarget.texView : gpu::View{};
+    auto run = [&](render::SpatialUpscaler::Prog prog, const char* label, gpu::View src, int srcW, int srcH,
                    Target& dst) {
         PassDesc p = pass_into(dst, label);
-        p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-        p.colorStore = SG_STOREACTION_STORE;
+        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+        p.colorStore = gpu::StoreAction::Store;
         gpu::CommandList& list = pass_list(c, gpu);
-        gpu::Swapchain swapchain;
-        list.begin_pass(gpu::from_render(p, swapchain));
+        list.begin_pass(p);
         list.set_pipeline(spatial.pipeline(prog, p.format));
         gpu::Bindings b;
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
-        b.views[VIEW_upscale_spatial_tex] = gpu::from_sg(src);
+        b.views[VIEW_upscale_spatial_tex] = src;
         b.samplers[SMP_upscale_spatial_smp] = gpu.sampler(SamplerKind::Nearest);
         list.set_bindings(b);
         upscale_spatial_spatial_vs_params_t vu{};
