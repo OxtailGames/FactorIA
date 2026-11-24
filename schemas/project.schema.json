@@ -188,13 +188,25 @@
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "enum": [
+                "stretch",
+                "spatial",
+                "temporal",
+                "metalfx",
+                "auto"
+              ],
               "default": "stretch",
               "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
             },
             "quality": {
               "type": "string",
-              "enum": ["native", "quality", "balanced", "performance", "ultraPerformance"],
+              "enum": [
+                "native",
+                "quality",
+                "balanced",
+                "performance",
+                "ultraPerformance"
+              ],
               "default": "native",
               "description": "How much smaller than the output the frame is drawn: native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultraPerformance 1/3 of the output's width and height. Default native."
             },
@@ -207,9 +219,51 @@
             }
           }
         },
+        "dynamicResolution": {
+          "type": "object",
+          "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true turns the controller on. false (default) draws at the fixed render scale."
+            },
+            "targetMs": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100,
+              "default": 0,
+              "description": "The frame time to hold, in ms: 33.3 for 30 fps, 16.7 for 60 fps. 0 or null (default) follows the display's refresh rate (60 Hz where the platform cannot tell). 0, or 4 to 100."
+            },
+            "minScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 0.5,
+              "description": "The smallest share of the render size's width and height the controller uses, 0.25 to 1. Default 0.5 (a quarter of the pixels)."
+            },
+            "maxScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 1,
+              "description": "The largest share, where it starts, minScale to 1. Default 1."
+            }
+          }
+        },
         "graphicsPreset": {
           "type": "string",
-          "enum": ["low", "medium", "high", "ultra", "custom"],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "ultra",
+            "custom"
+          ],
           "default": "custom",
           "description": "The graphics preset a run starts with (M76, docs/UPSCALING.md, \"Graphics presets\"): a quality layer the renderer applies on top of what the scene asks for (shadow cascades and sizes, ambient occlusion, reflections, depth of field, motion blur, volumetric fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. low, medium, high and ultra lower the settings of the scene, never raise them; custom (the default) is no layer: the game looks as its author made it. It writes nothing into the scenes. While a preset other than custom is on, render.upscaler is what custom brings back, not what is drawn. Scripts and the commands graphics.preset and graphics.detect change it at run time; the engine does not save the player's choice."
         }
@@ -362,7 +416,29 @@
             },
             "step": {
               "type": "integer",
-              "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576],
+              "enum": [
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256,
+                512,
+                1024,
+                2048,
+                4096,
+                8192,
+                16384,
+                32768,
+                65536,
+                131072,
+                262144,
+                524288,
+                1048576
+              ],
               "default": 256,
               "description": "Metres: the origin only moves in multiples of this. An integer power of two (1, 2, 4 ... 1048576), so a move is exact in a float at any distance, and at most `threshold`. Default 256, or the largest power of two at most `threshold` when `threshold` is below 256."
             },
