@@ -67,9 +67,9 @@ Bytes text_bytes(std::size_t n, std::uint64_t seed) {
 // Long matches, distances that reach the far end of the tile, and a run of one byte: the Deflate64 corners.
 Bytes structured_bytes(std::size_t n) {
     Bytes b = random_bytes(n, 99);
-    for (std::size_t i = 40000; i < std::min<std::size_t>(n, 60000); ++i) b[i] = 7;                       // a long run
-    for (std::size_t i = 61000; i < std::min<std::size_t>(n, 65536); ++i) b[i] = b[i - 60000];           // far matches
-    for (std::size_t i = 70000; i + 1 < n && i < 120000; ++i) b[i] = b[i - 65500];  // across tiles
+    for (std::size_t i = 40000; i < std::min<std::size_t>(n, 60000); ++i) b[i] = 7;             // a long run
+    for (std::size_t i = 61000; i < std::min<std::size_t>(n, 65536); ++i) b[i] = b[i - 60000];  // far matches
+    for (std::size_t i = 70000; i + 1 < n && i < 120000; ++i) b[i] = b[i - 65500];              // across tiles
     return b;
 }
 
@@ -104,9 +104,8 @@ TEST_CASE("gdeflate: names and parsing") {
 }
 
 TEST_CASE("gdeflate: round trips across sizes, kinds of data and levels") {
-    const std::size_t sizes[] = {0,        1,          2,         3,          31,         32,         33,
-                                 255,      4096,       kTile - 1, kTile,      kTile + 1,  2 * kTile - 1, 2 * kTile,
-                                 262144,   262144 + 17};
+    const std::size_t sizes[] = {
+        0, 1, 2, 3, 31, 32, 33, 255, 4096, kTile - 1, kTile, kTile + 1, 2 * kTile - 1, 2 * kTile, 262144, 262144 + 17};
     for (std::size_t n : sizes) {
         CAPTURE(n);
         CHECK(round_trip(Bytes(n, 0)) == Bytes(n, 0));
@@ -151,9 +150,9 @@ TEST_CASE("gdeflate: the stream header and the tile table") {
         CHECK(s[1] == 0xFB);
         CHECK(s[2] + (s[3] << 8) == int(tiles));
         const std::uint32_t word = le32(s, 4);
-        CHECK((word & 3u) == 1u);                                // tile size index 1: 64 KiB
-        CHECK(((word >> 2) & 0x3FFFFu) == (n % kTile));          // 0 = the last tile is full
-        CHECK((word >> 20) == 0u);                               // reserved
+        CHECK((word & 3u) == 1u);                        // tile size index 1: 64 KiB
+        CHECK(((word >> 2) & 0x3FFFFu) == (n % kTile));  // 0 = the last tile is full
+        CHECK((word >> 20) == 0u);                       // reserved
         const std::size_t data = 8 + 4 * tiles;
         // entry 0: size of the last tile; entry i: offset of tile i in the data.
         std::size_t prev = 0;
@@ -218,12 +217,12 @@ TEST_CASE("gdeflate: a static block written by hand decodes, with a match one ro
         }
     };
     Lane l0, l1, l2;
-    l0.put(1, 1);  // final
-    l0.put(1, 2);  // static
-    l0.code(0x30 + 'a', 8);       // literals 0..143: 8 bits, 00110000 + value
+    l0.put(1, 1);                    // final
+    l0.put(1, 2);                    // static
+    l0.code(0x30 + 'a', 8);          // literals 0..143: 8 bits, 00110000 + value
     l1.code(0x00 + (259 - 256), 7);  // 256..279: 7 bits from 0000000; length symbol 259 = length 5
-    l2.code(0, 7);                // 256 = end of block
-    l1.code(0, 5);                // distance symbol 0 = distance 1
+    l2.code(0, 7);                   // 256 = end of block
+    l1.code(0, 5);                   // distance symbol 0 = distance 1
     Bytes tile(256, 0);
     codec::store32(tile.data() + 0, static_cast<std::uint32_t>(l0.bits));
     codec::store32(tile.data() + 4, static_cast<std::uint32_t>(l1.bits));
@@ -349,7 +348,8 @@ TEST_CASE("gdeflate: the output is deterministic") {
     CHECK(stream_of(copy) == a);
 }
 
-TEST_CASE("gdeflate: the pak keeps gdeflate blocks and reads them back, mapped and read, and through the storage layer") {
+TEST_CASE(
+    "gdeflate: the pak keeps gdeflate blocks and reads them back, mapped and read, and through the storage layer") {
     struct Scratch {
         stdfs::path oldRoot = fs::project_root();
         stdfs::path dir = fs::make_temp_dir("fa_test_gdeflate").value();
@@ -433,7 +433,8 @@ TEST_CASE("gdeflate: test vectors for the DirectStorage decoder") {
     std::vector<Vector> vectors;
     vectors.push_back({"empty", {}, 0xcbf29ce484222325ull, 0xfa78522c67d13e09ull});
     vectors.push_back({"byte", Bytes{42}, 0xaf63a74c8601927dull, 0x91e5d2497f6d8876ull});
-    vectors.push_back({"text_one_tile_less_one", text_bytes(kTile - 1, 1), 0x46be7a61e673b621ull, 0xd48e3ba0ff146bafull});
+    vectors.push_back(
+        {"text_one_tile_less_one", text_bytes(kTile - 1, 1), 0x46be7a61e673b621ull, 0xd48e3ba0ff146bafull});
     vectors.push_back({"text_two_tiles", text_bytes(kTile + 1, 2), 0x0aee8c7a934b6e9eull, 0xe5a7988735a550a6ull});
     vectors.push_back({"text_block", text_bytes(262144, 3), 0xae0bbc0533a5585cull, 0x51387ba926f7915eull});
     vectors.push_back({"noise_block", random_bytes(262144, 4), 0x67b493646fb23a27ull, 0x377c41fe3c6cfcceull});
@@ -472,8 +473,9 @@ TEST_CASE("gdeflate: decode speed against lz4 and zstd (prints MB/s, checks noth
         // Blocks of 256 KiB, as the pack stores them.
         std::vector<Bytes> blocks;
         for (std::size_t at = 0; at < in.size(); at += 262144) {
-            auto b = compress(std::span<const std::uint8_t>(in).subspan(at, std::min<std::size_t>(262144, in.size() - at)),
-                              CompressOptions{c, 0});
+            auto b =
+                compress(std::span<const std::uint8_t>(in).subspan(at, std::min<std::size_t>(262144, in.size() - at)),
+                         CompressOptions{c, 0});
             REQUIRE(b.ok());
             blocks.push_back(std::move(b.value()));
         }
