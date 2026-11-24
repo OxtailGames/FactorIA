@@ -760,7 +760,23 @@ void register_builtin_components(TypeRegistry& r) {
             "sprites. A sprite with instances ignores meshColumns, slice, SpriteSkin and a Parallax repeat (it is "
             "its one plain quad). Needs a sprite material with buffers, on Metal, D3D11 or OpenGL 4.3 (not GLES3, "
             "WebGL2 or macOS OpenGL); with another material, or none, instances > 0 draws nothing and logs why.")
-        .range(0, kMaxMeshInstances);
+        .range(0, kMaxMeshInstances)
+        .field(
+            "reactive", &Sprite::reactive,
+            "-1..1: how much the temporal antialiasing and the temporal upscaler "
+            "(PostProcess.temporalAAEnabled, render.upscaler \"temporal\") trust this sprite over their history, for a "
+            "sprite that changes faster than its motion shows: a glowing or fading overlay, a world-space HUD element, "
+            "a flash. Above 0 the sprite writes this value, times its alpha, into the reactive mask "
+            "(PostProcess.temporalAAReactiveScale scales it) instead of its motion vector, so the resolve uses the "
+            "current frame there. 0 = never reactive, an Additive sprite too (it then writes neither the mask nor a "
+            "vector: it is resolved like the rest of the picture and may leave a trail). Any negative value (the "
+            "default, "
+            "-1) leaves it to the blend "
+            "mode: an Additive sprite counts as 1 (a glow has no velocity and would leave a trail), any other writes "
+            "its motion vector. A sprite with a material of its own is "
+            "marked by its quad's shape and texture alpha, not by what the material's discard or vertex() does. "
+            "Nothing changes without a temporal effect.")
+        .range(-1, 1);
 
     r.add<Tint>(
          "Tint",
@@ -2032,7 +2048,20 @@ void register_builtin_components(TypeRegistry& r) {
                                      "every particle and its trail (one material per emitter: all its particles batch "
                                      "together, whatever their colour, size or age)")
                          .c_str())
-        .field("materialParams", &ParticleEmitter::materialParams, material_params_doc_2d().c_str());
+        .field("materialParams", &ParticleEmitter::materialParams, material_params_doc_2d().c_str())
+        .field(
+            "reactive", &ParticleEmitter::reactive,
+            "0..1 (default 1): how much the temporal antialiasing and the temporal upscaler "
+            "(PostProcess.temporalAAEnabled, "
+            "render.upscaler \"temporal\") trust this emitter's particles and trails over their history. Particles are "
+            "blended and carry no motion vector of their own, so a fast or fading one would leave a smeared trail in "
+            "the "
+            "resolved picture; the renderer writes this value, times the particle's coverage, into a reactive mask "
+            "that "
+            "makes the resolve use the current frame there (PostProcess.temporalAAReactiveScale scales it). 0: the "
+            "particles are resolved like the rest of the picture (slow, soft smoke may look smoother). Nothing changes "
+            "without a temporal effect.")
+        .range(0, 1);
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",

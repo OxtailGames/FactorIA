@@ -58,12 +58,19 @@ bool Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
                             world.id_of(e));
                 return;
             }
-            // A mesh that failed to load is not read from disk again every frame: the failure is remembered by name.
+            // A mesh that failed to load is not read from disk again every frame: the failure is remembered by name for kOccluderRetryFrames frames.
+            // It is tried again after kOccluderRetryFrames frames (counted in frames, not time: the same on every machine).
             auto failed = occluderMeshErrors.find(meshName);
+            if (failed != occluderMeshErrors.end() && frameSerial - failed->second.frame >= kOccluderRetryFrames) {
+                occluderMeshErrors.erase(failed);
+                failed = occluderMeshErrors.end();
+            }
             if (failed == occluderMeshErrors.end()) {
                 std::string error;
                 p.src.mesh = mesh_geometry_for(world.meshes(), meshName, &error);
-                if (!p.src.mesh) failed = occluderMeshErrors.emplace(meshName, error).first;
+                if (!p.src.mesh)
+                    failed =
+                        occluderMeshErrors.insert_or_assign(meshName, OccluderMeshFailure{error, frameSerial}).first;
             }
             if (!p.src.mesh) {
                 if (warnedOccluders.insert(e.bits()).second)
@@ -71,7 +78,7 @@ bool Renderer::Impl::occlude_meshes(World& world, Frame& fr, bool z01, std::vect
                             "Occluder.mesh: '{}' on '{}' could not be read: {} Hint: fix Occluder.mesh, or use shape "
                             "\"box\". The "
                             "entity hides nothing until then.",
-                            meshName, world.id_of(e), failed->second);
+                            meshName, world.id_of(e), failed->second.error);
                 return;
             }
         }

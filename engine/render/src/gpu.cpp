@@ -14,6 +14,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "shaders/exposure.glsl.h"
 #include "shaders/prepass_view.glsl.h"
+#include "shaders/quad_motion.glsl.h"
 #include "shaders/post.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
@@ -93,6 +94,16 @@ void set_skin_layout(sg_pipeline_desc& d, int jointsAttr, int weightsAttr) {
     d.layout.attrs[weightsAttr].format = SG_VERTEXFORMAT_FLOAT4;
     d.layout.attrs[weightsAttr].buffer_index = 2;
     d.layout.attrs[weightsAttr].offset = 4;
+}
+// Vertex buffer 6 of a prepass program: the previous model matrix of every instance as three rows (mesh_common.glsl fa_prev_r0..2).
+void set_prev_layout(sg_pipeline_desc& d, int firstAttr) {
+    d.layout.buffers[kPrevModelBuffer].stride = kPrevModelBytes;
+    d.layout.buffers[kPrevModelBuffer].step_func = SG_VERTEXSTEP_PER_INSTANCE;
+    for (int i = 0; i < 3; ++i) {
+        d.layout.attrs[firstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[firstAttr + i].buffer_index = kPrevModelBuffer;
+        d.layout.attrs[firstAttr + i].offset = i * 16;
+    }
 }
 // Vertex buffers 3, 4 and 5 of a custom material's program (MeshExtras): the per-instance params, then uv1 and color1,
 // at the attributes from `firstAttr` in that order (mesh_common.glsl fa_extra_attrs).
@@ -311,6 +322,12 @@ void Gpu::shutdown() {
     }
     lightImages_.clear();
     lightImagesUsed_ = 0;
+    for (auto& l : paletteImages_) {
+        if (l.view.id) sg_destroy_view(l.view);
+        if (l.image.id) sg_destroy_image(l.image);
+    }
+    paletteImages_.clear();
+    paletteImagesUsed_ = 0;
     for (auto& s : samplers_) {
         sg_destroy_sampler(s);
         s = {};
@@ -349,11 +366,12 @@ void Gpu::shutdown() {
         s = {};
     }
     ssaoState_ = 0;
-    for (sg_shader* s : {&prepassShader_, &prepassSkinShader_, &prepassViewShader_}) {
+    for (sg_shader* s :
+         {&prepassShader_, &prepassSkinShader_, &prepassViewShader_, &quadVelShader_, &quadReactShader_}) {
         if (s->id) sg_destroy_shader(*s);
         *s = {};
     }
-    prepassState_ = prepassViewState_ = 0;
+    prepassState_ = prepassViewState_ = quadMotionState_ = 0;
     for (sg_shader* s : {&sssShader_, &sssSkinShader_}) {
         if (s->id) sg_destroy_shader(*s);
         *s = {};
@@ -861,6 +879,12 @@ MaterialProgram program_slots(sg_shader shader, const sg_shader_desc* desc) {
 }
 }  // namespace
 
+bool Gpu::velocity_ready() {
+    if (!prepass_ready()) return false;
+    const sg_pixelformat_info info = sg_query_pixelformat(velocity_format());
+    return info.render && info.sample;
+}
+
 bool Gpu::prepass_ready() {
     if (prepassState_ != 0) return prepassState_ > 0;
     const sg_backend backend = sg_query_backend();
@@ -911,6 +935,9 @@ sg_pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, 
     set_instance_layout(d, ATTR_mesh_prepass_fa_inst_m0, shader.id && extras.bufferInst);
     if (skinned) set_skin_layout(d, ATTR_mesh_prepass_skin_fa_joints, ATTR_mesh_prepass_skin_fa_weights);
     if (shader.id) set_extra_layout(d, skinned ? kExtraAttrBaseSkinned : kExtraAttrBase, extras);
+    // The previous model matrix (M76): in the layout of every program that declares it, drawing with the velocity image or not (a vertex
+    // layout must hold every attribute the vertex shader reads); the pass binds a buffer that has no use for it when nothing asks.
+    if (const int prev = prepass_prev_attr(skinned, shader.id != 0, extras); prev >= 0) set_prev_layout(d, prev);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
@@ -1022,6 +1049,65 @@ sg_pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
     d.depth.write_enabled = false;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "prepass-view";
+    return find_or_make(key, format, d);
+}
+
+bool Gpu::reactive_ready() {
+    const sg_pixelformat_info info = sg_query_pixelformat(reactive_format());
+    return info.render && info.sample && quad_motion_ready();
+}
+
+bool Gpu::quad_motion_ready() {
+    if (quadMotionState_ != 0) return quadMotionState_ > 0;
+    quadVelShader_ = make_shader(quad_motion_quad_vel_shader_desc(sg_query_backend()), "quad_vel");
+    quadReactShader_ = make_shader(quad_motion_quad_react_shader_desc(sg_query_backend()), "quad_react");
+    if (sg_query_shader_state(quadVelShader_) != SG_RESOURCESTATE_VALID ||
+        sg_query_shader_state(quadReactShader_) != SG_RESOURCESTATE_VALID) {
+        for (sg_shader* s : {&quadVelShader_, &quadReactShader_}) {
+            if (s->id) sg_destroy_shader(*s);
+            *s = {};
+        }
+        quadMotionState_ = -1;
+        FA_ERROR(
+            "render",
+            "The motion vectors and the reactive mask of sprites and particles are unavailable: their shader failed "
+            "to compile for this graphics backend (temporal antialiasing then reprojects them from the depth).");
+        return false;
+    }
+    quadMotionState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::quad_motion_pipeline(const TargetFormat& format, bool reactive) {
+    if (!quad_motion_ready()) return {};
+    PipelineKey key{0xD10u | (reactive ? 1u : 0u)};
+    sg_pipeline_desc d{};
+    d.shader = reactive ? quadReactShader_ : quadVelShader_;
+    // The offsets are Vertex2D's (sokol computes all of them or none): the first four attributes of the quad vertex, then the motion.
+    static_assert(sizeof(Vertex2D) == 48, "the offsets below are those of Vertex2D");
+    d.layout.buffers[0].stride = int(sizeof(Vertex2D));
+    d.layout.attrs[ATTR_quad_motion_quad_vel_position] = {0, 0, SG_VERTEXFORMAT_FLOAT3};
+    d.layout.attrs[ATTR_quad_motion_quad_vel_texcoord0] = {0, 12, SG_VERTEXFORMAT_FLOAT2};
+    d.layout.attrs[ATTR_quad_motion_quad_vel_color0] = {0, 20, SG_VERTEXFORMAT_UBYTE4N};
+    d.layout.attrs[ATTR_quad_motion_quad_vel_params0] = {0, 24, SG_VERTEXFORMAT_FLOAT2};
+    d.layout.buffers[kQuadMotionBuffer].stride = int(kQuadMotionStride);
+    d.layout.attrs[ATTR_quad_motion_quad_vel_motion] = {kQuadMotionBuffer, 0, SG_VERTEXFORMAT_FLOAT4};
+    d.primitive_type = SG_PRIMITIVETYPE_TRIANGLES;
+    d.index_type = SG_INDEXTYPE_UINT16;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    if (reactive) {  // the largest value wins: overlapping particles do not add up past what one of them asks
+        d.colors[0].blend.enabled = true;
+        d.colors[0].blend.op_rgb = SG_BLENDOP_MAX;
+        d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.op_alpha = SG_BLENDOP_MAX;
+        d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+    }
+    d.cull_mode = SG_CULLMODE_NONE;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = reactive ? "quad-reactive" : "quad-velocity";
     return find_or_make(key, format, d);
 }
 
@@ -1243,10 +1329,7 @@ void Gpu::trim_light_images(std::size_t keep) {
     if (keep < lightImages_.size()) lightImages_.resize(keep);
 }
 
-Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
-    begin_transient_writes();
-    if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
-    LightImg& l = lightImages_[lightImagesUsed_++];
+Gpu::LightImage Gpu::fill_light_image(LightImg& l, int rows, const float* texels) {
     if (!l.image.id || l.rows != rows) {
         if (l.view.id) sg_destroy_view(l.view);
         if (l.image.id) sg_destroy_image(l.image);
@@ -1268,6 +1351,18 @@ Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
     w.dst.image = l.image;
     sg_write_image_transient(&w);
     return {l.image, l.view};
+}
+
+Gpu::LightImage Gpu::write_light_image(int rows, const float* texels) {
+    begin_transient_writes();
+    if (lightImagesUsed_ >= lightImages_.size()) lightImages_.emplace_back();
+    return fill_light_image(lightImages_[lightImagesUsed_++], rows, texels);
+}
+
+Gpu::LightImage Gpu::write_palette_image(int rows, const float* texels) {
+    begin_transient_writes();
+    if (paletteImagesUsed_ >= paletteImages_.size()) paletteImages_.emplace_back();
+    return fill_light_image(paletteImages_[paletteImagesUsed_++], rows, texels);
 }
 
 }  // namespace fa::render

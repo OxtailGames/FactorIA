@@ -60,6 +60,10 @@
 #include "gi2d.h"
 #include "light_atlas.h"
 #include "render_internal.h"
+#include "render_upscale.h"
+#include "render_upscale_metalfx.h"
+#include "render_upscale_spatial.h"
+#include "metalfx.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
 #include "transient_targets.h"
@@ -86,7 +90,18 @@ struct Renderer::Impl {
     bool anyFrameRendered = false;
     int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
-    int physW = 0, physH = 0;      // size of the GPU images
+    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same):
+    // destroy_targets keeps what does not depend on the render size (the cameras' adapted exposure, the temporal
+    // upscaler's history and the upscale stage's images at the output size; not MetalFX's, made for the input) and
+    // the slots of the CameraView and render-target images (view_image makes an image again only when its pixel size
+    // changes: a CameraView's size follows renderScale, so a step makes it again at its next draw; a render target's
+    // has its own size and survives) and frees the rest.
+    bool scaleStepOnly = false;
+    float renderBaseScale =
+        1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
+    bool gpuFrameWanted = false;     // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    std::vector<double> gpuFrameMs;  // the GPU frame times it has not taken yet
+    int physW = 0, physH = 0;        // size of the GPU images
     Gpu gpu;
     GpuTimer gpuTimer;
     // Renderer::warm_step: the groups of pipelines to make before the first game frame, built on the first call.
@@ -124,6 +139,7 @@ struct Renderer::Impl {
     Ssao ssao;    // PostProcess.ssao*: the ambient occlusion passes of each camera (renderer_ssao.h)
     SceneFx
         sceneFx;  // depth of field and motion blur (renderer_dof.h): its shaders, pipelines and the autofocus of each camera
+    TaaFx taa;  // temporal antialiasing (renderer_taa.h): its shaders, pipelines and the history of each camera
     Gi2dSystem
         gi2d;  // the 2D GI field of each 2D camera (gi2d.h): its shaders, pipelines and the images of the field slots
     FogFx fogFx;         // distance and height fog and sun shafts (renderer_fog.h): its shaders and pipelines
@@ -168,11 +184,155 @@ struct Renderer::Impl {
     Target hudTarget;
     bool hudActive = false;
     bool finalEncoded = false;
+    // The upscale stage (M76-P3a, render_upscale.h, renderer_upscale.cpp). upscaleStage: Renderer::set_upscale_stage (the player's
+    // render scale). While upscale_active() the finished picture of the render resolution is copied by the chosen implementation
+    // into outTarget (targetW x targetH, the format of the picture), the screen-space items are drawn over it there, and the colour
+    // filter, when it has to reach them, goes on into outFilterTarget. outActive / outFilterActive: the last frame's picture is in
+    // them (they come first in final_target()). Both are made when a frame needs them and freed with the targets.
+    bool upscaleStage = false;
+    bool hudAtOutput =
+        false;  // this frame's screen-space items are drawn over the upscaled picture (decided in render_world)
+    render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
+    Target outTarget, outFilterTarget;
+    bool outActive = false, outFilterActive = false;
+    // Consecutive frames the stage was inactive while its images existed (render_world): they are freed at kOutputIdleFrames, so a dynamic
+    // resolution or a render scale that crosses 1 every few frames does not make and free them again and again.
+    static constexpr int kOutputIdleFrames = 60;
+    int outputIdleFrames = 0;
+    // The spatial upscaler (M76-P3b, render_upscale_spatial.h): its programs, and the upsampled picture between its two passes (made
+    // only when both run: a render scale below 1 and a sharpness above 0).
+    render::SpatialUpscaler spatial;
+    Target spatialTarget;
+    int spatialSupported = -1;  // the "spatialUpscaler" row of this backend, asked once (-1 = not yet)
+    render::UpscalerCaps
+    upscaler_caps();  // not const: the first temporal, metalfx or auto setting compiles the TAA shaders (caps.temporal)
+    render::UpscalerMode effective_upscaler_mode();
+    bool upscale_active();
+    // M76-P4, the temporal upscaler (renderer_upscale.cpp). temporalPhases: the jitter sequence render() asks the cameras for this
+    // frame (0: none); temporalFrame: this frame's picture is jittered for the upscaler and resolved by it (plan_job: `upscaleTaa` is
+    // the plan, and the camera's own TemporalAA is not drawn); both are set by render() before the cameras are built.
+    // temporalBlocked: the last frame had no single full-viewport camera (UpscalerCaps::multiCamera), so the effective mode is
+    // spatial until one has.
+    bool temporalBlocked = false;
+    int temporalPhases = 0;
+    bool temporalFrame = false;
+    TaaPlan upscaleTaa;
+    PrepassRef upscalePrepass;
+    VelocityRef upscaleVelocity;
+    PrepassRef upscaleReactive;  // the reactive mask of the camera the upscaler resolves (M76-P1d); invalid: none
+    bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
+    // M76-P5b, MetalFX (renderer_metalfx.cpp). mfxFrame: this frame's jittered picture goes to MetalFX's temporal scaler (render() decides it
+    // with temporalFrame). The scaler and the preparation pass (the 0..1 depth and the UV motion it reads, made at the render resolution
+    // from the prepass and the velocity); mfxFailed: MetalFX failed once here (creation or mid-frame): every frame after draws with the
+    // temporal TAA upscaler, then the spatial one, and the caps say metalfx = false. mfxSupport: what the GPU can do, asked once
+    // (mfxSupportKnown). mfxWarnedUnavailable: the one warning of an explicit "metalfx" the GPU cannot run. mfxLast*: what the scaler's
+    // history was drawn for (the reset rule is TaaFx::upscale's). outStorage: the output image also needs storage usage (MetalFX writes it).
+    bool mfxFrame = false;
+    bool mfxFailed = false;
+    bool mfxSupportKnown = false;
+    bool mfxWarnedUnavailable = false;
+    bool outStorage = false;
+    bool outHasStorage = false;
+    render::metalfx::Support mfxSupport;
+    render::metalfx::Scaler mfxScaler;
+    render::MetalFxPrep mfxPrep;
+    Target mfxDepth, mfxMotion;
+    std::uint64_t mfxLastSerial = 0, mfxLastScene = 0, mfxLastShifts = 0, mfxLastConfig = 0;
+    bool mfxLastWrote = false;
+    bool mfxLastReset = false;  // the last MetalFX temporal frame reset the scaler's history (tests)
+    // Test hooks (RendererTestAccess): the next scaler creation fails; the preparation pass alone; the sign of the jitter and of the motion handed to MetalFX.
+    // mfxPrepOnly: a jittered frame draws the preparation pass (mfxDepth, mfxMotion) and then falls to the temporal upscaler without asking
+    // MetalFX for anything, so the pass can be read back on a GPU that has no MetalFX.
+    bool mfxForceCreateFail = false;
+    bool mfxPrepOnly = false;
+    // Test hook: the reactive mask is not handed to MetalFX (the frames without one are the contrast).
+    bool mfxNoReactive = false;
+    float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
+    void free_mfx_images();
+    const render::metalfx::Support& metalfx_support();
+    bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
+    bool metalfx_fail(const std::string& why);
+    bool ensure_mfx_target(Target& t, const char* label, sg_pixel_format format, int w, int h);
+    bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
+    // The images the screen-space items need at the output size: outTarget in the format the picture has there (`display`: after a final
+    // pass, so display values; else the scene format), with the depth the items are drawn with when `depth`; the render-resolution
+    // filterTarget a final pass writes into (display); outFilterTarget when the colour filter runs after the items (`filter`).
+    bool ensure_hud_output(bool display, bool filter, bool depth);
+    // render_world's decision (hudAtOutput) for the cameras of `lastCams` that draw a pixel, the same ones plan_job plans.
+    bool decide_hud_at_output(World& world);  // renderer_draw.cpp
+    void free_output_targets();
+    void run_upscale(Target& out, const PassContext& c);
+    void stretch_upscale(const render::UpscaleInput& in, Target& out);
+    void spatial_upscale(const render::UpscaleInput& in, Target& out);
+    bool ensure_spatial_target(sg_pixel_format colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
     DebugView debugView = DebugView::None;
     std::uint32_t forceEffects = 0;
+    // M76 motion vectors (renderer_draw.cpp, fill_prev_models): `forceVelocity` (RendererTestAccess::force_velocity) asks every camera for
+    // the velocity image. `prevModels` is what the renderer keeps of each drawn entity from one game frame to the next, only for cameras
+    // that ask: its model matrix of the frame before (`prev`) and of the last frame it was drawn (`cur`), with the postSerial of that
+    // frame. An entity not drawn in the frame before, or new, has prev = cur: no motion of its own. origin_shifted moves both.
+    bool forceVelocity = false;
+    // PostPlan::needsVelocity of the last job plan_job planned (RendererTestAccess::last_job_needs_velocity): what the job asked for, before
+    // the GPU is asked whether it can make the image.
+    bool lastJobNeedsVelocity = false;
+    // RendererTestAccess::probe_camera: the entity bits of the only camera whose velocity and reactive images the probes copy (probeCameraOnly false = every camera, the last wins; the first entity's bits are 0).
+    std::uint64_t probeCamera = 0;
+    bool probeCameraOnly = false;
+    // RendererTestAccess::read_velocity: while forceVelocity is on, a pass copies the velocity image of the last camera into this RGBA16F
+    // image (rg = the vector as it is, prepass_view.glsl mode 4), which a test reads back after the frame.
+    Target velocityProbe;
+    // The same for the reactive mask (R8; the copy holds r in the first channel): RendererTestAccess::read_reactive.
+    Target reactiveProbe;
+    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label);
+    bool read_velocity(std::vector<float>& out, int& w, int& h, std::string* error);
+    bool read_reactive(std::vector<float>& out, int& w, int& h, std::string* error);
+    struct PrevModel {
+        Mat4 prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevModel> prevModels;  // by Entity::bits()
+    std::uint64_t prevModelsPruned = ~std::uint64_t(0);       // the postSerial prevModels was last swept in
+    // The joint palettes of a skinned entity (M76-P1b), one per skin of its Animator, of the last frame it was drawn (`cur`) and the one
+    // before (`prev`), at most kMaxSkinJoints joints each. Same keys and life as prevModels.
+    // A palette is in model space, so an origin shift (renderer_origin.cpp) leaves it as it is.
+    struct PrevPalette {
+        std::vector<std::vector<Mat4>> prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevPalette> prevPalettes;  // by Entity::bits()
+    // The matrix of the 2D items that move (M76-P1d, QuadItem::motionKey) in the world, of the last frame they were drawn (`cur`) and the one
+    // before (`prev`), with the postSerial of that frame; same keys and life as prevModels. origin_shifted moves both.
+    struct PrevQuadOrigin {
+        Mat4 prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevQuadOrigin> prevQuadOrigins;  // by Entity::bits()
+    std::uint64_t prevQuadsPruned = ~std::uint64_t(0);  // the postSerial prevQuadOrigins was last swept in
+    std::vector<float>
+        quadMotionStream;  // build_quad_stream: the per-vertex motion of `stream` (vertex buffer 1 of the quad motion programs)
+    std::vector<float>
+        prevPalTexels;  // upload_prev_palettes' CPU copy of the palette image (the capacity stays from frame to frame)
+    // The game time (World::time, seconds) of the last frame that kept the histories (`clockCur`, the postSerial `clockFrame`) and of the one
+    // before (`clockPrev`): what a material's vertex() sees as fa_time.x in the second run of the motion vectors.
+    float clockPrev = 0.0f, clockCur = 0.0f;
+    std::uint64_t clockFrame = ~std::uint64_t(0);
+    bool warnedNoVelocity = false;  // one warning for a GPU with no RG16F render target
+    bool warnedPrevPalette =
+        false;  // one warning for skinned draws that got no previous palette (upload_prev_palettes)
+    // Tests (RendererTestAccess::force_no_velocity_target): behave as a GPU that cannot render to RG16F.
+    bool noVelocityTarget = false;
+    // Tests (RendererTestAccess::force_no_palette_sampling / set_palette_row_cap): behave as a GPU that cannot sample RGBA32F in the vertex stage,
+    // and as one whose palette image holds only `paletteRowCap` rows (kPrevPaletteMaxRows: the real limit, 5461 skinned draws).
+    bool noPaletteSampling = false;
+    int paletteRowCap = kPrevPaletteMaxRows;
+    void fill_prev_models(DrawContext& ctx);
+    void fill_quad_motion(DrawContext& ctx);
+    void keep_prev_palette(const MeshItem& mi);
+    const std::vector<Mat4>& prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const;
+    void upload_prev_palettes(DrawContext& ctx);
     // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
     // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
     std::function<void()> beforeFrameGraph;
@@ -184,7 +344,27 @@ struct Renderer::Impl {
         Mat4 before;  // what a second job of the same camera in the same frame reprojects from (`hadBefore`)
         bool hadBefore = false;
         int jobs = 0;  // how many jobs of this camera came before in the frame (the custom passes' histories)
+        // M76: what the camera DREW with last frame (viewProj above is the unjittered one, the matrix every reprojection of the
+        // effects uses): the viewProj with the sub-pixel jitter and the jitter in render pixels (0 when the camera did not jitter),
+        // and the same two for `before`. The temporal antialiasing and upscaler resolve the history with them.
+        Mat4 jittered;
+        Vec2 jitterPx{0, 0};
+        Mat4 beforeJittered;
+        Vec2 beforeJitterPx{0, 0};
     };
+    // M76: the sub-pixel jitter (fa/scene/jitter.h). A camera is jittered when its stack has TemporalAA on AND the renderer draws that
+    // effect (render_features.cpp effect_drawn), is a camera of the game's frame (not a CameraView, a render target or a capture) and the TAA passes can run (TaaFx::unavailable); `jitterForce` (RendererTestAccess::
+    // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
+    // before the effect is drawn.
+    int jitterForce = 0;
+    UpscalerSettings
+        upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
+    QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
+    bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
+    // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
+    int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
+    // The texture LOD bias of a camera that jitters (M76-P4b): 0 when `phases` is 0 or a test forced the jitter.
+    float mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const;
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
@@ -271,8 +451,14 @@ struct Renderer::Impl {
     bool warnedOccluderCap = false, warnedOcclusionFrameCap = false;
     std::set<std::uint64_t>
         warnedOccluders;  // entities whose Occluder was reported (no mesh, unreadable mesh): once each
-    // Occluder.mesh names that could not be read, with the error: not read from disk again every frame (a name is tried once per run).
-    std::map<std::string, std::string> occluderMeshErrors;
+    // Occluder.mesh names that could not be read, with the error and the frameSerial of the failure: not read from disk again
+    // every frame, but tried again after kOccluderRetryFrames frames (a file that appears later, a fixed path, a reloaded project).
+    struct OccluderMeshFailure {
+        std::string error;
+        std::uint64_t frame = 0;
+    };
+    static constexpr std::uint64_t kOccluderRetryFrames = 600;
+    std::map<std::string, OccluderMeshFailure> occluderMeshErrors;
     struct OcclusionShown {
         struct Box {
             std::array<Vec3, 8> corners;  // world space; bit 0 = x, 1 = y, 2 = z of the corner
@@ -566,7 +752,13 @@ struct Renderer::Impl {
     bool game_targets_valid() const;
     int readW = 0, readH = 0;
     // The image of the finished frame: the final pass's (or the colour filter's) picture when the last frame had one, else the game target.
-    const Target& final_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
+    // The picture of the render resolution (what the upscale stage reads), else the image of the output size the stage made.
+    const Target& scene_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
+    const Target& final_target() const {
+        return outFilterActive ? outFilterTarget : outActive ? outTarget : scene_target();
+    }
+    int final_w() const { return final_target().w > 0 ? final_target().w : physW; }  // the size of the finished picture
+    int final_h() const { return final_target().h > 0 ? final_target().h : physH; }
     sg_image final_image() const { return final_target().texture_image(); }
     sg_view final_view() const { return final_target().texView; }
     // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
@@ -711,6 +903,10 @@ struct Renderer::Impl {
     }
     // GPU frame times the timer resolved while the renderer polled it for pass times, kept for take_gpu_ms().
     std::vector<double> gpuFrames;
+    std::vector<double>
+        testGpuFrames;  // GPU frame times a test injected; poll_gpu_frames hands them out as the timer's
+    void
+    poll_gpu_frames();  // reads the timer's answers into gpuFrames and, while the dynamic resolution asks, gpuFrameMs
     bool passHooksSet = false;      // begin_frame_graph() gave the graph its pass hooks
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
@@ -775,8 +971,15 @@ struct Renderer::Impl {
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
+    // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world. plan_quad_motion decides after plan_prepass whether the
+    // job draws the "quad-velocity" pass (over the prepass's velocity image, or an image of its own when the job has no prepass) and the
+    // "quad-reactive" pass (an R8 image, PostPlan::reactive); quad_motion_pass draws one of them over the batches of ctx.gWorld.
+    // `depth`: the prepass (the quads behind a mesh are left out), null when the job has none.
+    void plan_quad_motion(DrawContext& ctx);
+    void quad_motion_pass(DrawContext& ctx, const Target& t, bool reactive, const Target* depth, bool clear);
     // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
-    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false);
+    // `velocity`: the second attachment of the pass (VelocityRef's image), null for a pass that does not write the motion vectors.
+    void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false, const Target* velocity = nullptr);
     // M73.5: the meshes that scatter again with the sss program of the mesh shader, into `a` (diffuse light + depth) and `b` (radius + strength);
     // `pre` is the prepass the shader's visibility test reads.
     void sss_draw_pass(DrawContext& ctx, const Target& a, const Target& b, const Target& pre);

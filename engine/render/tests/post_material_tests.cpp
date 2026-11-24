@@ -29,31 +29,13 @@ namespace {
 
 constexpr float kTol = 0.04f;  // 4 % of a channel: 8-bit quantisation and the scene's filtering
 
-// The fixture materials are copied into the test project; every twin gets this build's engine version (its "template"
-// stays, so a template change without regenerating the twins fails loudly).
-void install_materials() {
-    namespace sfs = std::filesystem;
-    const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
-    for (const auto& e : sfs::recursive_directory_iterator(src)) {
-        if (!e.is_regular_file()) continue;
-        std::ifstream in(e.path(), std::ios::binary);
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (e.path().extension() == ".shader") {
-            Json twin = Json::parse(bytes);
-            twin["engine"] = FA_ENGINE_VERSION;
-            bytes = twin.dump();
-        }
-        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
-    }
-}
-
-struct MaterialScope {
-    MaterialScope() {
+struct PostMaterialScope {
+    PostMaterialScope() {
         gfx().renderer.clear_asset_cache();
         gfx().renderer.reset_post_history();  // an earlier test's world may have had a camera with the same id
         install_materials();
     }
-    ~MaterialScope() {
+    ~PostMaterialScope() {
         gfx().renderer.set_shader_compiler({});
         gfx().renderer.clear_asset_cache();
     }
@@ -177,7 +159,7 @@ int count_of(const std::vector<std::string>& names, const std::string& part) {
 TEST_CASE("post materials: a material with an empty snippet draws the picture as it was") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     const Image without = g.render(s.w);
@@ -192,7 +174,7 @@ TEST_CASE("post materials: a material with an empty snippet draws the picture as
 TEST_CASE("post materials: a tint material multiplies the picture and materialParams changes the tint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     s.passes({entry(kTint)});
@@ -208,7 +190,7 @@ TEST_CASE("post materials: a tint material multiplies the picture and materialPa
 TEST_CASE("post materials: uv runs left to right and top to bottom, and time follows the engine clock") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     Scene2d s;
     s.passes({entry(kUv)});
     Image img = g.render(s.w);
@@ -226,7 +208,7 @@ TEST_CASE("post materials: uv runs left to right and top to bottom, and time fol
 TEST_CASE("post materials: the depth and normals are made only when a material reads them, and read by pixel") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene3d s;
     s.post().customPasses = Json::array({entry(kTint)});
@@ -257,7 +239,7 @@ TEST_CASE(
     "post materials: a material's texture is bound after the engine's two views, and amount 0 leaves the picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     const Image without = g.render(s.w);
@@ -276,7 +258,7 @@ TEST_CASE(
 TEST_CASE("post materials: a chain of passes reads what the one before wrote, with two or three images in turn") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     s.passes({entry(kTint, nullptr, tint(0.5, 1.0, 1.0)), entry(kTint, nullptr, tint(1.0, 0.5, 1.0))});
@@ -298,7 +280,7 @@ TEST_CASE("post materials: a chain of passes reads what the one before wrote, wi
 TEST_CASE("post materials: an entry says where it goes, relative to the built-in passes") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene3d s;
     PostProcess& p = s.post();
@@ -335,7 +317,7 @@ TEST_CASE("post materials: an entry says where it goes, relative to the built-in
 TEST_CASE("post materials: a disabled entry draws nothing and is not a fallback") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     const Image without = g.render(s.w);
@@ -350,7 +332,7 @@ TEST_CASE("post materials: a disabled entry draws nothing and is not a fallback"
 TEST_CASE("post materials: a material that does not build, or is not a post material, skips its pass once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     REQUIRE(fs::write_text("materials/post_broken.material.json",
                            R"({"format": "factoria.material/1", "kind": "post", "shader": "shaders/broken.post.glsl"})")
                 .ok());
@@ -391,7 +373,7 @@ TEST_CASE(
     "materials: the error of a material that does not build says what happens to its kind, not 'magenta' for all") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     g.renderer.set_shader_compiler([](const std::string& path, const std::string&) -> Result<Json> {
         return make_error("shaders/broken.glsl:3:5: error: nothing compiles in " + path, "fix the shader");
     });
@@ -422,7 +404,7 @@ TEST_CASE(
 TEST_CASE("post materials: hot reload swaps the shader, keeps the last good one on a broken edit and recovers") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     const std::string dialect = g.renderer.shader_dialect();
     REQUIRE(fs::write_text("materials/post_hot.material.json",
                            R"({"format": "factoria.material/1", "kind": "post", "shader": "shaders/hot.txt",
@@ -468,7 +450,7 @@ TEST_CASE("post materials: hot reload swaps the shader, keeps the last good one 
 TEST_CASE("post materials: a camera of a split screen draws its pass over its own rectangle only") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     World w;
     auto camera = [&](const char* name, Vec3 pos, Rect viewport, int depth) {
@@ -528,7 +510,7 @@ int last_final_piece(const std::vector<std::string>& order) {
 TEST_CASE("post materials: a frame with no custom pass keeps its one final pass, a display-referred entry cuts it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     PostProcess& p = s.post();
@@ -574,7 +556,7 @@ TEST_CASE("post materials: every display-referred position cuts the final pass o
           "first piece") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     const char* positions[] = {"after:tonemap", "after:colorGrading", "after:vignette", "after:sharpen",
                                "after:outline", "after:posterize",    "after:filmGrain"};
@@ -615,7 +597,7 @@ TEST_CASE(
     "post materials: a display-referred pass reads what the effects before it made, the ones after it read its own") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     // The vignette paints the corners white: a tint before it is painted over, a tint after it tints the white too.
     auto corner = [&](const char* position) {
@@ -664,7 +646,7 @@ TEST_CASE(
 TEST_CASE("post materials: entries at several display-referred places all run, in the order of the places") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     PostProcess& p = s.post();
@@ -686,7 +668,7 @@ TEST_CASE("post materials: entries at several display-referred places all run, i
 TEST_CASE("post materials: a linear scene with a display-referred pass is still encoded when the LUT does not load") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     auto picture = [&](bool withPass) {
         Scene2d s;
@@ -750,10 +732,10 @@ constexpr const char* kHistory = "materials/post_history.material.json";
 // `mark`: the pass paints red where fa_history_valid is true.
 Json keep(double k, bool mark = false) { return Json::object({{"keep", k}, {"mark", mark ? 1.0 : 0.0}}); }
 
-// MaterialScope that also starts with no history image: the slots of the tests before are freed by drawing frames that
+// PostMaterialScope that also starts with no history image: the slots of the tests before are freed by drawing frames that
 // ask for none (kHistoryIdleFrames of them), so the counts of a test are its own.
 struct HistoryScope {
-    MaterialScope scope;
+    PostMaterialScope scope;
     HistoryScope() {
         Scene2d empty;
         for (std::uint64_t i = 0; i < render::CustomPost::kHistoryIdleFrames + 2; ++i) gfx().render(empty.w);
@@ -1037,7 +1019,7 @@ TEST_CASE(
 
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     render::Gpu* gpu = render::renderer_gpu(g.renderer);
     REQUIRE(gpu != nullptr);
@@ -1070,7 +1052,7 @@ TEST_CASE(
 TEST_CASE("post materials: a cut final pass in a split screen tints its own camera's rectangle only") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     World w;
     auto camera = [&](const char* name, Vec3 pos, Rect viewport, int depth) {
@@ -1107,7 +1089,7 @@ TEST_CASE("post materials: a multisampled frame with a HUD over the final pass k
           "the HUD") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     // The HUD is drawn after the final pass (hudAfterPost), and the game is multisampled: the custom passes read the
     // resolved picture and write it back in place, the HUD is not tinted.
@@ -1145,7 +1127,7 @@ TEST_CASE("post materials: a cut final pass in a gamma scene changes no colour, 
           "shown one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     auto picture = [&](const char* material, double k) {
         Scene2d s;
@@ -1218,7 +1200,7 @@ TEST_CASE(
     "post history: going over the budget warns once, draws without history and starts when the budget allows it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     OwnRenderer own(g, 1);
     REQUIRE_MESSAGE(own.ok, own.error);
@@ -1245,7 +1227,7 @@ TEST_CASE(
 TEST_CASE("post history: a GPU that refuses the images is asked once for a shape, again when the shape changes") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     OwnRenderer own(g, 1);
     REQUIRE_MESSAGE(own.ok, own.error);
@@ -1278,7 +1260,7 @@ TEST_CASE("post history: a GPU that refuses the images is asked once for a shape
 TEST_CASE("post history: the refused shapes are remembered up to a cap, and the oldest one is forgotten first") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     OwnRenderer own(g, 1);
     REQUIRE_MESSAGE(own.ok, own.error);
@@ -1311,7 +1293,7 @@ TEST_CASE(
     "post history: a multisampled frame with a HUD over the final pass keeps the history of the resolved picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     OwnRenderer own(g, 4);
     REQUIRE_MESSAGE(own.ok, own.error);
@@ -1461,7 +1443,7 @@ TEST_CASE(
 TEST_CASE("capture_camera: the alpha a pass writes comes back as it is, never un-premultiplied") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     s.w.get<Sprite>(s.sprite)->color = Color{0.25f, 0.25f, 0.25f, 1.0f};  // dark enough for a division by 0.5 to show
@@ -1485,7 +1467,7 @@ TEST_CASE("capture_camera: the alpha a pass writes comes back as it is, never un
 TEST_CASE("capture_camera: a camera with no custom pass is one plain frame, and the arguments are checked") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PostMaterialScope scope;
     ProblemLog log;
     Scene2d s;
     Renderer::CameraCapture spec;

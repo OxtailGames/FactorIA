@@ -53,7 +53,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [Camera](components/camera.md)
 
 - [Camera](components/camera.md#camera): Renders the scene to the screen.
-- [PostProcess](components/camera.md#postprocess): A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. _Since 0.31.0._
+- [PostProcess](components/camera.md#postprocess): A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, temporal antialiasing, colour filter), every one off by default. _Since 0.31.0._
 
 ### [Core](components/core.md)
 
@@ -440,8 +440,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
 - [`game.step`](commands/game.md#gamestep-modifies-state): Advance the simulation by N fixed frames (deterministic) and return a state summary.
+- [`graphics.detect`](commands/game.md#graphicsdetect): Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing. _Since 0.36.0._
+- [`graphics.preset`](commands/game.md#graphicspreset-modifies-state): Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render settings of the game. _Since 0.36.0._
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on. _Since 0.31.0._
+- [`render.dynamic_resolution`](commands/game.md#renderdynamic_resolution-modifies-state): Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target. _Since 0.36.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Since 0.34.0._
 - [`render.gi_grid`](commands/game.md#rendergi_grid): The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry. _Since 0.33.0._
@@ -455,6 +458,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.probes`](commands/game.md#renderprobes): The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture. _Since 0.33.0._
 - [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
+- [`render.upscaler`](commands/game.md#renderupscaler-modifies-state): Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen. _Since 0.36.0._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._
 - [`vfx.check`](commands/game.md#vfxcheck): Read an effect document (*.vfx.json) and list every problem, with its JSON pointer and the fix. _Since 0.17.0._
 - [`vfx.filmstrip`](commands/game.md#vfxfilmstrip-modifies-state): Film an effect playing in the game: one picture with a grid of frames, to see its timing and look at once. _Since 0.17.0._
@@ -537,6 +541,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Since 0.30.0._
 - [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Since 0.30.0._
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
+- [`project.graphics`](commands/project.md#projectgraphics-modifies-state): Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in factoria.json. _Since 0.36.0._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._

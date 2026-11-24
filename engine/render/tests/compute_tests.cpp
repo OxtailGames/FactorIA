@@ -32,24 +32,6 @@ const char* const kScale = "materials/scale.material.json";
 // read-write: + 1 a dispatch).
 const char* const kField = "materials/field.material.json";
 
-// Copies the fixture materials into the test project; every twin gets this build's engine version (its "template"
-// stays, so a template change without regenerating the twins fails loudly).
-void install_materials() {
-    namespace sfs = std::filesystem;
-    const sfs::path src = fs::path_from_utf8(FA_RENDER_DATA_DIR) / "materials";
-    for (const auto& e : sfs::recursive_directory_iterator(src)) {
-        if (!e.is_regular_file()) continue;
-        std::ifstream in(e.path(), std::ios::binary);
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (e.path().extension() == ".shader") {
-            Json twin = Json::parse(bytes);
-            twin["engine"] = FA_ENGINE_VERSION;
-            bytes = twin.dump();
-        }
-        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
-    }
-}
-
 // A test starts with an empty asset cache and no buffers, the fixtures installed, and leaves the real backend
 // answering.
 struct ComputeScope {

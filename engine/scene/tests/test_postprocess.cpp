@@ -135,6 +135,29 @@ TEST_CASE("PostProcess: the effect order is complete, unique and none is the pre
     CHECK_FALSE(post_effect_is_hdr(PostEffect::Tonemap));
 }
 
+TEST_CASE("PostProcess: temporalAA (M76) sits after the exposure and before the depth of field, is HDR, and is off by "
+          "default") {
+    CHECK(post_effect_from_name("temporalAA") == PostEffect::TemporalAA);
+    CHECK(int(PostEffect::TemporalAA) == int(PostEffect::Exposure) + 1);
+    CHECK(int(PostEffect::TemporalAA) + 1 == int(PostEffect::DepthOfField));
+    CHECK(post_effect_is_hdr(PostEffect::TemporalAA));
+    const TypeInfo* t = info_of<PostProcess>();
+    REQUIRE(t);
+    PostProcess p;
+    CHECK_FALSE(p.temporalAAEnabled);
+    for (const char* name : {"temporalAAEnabled", "temporalAAFeedback", "temporalAASharpen", "temporalAAVarianceGamma",
+                             "temporalAAReactiveScale", "temporalAAMipBias"}) {
+        INFO(name);
+        const FieldInfo* f = t->field(name);
+        REQUIRE(f);
+        CHECK(f->doc.size() > 30);
+        CHECK(post_field_effect(name) == int(PostEffect::TemporalAA));
+    }
+    // An old scene file has no temporalAA key and loads with the defaults (the effect off).
+    CHECK(p.temporalAAFeedback == doctest::Approx(0.9f));
+    CHECK(postprocess_neutral().temporalAASharpen == 0.0f);
+}
+
 TEST_CASE("PostProcess: the neutral stack has every effect off and a zero strength") {
     const PostProcess& n = postprocess_neutral();
     CHECK(n.bloomIntensity == 0.0f);

@@ -33,6 +33,7 @@ Target make_target(const TargetDesc& d) {
     if (d.colorFormat != SG_PIXELFORMAT_NONE) {
         sg_image_desc cd{};
         cd.usage.color_attachment = true;
+        cd.usage.storage_image = d.storage && !msaa;
         cd.width = d.width;
         cd.height = d.height;
         cd.pixel_format = d.colorFormat;
@@ -138,6 +139,7 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
         return !game_targets_valid() || (hookInvalid && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F);
     };
     if (!refused() || gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return;
+    scaleStepOnly = false;  // another scene format: every image is made again
     const int first = gpu.scene_pick();
     const sg_pixel_format firstFormat = gpu.scene_format();
     while (gpu.next_scene_format()) {
@@ -196,12 +198,13 @@ void Renderer::Impl::update_editor_copy() {
         destroy_target(editorTarget);
         return;
     }
-    if (editorTarget.color.id && (editorTarget.w != physW || editorTarget.h != physH)) destroy_target(editorTarget);
+    if (editorTarget.color.id && (editorTarget.w != final_w() || editorTarget.h != final_h()))
+        destroy_target(editorTarget);
     if (!editorTarget.color.id) {
         TargetDesc d;
         d.label = "editor-view";
-        d.width = physW;
-        d.height = physH;
+        d.width = final_w();
+        d.height = final_h();
         d.colorFormat = SG_PIXELFORMAT_RGBA8;
         editorTarget = make_target(d);
         if (!editorTarget.valid()) {
@@ -250,13 +253,20 @@ void Renderer::Impl::free_read_image() {
 }
 
 void Renderer::Impl::destroy_targets() {
-    for (auto& [key, t] : viewTargets) release_view(*t);
-    viewTargets.clear();
+    // A step of the dynamic resolution (scaleStepOnly) changes only the render size. The slots of the view images
+    // stay: render targets, probes and captures have their own size, so their images are kept as they are; a
+    // CameraView's size is its rectangle times renderScale (ui2d.cpp), so view_image makes it again at the next draw
+    // when the size changed. The adapted exposure is a 1x1 value and stays too (no flash at a step).
+    if (!scaleStepOnly) {
+        for (auto& [key, t] : viewTargets) release_view(*t);
+        viewTargets.clear();
+    }
     bloom.release();
     ssr.forget_targets();
     xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
+    taa.forget_targets(scaleStepOnly);
     gi2d.free_images();
     fogFx.forget_targets();
     volFx.forget_targets();
@@ -272,10 +282,20 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
+    // The output-size images do not depend on the render size: a dynamic step keeps them (render_world frees them after
+    // kOutputIdleFrames frames without the stage); the MetalFX images are made for the input size, so they go.
+    if (scaleStepOnly) {
+        free_mfx_images();
+        mfxScaler.release();
+    } else {
+        free_output_targets();
+    }
     for (Target& t : ldrMid) destroy_target(t);
-    for (auto& [key, slot] : autoExposures)
-        if (slot.exposure) slot.exposure->release();
-    autoExposures.clear();
+    if (!scaleStepOnly) {
+        for (auto& [key, slot] : autoExposures)
+            if (slot.exposure) slot.exposure->release();
+        autoExposures.clear();
+    }
     destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);

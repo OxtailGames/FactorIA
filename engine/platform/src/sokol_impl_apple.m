@@ -46,6 +46,45 @@ static NSUInteger fa_mac_stored_style;
 static NSApplicationPresentationOptions fa_mac_stored_presentation;
 #endif
 
+#if !TARGET_OS_IPHONE
+// The refresh rate of `screen` in Hz, 0 when macOS does not say. maximumFramesPerSecond (macOS 12) is the top of a variable
+// rate (ProMotion: 120); before it the display mode's rate, which is 0 for most built-in panels.
+static double fa_mac_screen_hz(NSScreen* screen) {
+    if (screen == nil) return 0.0;
+    double hz = 0.0;
+    if (@available(macOS 12.0, *)) hz = (double)screen.maximumFramesPerSecond;
+    if (hz < 1.5) {
+        NSNumber* number = screen.deviceDescription[@"NSScreenNumber"];
+        if (number != nil) {
+            CGDisplayModeRef mode = CGDisplayCopyDisplayMode((CGDirectDisplayID)number.unsignedIntValue);
+            if (mode != NULL) {
+                hz = CGDisplayModeGetRefreshRate(mode);
+                CGDisplayModeRelease(mode);
+            }
+        }
+    }
+    return hz >= 1.5 ? hz : 0.0;
+}
+#endif
+
+double fa_sapp_display_refresh_hz(void) {
+#if !TARGET_OS_IPHONE
+    if (_sapp.macos.window == nil) return 0.0;
+    return fa_mac_screen_hz(_sapp.macos.window.screen ? _sapp.macos.window.screen : NSScreen.mainScreen);
+#else
+    // The screen of sokol_app's window (what its display link runs at). An iPhone runs a ProMotion panel at 60 at most unless
+    // the Info.plist sets CADisableMinimumFrameDurationOnPhone (iPads do not need it).
+    if (_sapp.ios.window == nil) return 0.0;
+    UIScreen* screen = _sapp.ios.window.windowScene ? _sapp.ios.window.windowScene.screen : UIScreen.mainScreen;
+    double hz = screen ? (double)screen.maximumFramesPerSecond : 0.0;
+    if (hz > 60.0 && UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        id lifted = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CADisableMinimumFrameDurationOnPhone"];
+        if (!([lifted respondsToSelector:@selector(boolValue)] && [lifted boolValue])) hz = 60.0;
+    }
+    return hz >= 1.5 ? hz : 0.0;
+#endif
+}
+
 int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
 #if !TARGET_OS_IPHONE
     NSArray<NSScreen*>* screens = NSScreen.screens;  // [0] is the one with the menu bar: the primary
@@ -64,6 +103,7 @@ int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
         m->h = (int)(screen.frame.size.height + 0.5);
         m->primary = n == 0;
         m->current = screen == here;
+        m->refresh_hz = fa_mac_screen_hz(screen);
         n++;
     }
     return n;
@@ -326,3 +366,14 @@ bool fa_sapp_set_class_name(const char* name) {
     (void)name;  // Linux only: the name of a macOS app comes from its bundle
     return false;
 }
+
+#if defined(SOKOL_METAL)
+// The command buffer sokol records the next passes into (the one sg_commit() submits), made now when there is none yet. sokol hands
+// out the encoder of a pass but never the buffer; the MetalFX scaler (engine/render/src/metalfx_apple.mm) needs it to order its own
+// buffer against the passes before and after it with a shared event.
+const void* fa_sg_mtl_command_buffer(void) {
+    _sg_mtl_finish_blit_cmd_encoder();  // sokol keeps a blit encoder open between passes; an event is encoded outside any encoder
+    _sg_mtl_acquire_cmd_buffer();
+    return (__bridge const void*)_sg.mtl.cmd_buffer;
+}
+#endif

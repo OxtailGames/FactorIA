@@ -36,6 +36,16 @@ struct CameraGeometry {
         return viewport.x == 0.0f && viewport.y == 0.0f && viewport.w == 1.0f && viewport.h == 1.0f;
     }
     Mat4 view, proj, viewProj, invViewProj;  // for drawing: the depth range of CameraTarget::zeroToOne
+    // What the GPU draws with: proj / viewProj with the sub-pixel jitter of the temporal antialiasing on top (M76, fa/scene/jitter.h).
+    // Equal to proj / viewProj until apply_jitter() runs; culling, the Hi-Z pyramid, the previous-frame matrices and the motion
+    // vectors keep using the unjittered proj / viewProj above.
+    Mat4 drawProj, drawViewProj;
+    // The inverse of drawViewProj: the clip position of a pixel of the DRAWN image back to the world. What a full-screen pass that draws
+    // the sky or a panorama needs to agree with the jittered meshes; everything that asks where a pixel is in the world (the
+    // reprojections of the post passes, the picking) uses the unjittered invViewProj.
+    Mat4 drawInvViewProj;
+    Vec2 jitterPx{0, 0};   // the jitter applied, in render pixels (x right, y down); 0 when not jittered
+    Vec2 jitterNdc{0, 0};  // the same as an offset of clip x / w and y / w
     // The same matrices with the OpenGL depth range (-1..1) whatever the backend, which the queries below use: an answer does not
     // depend on the graphics API (nor on whether there is one).
     Mat4 queryViewProj, queryInvViewProj;
@@ -47,6 +57,11 @@ struct CameraGeometry {
     float pixelsPerUnit = 1.0f;            // ortho: target pixels per world unit
     Rect visible{};                        // orthographic view rectangle in world units
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+
+    // Jitters the DRAWN projection by `pixels` render pixels (x right, y down) of an image `viewWidthPx` x `viewHeightPx` pixels big:
+    // drawProj and drawViewProj move, nothing else does (proj, viewProj, invViewProj and the query matrices stay as they are).
+    // A call replaces the previous jitter, it does not add to it; {0, 0} gives the unjittered matrices again.
+    void apply_jitter(Vec2 pixels, float viewWidthPx, float viewHeightPx);
 
     // `target` is the size of the target in pixels (CameraTarget::width/height).
     Vec2 world_to_screen(Vec3 p, Vec2 target) const;

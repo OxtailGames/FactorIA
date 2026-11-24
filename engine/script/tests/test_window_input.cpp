@@ -21,7 +21,7 @@ struct FakeWindow final : WindowControl {
     bool supports_modes() const override { return borderless_ok; }
     bool supports_monitors() const override { return monitors_ok; }
     std::vector<WindowMonitor> monitors() const override {
-        return {{"Main", 1920, 1080, true, mon == 0}, {"Side", 1280, 720, false, mon == 1}};
+        return {{"Main", 1920, 1080, true, mon == 0, 144.0}, {"Side", 1280, 720, false, mon == 1, 0.0}};
     }
     std::string set_mode(const std::string& m) override {
         if (m == "borderless" && !borderless_ok) return "this platform has no borderless mode";
@@ -169,6 +169,8 @@ test("monitors are listed primary first with index, name and size", () => {
   expect(list[1].index).toBe(1);
   expect(list[1].size.y).toBe(720);
   expect(list[1].primary).toBe(false);
+  expect(list[0].refreshHz).toBe(144);
+  expect(list[1].refreshHz).toBe(0);
   expect(window.monitor).toBe(0);
   expect(list[0].current).toBe(true);
 });
@@ -251,6 +253,7 @@ test("one display, the project's mode, and no support", () => {
   expect(list.length).toBe(1);
   expect(list[0].primary).toBe(true);
   expect(list[0].size.x).toBe(800);
+  expect(list[0].refreshHz).toBe(0);
   expect(window.monitor).toBe(0);
   expect(window.supports("borderless")).toBe(false);
   expect(window.supports("monitors")).toBe(false);
@@ -538,7 +541,7 @@ test("render scale is remembered, bad values teach", () => {
   expect(window.renderScale).toBe(1);
   window.renderScale = 0.75;
   expect(window.renderScale).toBe(0.75);
-  expect(() => { window.renderScale = 0.4; }).toThrow("window.renderScale expects a number from 0.5 to 1");
+  expect(() => { window.renderScale = 0.3; }).toThrow("window.renderScale expects a number from 0.33 to 1");
   expect(() => { window.renderScale = NaN; }).toThrow("window.renderScale expects");
 });
 test("render scale is back at 1 in the next test", () => {

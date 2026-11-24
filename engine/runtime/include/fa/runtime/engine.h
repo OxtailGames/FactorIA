@@ -26,6 +26,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -232,7 +233,9 @@ public:
                               std::string* error) override;
     // The picture now at the held render scale as pixels (ScriptHost::capture_frame: render.captureTexture).
     bool capture_frame(Image& out, std::string* error) override;
-    // The same picture as screenshot_scaled, as pixels (row 0 = top).
+    // The same picture as screenshot_scaled, as pixels (row 0 = top). A scale other than the held one draws the frame again natively at
+    // that scale (sharp, never upscaled). A scale equal to the held one is the picture as the player sees it: with the player's render
+    // scale below 1 that is the design-size image the upscale stage made (capture_frame is this call), not a smaller native image.
     bool capture_scaled(Image& out, double scale, std::string* error);
     // The picture now, or the part of it inside `region` ({x, y, w, h} in design pixels; w or h <= 0 = the whole view),
     // magnified `zoom` times (0.25 .. 32, the result at most 8192 px per side). Up to 4x the frame is drawn again at that
@@ -250,6 +253,8 @@ public:
     static RegionPlan plan_region(Vec2 viewSize, const Rect& region, double zoom);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
     // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
+    // A held scale is a size: it replaces the player's option (window.renderScale, Engine::set_render_scale) and the upscaler's quality,
+    // and has no upscale stage (except the sharpening at scale 1), until set_render_scale sets the player's option again.
     bool hold_render_scale(double scale, std::string* error);
     // JSON dump of the world for AIs: entities, components, physics, logs, errors.
     Json state(const Json& query = Json::object());
@@ -304,6 +309,32 @@ public:
     float default_ui_scale() const override;      // the ui.scale of factoria.json
     double render_scale() const override;         // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
+    std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
+        override;  // window.upscaler / render.upscaler: also the renderer's
+    // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
+    // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
+    std::string set_dynamic_resolution(const Json& value,
+                                       const std::string& where = "window.dynamicResolution") override;
+    render::DynamicResolutionState dynamic_resolution_state() const override;
+    // Test hook: while set, every frame of the engine (a step, headless or not) feeds the dynamic resolution controller this frame time in ms
+    // instead of a measurement (the state's source is "injected"). std::nullopt goes back to measuring. Nothing else reads it.
+    void set_dynamic_resolution_frame_ms(std::optional<double> ms);
+    // Test hook: while set, the tick measures as a windowed run on a GPU with timer queries does (source "gpu", and
+    // the frame time of the interval after kGpuMissFrames frames without an answer): after each frame the renderer
+    // drew, the timer answers `ms`; a negative `ms` is a timer that never answers. std::nullopt goes back to the real
+    // timer.
+    void set_dynamic_resolution_gpu_ms(std::optional<double> ms);
+    // Test hook: while set, the engine takes this as what the platform says the display's refresh rate is (refreshSource "platform"),
+    // also without a window, in place of app_display_refresh_hz(); it is read at the next poll (the first, then every 2 s of
+    // frames; the first one comes at the first frame). std::nullopt asks the platform again. Nothing else reads it.
+    void set_display_refresh_hz(std::optional<double> hz);
+    // game.graphics / graphics.preset / graphics.detect (M76, engine_graphics.cpp). graphics_preset({}) reads the preset,
+    // graphics_preset({"name": "high"}) applies it; an error is put in *error and nothing changes.
+    Json graphics_preset(const Json& args, std::string* error) override;
+    Json graphics_detect(std::string* error) override;
+    render::UpscalerMode effective_upscaler_mode()
+        const override;  // the renderer's: what draws, pixel art is stretch; with no renderer, what a GPU would draw
+    render::UpscalerCaps upscaler_caps() const override;  // no renderer: pixelArt from the project's scale mode
     void device_overridden(
         const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
     Json device_info() const override;  // a game window reports the real device; headless runs the fixed values
@@ -360,6 +391,9 @@ public:
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)
 
 private:
+    // hold_render_scale (player false) and set_render_scale (player true): validate, set the held scale and the player flag, and apply once;
+    // nothing happens when both are as they were.
+    bool hold(double scale, bool player, std::string* error);
     std::unique_ptr<Impl> impl_;
 };
 

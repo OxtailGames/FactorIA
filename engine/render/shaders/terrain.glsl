@@ -28,6 +28,8 @@
 @module terrain
 
 @block fa_user
+// vertex() ignores the model matrix: the prepass derives the previous position from the matrices alone (mesh_common.glsl fa_prepass_vertex).
+#define FA_VEL_STATIC_VERTEX
 #ifdef GL_VERTEX_SHADER
 layout(binding=4) uniform fa_material_vs {
     vec4 fa_t_m0; vec4 fa_t_m1; vec4 fa_t_m2; vec4 fa_t_m3;
@@ -211,7 +213,10 @@ void fa_t_shade(in SurfaceInput i, inout Surface s, vec2 duvx, vec2 duvy, vec2 c
 }
 void surface(in SurfaceInput i, inout Surface s) {
     // The derivatives of the position first: the layers' textures are read inside branches (textureGrad).
-    vec2 duvx = dFdx(i.uv), duvy = dFdy(i.uv);
+    // The texture LOD bias of the frame (fa_mip_bias, mesh_common.glsl): the derivatives scale by 2^bias, which is a bias of the level
+    // textureGrad picks. 1 when the frame has none. The control (splat) maps are data at their own resolution: read as they are.
+    float biasScale = exp2(fa_mip_bias);
+    vec2 duvx = dFdx(i.uv) * biasScale, duvy = dFdy(i.uv) * biasScale;
     // 0..1 across the terrain, 0 at its -X and -Z edge.
     vec2 cuv = i.uv / (fa_t_grid.xy * fa_t_cam.w) + 0.5;
     int nLayers = int(fa_t_nrm.w + 0.5);

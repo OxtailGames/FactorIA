@@ -282,9 +282,11 @@ editor's game view), so check `window.available` first or offer the option only 
   Space. On macOS, going from `"fullscreen"` straight to `"borderless"` throws (the Space takes a second to leave): set
   `"windowed"` first (the menu kit's button cycles windowed, borderless, fullscreen, so it never does). The web and
   phones have no borderless mode (`supports("borderless")` is false); phones are always `"fullscreen"`.
-- `monitors()` lists `[{ index, name, size, primary, current }]`, primary first; `monitor` is the index of the one the
+- `monitors()` lists `[{ index, name, size, primary, current, refreshHz }]`, primary first; `monitor` is the index of the one the
   window is on and `setMonitor(index)` moves the window there (centred when windowed, covering it when full screen or
-  borderless). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
+  borderless). `refreshHz` is the monitor's refresh rate as the OS reports it (the top of a variable-rate panel), 0 where
+  it does not say (no window, the web, Linux without XRandR); `window.dynamicResolution.refreshHz` is the rate the game
+  follows, with an estimate where the OS does not say (docs/UPSCALING.md, "The display's refresh rate"). `displaySize` and `resolutions()` follow. Windows, macOS and Linux (XRandR, loaded when the game starts:
   a machine without it lists the whole screen as one monitor). Elsewhere `monitors()` has one entry and `setMonitor`
   throws; on macOS it also throws while the window is in its native full screen. Two identical monitors have the same
   `name`: show the index too. A saved choice should keep the name, since indices change when a monitor is unplugged.
@@ -311,9 +313,15 @@ editor's game view), so check `window.available` first or offer the option only 
   of monitors). To be checked: macOS (borderless, native full screen, a second monitor), Windows (two monitors, windowed
   and full screen moves) and Linux X11 (two monitors with XRandR; `_NET_WM_FULLSCREEN_MONITORS` depends on the window
   manager).
-- `renderScale`: 0.5 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
-  of the pixels) and scaled up, which is the cheapest saving on a weak GPU. It works in every run with a renderer,
-  tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
+- `renderScale`: 0.33 to 1 (default 1), read and written. The picture is drawn at that share of the size (0.5 = a quarter
+  of the pixels) and scaled up, which is the cheapest saving on a weak GPU. The HUD and the UI (screen-space Text, Sprite,
+  Shape2D and the UI widgets) are drawn after the scale-up, at the full window size, so text and icons stay sharp; the colour
+  filter of the camera is applied after them. The exception is a HUD that glows: with a bloom (`PostProcess.bloomEnabled`) and
+  `bloomScreenSpace` true (the default) and no final pass (tonemap, exposure, grading, vignette...), the bloom changes the HUD,
+  so it stays in the smaller picture, glow included, and is scaled up with it (the game looks as it always did). For a sharp HUD
+  with a bloom set `bloomScreenSpace` to false, or add a final pass (with one the HUD never glows). It works in every run with a renderer, tests included: `game.renderStats().width`
+  is the scaled size the game is drawn at, and `game.screenshot` the full size picture with the HUD. With a pixel-art game
+  (`PixelPerfect` scaling) the scale-up keeps hard pixel edges, otherwise it is smooth. The engine saves nothing;
   keep the player's choice with `storage.set`.
 
 ### Pad rumble: `input.rumble(pad, low, high, seconds)`

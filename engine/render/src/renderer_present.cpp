@@ -27,18 +27,19 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
         if (error) *error = "this GPU cannot draw into an RGBA16F image";
         return false;
     }
-    if (floatTarget.color.id && (floatTarget.w != physW || floatTarget.h != physH)) destroy_target(floatTarget);
+    const int fw = final_w(),
+              fh = final_h();  // the finished picture's size (the output size while the upscale stage ran)
+    if (floatTarget.color.id && (floatTarget.w != fw || floatTarget.h != fh)) destroy_target(floatTarget);
     if (!floatTarget.color.id) {
         TargetDesc d;
         d.label = "readback-rgba16f";
-        d.width = physW;
-        d.height = physH;
+        d.width = fw;
+        d.height = fh;
         d.colorFormat = SG_PIXELFORMAT_RGBA16F;
         floatTarget = make_target(d);
         if (!floatTarget.valid()) {
             destroy_target(floatTarget);
-            if (error)
-                *error = std::format("the {}x{} RGBA16F image for the read-back could not be created", physW, physH);
+            if (error) *error = std::format("the {}x{} RGBA16F image for the read-back could not be created", fw, fh);
             return false;
         }
     }
@@ -61,7 +62,7 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
     gpu.end_pass();
     sg_commit();
     gpu.note_commit();
-    return render::readback_rgba16f(floatTarget.color, physW, physH, out, error);
+    return render::readback_rgba16f(floatTarget.color, fw, fh, out, error);
 }
 
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
@@ -117,9 +118,10 @@ bool Renderer::capture(Image& out, std::string* error) {
     // with the SDR curve (docs/RENDERING.md, "What goes above white").
     sg_image img = im.final_image();
     std::vector<std::uint8_t> px;
-    if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error, false, im.finalEncoded)) return false;
-    out.width = im.physW;
-    out.height = im.physH;
+    const int w = im.final_w(), h = im.final_h();  // the output size when the upscale stage ran, else the render size
+    if (!im.read_rgba8(img, im.final_view(), w, h, px, error, false, im.finalEncoded)) return false;
+    out.width = w;
+    out.height = h;
     out.rgba = std::move(px);
     return true;
 }
@@ -175,6 +177,9 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.proj = Mat4::ortho(-ci.halfW, ci.halfW, -ci.halfH, ci.halfH, -1000.0f, 1000.0f, im.gpu.depth_zero_to_one());
     ci.viewProj = ci.proj * ci.view;
     ci.invViewProj = ci.viewProj.inverse();
+    ci.drawProj = ci.proj;  // never jittered (M76)
+    ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
@@ -267,7 +272,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
             setup_frame(fr, world, 0.0f);
             fr.targetW = w;
             fr.targetH = h;
-            fr.renderScale = scale;
+            fr.renderScale = fr.screenScale = scale;
             apply_sprite_frames(world, fr);
             assets->drop_material_cache();  // this world's components are not the ones the last frame asked about
             gather_2d(world, fr);
@@ -320,7 +325,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     const bool ok = read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
     release_view(*viewTargets[kKey]);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
-    if (readW != physW || readH != physH) free_read_image();
+    if (readW != final_w() || readH != final_h()) free_read_image();
     cleanup();
     if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
     // capture_world blended onto a transparent background, so the colour is premultiplied by alpha; texture fields

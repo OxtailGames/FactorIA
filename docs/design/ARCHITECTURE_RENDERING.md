@@ -371,3 +371,101 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 
 - **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).
+- **Motion vectors, jitter and temporal antialiasing** (M76: the velocity image, the camera jitter, the temporal passes' history, the texture LOD bias) are on the page [rendering, motion vectors and temporal antialiasing](ARCHITECTURE_RENDERING_TEMPORAL.md).
+
+## Upscale stage (M76)
+
+`window.renderScale` below 1 draws the game at design size * scale; the stage brings that picture back to the design size and
+the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src/render_upscale.h`).
+
+- **Who turns it on.** `Renderer::set_upscale_stage(true)`, from one function of the runtime: `Engine::Impl::apply_render_scale`, which
+  `set_render_scale` (the script's `window.renderScale`), `set_upscaler` (`window.upscaler`, `render.upscaler`) and the start-up all
+  call. It asks `render::plan_upscale_scale(window scale, quality, effective mode, kMinRenderScale)` (`fa/render/upscaler.h`): the render
+  scale is `window.renderScale * upscaler_quality_scale(quality)`, never below 0.25, and the stage is on when that is below 1 or the
+  mode that draws is not stretch (at 1 the spatial mode is the sharpen alone). It also tells the renderer the display's `ScaleMode`, so
+  the effective mode knows about pixel art when the game has no window. `hold_render_scale` without the player's option (CLI
+  `--render-scale`, the video recorder) and the scale of `capture_scaled` (a screenshot "scale") do not: there the scale means "an image
+  that many times the size" and the picture stays the smaller or larger image, as before. `capture_scaled` switches the stage off for
+  its temporary scale and restores it. `Impl::upscale_active()` is true when the game target is smaller than the output, or at the
+  output size when the effective mode is Spatial and `upscaler.sharpness > 0`; with the stage off, and at scale 1 with `stretch`
+  (or `spatial` at sharpness 0), nothing changes: no pass, no image, no draw call, the same pixels.
+- **Which implementation.** `Renderer::effective_upscaler_mode()` is `render::effective_upscaler_mode(upscaler, upscaler_caps())`:
+  the caps hold `pixelArt` (`ScaleMode::PixelPerfect`) and what the backend draws (`spatial` from the `spatialUpscaler` row of
+  `render_features.cpp`; the temporal and MetalFX (M76-P5b, `metalfx`) packages add theirs). `run_upscale` maps the result to the `UpscaleImpl` every
+  frame, so what `render.upscaler` reports is what is drawn. Pixel art is always Stretch (Nearest).
+- **Interface.** `UpscaleInput` (`render_upscale.h`): `color`, `depth`, `velocity` views, `jitter`, render and output size,
+  `frameIndex`, `resetHistory`, `pixelArt`. `select_upscale_impl(mode, &known)` maps a mode name to an `UpscaleImpl`; an
+  unknown name gives `Stretch` with `known == false`. `Impl::run_upscale` fills the input and switches on the implementation.
+  `Stretch` is a straight blit of the game image (`Gpu::blit_keep_pipeline`, one draw call) with the sampler rule of the present:
+  Nearest when `ScaleMode::PixelPerfect` is set (pixel art), Linear otherwise. A temporal upscaler adds an
+  `UpscaleImpl` and a `case`; `depth`, `velocity`, `jitter` and `resetHistory` are unused (null / 0) by `Stretch` and `Spatial`.
+  `Spatial` (`Impl::spatial_upscale`, `src/render_upscale_spatial.cpp`, `shaders/upscale_spatial.glsl`) is up to two fragment passes
+  that read with `texelFetch` (a Nearest sampler): `upscale-spatial-edge` (render size to output size, the 12-texel edge-adaptive
+  kernel clamped to the four nearest texels) and `upscale-spatial-sharpen` (contrast-adaptive, output size, weight
+  `SpatialUpscaler::sharpen_weight(sharpness)`, 0.18 at 1). With both the first draws into `spatialTarget` (output size, no depth, the
+  output's format); at the output size only the sharpen runs, at sharpness 0 only the edge pass. Both are one frame-graph pass
+  (`upscale`) and add one draw call each. Linear input (`UpscaleInput::linear`, `gpu.linear() && !finalEncoded`) is filtered in
+  `sqrt(c / (1 + c))` and converted back, so an HDR float scene does not ring; the programs are made on first use
+  (`SpatialUpscaler::ready`), and when they cannot be made the frame uses `stretch_upscale`.
+- **Where the HUD is drawn: the rule.** The screen-space items go over the upscaled picture only when no pass after them in the old
+  order would have changed their pixels: `bloomScreenSpace` false (they are drawn over the bloom, `hudAfterBloom`), a final pass (they are
+  drawn over its result, `hudAfterPost`), or no bloom at all. A bloom with `bloomScreenSpace` true and no final pass makes the HUD
+  glow, so the HUD stays in the game image at the render resolution and is scaled up with it: a game's look does not change unless it
+  opts in (`bloomScreenSpace` false for the sharp HUD). The glyphs are rasterized for the size they are drawn at, so `render_world`
+  decides it before the gather (`Impl::decide_hud_at_output`, which sets `Impl::hudAtOutput` and makes `Frame::screenScale` 1 instead of
+  `renderScale`). It looks at the cameras whose rectangle has a pixel (the ones `plan_job` plans; the first of them gives the bloom and
+  the colour filter), and counts a final pass or a colour filter only when the post program is ready (`gpu.post_ready()`), as `plan_job`
+  does. The scene-colour effects (reflections, shafts, depth of field, motion blur, volumetrics, subsurface, HDR custom passes) and a
+  custom pass after the tonemap are not known there: with a glowing bloom and one of them the HUD stays in the game image too, and the
+  other mismatch can only be the reverse (the answer here is yes and `plan_job`'s is no), which draws the glyphs at the output scale
+  into the game image, so they are oversampled and still right (the geometry is in design units). `plan_job` repeats the check on the
+  finished plans, with the items it gathered, before it sets `DrawContext::hudOut`. The stage still runs in the other case: `upscale`
+  brings the image to the design size, and no `hud-over-upscale` pass exists.
+- **Frame graph.** In the last main job (the one that owns the screen items, `plan.last`), after the post stack and the final
+  pass: `upscale` (game image -> `outTarget`, the design size, 1 sample, the format of the game image or the display format after
+  the final pass) and, when `hudOut`, `hud-over-upscale` (the HUD, drawn at `outTarget` size with `physW/physH` and
+  the scale temporarily swapped to the output's and `renderScale` 1, so label and UI text are rastered at output size; a
+  CameraView image keeps its size of design size * `renderScale`, so the render scale still saves that work). With a colour filter
+  the HUD is drawn first and the filter after it (`output-color-filter`), so it covers the HUD like it does in the other paths. With
+  `hudOut` the screen items do not draw into the game image (no `hud-over-bloom` or `hud-over-post` pass is declared for them), and a job
+  that has no world (the screen job of a split frame) has no main pass at all (`doMainPass = wantWorld`). `outTarget` is made in the format
+  the picture has when it reaches the stage (`Impl::ensure_hud_output`: `render_world` without a depth image, as the decision needs only
+  the format; `plan_job` with it, once there are items to draw, and the depth is kept after that), together with the render-resolution
+  `filterTarget` of a final pass and the `outFilterTarget` of a colour filter. When one cannot be made the frame is drawn as without the
+  stage's HUD: the items in the game image, shown at the render resolution (error logged). The glyphs of the 2D items and the UI are
+  rasterized at the output size and drawn with 1 sample (`outTarget` is not multisampled): the edges of a sprite or a panel are not
+  antialiased by MSAA there as they are in the game image, but they are drawn at the output size, which is finer. View and capture jobs (`plan.view`) never use the stage.
+- **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
+  `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
+  the design size and include the HUD.
+- **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md,
+  "Temporal antialiasing"), before the stage; the stage then brings the resolved picture to the design size like any other, with the
+  same HUD rule (`hudAfterBloom` counts the effect). With the temporal upscaler (below) the camera's own pass is skipped instead.
+- **Temporal upscaler (M76-P4, `UpscaleImpl::Temporal`).** The seam exists so that one stage serves the spatial upscaler, this one and
+  MetalFX with the HUD drawn after it, unjittered, at the output size: each is a `case` of `run_upscale`, none moves the HUD. The temporal
+  one resolves the jittered render-size picture into a history at the output size with `TaaFx::upscale` (`renderer_taa.cpp`; the same
+  `taa_resolve` as the antialiasing with `inSize != outSize`, history key `kUpscaleCamKey`, the `upscale` pass's two draws, resolve and
+  sharpen, counted in the stats) and writes the sharpened image into `outTarget`. `Renderer::render` decides it before the cameras are
+  built (`Impl::upscaler_caps()`: `temporal` is the TAA shaders ready and not refused, `pixelArt` is `scaleMode` `PixelPerfect`;
+  `effective_upscaler_mode(settings, caps)` is Temporal) and the frame must have exactly one full-viewport camera: the cameras are
+  collected with the jitter the last frame's count says, and again when this frame's count says otherwise (`temporalBlocked`, the
+  `multiCamera` cap: the mode then reads and draws `spatial`, the spatial upscaler, never a bare stretch). Then `jitter_phases`
+  gives that camera `upscale_jitter_phases` = `ceil(8 * outArea / renderArea)` (at most `kJitterPhasesMax` = 128) phases, `plan_job` builds
+  `upscaleTaa` (`make_upscale_taa_plan`: the stack's TemporalAA fields, else the defaults, sharpen scaled by `UpscalerSettings.sharpness`)
+  and clears the camera's own `pp.taa`, forces the depth prepass on and asks it for the velocity image (`request_velocity`, M76-P1a), and `finish_output` adds the prepass and the velocity (when a
+  velocity pass ran) to the reads of `upscale`. The history resets with everything the antialiasing resets on, and when the render size, the
+  output size or the quality (`configKey`) changes. A failure of the resolve falls back to `spatial_upscale` for that frame. Native quality
+  never reaches the stage. Engine side: the render scale is the one of `Engine::Impl::apply_render_scale` (`plan_upscale_scale`: `heldScale * upscaler_quality_scale(quality)`,
+  floor 0.25; a CLI `--render-scale` hold is a size and ignores the quality).
+  `Renderer::effective_upscaler_mode()` is what `render.upscaler` and `window.upscaler` report. Trade-offs: the resolve runs after the
+  post stack, so the post effects see a jittered image; a 2D game has no velocity so moving sprites trail; with a glowing bloom
+  (`bloomScreenSpace`) the HUD is in the game image and is resolved with it; the output alpha is cleared to 1 (the `Out` pipeline
+  writes RGB). Not done: a mip bias for the textures (sokol samplers have none; it would need a per-frame uniform and a change at
+  every `texture()` of `mesh_common.glsl`, terrain, foliage and the custom materials).
+- **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter, plus `spatialTarget` for the spatial
+  mode with a sharpen over a resize) while the stage applies; freed by `set_upscale_stage(false)`, by the 60th frame in a row that finds the
+  stage inactive (`render_world`: the render scale went back to 1, the window shrank to the render size; a dynamic resolution that crosses
+  the boundary every few frames keeps the images, `Impl::kOutputIdleFrames`) and by `destroy_targets`. The
+  pipelines for the output formats are created the first time the stage draws, so the first frame after turning it on can hitch once.
+  If the output image cannot be created the stage is skipped for that frame (error logged): the picture is shown at the render
+  resolution and the HUD stays in it, drawn as it is without the stage.

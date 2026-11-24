@@ -113,6 +113,16 @@ constexpr int kMaxInstanceVec4 = 3;  // fa/tooling/shaders.h kMaterialMaxInstanc
 // and weights of a skinned program (11), in mesh_common.glsl FA_X_BASE. Up to kMaxInstanceVec4 + 2 attributes: 16 =
 // SG_MAX_VERTEX_ATTRIBUTES.
 constexpr int kExtraAttrBase = 9, kExtraAttrBaseSkinned = 11;
+// M76 motion vectors: vertex buffer 6 holds the previous model matrix of every instance of a prepass draw as the three rows of an affine
+// matrix (48 bytes, the instance matrix without its constant last row), per instance, read by attributes 3 after the extras
+// (mesh_common.glsl, fa_prev_r0..2). The prepass programs that have them: the engine's and every material's, unless the material draws
+// from storage buffers or declares so many extras that 3 more would pass the 16 attributes of SG_MAX_VERTEX_ATTRIBUTES (prepass_prev_attr).
+constexpr int kPrevModelBuffer = 6;
+constexpr int kPrevModelBytes = 48;
+struct PrevModelRows {
+    float rows[12];
+};
+static_assert(sizeof(PrevModelRows) == kPrevModelBytes, "a previous model is three vec4");
 // The extra vertex attributes of a custom material's main, prepass and (with vertex() or alphaMode "clip") shadow
 // programs; a material without per-instance params and declared channels has none, and its pipelines are the built-in
 // layout.
@@ -125,11 +135,32 @@ struct MeshExtras {
     // 1, which holds one matrix only (Gpu: set_instance_layout).
     bool bufferInst = false;
     bool any() const { return instanceVec4 > 0 || uv1 || color1; }
+    // The vertex attributes the extras take (instance params, uv1, color1).
+    int count() const { return instanceVec4 + (uv1 ? 1 : 0) + (color1 ? 1 : 0); }
 };
+// The location of the previous model's first attribute in a prepass program (vertex buffer kPrevModelBuffer), or -1 when the program has
+// none: one drawn from storage buffers, or one with so many extra attributes that 3 more would pass the 16 attributes of
+// SG_MAX_VERTEX_ATTRIBUTES (more than 4 extras, a skinned program: more than 2). The same rule as `FA_PREV_BASE` in mesh_common.glsl
+// prepass_vs and prepass_vs_skin; `custom` is false for the engine's own programs (no extras).
+inline int prepass_prev_attr(bool skinned, bool custom, const MeshExtras& e) {
+    if (custom && e.bufferInst) return -1;
+    const int first = (skinned ? kExtraAttrBaseSkinned : kExtraAttrBase) + (custom ? e.count() : 0);
+    return first + 3 <= 16 ? first : -1;
+}
+// The previous joint palette of a skinned draw of the prepass with motion vectors (M76-P1c) is read from an RGBA32F image by the vertex stage
+// (shaders/mesh_common.glsl, block fa_prev_palette: view 29, sampler 11, texelFetch), so a skin of any joint count up to kMaxSkinJoints has
+// vectors and no uniform is used. The image is a stream of texels in rows of kPrevPaletteWidth: a joint is 3 texels, a palette is
+// kPrevPaletteTexels (the 64 joints, the unused ones the identity, so a joint index the weights ignore still reads a matrix) and each
+// skinned draw of the frame has its own. At most kPrevPaletteMaxRows rows (16 MiB): 5461 skinned draws a camera and frame; the rest write the
+// sentinel (a warning, once). One image per camera job and frame (Impl::upload_prev_palettes, Gpu::write_palette_image: the frame graph runs after every job has uploaded, so each camera keeps its own).
+// Slot table: vertex view 29 and vertex sampler 11 belong to fa_prev_palette (a vertex-stage slot, so none of the fragment-stage rows of
+// kMeshFragmentViews below uses it), and sampler 11 was the last free one of the 12 sokol has: the next vertex-stage image must share a sampler.
+constexpr int kPrevPaletteWidth = 1024, kPrevPaletteMaxRows = 1024;
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
 // that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
 constexpr int kMaxSkinJoints = 64;
+constexpr int kPrevPaletteTexels = 3 * kMaxSkinJoints;  // one previous palette in the image of the motion vectors
 struct SkinVertex {
     std::uint8_t joints[4];
     float weights[4];
@@ -483,6 +514,8 @@ struct PipelineKey {
         if (bits != o.bits) return bits < o.bits;
         if (shader != o.shader) return shader < o.shader;
         if (format.color != o.format.color) return format.color < o.format.color;
+        if (format.color1 != o.format.color1)
+            return format.color1 < o.format.color1;  // the prepass with and without the velocity
         if (format.depth != o.format.depth) return format.depth < o.format.depth;
         return format.samples < o.format.samples;
     }
@@ -520,6 +553,10 @@ constexpr int kQuadEmissiveView = 12, kQuadCookieView = 13, kQuadGiView = 14;
 // The 2D vertex stream is vertex buffer 0; the instanced params of a sprite material are buffer 1 at the attributes
 // from 7.
 constexpr int kQuadInstBuffer = 1, kQuadInstAttr = 7;
+// The per-vertex motion of the quads (shaders/quad_motion.glsl, M76-P1d): vertex buffer 1 of the motion programs, 4 floats a vertex
+// (the world motion of the quad's item since the frame before, xyz, and its reactive value, w), one per vertex of the quad stream.
+constexpr int kQuadMotionBuffer = 1;
+constexpr std::size_t kQuadMotionStride = 4 * sizeof(float);
 constexpr int kMaterialSkyFirstView = 0, kMaterialSkyFirstSampler = 0;
 // post (post_common.glsl): uniform blocks vertex 0 fa_post_vs_params, fragment 1 fa_post_params; views 0 (fa_scene) and
 // 1 (fa_prepass), samplers 0 (linear clamp) and 1 (nearest) are the engine's, so a material's textures are views and
@@ -921,6 +958,22 @@ struct QuadItem {
     QuadFx fx;                         // QuadList::set_fx(): emission, light layers, rim light
     std::uint32_t effect =
         0;  // QuadList::set_effect(): 1 + the index in QuadList::effects of the built-in 2D effect; 0 = none
+    // M76-P1d, the motion of the item for the velocity image. QuadList::set_motion_source(): the owner's Entity::bits() (0 = the item is
+    // still in the world: Text) and the matrix its quads were placed with in the world now (`xform`; its translation is the item's origin).
+    // Renderer::Impl::fill_quad_motion turns them, with the history of the owners, into the motion of a vertex `p` since the frame before:
+    //   motion(p) = `motion` + `turn` * (p - origin)
+    // where `motion` is the origin now minus the origin on the frame before (0 without history) and `turn` is I - R, R being the rotation
+    // and scale the item made between the two frames (`turned` false: R is the identity and every vertex moves by `motion`).
+    std::uint64_t motionKey = 0;
+    Mat4 xform = Mat4::identity();
+    Vec3 motion{};
+    float turn[9] = {};  // I - R, column-major (the same layout as Mat4's upper 3x3)
+    bool turned = false;
+    Vec3 origin() const { return xform.translation(); }
+    // QuadList::set_reactive(): 0..1, how much the temporal resolve trusts these quads over its history (a blended particle); -1 = not set:
+    // an Additive item is then reactive 1 (a glow has no velocity and leaves a trail), any other 0. An explicit 0 opts out, additive or not.
+    float reactive = -1.0f;
+    float reactive_value() const { return reactive >= 0.0f ? reactive : blend == BlendMode::Additive ? 1.0f : 0.0f; }
 };
 
 struct QuadBatch {
@@ -954,6 +1007,8 @@ struct QuadBatch {
     std::size_t instFirst = 0;
     // M74: the emission, light layers and rim of the items of the batch; batches only merge with an equal QuadFx.
     QuadFx fx;
+    // M76-P1d: at least one item of the batch is reactive (the reactive mask pass draws only those batches).
+    bool reactive = false;
 };
 
 // `instances` sits in the padding after `lit`; the M74 QuadFx adds 48 bytes.
@@ -1007,6 +1062,15 @@ public:
     // vertex() moves, drawn `instances` times in one call. Call it after set_material, with the item's one quad still
     // to come or done.
     void set_buffer_draw(int instances) { cur_.instances = instances; }
+    // M76-P1d: the item opened by begin_item() moves with `key` (an Entity::bits(); 0 = it does not), whose matrix in the world now is `xform`
+    // (the one its quads were placed with: its translation, rotation and scale are followed, so a sprite that turns has the velocity of
+    // its corners). Renderer::Impl::fill_quad_motion reads both before flatten().
+    void set_motion_source(std::uint64_t key, const Mat4& xform) {
+        cur_.motionKey = key;
+        cur_.xform = xform;
+    }
+    // M76-P1d: the quads of the item are reactive by `amount` (0..1, clamped): the temporal resolve uses the current frame there.
+    void set_reactive(float amount) { cur_.reactive = std::clamp(amount, 0.0f, 1.0f); }
     // Makes the item opened by begin_item() the built-in 2D effect `fx` (Water2D, DistortionZone2D): its one quad is the area the
     // effect covers, drawn by WaterFx from the picture drawn so far. Such an item is a batch of its own.
     void set_effect(const Fx2D& e) {
@@ -1022,7 +1086,10 @@ public:
     // `instOut` (when not null) receives, for every batch of a material with instanced params, the values of each of
     // its quads repeated for its four vertices (QuadBatch::instFirst says where); without it such a batch has no
     // instance data.
-    void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut = nullptr);
+    // `motionOut` (when not null, M76-P1d) receives kQuadMotionStride bytes for every vertex appended to `out` (how far the vertex moved: QuadItem::motion and
+    // QuadItem::turn, then the reactive value), so the two streams stay index for index; the caller passes it to every flatten() of the stream or to none.
+    void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut = nullptr,
+                 std::vector<float>* motionOut = nullptr);
     void clear() {
         raw.clear();
         items.clear();
@@ -1088,6 +1155,10 @@ struct CameraInfo : CameraGeometry {
     // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
     // the camera is built; Null when the world has no PostProcess: the usual case costs one pointer, not a copy.
     std::shared_ptr<const PostStack> postStack;
+    // The texture LOD bias of the frame's scene materials (M76-P4b, docs/UPSCALING.md "Texture mip bias"): 0 unless this camera is jittered for the
+    // temporal upscaler or the temporal antialiasing, then log2(render size / output size) + the stack's temporalAAMipBias, in -4..0. Goes to the
+    // mesh fragment uniforms (fa_env_horizon.w, read as fa_mip_bias by mesh_common.glsl).
+    float mipBias = 0.0f;
     // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
     BloomSettings bloom;
     int colorFilter = 0;  // 0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia
@@ -1566,7 +1637,14 @@ public:
     // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
     // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
     static sg_pixel_format prepass_color_format();
-    TargetFormat prepass_target_format() const { return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1}; }
+    // `velocity`: the pass also writes the motion vectors into a second colour attachment (velocity_format(), M76).
+    TargetFormat prepass_target_format(bool velocity = false) const {
+        return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1, velocity ? velocity_format() : SG_PIXELFORMAT_NONE};
+    }
+    // The motion vector image (VelocityRef): RG16F, uvPrev - uvCurr and the sentinel 1024, both exact in half float.
+    static sg_pixel_format velocity_format() { return SG_PIXELFORMAT_RG16F; }
+    // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
+    bool velocity_ready();
     bool prepass_ready();
     // The slots (uniform blocks, views, samplers) the built-in prepass program declares, for a draw that binds only those; after prepass_ready().
     const MaterialProgram& prepass_program(bool skinned) const { return prepassProgram_[skinned ? 1 : 0]; }
@@ -1600,6 +1678,15 @@ public:
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
     sg_pipeline prepass_view_pipeline(const TargetFormat& format);
+    // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world (shaders/quad_motion.glsl). The mask is an R8 image
+    // (reactive_format(): renderable and sampleable on GLES3, WebGL2, D3D11 and Metal; the MAX blend is core on all of them), and
+    // reactive_ready() says whether this GPU makes it. quad_motion_ready() builds the two programs (once; false with one log line when they
+    // do not compile). quad_motion_pipeline() draws the quad vertices (Vertex2D in buffer 0 plus the per-vertex motion, buffer 1) into
+    // `format` (velocity_format() without blending, or reactive_format() with the MAX blend); null when the shader is not ready.
+    static sg_pixel_format reactive_format() { return SG_PIXELFORMAT_R8; }
+    bool reactive_ready();
+    bool quad_motion_ready();
+    sg_pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
     // The full-screen triangle of a post material's program (post_common.glsl) into `format`, no blending (the pass
     // writes every pixel of its rectangle) and no depth; keyed by the program, so a reload that destroys it
     // (destroy_shader) drops the pipeline too.
@@ -1791,6 +1878,11 @@ public:
         sg_view view{};
     };
     LightImage write_light_image(int rows, const float* texels);
+    // The image of the previous joint palettes of the motion vectors (M76-P1c, kPrevPaletteWidth wide, the same format and the same rules as
+    // write_light_image). One image per call (one per camera job: the frame graph runs after every job has uploaded, so a second camera must
+    // not overwrite the first one's texels), from a pool of its own that restarts with the transient buffers: not a slot of the light pool,
+    // whose slots change their row counts and so are made again, where the palette rows are rounded up.
+    LightImage write_palette_image(int rows, const float* texels);
     // Frees the pooled light images from index `keep` on (the pool is restarted, none is in use).
     void trim_light_images(std::size_t keep);
     // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
@@ -1799,7 +1891,7 @@ public:
     // the sokol frame here, outside any pass, so the pool stays bounded without rewriting a bound buffer.
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
-        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16;
+        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16 || paletteImagesUsed_ >= 16;
         if (!committed_ && full) sg_commit();
         if (committed_ || full) {
             // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
@@ -1809,7 +1901,7 @@ public:
                 lightImagesPeak_ = 0;
                 lightImagesRestarts_ = 0;
             }
-            transientUsed_ = lightImagesUsed_ = 0;
+            transientUsed_ = lightImagesUsed_ = paletteImagesUsed_ = 0;
         }
         committed_ = false;
     }
@@ -1864,6 +1956,8 @@ private:
     int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
+    sg_shader quadVelShader_{}, quadReactShader_{};
+    int quadMotionState_ = 0;  // same meaning as bloomState_ (the quad motion programs)
     sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
     sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
     struct SceneChain {
@@ -1904,6 +1998,10 @@ private:
         int rows = 0;
     };
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
+    std::vector<LightImg>
+        paletteImages_;  // the pool of write_palette_image, one image per job (camera) and frame, restarted with transient_
+    std::size_t paletteImagesUsed_ = 0;
+    LightImage fill_light_image(LightImg& l, int rows, const float* texels);
     std::size_t lightImagesUsed_ = 0;
     std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim
     std::uint32_t lightImagesRestarts_ = 0;
@@ -1941,6 +2039,9 @@ struct TargetDesc {
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
     sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
+    // The colour image can also be written as a storage image (usage.storage_image next to color_attachment): what MetalFX needs of its
+    // output (metalfx.h). Single-sample targets only.
+    bool storage = false;
 };
 struct Target {
     sg_image color{}, resolve{}, depth{};

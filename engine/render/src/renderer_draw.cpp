@@ -5,6 +5,7 @@
 #include "physical_sky.h"
 #include "mesh_buffer_draw.h"
 #include "renderer_impl.h"
+#include "fa/scene/jitter.h"
 #include "shadow_cascades.h"
 #include "sprite_buffer_draw.h"
 #include "water2d.h"
@@ -18,6 +19,7 @@
 #include <string>
 
 #include "shaders/prepass_view.glsl.h"
+#include "shaders/quad_motion.glsl.h"
 
 namespace fa {
 
@@ -91,6 +93,9 @@ struct Renderer::Impl::DrawContext {
     // hudAfterBloom: the screen-space items are drawn over the glowing game target (PostProcess.bloomScreenSpace false, no final pass).
     // hudAfterPost: the final passes of the frame write hudTarget and the screen-space items are drawn over it, in display space.
     bool hudAfterBloom = false, hudAfterPost = false, msaa = false, z01 = false;
+    // M76-P3a: the upscale stage draws the screen-space items after it, at the output size (hud-over-upscale), not into the game image.
+    // hudDisplay: the final pass ran, so the picture holds display values and the items are drawn as in hudAfterPost.
+    bool hudOut = false, hudDisplay = false;
     PostPlan
         postPlan;  // the post-processing stack of this job's camera (empty for the screen-only job and the view jobs)
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
@@ -138,6 +143,27 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
+    // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
+    bool collectPrev = false, doVelocity = false;
+    std::vector<PrevModelRows>
+        prevRows;  // fill_prev_models: the previous model of every opaque item (MeshItem::prevIdx)
+    std::vector<PrevModelRows> prevMats;  // build_batches: the same, one per drawn instance, in the order of mainMats
+    sg_buffer prevInst{};
+    // plan_quad_motion (M76-P1d): the job draws the quads of the world into the velocity image (doQuadVel) and into the reactive mask
+    // (doQuadReact); `ownVelocity`: the job has no prepass, so the velocity image is a transient of its own (cleared to the sentinel);
+    // `depthTest`: the quads are tested against the prepass. `vmotion` is the per-vertex motion of the quad stream (build_quad_stream).
+    bool doQuadVel = false, doQuadReact = false, ownVelocity = false, quadDepthTest = false;
+    sg_buffer vmotion{};
+    // upload_prev_palettes (M76-P1c): the previous joint palettes of the skinned draws of the prepass in one RGBA32F image (`prevPalView`, empty = none);
+    // `prevPalBase` has the first texel of the palette of (batch.rep, skin), key `prev_palette_key`. The CPU copy is Impl::prevPalTexels (a
+    // DrawContext is made again every frame, so a vector here would not keep its capacity).
+    sg_view prevPalView{};
+    std::unordered_map<std::uint64_t, int> prevPalBase;
+    // fill_prev_models: whether the entities' histories count this frame (false after a cut: no motion of their own), and the game time of
+    // the frame before in seconds, what a material's vertex() reads as fa_time.x in the prepass's second run (the time now after a cut).
+    bool prevHistory = false;
+    float prevTime = 0.0f;
     // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
     HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
@@ -314,6 +340,11 @@ mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
             for (int c = 0; c < 4; ++c) u.fa_joint_rows[j * 3 + r][c] = m.at(c, r);
     }
     return u;
+}
+
+// The key of the previous palette of skin `skin` of the item at `item` (an index into DrawContext::opaque) in DrawContext::prevPalBase.
+std::uint64_t prev_palette_key(std::size_t item, int skin) {
+    return (std::uint64_t(item) << 8) | std::uint64_t(std::uint8_t(skin));
 }
 
 using MaterialInputs = Renderer::Impl::MaterialInputs;
@@ -640,6 +671,32 @@ void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
     }
 }
 
+// Whether this frame's screen-space items are drawn over the upscaled picture, at the output size (M76-P3a). render_world asks it before
+// the gather, because the glyphs are rasterized for the size they are drawn at, and plan_job decides again with what it then knows (the
+// items it gathered, the custom passes). The two see the same cameras: those whose rectangle has a pixel, the first of which gives the
+// frame's bloom and colour filter. A frame that runs no final pass (its program did not compile) has no final pass here either. What
+// plan_job knows and this does not (a custom pass after the tonemap) can only turn its answer to "no": the glyphs are then drawn at the
+// output scale into the game image, sharper than needed and still right (the geometry is in design units).
+bool Renderer::Impl::decide_hud_at_output(World& world) {
+    if (!upscale_active()) return false;
+    const bool linearScene = world.settings().colorSpace == ColorSpace::Linear;
+    const CameraInfo* fc = nullptr;
+    bool anyFinal = false;
+    bool filter = false;
+    for (const CameraInfo& cam : lastCams) {
+        const Px r = px_rect(cam.viewport, physW, physH);
+        if (r.w < 1 || r.h < 1) continue;
+        if (!fc) fc = &cam;
+        const PostPlan pp = make_post_plan(cam, linearScene, forceEffects, world.frame(), renderScale, fc);
+        const bool runs = (pp.final_pass() || pp.colorFilter != 0) && gpu.post_ready();
+        anyFinal = anyFinal || (runs && pp.final_pass());
+        if (&cam == fc) filter = runs && pp.colorFilter != 0;
+    }
+    if (!fc) return false;  // no camera draws a pixel: the items are drawn where they always were
+    const bool glows = fc->bloom.enabled && fc->bloom.intensity > 0.0f && fc->bloom.screenSpace && !anyFinal;
+    return !glows && ensure_hud_output(anyFinal, filter, false);
+}
+
 // Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also gets the post effects.
 // The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
@@ -679,6 +736,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.ssao = ssao_debug_settings(pp.ssao);
             pp.needsDepth = pp.needsNormals = true;
         }
+        if (debugView == DebugView::MotionVectors || forceVelocity)
+            pp.request_velocity();  // the debug view and the test hook
         if (pp.fx.grain)
             pp.fx.grainSeed =
                 grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
@@ -697,13 +756,24 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             if (e.frame == postSerial) {
                 if (e.hadBefore) {
                     pp.prevViewProj = e.before;
+                    pp.prevJitteredViewProj = e.beforeJittered;
+                    pp.prevJitterPx = e.beforeJitterPx;
                     pp.prevValid = true;
                 }
             } else if (e.frame + 1 == postSerial && world.frame() >= e.worldFrame &&
                        world.frame() - e.worldFrame <= 8) {
                 pp.prevViewProj = e.viewProj;
+                pp.prevJitteredViewProj = e.jittered;
+                pp.prevJitterPx = e.jitterPx;
                 pp.prevValid = true;
             }
+        }
+        // The jitter this camera drew with (zero while it does not jitter) and, in NDC, of the frame before.
+        {
+            const Vec2 sizePx{float(std::max(ctx.camPx.w, 1)), float(std::max(ctx.camPx.h, 1))};
+            pp.jitterPx = fr.cam.jitterPx;
+            pp.jitterNdc = fr.cam.jitterNdc;
+            pp.prevJitterNdc = jitter_pixels_to_ndc(pp.prevJitterPx, sizePx.x, sizePx.y);
         }
         if (fr.cam.postStack)
             pp.ssr = make_ssr_plan(fr.cam, *fr.cam.postStack);  // screen-space reflections (renderer_ssr.h)
@@ -711,8 +781,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             PrevCamera& now = prevViewProj[camKey];
             if (now.frame != postSerial) {  // the first job of the camera this frame
                 now.before = pp.prevViewProj;
+                now.beforeJittered = pp.prevJitteredViewProj;
+                now.beforeJitterPx = pp.prevJitterPx;
                 now.hadBefore = pp.prevValid;
                 now.viewProj = fr.cam.viewProj;
+                now.jittered = fr.cam.drawViewProj;
+                now.jitterPx = fr.cam.jitterPx;
                 now.frame = postSerial;
                 now.worldFrame = world.frame();
                 now.jobs = 0;
@@ -727,6 +801,26 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (fr.cam.postStack)
             pp.sceneFx = sceneFx.plan(world, fr.cam, *fr.cam.postStack, camKey, postSerial, fr.dt, renderScale,
                                       pp.prevViewProj, pp.prevValid);
+        // Temporal antialiasing (renderer_taa.h): the matrices that reproject the history and what decides whether it still holds. The scene's
+        // identity (a load or a reload drops the history) is hashed only for a camera that asks for the effect.
+        if (fr.cam.postStack) {
+            const bool wantsTaa = fr.cam.postStack->has(PostEffect::TemporalAA);
+            const std::uint64_t taaScene =
+                wantsTaa ? std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation()
+                         : 0;
+            pp.taa = make_taa_plan(fr.cam, *fr.cam.postStack, framePost, !taa.unavailable(), camKey, postSerial,
+                                   taaScene, originShifts, pp.prevViewProj, pp.prevValid);
+        }
+        // M76-P4: the temporal upscaler resolves this camera's jittered picture into the output image (renderer_taa.h, TaaFx::upscale), so the
+        // camera's own TemporalAA is not drawn (its fields still tune the upscaler). One history, one resolve: the camera is the frame's only one.
+        if (temporalFrame && !plan.view && framePost) {
+            const std::uint64_t scene =
+                std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation();
+            upscaleTaa = make_upscale_taa_plan(fr.cam, fr.cam.postStack.get(), framePost, !taa.upscale_unavailable(),
+                                               upscaler.sharpness, postSerial, scene, originShifts, pp.prevViewProj,
+                                               pp.prevValid);
+            if (upscaleTaa.on) pp.taa = TaaPlan{};
+        }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
         // that did not is left out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
@@ -754,11 +848,18 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             std::uint32_t drop = 0;
             if (!pp.sceneFx.dof) drop |= 1u << int(PostEffect::DepthOfField);
             if (!pp.sceneFx.motion) drop |= 1u << int(PostEffect::MotionBlur);
+            if (!pp.taa.on) {
+                drop |=
+                    1u << int(PostEffect::TemporalAA);  // a frame that cannot resolve (a capture) needs no depth for it
+                pp.needsReactive = false;               // nor a mask (the temporal upscaler asks again in plan_job)
+            }
             drop &= ~forceEffects;
             if ((pp.readMask & drop) != 0) {
                 pp.readMask &= ~drop;
                 pp.needsDepth = post_mask_needs_depth(pp.readMask);
                 pp.needsNormals = post_mask_needs_normals(pp.readMask);
+                // Nor the velocity (and so no prepass, no quad-velocity pass, no per-vertex motion) when only that effect asked for it.
+                if (!pp.velocityPinned && !post_mask_needs_velocity(pp.readMask)) pp.needsVelocity = false;
             }
         }
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
@@ -797,6 +898,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         pp.custom.history = plan.history;
     }
 
+    // The temporal upscalers also reproject with the motion of the objects (M76-P1a), where the GPU can make the image: asked before
+    // cull_and_batch, which decides whether the draws collect their previous models.
+    if (draws && upscaleTaa.on && !plan.view) ctx.postPlan.request_velocity();
+    lastJobNeedsVelocity = ctx.postPlan.needsVelocity;
     gather_meshes(ctx);
     collect_lights(ctx);
     collect_decals(ctx);
@@ -834,7 +939,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
     // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
     if (draws && !fr.cam.studio) {
-        const SceneSettings& vss = world.settings();
+        SceneSettings vss = world.settings();
+        if (qualityOn) {  // the graphics preset: no fog, or at most its quality
+            if (!quality.volumetricFog) vss.volumetricFog = false;
+            vss.volumetricQuality = std::min(vss.volumetricQuality, quality.volumetricQuality);
+        }
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
         // An absolute height like the fog's (its +-10000 range is on the authored value); subtracted in double (M75.4b).
@@ -866,7 +975,13 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         else
             ctx.postPlan.sss = SssPlan{};
     }
+    if (draws && upscaleTaa.on && !plan.view) {
+        ctx.postPlan.needsDepth = true;  // the temporal upscaler reprojects its history with the depth
+        // the velocity is asked before the cull (M76-P5b); the reactive mask of the particles here (M76-P1d)
+        ctx.postPlan.request_reactive();
+    }
     plan_prepass(ctx);
+    plan_quad_motion(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
     if (ctx.sssOn)
@@ -907,22 +1022,46 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (plan.last && !plan.view) {
         bool sceneColorFx = false;
         for (const DrawContext* c : postCams)
-            sceneColorFx = sceneColorFx ||
-                           ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
-                             c->postPlan.vol.on || c->postPlan.sss.on) &&
-                            c->doPrepass) ||
-                           c->postPlan.custom.any_hdr();
+            sceneColorFx =
+                sceneColorFx ||
+                ((c->postPlan.ssr.any() || c->postPlan.fogFx.shafts || c->postPlan.sceneFx.any() ||
+                  c->postPlan.vol.on || c->postPlan.sss.on) &&
+                 c->doPrepass) ||
+                c->postPlan.taa
+                    .on ||  // the antialiasing works on the scene colour: the HUD goes over it, never through it
+                c->postPlan.custom.any_hdr();
         if (sceneColorFx) {
             ctx.hudAfterBloom = true;
             ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
         }
     }
-    build_quad_stream(ctx);
-    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
-    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
     bool frameFinal = false;  // some camera of the frame runs a final pass
     for (const DrawContext* c : postCams) frameFinal = frameFinal || c->postPlan.final_pass();
-    if (plan.last && !plan.view && frameFinal && fr.wantScreen &&
+    // With the upscale stage (M76-P3a) the screen-space items are drawn over the upscaled picture at the output size, so the glyphs and the
+    // edges stay sharp when the game is drawn below that size. Only when no pass after them in the old order would have changed their
+    // pixels: hudAfterBloom (they are drawn over the bloom) and the final pass (they are drawn over its result) already keep them out of
+    // every effect; with neither, the bloom is the only effect left, and a HUD that glows (bloomScreenSpace) stays in the game image at
+    // the render resolution, as it always was. render_world decided it (hudAtOutput) before the glyphs were rasterized, for the size they are
+    // drawn at; this is the same decision with what the job knows, and the output images are made only once there are items to draw.
+    bool hudOutOk = false;
+    if (plan.last && !plan.view && fr.wantScreen && hudAtOutput && upscale_active())
+        hudOutOk = ctx.hudAfterBloom || frameFinal || !frameCam.bloom.enabled || !(frameCam.bloom.intensity > 0.0f);
+    build_quad_stream(ctx);
+    if (hudOutOk && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
+        // The format the picture has when it reaches the stage: display values after the final pass (its destination is filterTarget when the
+        // items are not drawn into it), the scene format otherwise. When an image cannot be made the picture stays at the render resolution
+        // and the items stay in it (one logged error, ensure_output_target).
+        const bool filter = !postCams.empty() && postCams.front()->postPlan.colorFilter != 0;
+        if (ensure_hud_output(frameFinal, filter, true)) {
+            ctx.hudOut = true;
+            ctx.hudDisplay = frameFinal;  // the picture holds display values: the items are drawn as in hudAfterPost
+            // The items are not drawn in the game image: a job with no world (the screen job of a split frame) has no main pass to declare.
+            ctx.doMainPass = fr.wantWorld;
+        }
+    }
+    // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
+    // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.
+    if (plan.last && !plan.view && frameFinal && fr.wantScreen && !ctx.hudOut &&
         (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()) && ensure_hud_target()) {
         ctx.hudAfterPost = true;
         ctx.hudAfterBloom =
@@ -1028,7 +1167,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             const SceneLodGroup& sg = groups[g];
             groupPick[g].level = -1;
             if (sg.children <= 0 || !(sg.radius > 0.0f)) continue;
-            const float distance = length(sg.origin - fr.cam.position);
+            float distance = length(sg.origin - fr.cam.position);
+            if (qualityOn)
+                distance *= std::max(quality.lodDistanceScale, 1.0f);  // the graphics preset: levels switch sooner
             const float value =
                 sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
             // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
@@ -1094,12 +1235,13 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         }
         if (!sm->hasLods) continue;
         float screen = 0.0f;
+        const float lodDist = qualityOn ? mi.dist * std::max(quality.lodDistanceScale, 1.0f) : mi.dist;
         if (mr.lodMode ==
             LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
             const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
                                           length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
                                           length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
-            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
+            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, lodDist, lodView);
         }
         // The impostor (M75-P1c) is one more level, past the last one: the sentinel level of LodFades, so its cross-fade with the last level is the
         // ordinary one. An atlas that cannot be used (a warning was given) leaves the last level drawn.
@@ -1114,9 +1256,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             }
             return lod_level_of(mr, dist, scr);
         };
-        const int target = level_at(mi.dist, screen);
+        const int target = level_at(lodDist, screen);
         // The hysteresis: the pick again with the metric pushed farther (the distance up, the screen size down).
-        const int farTarget = level_at(mi.dist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
+        const int farTarget = level_at(lodDist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
         const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), target,
                                       canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f, farTarget);
         // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
@@ -1192,6 +1334,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         tv.camera = fr.cam.position;
         tv.linear = fr.linear;
         tv.serial = frameSerial;
+        if (qualityOn) tv.lodQuality = quality.terrainLodQuality;
         tv.gpu = &gpu;
         tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
         terrains.gather(tv, ctx.terrainDraws, meshes);
@@ -1229,6 +1372,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         fv.time = fr.time;
         fv.serial = frameSerial;
         fv.occlusion = occluded ? &occlusion : nullptr;
+        if (qualityOn) {
+            fv.density = quality.foliageDensity;
+            fv.distance = quality.foliageDistance;
+        }
         const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
         stats.foliageInstancesCulled += fc.culled;
     }
@@ -1282,8 +1429,12 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     lightDirForShadow = d;
                     shadowLight = 0;
                     ld.rank = 0;
+                    // A preset without soft shadows draws a PCSS sun with the plain PCF filter (the limit of the local lights too).
+                    const ShadowFilter sunFilter =
+                        (qualityOn && !quality.softShadows && l.shadowFilter == ShadowFilter::Pcss) ? ShadowFilter::Pcf
+                                                                                                    : l.shadowFilter;
                     ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
-                               l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
+                               l.shadowSoftness,   l.shadowDistance, sunFilter};
                 }
                 if (!l.ies.empty() && !warnedDirectionalIes) {
                     warnedDirectionalIes = true;
@@ -1351,15 +1502,20 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.ext[1] = Vec4{ay, 0.0f};
                 }
                 if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
-                if (l.castShadows) {
+                // The graphics preset (quality.localShadows): the point, spot and area lights cast no shadow when it is off.
+                if (l.castShadows && !(qualityOn && !quality.localShadows && l.type != LightType::Directional)) {
                     ld.shadow.casts = true;
-                    ld.shadow.resolution = l.shadowResolution;
+                    ld.shadow.resolution = qualityOn && l.shadowResolution > 0
+                                               ? std::min(l.shadowResolution, quality.shadowTileSize)
+                                               : l.shadowResolution;
                     ld.shadow.bias = l.shadowBias;
                     ld.shadow.normalBias = l.shadowNormalBias;
                     ld.shadow.softness = l.shadowSoftness;
                     ld.shadow.distance = l.shadowDistance > 0.0f ? l.shadowDistance : world.settings().shadowDistance;
                     ld.shadow.filter =
-                        l.shadowFilter == ShadowFilter::Hard ? 1 : (l.shadowFilter == ShadowFilter::Pcss ? 2 : 0);
+                        l.shadowFilter == ShadowFilter::Hard
+                            ? 1
+                            : (l.shadowFilter == ShadowFilter::Pcss && !(qualityOn && !quality.softShadows) ? 2 : 0);
                     ld.shadow.spotAngle = l.type == LightType::Spot ? l.spotAngle : 0.0f;
                     // An area light's PCSS light size: the emitter's mean full size (a rectangle's width and height, a disc's
                     // diameter, a tube's length and thickness); the penumbra then follows the emitter, scaled by shadowSoftness.
@@ -1391,7 +1547,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             ld.baked = l.mode == LightMode::Baked;
             ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
             // Light.contactShadowLength counts only with the scene's master switch; plan_job drops it again when the frame has no prepass.
-            if (world.settings().contactShadows && std::isfinite(l.contactShadowLength))
+            if (world.settings().contactShadows && !(qualityOn && !quality.contactShadows) &&
+                std::isfinite(l.contactShadowLength))
                 ld.contactLength = std::clamp(l.contactShadowLength, 0.0f, 10.0f);
             lights.push_back(ld);
         });
@@ -1585,10 +1742,12 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const SceneSettings& settings = ctx.world.settings();
     // The sun's tiles: texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several
     // (the atlas stays 2048 x 2048 for four).
-    const int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
-    const int tile = ctx.sun.resolution > 0
-                         ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
-                         : (want == 1 ? 2048 : 1024);
+    int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
+    if (qualityOn)
+        want = std::min(want, std::max(quality.shadowCascades, 0));  // the graphics preset's cap on the cascades
+    int tile = ctx.sun.resolution > 0 ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
+                                      : (want == 1 ? 2048 : 1024);
+    if (qualityOn) tile = std::max(128, std::min(tile, render::pow2_floor(std::max(quality.shadowTileSize, 128))));
     std::vector<render::ShadowTileRequest> requests;
     for (int c = 0; c < want; ++c) requests.push_back({tile, 128, c});
     // The point and spot lights that want a shadow: only those a caster can reach (the casters' box meets the light's sphere) and that
@@ -1623,12 +1782,21 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
             // ... and, like any other light, smaller the farther the camera is (the size the light would get with resolution 0).
             in.resolution = std::min(px, render::local_shadow_wanted_tile(in, length(pos - fr.cam.position)));
         }
+        // The graphics preset's shadowTileSize also caps a light with no Light.shadowResolution (its own size is up to 1024 per spot map,
+        // 512 per point face): a cap under that size asks for the cap, never for more than the light would have had.
+        if (qualityOn && in.resolution <= 0) {
+            const int own = render::local_shadow_wanted_tile(in, length(pos - fr.cam.position));
+            if (own > quality.shadowTileSize)
+                in.resolution =
+                    std::max(render::kLocalShadowMinTile, render::pow2_floor(std::max(quality.shadowTileSize, 64)));
+        }
         in.shadowDistance = ld.shadow.distance;
         ctx.localInputs.push_back(in);
     }
     if (want == 0 && ctx.localInputs.empty()) return;
-    const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
-                                  std::max(64, sg_query_limits().max_image_size_2d));
+    int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
+                            std::max(64, sg_query_limits().max_image_size_2d));
+    if (qualityOn) atlasMax = std::max(64, std::min(atlasMax, quality.shadowAtlasSize));
     ctx.localPlan = render::plan_local_shadows(atlasMax, requests, ctx.localInputs, fr.cam.position);
     ctx.atlas = ctx.localPlan.atlas;
     if (!ctx.localPlan.lost.empty() && !warnedShadowBudget) {
@@ -1738,6 +1906,21 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
         }
     }
     ctx.shadowRuns.clear();
+    // M76: the previous model of every drawn instance, for the motion vectors of a camera that asks for them (a GI capture face never does).
+    const bool askVelocity = !ctx.plan.gi && ctx.fr.wantWorld &&
+                             (ctx.postPlan.needsVelocity || debugView == DebugView::MotionVectors || forceVelocity);
+    // A GPU that cannot render to the velocity format (RG16F) gets no attachment, no history and no work of its own: the temporal passes
+    // read the camera alone, as they do for a draw the velocity cannot describe.
+    ctx.collectPrev = askVelocity && gpu.velocity_ready() && !noVelocityTarget;
+    if (askVelocity && !ctx.collectPrev && !warnedNoVelocity && gpu.prepass_ready()) {
+        warnedNoVelocity = true;
+        FA_WARN("render", "The motion vectors need a render target of the format RG16F and this GPU cannot make one: "
+                          "temporal antialiasing, the "
+                          "upscalers and the other effects that read them reproject with the camera alone, so a moving "
+                          "object smears. Hint: "
+                          "nothing to fix in the project; update the graphics driver.");
+    }
+    ctx.prevMats.clear();
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
             rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
@@ -1780,7 +1963,9 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
             std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
             list->end());
     }
-    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns);
+    if (ctx.collectPrev) fill_prev_models(ctx);
+    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns,
+                  ctx.collectPrev ? &ctx.prevMats : nullptr, &ctx.prevRows);
     build_batches(blended, false, blendedBatches, mainMats, shadowMats, &ctx.shadowRuns);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
@@ -1791,10 +1976,234 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                          &ctx.shadowRuns);
 }
 
+// ---- the previous model matrices (M76 motion vectors) ----
+// Gives every visible opaque item the model matrix its entity had the game frame before (ctx.prevRows[item.prevIdx]), from what the renderer
+// keeps in `prevModels`; the item's own model (no motion of its own) when the entity is new, was not drawn in the frame before, the camera was cut
+// (PostPlan::prevValid false) or the frame is not one of the game's (capture_world). Terrain nodes, impostor cards and foliage instances keep
+// their model: a node or a card is not an entity of its own and the instances of a foliage share one, and they are static. A skinned item also
+// has its joint palette kept (`prevPalettes`, same rules). Every camera of the frame sees the same previous matrix (the first one to ask moves
+// the history on). Reads: ctx.opaque, ctx.postPlan.prevValid, ctx.fr.time, postSerial, framePost. Writes: ctx.prevRows, ctx.prevHistory,
+// ctx.prevTime, item prevIdx, prevModels, prevPalettes, the game clock of the history.
+void Renderer::Impl::fill_prev_models(DrawContext& ctx) {
+    const bool kept = framePost;
+    if (kept && prevModelsPruned != postSerial) {  // an entity not drawn in the frame before is forgotten
+        prevModelsPruned = postSerial;
+        std::erase_if(prevModels, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
+        std::erase_if(prevPalettes, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
+    }
+    const bool useHistory = kept && ctx.postPlan.prevValid;
+    const float now = ctx.fr.time;
+    if (kept &&
+        clockFrame !=
+            postSerial) {  // the game time of the frame before, as the models: the first camera of the frame moves it on
+        clockPrev = clockFrame + 1 == postSerial ? clockCur : now;
+        clockCur = now;
+        clockFrame = postSerial;
+    }
+    ctx.prevHistory = useHistory;
+    ctx.prevTime = useHistory ? clockPrev : now;
+    ctx.prevRows.clear();
+    ctx.prevRows.reserve(ctx.opaque.size());
+    for (MeshItem& mi : ctx.opaque) {
+        Mat4 prev = mi.model;
+        if (kept && mi.visible && !mi.foliage && !mi.terrain && !mi.impostor && !mi.entity.is_null()) {
+            auto [it, fresh] = prevModels.try_emplace(mi.entity.bits());
+            PrevModel& e = it->second;
+            if (fresh || e.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
+                e.prev = e.cur = mi.model;
+            } else if (e.frame + 1 ==
+                       postSerial) {  // the first time this frame: last frame's model is the previous one
+                e.prev = e.cur;
+                e.cur = mi.model;
+            }  // e.frame == postSerial: another item or camera of this frame, same history
+            e.frame = postSerial;
+            if (useHistory) prev = e.prev;
+            if (mi.anim) keep_prev_palette(mi);
+        }
+        mi.prevIdx = std::uint32_t(ctx.prevRows.size());
+        ctx.prevRows.push_back(prev_model_rows(prev));
+    }
+}
+
+// The motion of the 2D items of the world for the velocity image (M76-P1d): how far each vertex moved since the frame before, what the quad
+// motion passes subtract from the vertices to know where they were. From the matrix each item says it was placed with (QuadItem::xform, set
+// by QuadList::set_motion_source) and what the renderer keeps of it in `prevQuadOrigins`, with the rules of fill_prev_models: nothing for an
+// owner that is new or was not drawn in the frame before, after a cut (PostPlan::prevValid false), or in a frame that is not one of the
+// game's. A vertex `p` of the item was at `Mprev * Mnow^-1 * p`: with R the rotation and scale between the two frames that is
+// `R * (p - o) + oPrev` (o, oPrev: the origin now and before), so its motion is `(oNow - oPrev) + (I - R) * (p - o)` (QuadItem::motion and
+// ::turn; `turned` false when R is the identity, as for every item that only translates). A matrix that cannot be inverted (a scale of 0 on
+// either frame) counts as a translation. Items with no owner (text) do not move by themselves. Every camera of the frame sees the same
+// history (the first one to ask moves it on). Reads: ctx.fr.world, ctx.postPlan.prevValid, postSerial, framePost. Writes: QuadItem::motion,
+// ::turn, ::turned, prevQuadOrigins.
+void Renderer::Impl::fill_quad_motion(DrawContext& ctx) {
+    const bool kept = framePost;
+    if (kept && prevQuadsPruned != postSerial) {  // an owner not drawn in the frame before is forgotten
+        prevQuadsPruned = postSerial;
+        std::erase_if(prevQuadOrigins, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
+    }
+    const bool useHistory = kept && ctx.postPlan.prevValid;
+    for (QuadItem& it : ctx.fr.world.items) {
+        it.motion = Vec3{};
+        it.turned = false;
+        if (!kept || it.motionKey == 0) continue;
+        auto [entry, fresh] = prevQuadOrigins.try_emplace(it.motionKey);
+        PrevQuadOrigin& q = entry->second;
+        if (fresh || q.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
+            q.prev = q.cur = it.xform;
+        } else if (q.frame + 1 == postSerial) {  // the first time this frame: last frame's matrix is the previous one
+            q.prev = q.cur;
+            q.cur = it.xform;
+        }  // q.frame == postSerial: another item or camera of this frame, same history
+        q.frame = postSerial;
+        if (!useHistory) continue;
+        it.motion = q.cur.translation() - q.prev.translation();
+        // R = Lprev * Lcur^-1 on the 3x3 parts; skipped (a translation) when the two have the same 3x3 or either has no inverse.
+        float lc[9], lp[9];
+        float diff = 0.0f;
+        for (int c = 0; c < 3; ++c)
+            for (int r = 0; r < 3; ++r) {
+                lc[c * 3 + r] = q.cur.at(c, r);
+                lp[c * 3 + r] = q.prev.at(c, r);
+                diff = std::max(diff, std::fabs(lc[c * 3 + r] - lp[c * 3 + r]));
+            }
+        if (diff <= 1.0e-6f) continue;
+        // inverse of lc by cofactors (column-major: lc[c * 3 + r])
+        auto m = [&](int r, int c) { return lc[c * 3 + r]; };
+        const float c00 = m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1), c01 = m(1, 2) * m(2, 0) - m(1, 0) * m(2, 2),
+                    c02 = m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0);
+        const float det = m(0, 0) * c00 + m(0, 1) * c01 + m(0, 2) * c02;
+        if (!(std::fabs(det) > 1.0e-12f)) continue;
+        // The frame before's 3x3 with no inverse (a scale of 0 then) is a translation too: a vertex does not grow out of a point.
+        const float detPrev = lp[0] * (lp[4] * lp[8] - lp[7] * lp[5]) - lp[3] * (lp[1] * lp[8] - lp[7] * lp[2]) +
+                              lp[6] * (lp[1] * lp[5] - lp[4] * lp[2]);
+        if (!(std::fabs(detPrev) > 1.0e-12f)) continue;
+        const float id = 1.0f / det;
+        float inv[3][3];  // [row][col]
+        inv[0][0] = c00 * id;
+        inv[0][1] = (m(0, 2) * m(2, 1) - m(0, 1) * m(2, 2)) * id;
+        inv[0][2] = (m(0, 1) * m(1, 2) - m(0, 2) * m(1, 1)) * id;
+        inv[1][0] = c01 * id;
+        inv[1][1] = (m(0, 0) * m(2, 2) - m(0, 2) * m(2, 0)) * id;
+        inv[1][2] = (m(0, 2) * m(1, 0) - m(0, 0) * m(1, 2)) * id;
+        inv[2][0] = c02 * id;
+        inv[2][1] = (m(0, 1) * m(2, 0) - m(0, 0) * m(2, 1)) * id;
+        inv[2][2] = (m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0)) * id;
+        for (int c = 0; c < 3; ++c)
+            for (int r = 0; r < 3; ++r) {
+                float rot = 0.0f;  // (Lprev * inv)(r, c)
+                for (int k = 0; k < 3; ++k) rot += lp[k * 3 + r] * inv[k][c];
+                it.turn[c * 3 + r] = (r == c ? 1.0f : 0.0f) - rot;
+            }
+        it.turned = true;
+    }
+}
+
+// The joint palettes of a skinned item for the motion vectors: the current frame's and the one before, one per skin of its Animator (at most
+// kMaxSkinJoints joints each, as the palette the draw uploads). Same life rules as prevModels. The vectors keep their capacity from frame to
+// frame: the palette of the frame before is the one the frame before last wrote over.
+void Renderer::Impl::keep_prev_palette(const MeshItem& mi) {
+    auto [it, fresh] = prevPalettes.try_emplace(mi.entity.bits());
+    PrevPalette& p = it->second;
+    auto snapshot = [&](std::vector<std::vector<Mat4>>& out) {
+        out.resize(std::max<std::size_t>(1, mi.anim->skinPalettes.size()));
+        for (std::size_t skin = 0; skin < out.size(); ++skin) {
+            const std::vector<Mat4>& pal = palette_of(*mi.anim, int(skin));
+            out[skin].assign(pal.begin(),
+                             pal.begin() + std::ptrdiff_t(std::min<std::size_t>(pal.size(), kMaxSkinJoints)));
+        }
+    };
+    if (fresh || p.frame + 1 < postSerial) {
+        snapshot(p.cur);
+        p.prev = p.cur;
+    } else if (p.frame + 1 == postSerial) {
+        std::swap(p.prev, p.cur);
+        snapshot(p.cur);
+    }
+    p.frame = postSerial;
+}
+
+// The palette of skin `skin` as it was the frame before for a draw of `mi` (the current one when there is no history, after a cut or when the
+// skin changed size). Only the first kMaxSkinJoints joints count, as in the palette the draw uploads.
+const std::vector<Mat4>& Renderer::Impl::prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const {
+    const std::vector<Mat4>& cur = palette_of(*mi.anim, skin);
+    if (!ctx.prevHistory) return cur;
+    const auto it = prevPalettes.find(mi.entity.bits());
+    if (it == prevPalettes.end() || std::size_t(skin) >= it->second.prev.size()) return cur;
+    const std::vector<Mat4>& prev = it->second.prev[std::size_t(skin)];
+    return prev.size() == std::min<std::size_t>(cur.size(), kMaxSkinJoints) ? prev : cur;
+}
+
+// The previous joint palettes of the skinned draws the prepass makes with motion vectors, in one RGBA32F image (kPrevPaletteWidth texels a row;
+// a palette is kPrevPaletteTexels texels from `ctx.prevPalBase`; joints past the skin's are the identity). Done before the first pass of the
+// frame, next to the instance buffers: an image cannot be written inside a pass. A GPU that cannot sample RGBA32F, and the draws past
+// kPrevPaletteMaxRows rows, get no palette and their fragments write the sentinel (one warning). Reads: ctx.collectPrev, ctx.opaque,
+// ctx.opaqueBatches, the histories. Writes: ctx.prevPalView, ctx.prevPalBase, Impl::prevPalTexels, warnedPrevPalette.
+void Renderer::Impl::upload_prev_palettes(DrawContext& ctx) {
+    static_assert(kPrevPaletteWidth == kLightTextureWidth, "the palette image has the light image's width and format");
+    ctx.prevPalView = {};
+    ctx.prevPalBase.clear();
+    if (!ctx.collectPrev || !ctx.prevInst.id) return;
+    const bool canSample = !noPaletteSampling && sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F).sample;
+    const int rowCap = std::clamp(paletteRowCap, 1, kPrevPaletteMaxRows);
+    const std::size_t maxTexels = std::size_t(kPrevPaletteWidth) * std::size_t(rowCap);
+    std::vector<float>& texels = prevPalTexels;
+    texels.clear();
+    bool clipped = false;
+    for (std::size_t bi = 0; bi < ctx.opaqueBatches.size(); ++bi) {
+        const MeshBatch& batch = ctx.opaqueBatches[bi];
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        if (batch.mainCount == 0 || !mi.anim) continue;
+        for (const SubMesh& part : mi.mesh->parts) {
+            if (!part.skinVb.id) continue;
+            const std::uint64_t key = prev_palette_key(batch.rep, part.skin);
+            if (ctx.prevPalBase.count(key)) continue;
+            const std::size_t first = texels.size() / 4;
+            if (!canSample || first + std::size_t(kPrevPaletteTexels) > maxTexels) {
+                clipped = true;
+                continue;
+            }
+            const std::vector<Mat4>& pal = prev_palette(ctx, mi, part.skin);
+            texels.resize(texels.size() + std::size_t(kPrevPaletteTexels) * 4);
+            float* out = texels.data() + first * 4;
+            for (int j = 0; j < kMaxSkinJoints; ++j) {
+                const Mat4 m = std::size_t(j) < pal.size() ? pal[std::size_t(j)] : Mat4::identity();
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 4; ++c) *out++ = m.at(c, r);
+            }
+            ctx.prevPalBase[key] = int(first);
+        }
+    }
+    if (clipped && !warnedPrevPalette) {
+        warnedPrevPalette = true;
+        if (canSample)
+            FA_WARN("render",
+                    "More than {} skinned draws in one camera's frame: the motion vectors of the ones past that count "
+                    "carry the "
+                    "camera's motion only (temporal antialiasing and the upscalers reproject them from the depth, so a "
+                    "moving "
+                    "character smears). Hint: draw fewer skinned meshes per camera, or share a skin between instances.",
+                    rowCap * kPrevPaletteWidth / kPrevPaletteTexels);
+        else
+            FA_WARN("render",
+                    "This GPU cannot sample 32-bit float textures in the vertex stage, which the motion vectors of "
+                    "skinned meshes need: they carry the camera's motion only (temporal antialiasing and the upscalers "
+                    "reproject them from the depth, so a moving character smears). Hint: nothing to fix in the "
+                    "project; update the graphics driver.");
+    }
+    if (texels.empty()) return;
+    // Whole rows, rounded up to 16 of them so that the pooled image is not made again for every skinned draw that comes or goes.
+    const int rows = std::min(
+        rowCap, int(((texels.size() / 4 + std::size_t(kPrevPaletteWidth) - 1) / std::size_t(kPrevPaletteWidth) + 15) /
+                    16 * 16));
+    texels.resize(std::size_t(rows) * std::size_t(kPrevPaletteWidth) * 4, 0.0f);
+    ctx.prevPalView = gpu.write_palette_image(rows, texels.data()).view;
+}
+
 // ---- flatten quads into one vertex stream ----
 // Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
 // Writes: `stream`, `instStream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf,
-// ctx.vinst (transient buffers), ctx.screenProj.
+// ctx.vinst, ctx.vmotion (transient buffers), ctx.screenProj. With ctx.doQuadVel or doQuadReact the motion stream (quadMotionStream) has
+// 4 floats per vertex of `stream`, and the quad items of the world have their motion (fill_quad_motion).
 void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const bool z01 = ctx.z01;
@@ -1808,6 +2217,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
     auto& vbuf = ctx.vbuf;
     stream.clear();
     instStream.clear();
+    // The per-vertex motion of the quad stream (M76-P1d): every flatten() of the stream appends to it, so it stays vertex for vertex with it.
+    std::vector<float>* motion = ctx.doQuadVel || ctx.doQuadReact ? &quadMotionStream : nullptr;
+    if (motion) {
+        quadMotionStream.clear();
+        fill_quad_motion(ctx);
+    }
     if (clearByQuad) {
         // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
         // camera's rectangle (see main_pass).
@@ -1817,12 +2232,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
         em.rect(0, 0, 1, 1, 0, 0, 1, 1);
         clearList.end_item();
-        clearList.flatten(stream, gClear.batches, &instStream);
+        clearList.flatten(stream, gClear.batches, &instStream, motion);
     }
-    fr.world.flatten(stream, gWorld.batches, &instStream);
-    fr.debugWorld.flatten(stream, gDebugWorld.batches, &instStream);
-    fr.screen.flatten(stream, gScreen.batches, &instStream);
-    fr.debugScreen.flatten(stream, gDebugScreen.batches, &instStream);
+    fr.world.flatten(stream, gWorld.batches, &instStream, motion);
+    fr.debugWorld.flatten(stream, gDebugWorld.batches, &instStream, motion);
+    fr.screen.flatten(stream, gScreen.batches, &instStream, motion);
+    fr.debugScreen.flatten(stream, gDebugScreen.batches, &instStream, motion);
     lineFirst = stream.size();
     stream.insert(stream.end(), fr.debugLines.begin(), fr.debugLines.end());
 
@@ -1838,6 +2253,13 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         sg_write_buffer_desc wd{};
         wd.src.data = {instStream.data(), instStream.size() * sizeof(float)};
         wd.dst.buffer = ctx.vinst;
+        sg_write_buffer_transient(&wd);
+    }
+    if (motion && !quadMotionStream.empty()) {
+        ctx.vmotion = gpu.acquire_transient(quadMotionStream.size() * sizeof(float));
+        sg_write_buffer_desc wd{};
+        wd.src.data = {quadMotionStream.data(), quadMotionStream.size() * sizeof(float)};
+        wd.dst.buffer = ctx.vmotion;
         sg_write_buffer_transient(&wd);
     }
 
@@ -1859,6 +2281,8 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
         return buf;
     };
     ctx.mainInst = upload(ctx.mainMats.data(), ctx.mainMats.size() * kMeshInstanceBytes);
+    ctx.prevInst = upload(ctx.prevMats.data(), ctx.prevMats.size() * kPrevModelBytes);
+    upload_prev_palettes(ctx);
     ctx.shadowInst = upload(ctx.shadowMats.data(), ctx.shadowMats.size() * kMeshInstanceBytes);
     ctx.mainExtra = upload(ctx.mainExtraData.data(), ctx.mainExtraData.size() * sizeof(float));
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
@@ -2110,7 +2534,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ctx.lightView = ctx.white->view;
     // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
     ctx.decalView = ctx.white->view;
-    copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
+    copy_mat(vuScene.fa_view_proj, fr.cam.drawViewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
     vuScene.fa_time[0] = float(world.time());
@@ -2139,7 +2563,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
     // subsurface draw reads the same view for its visibility test against the prepass.
     if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
-        const Mat4& vp = fr.cam.viewProj;
+        const Mat4& vp = fr.cam.drawViewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
             fuScene.fa_ct_vpx[c] = vp.at(c, 0);
@@ -2161,6 +2585,8 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_env_horizon[0] = ss.horizonColor.r;
     fuScene.fa_env_horizon[1] = ss.horizonColor.g;
     fuScene.fa_env_horizon[2] = ss.horizonColor.b;
+    fuScene.fa_env_horizon[3] =
+        fr.cam.mipBias;  // the texture LOD bias of the frame (fa_mip_bias): 0 unless the camera is jittered
     fuScene.fa_pbr[3] = 0.0015f;
     fuScene.fa_time[0] = float(world.time());
     plan_env(ctx);  // before fuBlend is copied: it sets the environment flag of fuScene
@@ -2774,6 +3200,7 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
+    if (qualityOn) lightScale = std::max(0.25f, std::min(lightScale, quality.lightScale));  // the graphics preset's cap
     if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
         if (points == 0) {
             litMode = 2;
@@ -2811,8 +3238,13 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     ctx.gi2d = Gi2dJobPlan{};
     if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
-    const Gi2dSettings s = gi2d_settings(ctx.world);
+    Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
+    if (qualityOn) {  // the graphics preset's caps (the report above keeps what the scene asks for)
+        if (!quality.gi2d) s.on = false;
+        s.quality = std::min(s.quality, quality.gi2dQuality);
+        s.resolutionScale = std::max(0.1f, std::min(s.resolutionScale, quality.gi2dResolutionScale));
+    }
     if (!s.on) return;
     if (framePost)
         gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)
@@ -2930,7 +3362,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
         sg_apply_bindings(&b);
         light_light_vs_params_t vu{};
-        copy_mat(vu.view_proj, fr.cam.viewProj);
+        copy_mat(vu.view_proj, fr.cam.drawViewProj);
         apply_uniforms(UB_light_light_vs_params, vu);
         light_light_fs_params_t fu{};
         fu.range[0] = 1.0f / gpu.light_range();
@@ -3021,8 +3453,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                     if (skinned && declares(prog, UB_mesh_fa_skin))
                         apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                     if (prog) {
-                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
+                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) {
+                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd);
+                            fu.fa_env_horizon[3] =
+                                0.0f;  // a shadow map is not the jittered picture: no texture LOD bias
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fu);
+                        }
                         if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
                         apply_material_params(*prog, inputs);
                     }
@@ -3050,13 +3486,17 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
 // ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
-    ctx.doPrepass = ctx.debugPrepass = false;
+    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = false;
     if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals ||
-          (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
+    // The velocity alone (or its debug view) is worth a prepass only where collectPrev says the GPU can make the image.
+    const bool debugPass = debugView != DebugView::None && debugView != DebugView::Cascades &&
+                           debugView != DebugView::Occlusion &&
+                           (debugView != DebugView::MotionVectors || ctx.collectPrev);
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || (pp.needsVelocity && ctx.collectPrev) ||
+          debugPass))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -3084,9 +3524,139 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     }
     transient_targets().pool.release(h);
     ctx.doPrepass = true;
-    ctx.debugPrepass =
-        !ctx.plan.gi && (debugView == DebugView::Depth || debugView == DebugView::Normals) && gpu.prepass_view_ready();
+    // M76: the motion vectors go into a second attachment of the same pass when the camera asks and the GPU can make the image. A GPU that
+    // cannot (or refuses the image) leaves the velocity out: PostPlan::velocity stays invalid and whoever asked reads the camera alone.
+    if (pp.needsVelocity && !ctx.plan.gi && ctx.collectPrev) {
+        TransientDesc vd = d;
+        vd.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+        vd.label = "velocity";
+        if (const std::uint64_t vh = transient_targets().pool.acquire(vd)) {
+            transient_targets().pool.release(vh);
+            ctx.doVelocity = true;
+        }
+    }
+    ctx.debugPrepass = !ctx.plan.gi &&
+                       (debugView == DebugView::Depth || debugView == DebugView::Normals ||
+                        (debugView == DebugView::MotionVectors && ctx.doVelocity)) &&
+                       gpu.prepass_view_ready();
     return true;
+}
+
+// The motion vectors and the reactive mask of the 2D quads of the world (M76-P1d, shaders/quad_motion.glsl). Two passes, each into an
+// image of its own, over the batches of ctx.gWorld:
+//   "quad-velocity"  writes the velocity of the quads whose coverage is at least one half (a sprite, a tile, a glyph: an alpha-tested
+//                    cutout) over what the prepass wrote, where they are in front of it. Blended and additive quads never overwrite it.
+//   "quad-reactive"  writes the reactive mask (R8, the MAX of the reactive values), for the quads that are reactive: a blended particle, an
+//                    additive quad, what QuadList::set_reactive marked.
+// The velocity goes into the prepass's image when the job has one (ctx.doVelocity); a job with no mesh (a 2D scene with temporal antialiasing)
+// has an image of its own, cleared to the sentinel, which the resolve reads as "the camera's own motion". Both need the temporal passes to
+// ask (PostPlan::needsVelocity / needsReactive), a GPU that can make the images and a quad that writes them: a frame with none of that is the
+// frame without this. Reads: ctx.fr (the world's quads, camera), ctx.postPlan, ctx.collectPrev, ctx.doPrepass, ctx.doVelocity.
+// Writes: ctx.doQuadVel, ctx.doQuadReact, ctx.ownVelocity, ctx.quadDepthTest, ctx.debugPrepass (the motion vectors view of an own image).
+void Renderer::Impl::plan_quad_motion(DrawContext& ctx) {
+    ctx.doQuadVel = ctx.doQuadReact = ctx.ownVelocity = ctx.quadDepthTest = false;
+    const Frame& fr = ctx.fr;
+    const PostPlan& pp = ctx.postPlan;
+    if (ctx.plan.gi || ctx.plan.view || !fr.wantWorld || ctx.camPx.w < 1 || ctx.camPx.h < 1 || fr.world.items.empty())
+        return;
+    bool anyVel = false, anyReact = false;
+    for (const QuadItem& it : fr.world.items) {
+        if (it.effect || it.instances > 0 || it.quadCount == 0 || it.clip.w > 0) continue;
+        if (it.reactive_value() > 0.0f)
+            anyReact = true;
+        else if (it.blend == BlendMode::Alpha &&
+                 !it.use)  // an item with a material of its own writes no velocity (see quad_motion_pass)
+            anyVel = true;
+    }
+    const bool ownVel = anyVel && !ctx.doPrepass && ctx.collectPrev && pp.needsVelocity;
+    const bool prepassVel = anyVel && ctx.doVelocity;
+    const bool react = anyReact && pp.needsReactive && gpu.reactive_ready();
+    if (!(ownVel || prepassVel || react) || !gpu.quad_motion_ready()) return;
+    auto can_make = [&](sg_pixel_format format, const char* label) {
+        TransientDesc d;
+        d.width = ctx.camPx.w;
+        d.height = ctx.camPx.h;
+        d.format = TargetFormat{format, SG_PIXELFORMAT_NONE, 1};
+        d.label = label;
+        const std::uint64_t h = transient_targets().pool.acquire(d);
+        if (h == 0) return false;
+        transient_targets().pool.release(h);
+        return true;
+    };
+    if (ownVel && can_make(Gpu::velocity_format(), "velocity")) {
+        ctx.ownVelocity = ctx.doQuadVel = true;
+    } else if (prepassVel) {
+        ctx.doQuadVel = true;
+    }
+    ctx.doQuadReact = react && can_make(Gpu::reactive_format(), "reactive");
+    // The quads are tested against the prepass's depth where it is a view depth: a perspective camera. An orthographic one (2D) orders them by
+    // the draw order only, as the main pass does.
+    ctx.quadDepthTest = ctx.doPrepass && fr.cam.perspective;
+    if (ctx.ownVelocity && !ctx.plan.gi && debugView == DebugView::MotionVectors && gpu.prepass_view_ready())
+        ctx.debugPrepass = true;
+}
+
+// Draws the quads of the world that write the velocity (`reactive` false) or the mask (true) into `t`: the same vertices as the main pass, the
+// camera's matrices without the jitter (a motion has none), the per-vertex motion of ctx.vmotion. `depth` is the prepass the quads in front
+// of which a mesh stands are tested against (null: no test). `clear`: the image is made here (the sentinel, or 0 for the mask); false: it
+// holds the prepass's velocity and the quads are written over it. Reads: ctx.gWorld, ctx.vbuf, ctx.vmotion, ctx.fr.cam, ctx.postPlan.
+// Writes: `t`; stats.drawCalls.
+void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool reactive, const Target* depth,
+                                      bool clear) {
+    PassDesc pd = pass_into(t, reactive ? "quad-reactive" : "quad-velocity");
+    pd.colorLoad = clear ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
+    pd.clearColor =
+        reactive ? sg_color{0.0f, 0.0f, 0.0f, 0.0f} : sg_color{VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
+    pd.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(pd);
+    const sg_pipeline pip = gpu.quad_motion_pipeline(pd.format, reactive);
+    if (!pip.id || !ctx.vbuf.id || !ctx.vmotion.id) {
+        gpu.end_pass();
+        return;
+    }
+    const Frame& fr = ctx.fr;
+    quad_motion_quad_motion_vs_params_t vu{};
+    copy_mat(vu.draw_vp,
+             fr.cam.drawViewProj);  // the matrix the colour and the prepass raster with (the jitter included)
+    copy_mat(vu.cur_vp, fr.cam.viewProj);
+    copy_mat(vu.prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : fr.cam.viewProj);
+    for (int c = 0; c < 4; ++c)
+        vu.depth_row[c] = -fr.cam.view.at(c, 2);  // the view depth of a world point, what the prepass stores
+    quad_motion_quad_motion_fs_params_t fu{};
+    fu.fcfg[0] = depth && depth->texView.id ? 1.0f : 0.0f;
+    const sg_view preView = depth && depth->texView.id ? depth->texView : assets->white()->view;
+    for (const QuadBatch& qb : ctx.gWorld.batches) {
+        if (qb.effect || qb.instances > 0 || qb.quadCount == 0) continue;
+        // A scissor (a clipped item: only the screen-space quads of a ScrollList have one, and they are not in the world's list) and a
+        // material (its `discard`, its vertex()) change which pixels the quads cover, and this pass applies neither. The velocity then writes
+        // nothing for such a batch (the camera's motion): a vector over a footprint that is not the colour's would overwrite the surface behind.
+        // The mask does write it, over the footprint the quad has with the built-in coverage (its shape, the texture's alpha times the tint's):
+        // a mask that is larger than what the material shows only costs a little history there, one that is missing leaves a trail.
+        if (qb.clip.w > 0 || (qb.use && !reactive)) continue;
+        if (reactive ? !qb.reactive : qb.blend != BlendMode::Alpha) continue;
+        sg_apply_pipeline(pip);
+        apply_uniforms(UB_quad_motion_quad_motion_vs_params, vu);
+        apply_uniforms(UB_quad_motion_quad_motion_fs_params, fu);
+        std::uint32_t done = 0;
+        while (done < qb.quadCount) {
+            const std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
+            sg_bindings b{};
+            b.vertex_buffers[0] = ctx.vbuf;
+            b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
+            b.vertex_buffers[kQuadMotionBuffer] = ctx.vmotion;
+            b.vertex_buffer_offsets[kQuadMotionBuffer] = int((qb.firstQuad + done) * 4 * kQuadMotionStride);
+            b.index_buffer = gpu.quad_index_buffer();
+            b.views[VIEW_quad_motion_tex] = qb.tex->gpu_view();
+            b.views[VIEW_quad_motion_pre_tex] = preView;
+            b.samplers[SMP_quad_motion_smp] = gpu.sampler(qb.smp);
+            b.samplers[SMP_quad_motion_pre_smp] = gpu.sampler(SamplerKind::Nearest);
+            sg_apply_bindings(&b);
+            sg_draw(0, int(n * 6), 1);
+            ++stats.drawCalls;
+            done += n;
+        }
+    }
+    gpu.end_pass();
 }
 
 // Transmission (M73-P6b, renderer_xmit.h): counts the visible transmissive meshes of the blended phase; when there is one and the copy of the
@@ -3156,17 +3726,25 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     pd.colorStore = SG_STOREACTION_STORE;
     gpu.begin_pass(pd);
     // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
-    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.viewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
+    draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.drawViewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
                t.h);
     gpu.end_pass();
 }
 
 // Draws the opaque meshes of the job into `t`. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fuScene, ctx.fr.cam, the
 // custom prepass programs of the materials. Writes: `t`; stats.drawCalls.
-void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces) {
+void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFaces, const Target* velocity) {
     const std::vector<MeshBatch>& batches = ctx.opaqueBatches;
     const std::vector<MeshItem>& items = ctx.opaque;
     PassDesc pd = pass_into(t, backFaces ? "prepass-back" : "prepass");
+    // M76: the motion vectors are the second attachment, cleared to the sentinel ("no object wrote here"). The programs write it only for
+    // an instance that has a previous model (fa_vel_on), and a pass without it uses pipelines with one attachment: the output is dropped.
+    const bool vel = velocity && velocity->colorAtt.id && ctx.prevInst.id && !backFaces;
+    if (vel) {
+        pd.format = gpu.prepass_target_format(true);
+        pd.color1 = velocity->colorAtt;
+        pd.clearColor1 = {VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
+    }
     pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
     pd.colorStore = SG_STOREACTION_STORE;
@@ -3176,6 +3754,16 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
     mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
     copy_mat(vu.fa_light_vp,
              ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    // The two view-projections of the motion vectors, both without the jitter (it is not part of a motion): this frame's and the previous
+    // one's (the same one when the camera was cut, so a cut has no motion of the objects either).
+    // Without the image the block stays zero (the programs that declare it read fa_vel_on.x = 0 and skip the work).
+    mesh_fa_vel_params_t velU{};
+    if (vel) {
+        copy_mat(velU.fa_vel_vp, ctx.fr.cam.viewProj);
+        copy_mat(velU.fa_vel_prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : ctx.fr.cam.viewProj);
+        velU.fa_vel_on[0] = 1.0f;
+        velU.fa_vel_on[1] = ctx.prevTime;
+    }
     for (const MeshBatch& batch : batches) {
         if (batch.mainCount == 0) continue;
         const MeshItem& mi = items[batch.rep];
@@ -3208,13 +3796,39 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
             if (skinned) b.vertex_buffers[2] = part.skinVb;
             if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
+            // The previous model of each instance (vertex buffer 6) when the program reads it; with no velocity image the pipeline still
+            // has the attributes, so the instance buffer stands in for it (never read: fa_vel_on is 0).
+            if (prepass_prev_attr(skinned, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                b.vertex_buffers[kPrevModelBuffer] = vel ? ctx.prevInst : ctx.mainInst;
+                b.vertex_buffer_offsets[kPrevModelBuffer] =
+                    int(batch.mainFirst * (vel ? kPrevModelBytes : kMeshInstanceBytes));
+            }
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
+            // The previous palettes of the skinned programs (vertex stage). The slot is declared by every skinned prepass program, so a
+            // pass without velocity binds the white image (never read: fa_vel_on.x is 0).
+            if (skinned) {
+                if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = vel && ctx.prevPalView.id ? ctx.prevPalView : ctx.white->view;
+                if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
+                    b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
+            }
             if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
             sg_apply_bindings(&b);
             if (mbu.active) apply_mesh_base_model(*prog, mi.model);
             apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            // A skinned draw reads the previous palette from the image of upload_prev_palettes (fa_vel_on.z = 1, the first texel in .w) when the
+            // program has the previous model and the palette got a place in the image; otherwise its fragments write the sentinel.
+            int palBase = -1;
+            if (skinned && vel &&
+                prepass_prev_attr(true, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                const auto at = ctx.prevPalBase.find(prev_palette_key(batch.rep, part.skin));
+                if (at != ctx.prevPalBase.end()) palBase = at->second;
+            }
+            velU.fa_vel_on[2] = palBase >= 0 ? 1.0f : 0.0f;
+            velU.fa_vel_on[3] = palBase >= 0 ? float(palBase) : 0.0f;
+            if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(UB_mesh_fa_vel_params, velU);
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
@@ -3316,11 +3930,72 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : 1.0f;
+    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : debugView == DebugView::MotionVectors ? 3.0f : 1.0f;
     apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
     sg_draw(0, 3, 1);
     ++stats.drawCalls;
     gpu.end_pass();
+}
+
+// The test copy of the velocity image (RendererTestAccess::read_velocity): the vectors as floats in an RGBA16F image of the camera's size.
+// prepass_view.glsl mode 4, which only this pass uses (no game draws it). On GL the pass flips like the debug view does (vu.flip = 1 there:
+// the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); readback_rgba16f turns the rows over on
+// GL as readback_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
+// those two, as the GL backend is not run by this host's tests.)
+constexpr float kPrepassViewRaw = 4.0f;
+void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label) {
+    const int w = ctx.camPx.w, h = ctx.camPx.h;
+    if (!velocity.texView.id || w < 1 || h < 1) return;
+    if (!probe.valid() || probe.w != w || probe.h != h) {
+        destroy_target(probe);
+        TargetDesc td;
+        td.label = label;
+        td.width = w;
+        td.height = h;
+        td.colorFormat = SG_PIXELFORMAT_RGBA16F;
+        probe = make_target(td);
+        if (!probe.valid()) return;
+    }
+    PassDesc dp = pass_into(probe, label);
+    dp.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    dp.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(dp);
+    sg_apply_pipeline(gpu.prepass_view_pipeline(dp.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_prepass_view_tex] = velocity.texView;
+    b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    prepass_view_prepass_view_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
+    prepass_view_prepass_view_fs_params_t fu{};
+    fu.mode[0] = kPrepassViewRaw;
+    apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
+    sg_draw(0, 3, 1);
+    gpu.end_pass();
+}
+
+bool Renderer::Impl::read_reactive(std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!reactiveProbe.valid()) {
+        if (error) *error = "no reactive mask was drawn (force_velocity is off, or the frame drew no reactive quad)";
+        return false;
+    }
+    w = reactiveProbe.w;
+    h = reactiveProbe.h;
+    return render::readback_rgba16f(reactiveProbe.color, w, h, out, error);
+}
+
+bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!velocityProbe.valid()) {
+        if (error)
+            *error =
+                "no velocity image was drawn (force_velocity is off, or the frame drew no prepass with motion vectors)";
+        return false;
+    }
+    w = velocityProbe.w;
+    h = velocityProbe.h;
+    return render::readback_rgba16f(velocityProbe.color, w, h, out, error);
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
@@ -3744,7 +4419,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshItem>& blended = ctx.blended;
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost;
+    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost && !ctx.hudOut;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
         ctx.envActive = false;
         ctx.fuScene.fa_env_sky[3] = 0.0f;
@@ -3823,7 +4498,9 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 if (sky.mat && sky.mat == ctx.skyPlannedMat)
                     std::copy(std::begin(ctx.skyPlanned), std::end(ctx.skyPlanned), sky.in.textures);
             }
-            draw_sky(*this, sky, fr.cam.invViewProj.m, fr.cam.position, nullptr);
+            // The sky and the panorama are drawn with the jitter of the meshes (the temporal antialiasing resolves them like everything else);
+            // the environment bake and everything that asks where a pixel is in the world keep the unjittered matrices.
+            draw_sky(*this, sky, fr.cam.drawInvViewProj.m, fr.cam.position, nullptr);
             ++stats.drawCalls;
         }
 
@@ -4002,14 +4679,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 
         // quad groups
         ctx.sceneCopy.live = sceneSplits;
-        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode, nullptr,
+        draw_group(ctx, gWorld.batches, fr.cam.drawViewProj, fr.cam.perspective, camPx, litMode, nullptr,
                    ctx.postPlan.fogFx.fog ? &ctx.postPlan.fogFx : nullptr);
         ctx.sceneCopy.live = false;
-        draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
+        draw_group(ctx, gDebugWorld.batches, fr.cam.drawViewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
             quad_vs_params_t u{};
-            copy_mat(u.view_proj, fr.cam.viewProj);
+            copy_mat(u.view_proj, fr.cam.drawViewProj);
             u.cspace[0] = fr.linear ? 1.0f : 0.0f;
             apply_uniforms(UB_quad_vs_params, u);
             quad_quad_fs_params_t unlit{};
@@ -4052,15 +4729,32 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
 // Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, `into` (LOAD). Writes: `into`; stats.drawCalls. Declared by
 // build_graph when there is something to draw.
 void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* label) {
-    const bool msaa = ctx.msaa;
-    const Px& fullPx = ctx.fullPx;
+    const bool msaa = into.samples > 1;
+    // At the output size (the upscale stage, M76-P3a) the items are clipped and rasterized at scale 1 over a picture of the design size.
+    const bool atOutput = ctx.hudOut;
+    struct SizeScope {
+        Impl& im;
+        int w, h;
+        float scale;
+        ~SizeScope() {
+            im.physW = w;
+            im.physH = h;
+            im.renderScale = scale;
+        }
+    } sizes{*this, physW, physH, renderScale};
+    if (atOutput) {
+        physW = into.w;
+        physH = into.h;
+        renderScale = 1.0f;
+    }
+    const Px fullPx = atOutput ? Px{0, 0, into.w, into.h} : ctx.fullPx;
     const Mat4& screenProj = ctx.screenProj;
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
     // The items go over the final picture, which holds display (sRGB) values: they are drawn as in a gamma scene, whatever the colour space.
     const bool saveLinear = ctx.fr.linear;
     const bool saveOver = ctx.fr.displayOverLinear;
-    if (ctx.hudAfterPost) {
+    if (ctx.hudAfterPost || ctx.hudDisplay) {
         ctx.fr.displayOverLinear = saveLinear;
         ctx.fr.linear = false;
     }
@@ -4071,8 +4765,10 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     hp.clearDepth = 1.0f;
     hp.stencilLoad = SG_LOADACTION_CLEAR;
     gpu.begin_pass(hp);
-    draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
-    draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
+    const TargetFormat* format =
+        atOutput ? &into.format : nullptr;  // the output image is not multisampled: its own pipelines
+    draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0, format);
+    draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0, format);
     gpu.end_pass();
     ctx.fr.linear = saveLinear;
     ctx.fr.displayOverLinear = saveOver;
@@ -4195,7 +4891,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 [this, &ctx](const PassContext&) { physSky.update(gpu, 0, ctx.physMain, &stats.drawCalls); });
         }
     }
-    ResourceId prepassRes;
+    ResourceId prepassRes, velRes;
     if (ctx.doPrepass) {  // the image is a transient: the effects that read it list it in their reads
         TransientDesc pdsc;
         pdsc.width = ctx.camPx.w;  // the camera's rectangle of the picture
@@ -4204,12 +4900,24 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         pdsc.label = plan.name + "/prepass";  // resource names are unique in a graph, and every camera has its own
         prepassRes = graph.create_transient(pdsc);
         ctx.postPlan.prepass = PrepassRef{prepassRes, &transient_targets()};
+        // M76: the motion vectors, a second attachment of the same pass (RG16F, the size of the prepass). The pass writes both, so whoever
+        // reads one lists the pass before it in the graph; PostPlan::velocity is valid from here on only when the GPU made the image.
+        std::vector<ResourceId> prepassOut{prepassRes};
+        if (ctx.doVelocity) {
+            TransientDesc vdsc = pdsc;
+            vdsc.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+            vdsc.label = plan.name + "/velocity";
+            velRes = graph.create_transient(vdsc);
+            prepassOut.push_back(velRes);
+            ctx.postPlan.velocity = VelocityRef{PrepassRef{velRes, &transient_targets()}};
+        }
         // Never culled: nothing reads the image until an effect or the debug view does, and the passes that need it are declared after.
         add(
-            "prepass", {}, {prepassRes},
-            [this, &ctx, prepassRes](const PassContext& c) {
+            "prepass", {}, prepassOut,
+            [this, &ctx, prepassRes, velRes](const PassContext& c) {
                 const Target* t = transient_targets().get(c.handle(prepassRes));
-                if (t) prepass_pass(ctx, *t);
+                const Target* v = velRes.valid() ? transient_targets().get(c.handle(velRes)) : nullptr;
+                if (t) prepass_pass(ctx, *t, false, v);
             },
             true);
         // The depth pyramid of the camera (renderer_hiz.cpp): a compute pass reduces the image to a small grid the CPU reads back a frame later.
@@ -4248,6 +4956,45 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 },
                 true);
         }
+    }
+    // M76-P1d: the 2D quads of the world write the velocity image (the prepass's, or one of their own in a job with no prepass) and the reactive
+    // mask. The velocity pass reads the prepass (the quads behind a mesh write nothing) and writes the image again, so the passes that read the
+    // velocity are declared after it.
+    if (ctx.doQuadVel) {
+        const bool own = ctx.ownVelocity;
+        if (own) {
+            TransientDesc vdsc;
+            vdsc.width = ctx.camPx.w;
+            vdsc.height = ctx.camPx.h;
+            vdsc.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+            vdsc.label = plan.name + "/velocity";
+            velRes = graph.create_transient(vdsc);
+            ctx.postPlan.velocity = VelocityRef{PrepassRef{velRes, &transient_targets()}};
+        }
+        std::vector<ResourceId> reads;
+        if (!own && ctx.quadDepthTest) reads.push_back(prepassRes);
+        if (!own) reads.push_back(velRes);
+        add("quad-velocity", std::move(reads), {velRes}, [this, &ctx, velRes, prepassRes, own](const PassContext& c) {
+            const Target* v = transient_targets().get(c.handle(velRes));
+            const Target* p = !own && ctx.quadDepthTest ? transient_targets().get(c.handle(prepassRes)) : nullptr;
+            if (v) quad_motion_pass(ctx, *v, false, p, own);
+        });
+    }
+    if (ctx.doQuadReact) {
+        TransientDesc rdsc;
+        rdsc.width = ctx.camPx.w;
+        rdsc.height = ctx.camPx.h;
+        rdsc.format = TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1};
+        rdsc.label = plan.name + "/reactive";
+        const ResourceId reactRes = graph.create_transient(rdsc);
+        ctx.postPlan.reactive = PrepassRef{reactRes, &transient_targets()};
+        std::vector<ResourceId> reads;
+        if (ctx.quadDepthTest) reads.push_back(prepassRes);
+        add("quad-reactive", std::move(reads), {reactRes}, [this, &ctx, reactRes, prepassRes](const PassContext& c) {
+            const Target* r = transient_targets().get(c.handle(reactRes));
+            const Target* p = ctx.quadDepthTest ? transient_targets().get(c.handle(prepassRes)) : nullptr;
+            if (r) quad_motion_pass(ctx, *r, true, p, true);
+        });
     }
     // The march of the volumetric fog (renderer_volumetric.h): in this camera's own job, after its shadow and prepass passes, because it reads the
     // shadow atlas this job drew (a later job may draw into the shared atlas again). The pass that blends it over the picture is declared with the
@@ -4309,11 +5056,32 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             : fr.wantWorld ? "game"
                            : "game-hud",
             std::move(reads), {game}, [this, &ctx](const PassContext& c) { main_pass(ctx, c); });
-        if (ctx.debugPrepass)
-            add("prepass-view", {prepassRes, game}, {game}, [this, &ctx, prepassRes](const PassContext& c) {
-                const Target* t = transient_targets().get(c.handle(prepassRes));
+        const bool probed = forceVelocity && (!probeCameraOnly || probeCamera == fr.cam.entity.bits());
+        if (probed && velRes.valid())
+            add(
+                "velocity-probe", {velRes}, {},
+                [this, &ctx, velRes](const PassContext& c) {
+                    if (const Target* v = transient_targets().get(c.handle(velRes)))
+                        velocity_probe_pass(ctx, *v, velocityProbe, "velocity-probe");
+                },
+                true);
+        if (probed && ctx.postPlan.reactive.valid())
+            add(
+                "reactive-probe", {ctx.postPlan.reactive.res}, {},
+                [this, &ctx](const PassContext& c) {
+                    if (const Target* v = transient_targets().get(c.handle(ctx.postPlan.reactive.res)))
+                        velocity_probe_pass(ctx, *v, reactiveProbe, "reactive-probe");
+                },
+                true);
+        if (ctx.debugPrepass) {
+            // The debug view "motionVectors" paints the velocity image (the prepass's depth and normals are not part of it).
+            const bool vv = debugView == DebugView::MotionVectors && velRes.valid();
+            const ResourceId viewRes = vv ? velRes : prepassRes;
+            add("prepass-view", {viewRes, game}, {game}, [this, &ctx, viewRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(viewRes));
                 if (t) prepass_view_pass(ctx, *t);
             });
+        }
     }
     ResourceId coverageRes;
     if (ctx.doCoverage) {  // a sprite outline: the 2D world's alpha in an RGBA8 transient, read by the final pass
@@ -4344,7 +5112,55 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // ---- the post-processing stack of the frame (postprocess.h): bloom -> the final pass of every camera -> the HUD -> the colour filter ----
     filterActive = false;
     hudActive = false;
+    outActive = false;
+    outFilterActive = false;
     finalEncoded = false;
+    // The upscale stage (M76-P3a, render_upscale.h): the finished picture of the render resolution (`srcRes`, held by `srcTarget`) is
+    // brought to the output size, the screen-space items are drawn over it there (hud-over-upscale), and the colour filter, which
+    // must reach them, runs after. Nothing is declared (and no image made) unless Renderer::set_upscale_stage is on and the game
+    // is drawn below the output size.
+    auto finish_output = [&](ResourceId srcRes, const Target* srcTarget, const PostPlan* filterPlan) {
+        if (!upscale_active() || plan.view) return;
+        // With the items for it (hudOut) the image was made, with its depth, by plan_job for the format the picture has here; else it is made now.
+        // When it cannot be made the picture stays at the render resolution and the items stay in it, where plan_job (hudOut false) left them.
+        if (!ensure_output_target(outTarget, "output", ctx.hudOut ? outTarget.format.color : srcTarget->format.color,
+                                  false))
+            return;
+        const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
+                                                      import_desc(targetW, targetH, outTarget.format, "output"));
+        // The temporal upscalers (the TAA resolve and MetalFX) also read the camera's prepass (depth) and the velocity, when they exist.
+        std::vector<ResourceId> upReads{srcRes};
+        upscalePrepass = PrepassRef{};
+        upscaleVelocity = VelocityRef{};
+        upscaleReactive = PrepassRef{};
+        if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx) &&
+            upscaleTaa.on && !postCams.empty()) {
+            const PostPlan& cam0 = postCams.front()->postPlan;
+            upscalePrepass = cam0.prepass;
+            upscaleVelocity = cam0.velocity;
+            upscaleReactive = cam0.reactive;
+            if (upscalePrepass.valid()) upReads.push_back(upscalePrepass.res);
+            if (upscaleVelocity.valid()) upReads.push_back(upscaleVelocity.res);
+            if (upscaleReactive.valid()) upReads.push_back(upscaleReactive.res);
+        }
+        add("upscale", std::move(upReads), {outRes}, [this](const PassContext& c) { run_upscale(outTarget, c); });
+        if (!ctx.hudOut) return;
+        std::vector<ResourceId> reads{outRes};
+        reads.insert(reads.end(), shown.begin(), shown.end());
+        add("hud-over-upscale", std::move(reads), {outRes},
+            [this, &ctx](const PassContext&) { hud_pass(ctx, outTarget, "output-hud"); });
+        if (filterPlan && filterPlan->colorFilter != 0 &&
+            ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false)) {
+            const ResourceId filtered =
+                graph.import_target("output-filtered", outFilterTarget.color.id,
+                                    import_desc(targetW, targetH, outFilterTarget.format, "output-filtered"));
+            add("output-color-filter", {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
+                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, assets->white()->view, sg_view{},
+                          outFilterTarget, "color-filter", false);
+                outFilterActive = true;
+            });
+        }
+    };
     for (auto it = autoExposures.begin(); it != autoExposures.end();) {
         if (it->second.frame + 1 < postSerial) {  // its camera has not asked for two frames
             if (it->second.exposure) it->second.exposure->release();
@@ -4353,7 +5169,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             ++it;
         }
     }
-    if (postCams.empty()) return;  // no camera drew a pixel
+    if (postCams.empty()) {  // no camera drew a pixel
+        finish_output(game, &gameTarget, nullptr);
+        return;
+    }
     for (DrawContext* c : postCams)
         if (c->postPlan.fx.outline && !c->postPlan.outline_source().valid())
             c->postPlan.skip_outline();  // no image to read
@@ -4427,6 +5246,20 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
+    // Temporal antialiasing of every camera (renderer_taa.h): the jittered picture resolved with its history, over the camera's rectangle of
+    // the scene colour, after the sun shafts (and the custom passes "after:ssr", which are in it) and before the depth of field. The camera's
+    // history lives in the TaaFx: a camera that is not planned a frame loses it.
+    if (framePost) taa.sweep(postSerial);
+    for (DrawContext* c : postCams) {
+        if (!c->postPlan.taa.on) continue;
+        const BloomTarget taaDst =
+            ctx.hudAfterBloom && ctx.msaa
+                ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+        taa.add_passes(graph, gpu, c->postPlan.taa, c->postPlan.rect, physW, physH, game, gameTarget.texView, taaDst,
+                       c->postPlan.prepass, c->postPlan.velocity, c->postPlan.reactive, assets->white()->view,
+                       &stats.drawCalls, c->plan.name);
+    }
     custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
     for (DrawContext* c : postCams) {
@@ -4436,7 +5269,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
-                           gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+                           gameTarget.texView, fxDst, c->postPlan.prepass, c->postPlan.velocity, &stats.drawCalls,
+                           c->plan.name);
     }
     custom_slot(PostSlot::AfterDof);
     if (pp.bloom.enabled) {
@@ -4456,7 +5290,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     custom_slot(PostSlot::AfterBloom);
     const bool hudItems = fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty());
-    if (ctx.hudAfterBloom && hudItems) {
+    if (ctx.hudAfterBloom && hudItems && !ctx.hudOut) {
         std::vector<ResourceId> reads{game};
         reads.insert(reads.end(), shown.begin(), shown.end());
         add("hud-over-bloom", std::move(reads), {game},
@@ -4466,6 +5300,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // in between) in one pass over the camera's rectangle.
     bool anyFinal = false;
     for (const DrawContext* c : postCams) anyFinal = anyFinal || c->postPlan.final_pass();
+    ResourceId finishRes = game;  // the picture the upscale stage reads: the last pass below that wrote it
+    const Target* finishTarget = &gameTarget;
     if (anyFinal && (ctx.hudAfterPost || ensure_filter_target())) {
         const bool hud = ctx.hudAfterPost;
         const ResourceId dest =
@@ -4475,7 +5311,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                                       import_desc(physW, physH, filterTarget.format, "game-filtered"));
         // The colour filter works on what the screen shows, the interface included: with the interface over the picture it is a pass of
         // its own after it, else it is part of each final pass.
-        const int filter = hud ? 0 : pp.colorFilter;
+        const int filter =
+            hud || ctx.hudOut ? 0 : pp.colorFilter;  // with hudOut the filter runs after the items, at the output size
+        finishRes = dest;
+        finishTarget = hud ? &hudTarget : &filterTarget;
         // The rectangles of the cameras with a final pass. When they tile the picture every pixel is written by one of them; else a first
         // pass with the plan of an empty stack (the encode of a linear scene, a copy of a gamma one, the colour filter) fills the picture and
         // the cameras draw over it. A camera without a stack that draws over one with a stack gets that plain pass over its own rectangle
@@ -4643,9 +5482,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                               filterTarget, "color-filter", false);
                     filterActive = true;
                 });
+                finishRes = filtered;
+                finishTarget = &filterTarget;
             }
         }
-    } else if (pp.colorFilter != 0 && ensure_filter_target()) {
+    } else if (pp.colorFilter != 0 && !ctx.hudOut && ensure_filter_target()) {
         // Only the colour filter (PostProcess.colorFilterEnabled / colorFilterMode): a copy of the game target through the filter.
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
@@ -4654,7 +5495,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                       filterTarget, "color-filter", false);
             filterActive = true;
         });
+        finishRes = filtered;
+        finishTarget = &filterTarget;
     }
+    finish_output(finishRes, finishTarget, &pp);
 }
 
 }  // namespace fa

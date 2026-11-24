@@ -97,6 +97,21 @@ mode `"off"` on what never moves smoothly (static scenery in a project that turn
 blended when a step moved it, but the pass still reads its Transform; in a project that leaves the default off, scenery with
 no component is not read at all).
 
+## Drawing fewer pixels (M76)
+
+When the GPU is the limit, the cheapest saving is the number of pixels, and none of these changes what the game computes ([UPSCALING.md](../UPSCALING.md)):
+
+| Lever | What it costs | Saves |
+|---|---|---|
+| `render.upscaler` `quality` (`quality` 1/1.5, `balanced` 1/1.7, `performance` 1/2, `ultraPerformance` 1/3 of each side) with `spatial`, `temporal` or `metalfx` | spatial: two passes at the window size; temporal: one history image of the window size and a depth prepass | the fill rate and every pass at the render size (shading, SSAO, bloom, fog) |
+| `render.dynamicResolution` | none of its own; the images are made again at a step of the scale, at most twice a second | holds `targetMs` on a GPU that cannot hold the full size |
+| `graphics.preset` `low`, `medium` | none | shadows, SSAO, reflections, depth of field, motion blur, fog, foliage and LOD distances |
+| `temporalAAEnabled` | two passes at the render size and one history per camera | nothing: it is the cost of antialiasing without multisampling |
+| `motionBlurMode` `object` | the velocity image and three passes | `camera` mode is cheaper |
+
+`game.renderStats()` gives `width`, `height`, `dynamicScale` and `frameMs` of the frame drawn (`window.upscaler` the last two); the `perf.measure` numbers of a run
+without graphics do not include any of it. `render.frame_graph` with `profileFrames` times each pass.
+
 ## Path finding on tile maps
 
 `nav.findTilePath` with a `{ width, height, cost }` array converts the whole array on every call (to JSON, to a float

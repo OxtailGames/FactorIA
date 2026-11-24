@@ -184,6 +184,9 @@ layout(location=FA_X_BASE+FA_NINST) in vec2 fa_attr_uv1;
 #endif
 #ifdef FA_CH_COLOR1
 layout(location=FA_X_BASE+FA_NINST+FA_NUV1) in vec4 fa_attr_color1;
+#define FA_NCOL1 1
+#else
+#define FA_NCOL1 0
 #endif
 
 void fa_inst_begin() {
@@ -236,6 +239,13 @@ layout(binding=6) uniform fa_inst_base {
 #endif
 @include_block fa_inst_flags
 @include_block fa_types
+#ifdef FA_PREPASS_VS
+// The motion vectors (M76-P1b): the prepass runs vertex() a second time for the previous frame, so what vertex() reads as fa_time
+// is a copy that the prepass sets to the game time of that frame. fa_time_now() is the real uniform for the engine's own code.
+vec4 fa_time_now() { return fa_time; }
+vec4 fa_vtime = vec4(0.0);
+#define fa_time fa_vtime
+#endif
 @include_block fa_user
 
 // World space from the model matrix: the VertexData vertex() receives.
@@ -272,6 +282,32 @@ mat4 fa_skin_matrix(vec4 joints, vec4 weights) {
         r0 += fa_joint_rows[j] * w;
         r1 += fa_joint_rows[j + 1] * w;
         r2 += fa_joint_rows[j + 2] * w;
+    }
+    return mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0),
+                vec4(r0.w, r1.w, r2.w, 1.0));
+}
+@end
+
+// The palette of the frame before for the motion vectors (M76-P1c), read by prepass_vs_skin only (vertex stage, view 29, sampler 11,
+// read with texelFetch through a nearest sampler). One RGBA32F image of 1024-texel rows that holds a stream of texels: a joint is three
+// texels (the three rows of its 3x4 matrix, as fa_skin), a palette is 64 joints (192 texels) and starts at texel `base` of the stream
+// (fa_vel_on.w), so a skin of any joint count up to 64 fits and no uniform is used. `base` -> texel t is at (t & 1023, t >> 10).
+@block fa_prev_palette
+layout(binding=29) uniform texture2D fa_prev_pal_tex;
+layout(binding=11) uniform sampler fa_prev_pal_smp;
+@image_sample_type fa_prev_pal_tex unfilterable_float
+@sampler_type fa_prev_pal_smp nonfiltering
+vec4 fa_prev_pal_texel(int t) {
+    return texelFetch(sampler2D(fa_prev_pal_tex, fa_prev_pal_smp), ivec2(t & 1023, t >> 10), 0);
+}
+mat4 fa_prev_skin_matrix(vec4 joints, vec4 weights, int base) {
+    vec4 r0 = vec4(0.0), r1 = vec4(0.0), r2 = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        int t = base + int(joints[i] * 255.0 + 0.5) * 3;
+        float w = weights[i];
+        r0 += fa_prev_pal_texel(t) * w;
+        r1 += fa_prev_pal_texel(t + 1) * w;
+        r2 += fa_prev_pal_texel(t + 2) * w;
     }
     return mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0),
                 vec4(r0.w, r1.w, r2.w, 1.0));
@@ -428,7 +464,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
                                 // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
-    vec4 fa_env_horizon;        // rgb horizon color; w unused
+    vec4 fa_env_horizon;        // rgb horizon color; w = the texture LOD bias of the frame (fa_mip_bias below; 0 = none)
     vec4 fa_time;               // x = seconds of game time since the scene started
     // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
     // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
@@ -478,6 +514,11 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce),
                                 // w = the LOD cross-fade of the draw (fa_lod_dither): 0 = none, +a = the level fading in, -a = the level fading out
 };
+
+// The texture LOD bias of the frame (M76-P4b, docs/UPSCALING.md "Texture mip bias"): negative while the temporal upscaler or the temporal
+// antialiasing accumulates jittered frames, so the textures keep the detail of the accumulated picture; 0 everywhere else (an image drawn
+// without them is the same bit for bit). The scene's texture reads add it: texture(sampler2D(t, t_smp), uv, fa_mip_bias). Fragment stage only.
+#define fa_mip_bias (fa_env_horizon.w)
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
 // by that order.
@@ -548,25 +589,25 @@ float fa_fix_of(float packed, float scale) { return mod(floor(packed / scale + 0
 // emissive. surface() starts from it.
 Surface fa_standard_surface(in SurfaceInput i) {
     Surface s;
-    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv);
+    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv, fa_mip_bias);
     base_t.rgb = fa_tex_fix(base_t.rgb, fa_fix_of(fa_maps.w, 1.0));
     vec4 albedo4 = base_t * fa_base_color * i.vertex_color;
     s.albedo = albedo4.rgb;
     s.alpha = albedo4.a;
     s.normal = i.world_normal;
     if (fa_maps.z > 0.5) {
-        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
+        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv, fa_mip_bias).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
         m.xy *= fa_maps.x;
         s.normal = fa_tangent_normal(i, m);
     }
-    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
+    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv, fa_mip_bias);
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv, fa_mip_bias);
     vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
     s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
-    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv, fa_mip_bias).rgb, fa_fix_of(fa_maps.w, 4.0));
     // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
     s.clearcoat = fa_layers_a.x;
     s.clearcoat_roughness = fa_layers_a.y;
@@ -1311,7 +1352,42 @@ out vec3 fa_pre_r0;
 out vec3 fa_pre_r1;
 out vec3 fa_pre_r2;
 
-void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color) {
+// The motion vectors (M76): the camera's UNJITTERED view-projection of this frame and of the frame before, and in fa_vel_on: x = 1 when
+// the prepass draws the velocity image (the renderer binds the block always; without the image the vertex stage skips the work),
+// y = the game time of the frame before in seconds (what vertex() reads as fa_time.x in its second run), z = 1 when the draw has the
+// previous palette in the image of fa_prev_palette (prepass_vs_skin only), w = the first texel of that palette in the image.
+layout(binding=2) uniform fa_vel_params {
+    mat4 fa_vel_vp;
+    mat4 fa_vel_prev_vp;
+    vec4 fa_vel_on;
+};
+// The clip position (x, y, w) of the surface point now and in the previous frame, interpolated; the fragment stage turns them into
+// uv. w <= 0 in fa_vel_prev: "this program cannot say where the point was" (a skinned draw without a previous palette, a draw without the previous model):
+// the fragment writes the sentinel and the temporal passes reproject with the camera alone.
+out vec3 fa_vel_cur;
+out vec3 fa_vel_prev;
+
+// The three rows of an affine matrix (a vec4 each) as a matrix.
+mat4 fa_rows_to_mat4(vec4 r0, vec4 r1, vec4 r2) {
+    return mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0),
+                vec4(r0.w, r1.w, r2.w, 1.0));
+}
+
+// fa_prev_model() is the model matrix of the instance in the frame before (the previous palette included for a skinned mesh), defined by
+// each prepass program after its attributes and called only when the draw has a previous model (a draw without velocity reads nothing for
+// it); `has_prev` false when the program has none. The previous world position of the point is where the SAME vertex shader puts it with that matrix and
+// with the game time of that frame: vertex() of a material runs a second time, so wind, a wave or any displacement that moves with
+// the time moves the pixel's vector too, and a displacement that does not change gives none. (The instance data and the material's
+// values are the ones of this frame in both runs.) The engine's terrain and impostor programs define FA_VEL_STATIC_VERTEX: their
+// vertex() places the vertex from the instance data and ignores the model matrix, so the previous position is the position now plus
+// what the model matrix alone moved the point by.
+mat4 fa_prev_model();
+void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0, vec4 color,
+                       bool has_prev) {
+    bool want_prev = has_prev && fa_vel_on.x > 0.5;
+#ifdef FA_PREPASS_VS
+    fa_vtime = fa_time_now();
+#endif
     VertexData v = fa_vertex_data(model, position, normal, tangent, texcoord0, color);
 #ifdef FA_HAS_VERTEX
     vertex(v);
@@ -1329,10 +1405,30 @@ void fa_prepass_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec
     fa_pre_r1 = vec3(view[0].y, view[1].y, view[2].y);
     fa_pre_r2 = vec3(view[0].z, view[1].z, view[2].z);
     gl_Position = fa_view_proj * wp;
+    fa_vel_cur = vec3(0.0, 0.0, 1.0);
+    fa_vel_prev = vec3(0.0);
+    if (want_prev) {
+        mat4 prev_model = fa_prev_model();
+        vec3 prev_world;
+#if defined(FA_HAS_VERTEX) && !defined(FA_VEL_STATIC_VERTEX)
+        fa_vtime.x = fa_vel_on.y;
+        VertexData pv = fa_vertex_data(prev_model, position, normal, tangent, texcoord0, color);
+        vertex(pv);
+        prev_world = pv.world_pos;
+#else
+        vec4 lp = vec4(position, 1.0);
+        prev_world = v.world_pos + (prev_model * lp).xyz - (model * lp).xyz;
+#endif
+        vec4 cur = fa_vel_vp * wp;
+        vec4 prev = fa_vel_prev_vp * vec4(prev_world, 1.0);
+        fa_vel_cur = vec3(cur.x, cur.y, cur.w);
+        fa_vel_prev = vec3(prev.x, prev.y, prev.w);
+    }
 }
 @end
 
 @vs prepass_vs
+#define FA_PREPASS_VS
 @include_block fa_vs_common
 @include_block fa_prepass_vs
 layout(location=0) in vec3 fa_position;
@@ -1346,15 +1442,31 @@ layout(location=7) in vec4 fa_inst_m2;
 layout(location=8) in vec4 fa_inst_m3;
 #define FA_X_BASE 9
 @include_block fa_extra_attrs
+// The previous model matrix of the instance (vertex buffer 6, an affine matrix as three rows), right after the extra attributes
+// (Gpu::prepass_pipeline lays them out the same way, render_internal.h prepass_prev_attr). A program without room for them (a
+// material that declares every extra attribute) or drawn from storage buffers has none: its fragments write the sentinel.
+#if !defined(FA_BUFFER_INST) && (FA_X_BASE + FA_NINST + FA_NUV1 + FA_NCOL1 + 3) <= 16
+#define FA_PREV_BASE (FA_X_BASE + FA_NINST + FA_NUV1 + FA_NCOL1)
+layout(location=FA_PREV_BASE) in vec4 fa_prev_r0;
+layout(location=FA_PREV_BASE+1) in vec4 fa_prev_r1;
+layout(location=FA_PREV_BASE+2) in vec4 fa_prev_r2;
+mat4 fa_prev_model() { return fa_rows_to_mat4(fa_prev_r0, fa_prev_r1, fa_prev_r2); }
+#define FA_HAS_PREV true
+#else
+mat4 fa_prev_model() { return mat4(1.0); }
+#define FA_HAS_PREV false
+#endif
 void main() {
     fa_inst_begin();
-    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color);
+    fa_prepass_vertex(FA_INST_MODEL, fa_position, fa_normal, fa_tangent, fa_texcoord0, fa_color, FA_HAS_PREV);
 }
 @end
 
 @vs prepass_vs_skin
+#define FA_PREPASS_VS
 @include_block fa_vs_common
 @include_block fa_skin_common
+@include_block fa_prev_palette
 @include_block fa_prepass_vs
 layout(location=0) in vec3 fa_position;
 layout(location=1) in vec3 fa_normal;
@@ -1369,10 +1481,26 @@ layout(location=9) in vec4 fa_joints;
 layout(location=10) in vec4 fa_weights;
 #define FA_X_BASE 11
 @include_block fa_extra_attrs
+// The previous model matrix as in prepass_vs, after the extras at FA_X_BASE 11 (so room for 2 extra attributes), times the skinning of
+// the frame before, read from the palette image at the texel fa_vel_on.w when the draw has one (fa_vel_on.z = 1), else the draw writes the
+// sentinel. The previous matrix is evaluated only for a draw that wants it (fa_prepass_vertex), so a frame without velocity reads none of it.
+#if !defined(FA_BUFFER_INST) && (FA_X_BASE + FA_NINST + FA_NUV1 + FA_NCOL1 + 3) <= 16
+#define FA_PREV_BASE (FA_X_BASE + FA_NINST + FA_NUV1 + FA_NCOL1)
+layout(location=FA_PREV_BASE) in vec4 fa_prev_r0;
+layout(location=FA_PREV_BASE+1) in vec4 fa_prev_r1;
+layout(location=FA_PREV_BASE+2) in vec4 fa_prev_r2;
+mat4 fa_prev_model() {
+    return fa_rows_to_mat4(fa_prev_r0, fa_prev_r1, fa_prev_r2) * fa_prev_skin_matrix(fa_joints, fa_weights, int(fa_vel_on.w + 0.5));
+}
+#define FA_HAS_PREV (fa_vel_on.z > 0.5)
+#else
+mat4 fa_prev_model() { return mat4(1.0); }
+#define FA_HAS_PREV false
+#endif
 void main() {
     fa_inst_begin();
     fa_prepass_vertex(FA_INST_MODEL * fa_skin_matrix(fa_joints, fa_weights), fa_position,
-                      fa_normal, fa_tangent, fa_texcoord0, fa_color);
+                      fa_normal, fa_tangent, fa_texcoord0, fa_color, FA_HAS_PREV);
 }
 @end
 
@@ -1383,6 +1511,10 @@ void main() {
 //   gb the surface normal in view space (x right, y up, z toward the camera), octahedral encoded in -1..1 (decode below); 0 0 where
 //      nothing was drawn
 //   a  1 where an opaque mesh was drawn, 0 where not: the truth about coverage (a drawn surface at 60000 or more has r = 60000 too)
+// A second output (location 1) is the motion vector of the pixel (M76): uvPrev - uvCurr, in uv units (y down), from the UNJITTERED
+// matrices of this frame and the one before; 1024 in both channels (VelocityRef::kNone) where this program cannot say (a skinned
+// mesh, a draw without a previous model, a point behind the previous camera). The renderer attaches a second image to the pass only
+// when a temporal effect, the debug view "motionVectors" or a test asks; without the attachment the output is dropped.
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
 @block fa_prepass_fs_main
 @include_block fa_fs_surface
@@ -1390,7 +1522,10 @@ in float fa_pre_depth;
 in vec3 fa_pre_r0;
 in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
-out vec4 fa_frag_color;
+in vec3 fa_vel_cur;
+in vec3 fa_vel_prev;
+layout(location=0) out vec4 fa_frag_color;
+layout(location=1) out vec2 fa_frag_velocity;
 void main() {
     fa_inst_load();
     SurfaceInput i;
@@ -1417,6 +1552,13 @@ void main() {
     vec2 e = nv.xy / (abs(nv.x) + abs(nv.y) + abs(nv.z));
     if (nv.z < 0.0) { e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); }
     fa_frag_color = vec4(min(fa_pre_depth, 60000.0), e, 1.0);
+    vec2 motion = vec2(1024.0);
+    if (fa_vel_cur.z > 1.0e-5 && fa_vel_prev.z > 1.0e-5) {
+        vec2 uv_cur = vec2(fa_vel_cur.x, -fa_vel_cur.y) / fa_vel_cur.z * 0.5;
+        vec2 uv_prev = vec2(fa_vel_prev.x, -fa_vel_prev.y) / fa_vel_prev.z * 0.5;
+        motion = clamp(uv_prev - uv_cur, vec2(-4.0), vec2(4.0));
+    }
+    fa_frag_velocity = motion;
 }
 @end
 

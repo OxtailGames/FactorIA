@@ -7,6 +7,8 @@
 #include "fa/scene/postprocess.h"
 #include "sokol_gfx.h"
 
+#include "metalfx.h"
+
 namespace fa::render {
 
 namespace {
@@ -33,8 +35,16 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
     {"sunShafts", "half+depth",
      "Sun shafts: the bright sky scattered toward the sun (perspective cameras, half resolution)."},
     {"exposure", "", "Exposure, manual or automatic with an adaptation speed."},
+    {"temporalAA", "",
+     "Temporal antialiasing (M76): the camera is jittered by a sub-pixel amount and the frames are blended with the "
+     "history, clipped to the neighbours and reprojected with the motion vectors (or the camera's own motion where "
+     "there are none), then sharpened. Two fragment passes at the render resolution on every backend, after the sun "
+     "shafts and before the depth of field; asks for the depth prepass. Where the GPU cannot render to half-float "
+     "images the history is 8 bits per channel (no depth to reject uncovered surfaces, colours above 1 clipped in the "
+     "history), with a note in the log. Not drawn for the cameras of a CameraView, a render target or a capture."},
     {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
-    {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
+    {"motionBlur", "depth",
+     "Motion blur: per object from the velocity image, or the camera's own from the depth buffer."},
     {"radialBlur", "",
      "Radial blur from a point of the picture (final pass; camera.radialBlur starts a pulse of it, drawn the same "
      "way)."},
@@ -66,16 +76,21 @@ constexpr bool effect_rows_in_order() {
 static_assert(effect_rows_in_order(),
               "kEffectRows: one row per effect, in the order (and with the name) of kPostEffectOrder");
 
-// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof): every effect of kPostEffectOrder
-// today. An effect added to the order without a drawing pass is left out here and is listed as planned until it is drawn.
+// The effects the renderer draws (postprocess.cpp, bloom.cpp, post.glsl, renderer_ssao/ssr/fog/dof/taa): every effect of kPostEffectOrder.
+// An effect added to the order without a drawing pass is left out here and is listed as
+// planned (effect_planned_in) until it is drawn.
 constexpr bool effect_drawn(PostEffect e) {
     return e == PostEffect::Ssao || e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
            e == PostEffect::ColorFilter || e == PostEffect::LensDistortion || e == PostEffect::ChromaticAberration ||
            e == PostEffect::ColorGrading || e == PostEffect::Vignette || e == PostEffect::Sharpen ||
            e == PostEffect::RadialBlur || e == PostEffect::Outline || e == PostEffect::Pixelate ||
            e == PostEffect::Posterize || e == PostEffect::FilmGrain || e == PostEffect::DepthOfField ||
-           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts;
+           e == PostEffect::MotionBlur || e == PostEffect::Ssr || e == PostEffect::Fog || e == PostEffect::SunShafts ||
+           e == PostEffect::TemporalAA;
 }
+
+// The milestone an effect that is not drawn yet is planned for.
+constexpr const char* effect_planned_in(PostEffect) { return "M71"; }
 
 }  // namespace
 
@@ -366,11 +381,68 @@ std::vector<FeatureDef> build_table() {
         {"foliage", "",
          "Foliage: thousands of instances of a mesh drawn with instancing from a data file, with wind, LODs and a "
          "fade-out distance (the Foliage component, M75.6). Every backend.",
+         nullptr},
+        // Temporal antialiasing and upscalers of M76 (docs/UPSCALING.md): planned "M76" until each package draws its row. The
+        // temporalAA effect has its own row below (the effects).
+        {"motionVectors", "half",
+         "A per-pixel motion image (RG16F at the render resolution: where each pixel was in the previous frame, from "
+         "unjittered matrices) written by the opaque meshes, the terrain, the foliage and the impostors, and read by "
+         "the temporal antialiasing and the temporal upscaler; where nothing wrote it the camera's own motion is "
+         "rebuilt from the depth. Needs the depth prepass and an RG16F render target (Gpu::velocity_ready; without "
+         "it the temporal passes read the camera alone, with one log line). Written in the prepass as a second "
+         "attachment only when something reads it (temporal antialiasing, the debug view render.debug_view "
+         "\"motionVectors\"); skinned meshes of up to 64 joints (the engine's maximum) and the vertex() of a material "
+         "move their pixels "
+         "too, and the 2D sprites, shapes, tiles and quads write their own per-corner motion; particles write none "
+         "(they mark the reactive mask instead).",
+         nullptr},
+        {"spatialUpscaler", "",
+         "The spatial upscaler (render.upscaler mode \"spatial\"): the picture drawn at a lower resolution is "
+         "scaled up with an edge-adaptive filter and a contrast-adaptive sharpen (fragment passes, never compute), "
+         "the HUD drawn at the output resolution. Needs no float targets, every GPU backend. Pixel-perfect games "
+         "keep the plain nearest scaling.",
+         nullptr},
+        {"temporalUpscaler", "",
+         "The temporal upscaler (render.upscaler mode \"temporal\", also picked by \"auto\"): while the game is drawn "
+         "below the output size the camera is jittered at the render resolution and the frames are accumulated into a "
+         "history of the output resolution (the temporal antialiasing's resolve), then sharpened; the HUD and the UI "
+         "are drawn over it at the output resolution. Two fragment passes on every backend, no compute. Without "
+         "half-float targets the history is 8 bits per channel (no depth, colours above 1 clipped), with a note in the "
+         "log. One full-screen camera; a frame of several cameras or a split screen, and a history the GPU cannot "
+         "make, are drawn with the spatial upscaler; pixel art (PixelPerfect) always stretches (M76-P4).",
+         nullptr},
+        {"metalfx", "metalfx",
+         "MetalFX (render.upscaler mode \"metalfx\", also picked by \"auto\"): Apple's own temporal upscaler (the "
+         "jittered picture, the "
+         "depth and the motion of the prepass) and spatial upscaler (a frame of one image), on Metal with macOS 13 or "
+         "iOS 16 or later and "
+         "a GPU that supports it. It splits the frame once (one more command buffer). Where it is missing the mode "
+         "draws as "
+         "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
+         nullptr},
+        {"dynamicResolution", "",
+         "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
+         "window.dynamicResolution): "
+         "the render scale follows the frame time so the game holds a target (a frame time in ms, or the display's "
+         "refresh "
+         "rate), between a minimum and a maximum scale, brought up to the output size by the chosen upscaler. The "
+         "frame "
+         "time is the GPU time where the backend has timer queries (D3D11, OpenGL) and the time between frames "
+         "elsewhere "
+         "(Metal, GLES3, WebGL2). The render targets are made again at a step of the scale (at most twice a second "
+         "while it "
+         "moves, never while it holds), and the temporal upscaler keeps its history across the steps. Off by default; "
+         "every "
+         "GPU backend (M76-P6c).",
          nullptr}};
-    for (const Planned& p : kLighting) t.push_back({p.name, FeatureKind::Engine, kEveryGpu, p.needs, p.planned, p.doc});
+    for (const Planned& p : kLighting) {
+        const bool appleOnly = std::string_view(p.name) == "metalfx";
+        t.push_back({p.name, FeatureKind::Engine, appleOnly ? bit(FeatureBackend::Metal) : kEveryGpu, p.needs,
+                     p.planned, p.doc});
+    }
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
-                     effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
+                     effect_drawn(PostEffect(i)) ? nullptr : effect_planned_in(PostEffect(i)), kEffectRows[i].doc});
     return t;
 }
 
@@ -389,6 +461,13 @@ bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
                "sampling the depth of the scene in a shader (a float render target for the depth prepass)");
     ok &= need("compute", env.compute, "compute shaders");
     ok &= need("float32", env.float32, "R32F and RGBA32F render targets that can be sampled");
+    // The reason is the one metalfx::support() gave (why MetalFX is missing here), else a generic sentence for an env made by hand.
+    if (std::strstr(needs, "metalfx") && !env.metalfx) {
+        if (missing && missing->empty())
+            *missing = env.metalfxWhy.empty() ? "MetalFX (macOS 13 or iOS 16 or later, a GPU that supports it)"
+                                              : env.metalfxWhy;
+        ok = false;
+    }
     return ok;
 }
 
@@ -520,6 +599,11 @@ FeatureEnv feature_env_from_sokol() {
     const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
     env.float32 = r32.render && r32.sample && f32.render && f32.sample;
     env.compute = sg_query_features().compute;
+    if (env.backend == FeatureBackend::Metal && sg_isvalid()) {
+        const metalfx::Support s = metalfx::support();
+        env.metalfx = s.spatial || s.temporal;
+        env.metalfxWhy = s.reason;
+    }
     return env;
 }
 

@@ -3402,7 +3402,7 @@ NATIVE(
 }
 
 NATIVE(
-    windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+    windowMonitors) {  // [{ name, width, height, primary, current, refreshHz }]: the window's monitors, or the one display of a run without one
     SETUP;
     (void)argc;
     (void)argv;
@@ -3413,7 +3413,7 @@ NATIVE(
         Json p = I->host->project_settings();
         const Json display =
             p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
-        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
+        list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true, 0.0});
     }
     JSValue arr = JS_NewArray(ctx);
     for (size_t i = 0; i < list.size(); ++i) {
@@ -3423,6 +3423,7 @@ NATIVE(
         JS_SetPropertyStr(ctx, m, "height", JS_NewInt32(ctx, list[i].height));
         JS_SetPropertyStr(ctx, m, "primary", JS_NewBool(ctx, list[i].primary));
         JS_SetPropertyStr(ctx, m, "current", JS_NewBool(ctx, list[i].current));
+        JS_SetPropertyStr(ctx, m, "refreshHz", JS_NewFloat64(ctx, std::round(list[i].refreshHz * 10.0) / 10.0));
         JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), m);
     }
     return arr;
@@ -4404,6 +4405,61 @@ NATIVE(renderScaleSet) {  // "" or the reason it did not happen
     SETUP;
     const std::string err = I->host->set_render_scale(arg_num(ctx, argc, argv, 0, 1.0));
     return JS_NewString(ctx, err.c_str());
+}
+
+NATIVE(upscalerGet) {  // {mode, quality, sharpness, effectiveMode, scale}
+    SETUP;
+    const render::UpscalerSettings s = I->host->upscaler();
+    Json j = render::upscaler_to_json(s);
+    j["effectiveMode"] = std::string(render::upscaler_mode_name(I->host->effective_upscaler_mode()));
+    j["scale"] = std::round(double(render::upscaler_quality_scale(s.quality)) * 1000.0) / 1000.0;
+    const render::DynamicResolutionState dyn =
+        I->host->dynamic_resolution_state();  // read-only: the dynamic resolution's factor now
+    j["dynamicScale"] = std::round(double(dyn.scale) * 1000.0) / 1000.0;
+    j["frameMs"] = std::round(dyn.frameMs * 10.0) / 10.0;
+    return I->from_json(j);
+}
+
+NATIVE(dynamicResolutionGet) {  // {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source,
+                                //  refreshHz, refreshSource}
+    SETUP;
+    Json j = render::dynamic_resolution_to_json(I->host->dynamic_resolution());
+    const render::DynamicResolutionState dyn = I->host->dynamic_resolution_state();
+    j["effectiveTargetMs"] = std::round(dyn.targetMs * 10.0) / 10.0;
+    j["scale"] = std::round(double(dyn.scale) * 1000.0) / 1000.0;
+    j["frameMs"] = std::round(dyn.frameMs * 10.0) / 10.0;
+    j["source"] = std::string(dyn.source);
+    j["refreshHz"] = std::round(dyn.refreshHz * 10.0) / 10.0;
+    j["refreshSource"] = std::string(dyn.refreshSource);
+    return I->from_json(j);
+}
+
+NATIVE(dynamicResolutionSet) {  // "" or the reason it did not happen
+    SETUP;
+    const std::string err = I->host->set_dynamic_resolution(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    return JS_NewString(ctx, err.c_str());
+}
+
+NATIVE(upscalerSet) {  // "" or the reason it did not happen
+    SETUP;
+    const std::string err = I->host->set_upscaler(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    return JS_NewString(ctx, err.c_str());
+}
+
+NATIVE(graphicsPreset) {  // (args object): {ok: true, value} or {ok: false, error}
+    SETUP;
+    std::string err;
+    const Json value = I->host->graphics_preset(argc > 0 ? I->to_json(argv[0]) : Json::object(), &err);
+    return I->from_json(err.empty() ? Json::object({{"ok", true}, {"value", value}})
+                                    : Json::object({{"ok", false}, {"error", err}}));
+}
+
+NATIVE(graphicsDetect) {  // {ok: true, value} or {ok: false, error}
+    SETUP;
+    std::string err;
+    const Json value = I->host->graphics_detect(&err);
+    return I->from_json(err.empty() ? Json::object({{"ok", true}, {"value", value}})
+                                    : Json::object({{"ok", false}, {"error", err}}));
 }
 
 NATIVE(
@@ -5589,6 +5645,12 @@ const Reg kRegs[] = {
     R(renderScaleGet, 0),
     R(renderStatsNow, 0),
     R(renderScaleSet, 1),
+    R(upscalerGet, 0),
+    R(upscalerSet, 1),
+    R(dynamicResolutionGet, 0),
+    R(dynamicResolutionSet, 1),
+    R(graphicsPreset, 1),
+    R(graphicsDetect, 0),
     R(storageGet, 2),
     R(storageIsEncrypted, 1),
     R(storageSet, 4),

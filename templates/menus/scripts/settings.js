@@ -43,6 +43,51 @@ export function lightingChoice(s = load(), platform = game.platform) {
   return lightingChoices(platform).includes(choice) ? choice : "medium";
 }
 
+/**
+ * The choices of the "Preset" row of the graphics tab's second page (docs/UPSCALING.md, "Graphics presets"): "auto" asks game.graphics.detect()
+ * once and keeps its pick (settings.graphics.detected), "custom" is no preset (the game's own look), the rest are game.graphics.preset(name).
+ */
+export const GRAPHICS_PRESETS = ["auto", "low", "medium", "high", "ultra", "custom"];
+
+/** What game.graphics.detect() can pick. */
+const DETECTED = ["low", "medium", "high", "ultra"];
+
+/** The "Effects quality" a preset sets when the player picks it ("ultra" is the game's own look, like "high"); "custom" leaves the quality alone. */
+export const PRESET_QUALITY = { low: "low", medium: "medium", high: "high", ultra: "high" };
+
+/** The modes of the "Upscaling" row (window.upscaler.mode) and the choices of its quality row (window.upscaler.quality), best picture first. */
+export const UPSCALER_MODES = ["auto", "stretch", "spatial", "temporal", "metalfx"];
+export const UPSCALER_QUALITIES = ["native", "quality", "balanced", "performance", "ultraPerformance"];
+
+/** render.supports feature that tells whether this GPU draws each upscaler mode ("auto" and "stretch" always work). */
+const MODE_FEATURE = { spatial: "spatialUpscaler", temporal: "temporalUpscaler", metalfx: "metalfx" };
+
+/** The range window.renderScale accepts (a third of the window to all of it). */
+export const RENDER_SCALE_MIN = 0.33;
+export const RENDER_SCALE_MAX = 1;
+
+/**
+ * The dynamic resolution row's choices (window.dynamicResolution, docs/UPSCALING.md): off, or on holding a frame time of 30 fps, 60 fps or one refresh of
+ * the display. The "off" row leaves the fixed render scale; "custom" is only ever shown (the game set another target itself), never saved.
+ */
+export const DYNAMIC_CHOICES = ["off", "30", "60", "display"];
+const DYNAMIC_TARGET_MS = { 30: 1000 / 30, 60: 1000 / 60, display: 0 };
+
+/** The choice in force: the one the player saved, else what window.dynamicResolution says ("custom": on with a target that is none of the three). */
+export function dynamicChoice(s = load()) {
+  const saved = s.graphics.dynamicResolution;
+  if (DYNAMIC_CHOICES.includes(saved)) return saved;
+  const d = window.dynamicResolution;
+  if (!d.enabled) return "off";
+  if (d.targetMs === 0) return "display";
+  return Math.abs(d.targetMs - 1000 / 30) < 0.5 ? "30" : Math.abs(d.targetMs - 1000 / 60) < 0.5 ? "60" : "custom";
+}
+
+/** Puts a choice into the engine (it keeps the game's minScale and maxScale); the engine rejects a bad one with an error that says why. */
+export function applyDynamicChoice(choice) {
+  window.dynamicResolution = { enabled: choice !== "off", targetMs: DYNAMIC_TARGET_MS[choice] ?? 0 };
+}
+
 /** The main screen effects the graphics tab switches one by one: `id` is the key in settings.graphics.effects, `field` the PostProcess field. */
 export const GRAPHICS_EFFECTS = [
   { id: "bloom", field: "bloomEnabled" },
@@ -89,7 +134,11 @@ function defaults() {
     // Screen effects (PostProcess): quality is one of GRAPHICS_QUALITIES; effects holds only the switches the player touched
     // (GRAPHICS_EFFECTS id -> true / false, which win over the quality); hdr is null (the scene's SceneSettings.hdrOutput) or the player's choice.
     // lighting2d is null (every GlobalIllumination2D keeps the scene's own enabled and quality) or the player's choice, one of LIGHTING_QUALITIES.
-    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null },
+    // The second page of the tab (docs/MENUS.md): preset is null (the engine keeps its own, the project's render.graphicsPreset) or one of GRAPHICS_PRESETS;
+    // detected is the pick of game.graphics.detect() ("auto" asks once, here), null until it ran; upscaler holds only the keys of window.upscaler the player
+    // set (mode, quality, sharpness: they win over what a preset writes); renderScale is null (full size) or window.renderScale;
+    // dynamicResolution is null (the game's own: window.dynamicResolution, off by default) or one of DYNAMIC_CHOICES.
+    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null },
   };
 }
 
@@ -104,7 +153,7 @@ export function load() {
     volume: { ...base.volume, ...saved.volume },
     bindings: { ...saved.bindings },
     playerBindings: { ...saved.playerBindings },
-    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects } },
+    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects }, upscaler: { ...saved.graphics?.upscaler } },
   };
 }
 
@@ -250,6 +299,57 @@ export function effectOn(id) {
   return postProcessEntities().some((e) => e.get("PostProcess")[field] === true);
 }
 
+/** Whether this renderer can draw the upscaler `mode`: "auto" and "stretch" always, the others by render.supports (false without a renderer to ask). */
+export function upscalerModeSupported(mode) {
+  return MODE_FEATURE[mode] === undefined || renderSupports(MODE_FEATURE[mode]);
+}
+
+/** The preset that is in force for the player's choice: "auto" is the pick of game.graphics.detect() (null while it has not run), null when the player never chose. */
+export function presetInForce(s = load()) {
+  const choice = s.graphics.preset;
+  if (choice === "auto") return DETECTED.includes(s.graphics.detected) ? s.graphics.detected : null;
+  return GRAPHICS_PRESETS.includes(choice) ? choice : null;
+}
+
+/**
+ * Runs game.graphics.detect() the first time the player's preset is "auto" and keeps its pick in `s.graphics.detected`: later runs, scenes and
+ * clicks read the pick, so the benchmark (a few hundred milliseconds that block the frame) runs once. Returns the pick, or null when the detect failed.
+ */
+export function detectPreset(s = load()) {
+  if (DETECTED.includes(s.graphics.detected)) return s.graphics.detected;
+  try {
+    const pick = game.graphics.detect().preset;
+    s.graphics.detected = pick;
+    return pick;
+  } catch (e) {
+    console.warn(`settings: the graphics detection failed, Auto keeps the game's own look: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, then the render
+ * scale and the dynamic resolution. Nothing the player never chose is touched, so a save of an older kit changes nothing; a value the engine rejects is logged and skipped.
+ * Settings outlive scene loads and so does the engine's state: apply() calls this once per run, and a row of the page calls it after each change.
+ */
+export function applyRenderSettings(s = load()) {
+  const g = s.graphics;
+  const tryApply = (what, fn) => {
+    try {
+      fn();
+    } catch (e) {
+      console.warn(`settings: ${what} was not applied: ${e.message}`);
+    }
+  };
+  if (g.preset !== null) {
+    const name = g.preset === "auto" ? detectPreset(s) : g.preset;
+    if (name) tryApply("the graphics preset", () => game.graphics.preset(name));
+  }
+  if (Object.keys(g.upscaler).length) tryApply("the upscaler", () => (window.upscaler = g.upscaler));
+  if (DYNAMIC_CHOICES.includes(g.dynamicResolution)) tryApply("the dynamic resolution", () => applyDynamicChoice(g.dynamicResolution));
+  if (g.renderScale !== null) tryApply("the render scale", () => (window.renderScale = Math.min(RENDER_SCALE_MAX, Math.max(RENDER_SCALE_MIN, g.renderScale))));
+}
+
 /** What belongs to the scene's own entities (camera, captions, screen effects): every scene has new ones, so each scene sets them again. */
 export function applyScene(s = load()) {
   applyColorFilter(s);
@@ -273,11 +373,14 @@ export function applyFeel(s = load()) {
   feel.reducedEffects = s.reducedEffects ?? null;
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, screen effects, game feel, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, screen effects, graphics preset and upscaler, game feel, subtitles, text size, interface size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
   applyFeel(s);
+  const detected = s.graphics.detected;
+  applyRenderSettings(s);
+  if (s.graphics.detected !== detected) save(s); // "auto" ran the detection: keep the pick
   ui.textScale = s.textScale;
   if (s.uiScale !== null) ui.scale = s.uiScale;
   if (s.language && s.language !== i18n.language) {

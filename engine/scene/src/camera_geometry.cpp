@@ -5,6 +5,7 @@
 
 #include "fa/core/log.h"
 #include "fa/scene/camera_query.h"
+#include "fa/scene/jitter.h"
 #include "fa/scene/components.h"
 
 namespace fa {
@@ -120,6 +121,9 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
     }
     ci.viewProj = ci.proj * ci.view;
     ci.invViewProj = ci.viewProj.inverse();
+    ci.drawProj = ci.proj;
+    ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     if (target.zeroToOne) {
         ci.queryViewProj = projGl * ci.view;
         ci.queryInvViewProj = ci.queryViewProj.inverse();
@@ -128,6 +132,25 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
         ci.queryInvViewProj = ci.invViewProj;
     }
     return ci;
+}
+
+void CameraGeometry::apply_jitter(Vec2 pixels, float viewWidthPx, float viewHeightPx) {
+    if (!std::isfinite(pixels.x) || !std::isfinite(pixels.y)) pixels = {0, 0};
+    jitterPx = pixels;
+    jitterNdc = jitter_pixels_to_ndc(pixels, viewWidthPx, viewHeightPx);
+    if (pixels.x == 0.0f && pixels.y == 0.0f) {
+        drawProj = proj;
+        drawViewProj = viewProj;
+        drawInvViewProj = invViewProj;
+        return;
+    }
+    // clip.x += ndc.x * clip.w, clip.y += ndc.y * clip.w: the same shift for every depth, so it is a translation of the image.
+    Mat4 j;
+    j.at(3, 0) = jitterNdc.x;
+    j.at(3, 1) = jitterNdc.y;
+    drawProj = j * proj;
+    drawViewProj = drawProj * view;
+    drawInvViewProj = drawViewProj.inverse();
 }
 
 Vec2 CameraGeometry::world_to_screen(Vec3 p, Vec2 target) const {

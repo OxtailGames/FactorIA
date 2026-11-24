@@ -1016,10 +1016,14 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "transmission, and the 2D rows of M74: 2dSoftShadows, 2dShadowCasters, 2dEmission, 2dLightLayers, "
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
-         "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage) or effect "
+         "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
+         "drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution, metalfx (Metal only: the reason "
+         "says when this OS or GPU lacks it); "
+         "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
-         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter, temporalAA); "
+         "`backends` says on which backends "
          "the feature can ever run. `status` is \"supported\", \"planned (<milestone>)\" for an engine feature or "
          "effect the "
          "renderer does not draw (the M73 lighting rows until their step lands; clusteredLights, areaLights, "
@@ -1178,6 +1182,204 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.upscaler",
+         "Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.",
+         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, auto), "
+         "`quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no "
+         "argument it returns the setting; with any of the three it changes those and keeps the rest. Returns "
+         "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
+         "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
+         "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
+         "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen), "
+         "\"temporal\" (the camera is jittered and the frames accumulate in an output-size history) and \"metalfx\" "
+         "(Apple's MetalFX on the Metal backend, its temporal scaler on a jittered frame of one camera, its spatial "
+         "scaler where the GPU has only that one); \"auto\" picks the best of those. "
+         "temporal draws as spatial on a frame of several cameras and where its history cannot be made, metalfx "
+         "draws as temporal (then spatial) where this OS or GPU has no MetalFX or it failed (one warning in the log), "
+         "and a pixel-perfect "
+         "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
+         "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
+         "at that size; at native quality the spatial mode is the sharpen alone (none at sharpness 0) and temporal "
+         "draws nothing extra. The start "
+         "value is factoria.json "
+         "\"render\": {\"upscaler\": {...}}; window.upscaler in scripts is the same setting. A wrong name or number "
+         "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
+         "graphics=false too (the value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), auto (the best this GPU can draw)."},
+               "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"],"description":"How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height."},
+               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "quality", "sharpness"}, "render.upscaler");
+            const render::UpscalerSettings before = I.self->upscaler();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_upscaler(a, "render.upscaler");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.upscaler with no argument to read the setting.");
+                changed = I.self->upscaler() != before;
+            }
+            const render::UpscalerSettings now = I.self->upscaler();
+            Json out = render::upscaler_to_json(now);
+            out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
+            out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
+            out["changed"] = changed;
+            return out;
+        });
+
+    I.commands.add(
+        {"render.dynamic_resolution",
+         "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
+         "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
+         "frames elsewhere) and "
+         "moves a factor between `minScale` and `maxScale` so the frame time stays at `targetMs` (0 or null: one "
+         "refresh of the display: the rate the OS reports for the monitor the window is on, else one estimated from "
+         "the time between presented frames, else 60 Hz; see refreshHz). The factor multiplies window.renderScale and "
+         "the upscaler's quality scale "
+         "(never below 0.25), on a "
+         "grid of 32 steps, at most twice a second. Off (the default) draws at the fixed render scale, exactly as "
+         "before. With no argument it "
+         "returns the setting; with any key it changes those and keeps the rest. Example: render.dynamic_resolution "
+         "{\"enabled\":true,\"targetMs\":16.7,\"minScale\":0.6} The reasoning and the limits: docs/UPSCALING.md, "
+         "\"Dynamic resolution\"." FA_COMMAND_DETAILS
+         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, refreshHz, "
+         "refreshSource, changed}: scale is the factor in force "
+         "(1 while off), frameMs the smoothed measured frame time (0 until measured), source what is measured "
+         "(\"gpu\", \"interval\", "
+         "\"injected\", \"none\"). refreshHz is the display refresh rate a targetMs of 0 follows (rounded to 0.1 Hz, "
+         "reported while off too) and refreshSource where it comes from: \"platform\" (the OS: macOS and iOS "
+         "maximumFramesPerSecond, the Windows display mode, the Linux XRandR mode, Android Display.getRefreshRate), "
+         "\"estimated\" (the median time between presented frames, where the OS does not say: the web, a Windows "
+         "driver that answers the hardware's default, Linux without libXrandr), \"default\" "
+         "(60: no window, as with graphics=false, vsync off, window.frameCap set, or the estimate still measuring). "
+         "The renderer makes its images again only when the factor steps. The start value is "
+         "factoria.json "
+         "\"render\": {\"dynamicResolution\": {...}}; window.dynamicResolution in scripts is the same setting. A wrong "
+         "key or number fails "
+         "with `invalid_argument`, the JSON pointer and the valid range, and changes nothing. Works with "
+         "graphics=false too (the value is "
+         "only remembered; a headless run measures no frame time). The factor is a measurement of this machine: it is "
+         "never part of the "
+         "simulation, a replay or a screenshot test's state.",
+         parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","description":"true turns the controller on; false (default) draws at the fixed render scale."},
+               "targetMs":{"type":["number","null"],"minimum":0,"maximum":100,"description":"The frame time to hold in ms (33.3 = 30 fps, 16.7 = 60 fps), 4..100; 0 or null follows the display's refresh rate."},
+               "minScale":{"type":"number","minimum":0.25,"maximum":1,"description":"The smallest share of the render size's width and height, 0.25..1 (default 0.5)."},
+               "maxScale":{"type":"number","minimum":0.25,"maximum":1,"description":"The largest share and where it starts, minScale..1 (default 1)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"enabled", "targetMs", "minScale", "maxScale"}, "render.dynamic_resolution");
+            const render::DynamicResolutionSettings before = I.self->dynamic_resolution();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_dynamic_resolution(a, "render.dynamic_resolution");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.dynamic_resolution with no argument to read the setting.");
+                changed = I.self->dynamic_resolution() != before;
+            }
+            Json out = render::dynamic_resolution_to_json(I.self->dynamic_resolution());
+            const render::DynamicResolutionState st = I.self->dynamic_resolution_state();
+            out["effectiveTargetMs"] = std::round(st.targetMs * 10.0) / 10.0;
+            out["scale"] = std::round(double(st.scale) * 1000.0) / 1000.0;
+            out["frameMs"] = std::round(st.frameMs * 10.0) / 10.0;
+            out["source"] = std::string(st.source);
+            out["refreshHz"] = std::round(st.refreshHz * 10.0) / 10.0;
+            out["refreshSource"] = std::string(st.refreshSource);
+            out["changed"] = changed;
+            return out;
+        });
+
+    // graphics.preset and graphics.detect (M76, engine_graphics.cpp): the names, arguments and docs were fixed by P0.
+    I.commands.add(
+        {"graphics.preset",
+         "Reads or applies a graphics preset (low, medium, high, ultra, custom): a quality layer over the render "
+         "settings of the game.",
+         "A preset is a set of limits on what the scene, its cameras' PostProcess and its lights ask for (shadows, "
+         "ambient "
+         "occlusion, reflections, depth of field, motion blur, fog, level of detail, foliage, terrain, 2D lighting, "
+         "global illumination) plus the upscaler. A limit only lowers; nothing is written into the scene or "
+         "factoria.json. `custom` is no layer: the game looks as its author made it. With `name` it applies that "
+         "preset; "
+         "with no argument it reads the current one. Returns {preset, previous, changed, changes: [{knob, from, to}], "
+         "limits, capped: [{knob, wanted, effective, reason}], upscaler, headless}. Example: graphics.preset "
+         "{\"name\":\"high\"} With no argument it only reads and changes nothing (the command is not marked read-only "
+         "because it also writes). The table of each preset: docs/UPSCALING.md, \"Graphics "
+         "presets\"." FA_COMMAND_DETAILS "A limit only lowers: a scene that asks "
+         "for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also "
+         "write the upscaler (mode auto, a quality; ultra none); `custom` puts back the one the game had before the "
+         "first preset, "
+         "and a render.upscaler or window.upscaler change while a preset is on applies at once and becomes what "
+         "`custom` brings back (its keys over the setting from before the preset). Knobs the "
+         "GPU cannot draw are capped (render.supports says which) and `capped` names each with the reason; `limits` is "
+         "the layer in force after the caps (a limit at its largest value means no limit), `changes` the limits and "
+         "the "
+         "upscaler that differ from before. `headless` is true when the engine runs without graphics: the preset is "
+         "remembered, nothing is drawn and no GPU cap was looked at. The default preset of a game is factoria.json "
+         "\"render\": {\"graphicsPreset\": \"high\"}; the engine does not remember the player's choice (keep it with "
+         "storage.set(); graphics.detect suggests one for a first run). Errors: `invalid_argument` for an unknown name "
+         "(with a \"did you mean\") or argument; nothing changes. The same is game.graphics.preset() in scripts.",
+         parse_schema(R"({"type":"object","properties":{
+               "name":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"The preset to apply. Leave it out to read the current preset."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            std::string err;
+            Json out = I.self->graphics_preset(a, &err);
+            if (!err.empty())
+                throw CommandError("invalid_argument", err,
+                                   "The presets are low, medium, high, ultra and custom. Call graphics.preset with no "
+                                   "argument to read the current one. Nothing was changed.");
+            return out;
+        });
+
+    I.commands.add(
+        {"graphics.detect",
+         "Measures this GPU with a short benchmark and suggests the graphics preset that suits it. Changes nothing.",
+         "Reads the GPU (backend, adapter name, vendor, video memory where the graphics API says it, software renderer "
+         "or not) and the "
+         "device (game.device: tier, form factor, handheld), draws a fixed scene about 150 meshes with shadows at "
+         "960x540 off-screen a few "
+         "times, and answers the preset that machine can hold. The scene is drawn with the engine's own world, never "
+         "the game's: the "
+         "simulation, its clock and its random numbers are not touched, and the graphics preset in force is lifted "
+         "while it runs so every "
+         "GPU is measured on the same work. One warm-up picture (pipelines are made then, not timed) and 5 timed ones; "
+         "the median is the "
+         "score; a safety net stops the timed ones after 4 seconds in total. Returns {preset, reason, gpu: {backend, "
+         "name, vendor, "
+         "driver, memoryMB, unifiedMemory, software}, benchmarkMs, benchmark: {ran, why, samples, frameMs, totalMs, "
+         "width, height}, "
+         "device: {tier, formFactor, handheld}}. Example: graphics.detect {}" FA_COMMAND_DETAILS
+         "The rule: a median of 4 ms or less is ultra, up to 8 ms high, up to 16 ms medium, slower low; a software "
+         "renderer (llvmpipe, "
+         "SwiftShader, WARP) is low and is not benchmarked; a phone or tablet is capped at medium, a handheld (Steam "
+         "Deck) at high, "
+         "a low device tier or under 2 GB of video memory at medium. Without graphics (graphics=false) or on the dummy "
+         "backend nothing "
+         "is drawn (`benchmark.ran` is false and says why) and the device tier decides. `benchmarkMs` is the whole "
+         "benchmark, warm-up "
+         "included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds, and the "
+         "call blocks the frame it is made in, whether from a command or from a script's update: call it behind a "
+         "loading "
+         "screen or the first-run options page, never during play. On the web it is not run (the page would freeze "
+         "while the pipelines are made) and the device tier decides. The benchmark draws in the colour space the "
+         "game's targets are in, so the game's targets are not made again. Times are rounded to 0.1 ms and differ run "
+         "to run: a game uses "
+         "`preset`, not the number, and `reason` never holds a time. The same is game.graphics.detect() in scripts, "
+         "which leaves out `benchmarkMs`, `benchmark.frameMs` and `benchmark.totalMs` (machine-dependent numbers a "
+         "script could branch on): only tools and MCP read them.",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {}, "graphics.detect");
+            std::string err;
+            Json out = I.self->graphics_detect(&err);
+            if (!err.empty()) throw CommandError("unavailable", err, "Run with graphics, not graphics=false.");
+            return out;
+        });
+
+    I.commands.add(
         {"render.output",
          "What the game window shows: the standard range or HDR, in which encoding, and what the display can do.",
          "The window's swapchain switches to HDR when SceneSettings.hdrOutput is \"auto\", the display the window is "
@@ -1257,7 +1459,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a "
          "game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view "
          "shows from the next frame (game.step, then game.screenshot). Example: render.debug_view "
-         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS
+         "{\"view\":\"depth\"}" FA_COMMAND_DETAILS "`motionVectors` paints the per-pixel motion image the prepass "
+         "writes for temporal antialiasing (the direction "
+         "of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the "
+         "sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image "
+         "on while it is shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
@@ -1265,21 +1471,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao, cascades or occlusion (with a "
+         "`view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in) or occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
             auto name_of = [](DebugView v) {
-                return v == DebugView::Depth       ? "depth"
-                       : v == DebugView::Normals   ? "normals"
-                       : v == DebugView::Ao        ? "ao"
-                       : v == DebugView::Cascades  ? "cascades"
-                       : v == DebugView::Occlusion ? "occlusion"
-                                                   : "none";
+                return v == DebugView::Depth           ? "depth"
+                       : v == DebugView::Normals       ? "normals"
+                       : v == DebugView::Ao            ? "ao"
+                       : v == DebugView::Cascades      ? "cascades"
+                       : v == DebugView::Occlusion     ? "occlusion"
+                       : v == DebugView::MotionVectors ? "motionVectors"
+                                                       : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
             // invalid_arguments error with a did-you-mean hint before this runs.
@@ -1291,12 +1498,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             const DebugView previous = I.renderer->debug_view();
             if (set)
-                I.renderer->set_debug_view(wanted == "depth"       ? DebugView::Depth
-                                           : wanted == "normals"   ? DebugView::Normals
-                                           : wanted == "ao"        ? DebugView::Ao
-                                           : wanted == "cascades"  ? DebugView::Cascades
-                                           : wanted == "occlusion" ? DebugView::Occlusion
-                                                                   : DebugView::None);
+                I.renderer->set_debug_view(wanted == "depth"           ? DebugView::Depth
+                                           : wanted == "normals"       ? DebugView::Normals
+                                           : wanted == "ao"            ? DebugView::Ao
+                                           : wanted == "cascades"      ? DebugView::Cascades
+                                           : wanted == "occlusion"     ? DebugView::Occlusion
+                                           : wanted == "motionVectors" ? DebugView::MotionVectors
+                                                                       : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
 
@@ -1348,6 +1556,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.output", capability_sets::reads()},
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
+                                                 {"render.upscaler", capability_sets::changes_state()},
+                                                 {"render.dynamic_resolution", capability_sets::changes_state()},
+                                                 {"graphics.preset", capability_sets::changes_state()},
+                                                 {"graphics.detect", capability_sets::reads()},
                                                  {"render.material_cost", capability_sets::reads()},
                                                  {"render.probes", capability_sets::reads()},
                                                  {"render.gi_grid", capability_sets::reads()},
