@@ -1,6 +1,5 @@
 #include "shader_cache.h"
 
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -27,12 +26,11 @@ namespace fa::render {
 namespace {
 
 ShaderBuildStats g_stats;
-// Whether the last program was made on D3D11 (the one backend whose stages the engine compiles and caches itself).
-std::atomic<bool> g_lastWasD3d11{false};
-
+// Whether the engine compiles and caches the shader stages itself: on the D3D11 build (sokol's one backend there),
+// answered by the build, not by the last program made, so a report before the first shader is right too.
 bool engine_caches_here() {
 #if defined(SOKOL_D3D11)
-    return g_lastWasD3d11.load(std::memory_order_relaxed);
+    return true;
 #else
     return false;
 #endif
@@ -155,7 +153,6 @@ bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase
 gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, const char* label,
                             const std::function<gpu::Shader(const gpu::ShaderDesc* prepared)>& make) {
     const auto start = std::chrono::steady_clock::now();
-    g_lastWasD3d11.store(backend == gpu::Backend::D3d11, std::memory_order_relaxed);
     gpu::Shader shader{};
 #if defined(SOKOL_D3D11)
     // D3D11: the engine compiles every stage with its own flags (kCompileFlags), through the disk cache when there is a cache

@@ -211,7 +211,7 @@ reason (the timed scopes are still recorded).
 ## How the renderer reaches the device
 
 `render::Gpu` (engine/render/src/render_internal.h) owns the renderer's `gpu::Device` from `init()` to `shutdown()`
-and the command list of the frame being recorded. Code reaches them in one of three ways, never through a global
+and the command list of the frame being recorded. Code reaches them in one of four ways (the last two TRANSITIONAL), never through a global
 sokol call:
 
 - **Code that has the Gpu** (its own resources, the pipeline cache, uploads): `gpu.device()` for resources and
@@ -220,7 +220,9 @@ sokol call:
 - **A frame-graph pass**: `PassContext::commands()` is the list `FrameGraph::execute(pool, &gpu.commands())` was
   given, valid while the pass runs (null in the CPU-only graph tests). This is where a later backend hands each pass
   (or each thread) its own list: the pass code does not change.
-- **The static pass functions** (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
+- **The static pass functions**, TRANSITIONAL: do not copy them into converted code, which begins its passes on its
+  own list (`ctx.commands().begin_pass(...)`, `gpu.commands()`); P4 moves the pass state into a per-list object and
+  removes them. They (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
   the list of `Gpu::active()`, the Gpu initialised last of those still alive (the editor has one per renderer, all on
   the one sokol context). With none alive (`Renderer::present_clear` runs before the renderer exists) they record on
   the sokol context itself (`gpu::begin_context_pass`).
