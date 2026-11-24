@@ -13,11 +13,13 @@
 // when given source) with one cached root signature per binding layout, graphics and compute pipelines with an
 // in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
 // scissors, draws and dispatches (M77-P7c1); GPU timers (timestamp queries) and asynchronous reads of buffers and
-// texture regions (M77-P7c2). Passes into the window come in M77-P9.
+// texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). Passes into the
+// window come in M77-P9.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 
 #include "fa/core/types.h"
@@ -57,11 +59,32 @@ struct D3d12Options {
     int frameViewDescriptors = 32768;
     // The shader-visible sampler heap: one segment per frame in flight (D3D12 allows 2048 samplers in all).
     int frameSamplerDescriptors = 512;
+    // The on-disk PSO cache (an ID3D12PipelineLibrary): loaded when the device is made, written by
+    // D3d12Device::save_pipeline_cache() and when the device is destroyed. Empty = no file (the PSOs are still cached
+    // in memory for the device's life). The engine's file is d3d12_pipeline_cache_file().
+    std::filesystem::path pipelineCacheFile;
 };
 
 // Makes a Direct3D 12 device. Fails with a teaching error where D3D12 does not exist (every platform but Windows), when
 // no adapter makes a feature level 11.0 device, or when an option is out of range.
 Result<std::unique_ptr<Device>> make_d3d12_device(const D3d12Options& options = {});
+
+// The engine's D3D12 pipeline cache file: d3d12-pipelines.bin in the shader cache's folder (fs::cache_dir()/shaders,
+// next to the d3d12-dxbc stages). Empty when there is no cache folder (the web build, a player before set_cache_dir).
+std::filesystem::path d3d12_pipeline_cache_file();
+
+// What the D3D12 devices of this process did with their pipeline caches (the shader cache's report shows it).
+struct D3d12PipelineCacheTotals {
+    std::uint64_t libraryHits = 0;     // PSOs loaded from a pipeline library instead of compiled
+    std::uint64_t libraryMisses = 0;   // PSOs compiled and stored into a pipeline library
+    std::uint64_t filesLoaded = 0;     // cache files a device loaded
+    std::uint64_t filesStored = 0;     // cache files written
+    std::uint64_t filesDiscarded = 0;  // cache files thrown away (damaged, another GPU or driver)
+    std::uint64_t storeFailed = 0;     // writes that failed (the old file was kept)
+};
+D3d12PipelineCacheTotals d3d12_pipeline_cache_totals();
+// Adds `add` to the totals (the D3D12 device's own counting).
+void d3d12_pipeline_cache_count(const D3d12PipelineCacheTotals& add);
 
 }  // namespace fa::gpu
 
@@ -529,6 +552,14 @@ private:
     // The timed scopes recorded in this list (reset by open()); the last one is still open when scopeOpen_.
     std::vector<ScopeRef> scopes_;
     bool scopeOpen_ = false;
+    // The open pass's attachments (colour, second colour, depth): set_bindings refuses to bind one of them for
+    // reading or writing (reset by open(), begin_pass and end_pass).
+    struct PassAttachment {
+        std::shared_ptr<TrackedResource> tracked;
+        std::uint32_t mip = 0, layer = 0;
+        const char* role = "";
+    };
+    std::vector<PassAttachment> passAttachments_;
 };
 
 // What the backend counted (tests, the profiler).
@@ -552,6 +583,27 @@ struct D3d12Counters {
     std::size_t psos = 0;                       // PSOs the device keeps (they live as long as it)
     std::uint64_t rootSignatureCacheHits = 0;   // make_shader calls that found their root signature made already
     std::size_t rootSignatures = 0;             // root signatures the device keeps
+    bool pipelineLibrary = false;               // an ID3D12PipelineLibrary backs the PSO cache (a cache file is set)
+    std::uint64_t psoLibraryHits = 0;           // PSOs loaded from the library instead of compiled
+    std::uint64_t psoLibraryMisses = 0;         // PSOs compiled and stored into the library
+    std::uint64_t pipelineCacheStored = 0;      // times this device wrote its cache file
+    std::uint64_t pipelineCacheDiscarded = 0;   // cache files it threw away (damaged, another GPU or driver)
+};
+
+// The pipeline cache file (d3d12_pipelines_win32.cpp): a header, then the ID3D12PipelineLibrary's serialized blob.
+// Little-endian; the offsets are in bytes. A file whose magic, version, adapter (vendor, device, subsystem, revision),
+// driver version, size or SHA-256 does not match is thrown away before the driver sees it.
+struct PipelineCacheFile {
+    static constexpr char kMagic[9] = "FAPSOLIB";  // 8 bytes at 0
+    static constexpr std::uint32_t kVersion = 1;
+    static constexpr std::size_t kVersionAt = 8;       // u32
+    static constexpr std::size_t kHeaderSizeAt = 12;   // u32: kHeaderBytes
+    static constexpr std::size_t kVendorAt = 16;       // u32, then device, subsystem and revision ids (u32 each)
+    static constexpr std::size_t kDriverAt = 32;       // u64: IDXGIAdapter::CheckInterfaceSupport's UMD version
+    static constexpr std::size_t kLuidAt = 40;         // u32 low, i32 high: recorded only (it changes with each boot)
+    static constexpr std::size_t kPayloadSizeAt = 48;  // u64
+    static constexpr std::size_t kChecksumAt = 56;     // 64 bytes: the payload's SHA-256 in lowercase hex
+    static constexpr std::size_t kHeaderBytes = 120;
 };
 
 // The Direct3D 12 Device. Made, used for resources and destroyed on one thread (the render thread); command lists may
@@ -623,6 +675,9 @@ public:
                                     std::vector<std::uint8_t>& out) override;
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
+    // Typed UAV loads of `format` (a storage image a shader reads): r32f on every D3D12 GPU, the others when
+    // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats and the format's UAV_TYPED_LOAD support say so.
+    bool storage_image_loadable(PixelFormat format, std::string* why) const override;
     // Asynchronous reads (d3d12_readback_win32.cpp): kAsyncReads slots, each with a readback buffer it keeps while it
     // is big enough. A request records the copy on an internal list and executes it at once (no wait); the slot's
     // fence value says when the bytes are there. A released slot is reused only once its copy finished.
@@ -673,6 +728,16 @@ public:
     void report(const std::string& message);
     // Reports `message` the first time `what` is reported (a call not built yet, made every frame).
     void report_once(const std::string& what, const std::string& message);
+    // Writes the pipeline library to D3d12Options::pipelineCacheFile when it holds PSOs the file does not (atomically:
+    // a temporary file, then a rename). Ok with nothing to do (no file set, no library, nothing new). A failure
+    // (a reader holds the file on Windows, a full disk) keeps the old file and also goes to warnings().
+    Result<void> save_pipeline_cache();
+    // The cache file this device loads and writes (empty = none).
+    const std::filesystem::path& pipeline_cache_file() const { return pipelineCacheFile_; }
+    // Tests: the timer slots a timed frame holds (open, or ended and waiting for its fence).
+    int timer_slots_busy() const;
+    // Tests: the next timed frame to end is dropped, as when its resolve cannot be submitted (a failed Close).
+    void drop_next_timed_frame();
 
 private:
     friend class D3d12CommandList;
@@ -752,8 +817,9 @@ private:
     void release(Deferred& d);
     // The root signature of a shader's slots, from the cache or new; null with `error` when the layout cannot be one.
     std::shared_ptr<const RootLayout> root_layout(const ShaderDesc& desc, const ShaderInfo& info, std::string& error);
-    // The PSO of a desc, from the cache (`key`, the canonical text of every field) or new. The seam of the on-disk PSO
-    // cache (M77-P7b), which will key its files by a hash of `key`. Null with `error` when D3D12 refused it.
+    // The PSO of a desc (`key`, the canonical text of every field): from the in-memory cache, else loaded from the
+    // pipeline library (the on-disk cache, named by a hash of `key`), else made and stored there. Null with `error`
+    // when D3D12 refused it.
     Com<ID3D12PipelineState> pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
                                  const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error);
     // The pipeline's state (under resMutex_); null when `pipeline` names nothing or failed.
@@ -794,6 +860,11 @@ private:
     void end_timer_frame_locked();
     // A free asynchronous read slot (its copy finished and no ticket names it), or -1.
     int free_async_slot() const;
+    // An error naming D3D12's reason when the device was removed (no slot ever frees then); ok otherwise.
+    Result<void> async_device_alive(const char* what) const;
+    // Loads (or makes empty) the pipeline library from D3d12Options::pipelineCacheFile (init; no library when the file
+    // is not set or the driver has none).
+    void init_pipeline_library();
     // Whether `ticket` names the request its slot holds now.
     bool async_ticket_current(ReadTicket ticket) const;
     // Records the copy of an async read on an internal list, executes it, and hands the slot its ticket.
@@ -837,11 +908,32 @@ private:
     std::uint64_t psoHits_ = 0, psoMisses_ = 0, rootHits_ = 0;
     std::uint32_t bindlessDescriptors_ = 0;  // the reserved range of viewHeap_ (0 = no bindless table)
     int bindingTier_ = 0;                    // D3D12_OPTIONS.ResourceBindingTier (1, 2 or 3)
+    D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;  // the device's
+    bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
+
+    // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). The library reads the
+    // blob it was made from for its whole life, so libraryBlob_ lives as long as it.
+    mutable std::mutex libraryMutex_;
+    Com<ID3D12PipelineLibrary> library_;
+    std::vector<std::uint8_t> libraryBlob_;
+    bool libraryDirty_ = false;  // holds PSOs the file does not
+    std::filesystem::path pipelineCacheFile_;
+    std::uint64_t libraryHits_ = 0, libraryMisses_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0;
+    // What the file's header must match (the LUID changes with every boot: recorded, not compared).
+    struct AdapterIdentity {
+        std::uint32_t vendor = 0, device = 0, subsys = 0, revision = 0;
+        std::uint64_t driverVersion = 0;
+        std::uint32_t luidLow = 0;
+        std::int32_t luidHigh = 0;
+    };
+    AdapterIdentity identity_{};
 
     // GPU timers (timerMutex_; taken after queueMutex_ when both are held). A timed frame takes the next slot of the
     // ring: query 0 is its start, 1 its end, 2 + 2i and 3 + 2i scope i's.
     static constexpr int kTimerSlots = 6;       // timed frames in flight; a full ring skips the frame
     static constexpr int kMaxTimedScopes = 64;  // scopes measured per frame (as GpuTimer::kMaxTimedPasses)
+    // Queries of a slot's heap: the frame's start and end, then two per scope.
+    static constexpr std::uint32_t kQueriesPerSlot = 2u + 2u * std::uint32_t(kMaxTimedScopes);
     struct TimerSlot {
         Com<ID3D12QueryHeap> heap;
         Com<ID3D12Resource> readback;  // the resolved ticks
@@ -849,6 +941,8 @@ private:
         std::uint64_t fence = 0;       // the fence value after its resolve
         std::vector<std::string> names;
         std::vector<bool> submitted;  // scope i's list ran before timer_end_frame (else it is not reported)
+        // Held by a timed frame (open, or ended and waiting for its fence): timer_begin_frame takes a slot that is not.
+        bool busy = false;
     };
     mutable std::mutex timerMutex_;
     bool timerOk_ = false;
@@ -860,6 +954,7 @@ private:
     std::uint64_t timerSerial_ = 0;
     std::uint64_t timerNext_ = 0;
     std::size_t timerStale_ = 0;  // results still to arrive that timer_forget() dropped
+    bool timerDropNext_ = false;  // drop_next_timed_frame()
     std::vector<ScopeTime> timerLastScopes_;
 
     // Asynchronous reads (render thread only; the copy itself under queueMutex_)

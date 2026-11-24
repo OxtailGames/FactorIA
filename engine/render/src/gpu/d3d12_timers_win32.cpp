@@ -14,12 +14,6 @@
 
 namespace fa::gpu::d3d12 {
 
-namespace {
-
-constexpr std::uint32_t kQueriesPerSlot = 2u + 2u * 64u;  // frame start and end, then two per scope
-
-}  // namespace
-
 void D3d12Device::init_timer() {
     auto drop_timer_slots = [this] {
         for (TimerSlot& slot : timerSlots_) {
@@ -27,7 +21,6 @@ void D3d12Device::init_timer() {
             slot.readback.reset();
         }
     };
-    static_assert(kQueriesPerSlot == 2u + 2u * std::uint32_t(kMaxTimedScopes));
     timerOk_ = false;
     UINT64 freq = 0;
     const HRESULT hr = queue_->GetTimestampFrequency(&freq);
@@ -73,12 +66,19 @@ void D3d12Device::timer_begin_frame() {
     std::lock_guard<std::mutex> timerLock(timerMutex_);
     if (!timerOk_) return;
     if (timerCurrent_ >= 0) end_timer_frame_locked();  // a frame left open ends here
-    if (timerPending_.size() >= std::size_t(kTimerSlots)) return;  // every slot waits for its fence: not timed
+    // The next slot no timed frame holds, in ring order from the last one taken. A frame that could not end (dropped)
+    // gave its slot back at once, so a slot whose resolve may still be in flight is never taken again.
+    int index = -1;
+    for (int i = 0; i < kTimerSlots && index < 0; ++i) {
+        const auto at = std::size_t((timerNext_ + std::uint64_t(i)) % std::uint64_t(kTimerSlots));
+        if (!timerSlots_[at].busy) index = int(at);
+    }
+    if (index < 0) return;  // every slot waits for its fence: this frame is not timed
     D3d12CommandList& pl = prelude();
     if (!pl.list_) return;  // reported by acquire_list
-    // The pending frames hold the slots before this one (in ring order), so this one is free.
-    const int index = int(timerNext_++ % std::uint64_t(kTimerSlots));
+    timerNext_ = std::uint64_t(index) + 1;
     TimerSlot& slot = timerSlots_[std::size_t(index)];
+    slot.busy = true;
     slot.serial = ++timerSerial_;
     slot.fence = 0;
     slot.names.clear();
@@ -99,11 +99,16 @@ void D3d12Device::end_timer_frame_locked() {
     timerCurrent_ = -1;
     TimerSlot& slot = timerSlots_[std::size_t(index)];
     // A frame that cannot end (reported) is dropped; when timer_forget() counted it, it no longer arrives.
-    auto drop = [this] {
+    auto drop = [this, &slot] {
+        slot.busy = false;
         if (timerStale_ > timerPending_.size()) --timerStale_;
     };
     D3d12CommandList& pl = prelude();
     if (!pl.list_) return drop();
+    if (timerDropNext_) {
+        timerDropNext_ = false;
+        return drop();
+    }
     ID3D12QueryHeap* heap = slot.heap.get();
     pl.list_->EndQuery(heap, D3D12_QUERY_TYPE_TIMESTAMP, 1);
     // A scope whose list was not submitted before the frame's end is not reported; its two queries are ended here so
@@ -133,6 +138,7 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
         TimerSlot& slot = timerSlots_[std::size_t(timerPending_.front())];
         if (slot.fence == 0 || slot.fence > completed) break;  // in order: the next one is not there yet
         timerPending_.pop_front();
+        slot.busy = false;  // its ticks are read below (under this lock): the slot may be taken again
         if (timerStale_ > 0) {
             --timerStale_;
             continue;
@@ -157,7 +163,8 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
             const std::uint64_t b = ticks[2 + 2 * i], e = ticks[3 + 2 * i];
             scopes.push_back({b, {slot.names[i], e > b ? double(e - b) * toMs : 0.0}});
         }
-        std::stable_sort(scopes.begin(), scopes.end(), [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
+        std::stable_sort(scopes.begin(), scopes.end(),
+                         [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
         timerLastScopes_.clear();
         for (Timed& t : scopes) timerLastScopes_.push_back(std::move(t.time));
     }
@@ -166,6 +173,16 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
 std::vector<Device::ScopeTime> D3d12Device::timer_last_scopes() const {
     std::lock_guard<std::mutex> lock(timerMutex_);
     return timerLastScopes_;
+}
+
+int D3d12Device::timer_slots_busy() const {
+    std::lock_guard<std::mutex> lock(timerMutex_);
+    return int(std::count_if(timerSlots_.begin(), timerSlots_.end(), [](const TimerSlot& s) { return s.busy; }));
+}
+
+void D3d12Device::drop_next_timed_frame() {
+    std::lock_guard<std::mutex> lock(timerMutex_);
+    timerDropNext_ = true;
 }
 
 void D3d12Device::timer_forget() {

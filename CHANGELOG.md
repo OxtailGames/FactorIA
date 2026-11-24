@@ -8,6 +8,13 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
+  when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
+  one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The
+  backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
+  `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
+  the device was lost. The renderer
+  turns the file on when it draws through D3D12 (M77-P9).
 - The editor draws its interface through a public 2D painter of the renderer, `fa::render::UiPainter` (`fa/render/ui_painter.h`): triangle lists
   with a texture and a scissor rectangle per command, pictures made by `make_texture`, the game's picture from `Renderer::game_target_texture()`
   (it replaces `game_target_image_id()` / `game_target_view_id()`). The editor no longer calls sokol_gfx or sokol_imgui, and the screenshots

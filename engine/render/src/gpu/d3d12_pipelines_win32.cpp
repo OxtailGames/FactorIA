@@ -1,19 +1,25 @@
 // The D3D12 backend's shaders and pipelines: DXBC of shader model 5.1 (compiled here from HLSL when a stage is given as
 // source), one root signature per binding layout (cached: every shader with the same registers shares it), graphics and
-// compute PSOs with an in-memory cache (docs/design/ARCHITECTURE_RENDERING_GPU.md, "D3D12 backend").
+// compute PSOs with an in-memory cache over an on-disk pipeline library (docs/design/ARCHITECTURE_RENDERING_GPU.md,
+// "D3D12 backend").
 #include <algorithm>
 #include <array>
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <memory>
 #include <set>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/hash.h"
+#include "fa/core/log.h"
 #include "gpu/d3d12_device.h"
 
 // After the D3D12 headers: the D3DCOMPILE_* flag values only (D3DCompile itself is loaded from d3dcompiler_47.dll).
@@ -700,6 +706,26 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
         layout->samplerUsed |= 1u << i;
         samplerRanges[s].push_back(d);
     }
+    // Resource binding tier 1 (old GPUs) caps what a root signature may hold: 128 SRVs and 16 samplers per stage, which
+    // ShaderDesc's kMaxViews and kMaxSamplers never exceed, and 8 UAVs in all at feature level 11.0 (64 above), which a
+    // shader with many storage views can.
+    static_assert(kMaxViews <= 128 && kMaxSamplers <= 16, "the tier 1 limits checked below assume these");
+    if (bindingTier_ == 1) {
+        int uavs = 0;
+        for (const auto& ranges : viewRanges)
+            for (const D3D12_DESCRIPTOR_RANGE& r : ranges)
+                if (r.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV) ++uavs;
+        const int uavLimit = featureLevel_ == D3D_FEATURE_LEVEL_11_0 ? 8 : 64;
+        if (uavs > uavLimit) {
+            error = "it declares " + std::to_string(uavs) + " writable views (storage buffers and images), and " +
+                    adapterName_ + " has resource binding tier 1" +
+                    (featureLevel_ == D3D_FEATURE_LEVEL_11_0 ? " at feature level 11.0" : "") +
+                    ", which binds at most " + std::to_string(uavLimit) +
+                    " (hint: split the work into passes that each write fewer views, make the views it only reads "
+                    "read-only, or pack the data into fewer storage buffers)";
+            return nullptr;
+        }
+    }
     auto table = [&](const std::vector<D3D12_DESCRIPTOR_RANGE>& ranges, D3D12_SHADER_VISIBILITY v) {
         D3D12_ROOT_PARAMETER p{};
         p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -800,18 +826,50 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
             return it->second;
         }
     }
-    // Made without the lock: making a PSO compiles the shaders for the GPU and may take milliseconds.
+    // The pipeline library (the on-disk cache) holds the PSOs earlier runs made, under a name hashed from `key`: a
+    // load there skips the driver's compile. A name it does not hold yet answers E_INVALIDARG (not an error).
+    const std::wstring name = widen(("fa-" + sha256_hex(key)).c_str());
     Com<ID3D12PipelineState> made;
-    const HRESULT hr =
-        graphics ? device_->CreateGraphicsPipelineState(graphics, __uuidof(ID3D12PipelineState), made.put_void())
-                 : device_->CreateComputePipelineState(compute, __uuidof(ID3D12PipelineState), made.put_void());
-    if (FAILED(hr) || !made) {
-        drain_messages();
-        error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") + " failed with " +
-                hr_text(hr) + removed_reason() +
-                " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
-                "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
-        return {};
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        if (library_) {
+            const HRESULT lhr = graphics
+                                    ? library_->LoadGraphicsPipeline(name.c_str(), graphics,
+                                                                     __uuidof(ID3D12PipelineState), made.put_void())
+                                    : library_->LoadComputePipeline(name.c_str(), compute,
+                                                                    __uuidof(ID3D12PipelineState), made.put_void());
+            if (SUCCEEDED(lhr) && made) {
+                ++libraryHits_;
+                D3d12PipelineCacheTotals add;
+                add.libraryHits = 1;
+                d3d12_pipeline_cache_count(add);
+            } else {
+                made.reset();
+            }
+        }
+    }
+    if (!made) {
+        // Made without the lock: making a PSO compiles the shaders for the GPU and may take milliseconds.
+        const HRESULT hr =
+            graphics ? device_->CreateGraphicsPipelineState(graphics, __uuidof(ID3D12PipelineState), made.put_void())
+                     : device_->CreateComputePipelineState(compute, __uuidof(ID3D12PipelineState), made.put_void());
+        if (FAILED(hr) || !made) {
+            drain_messages();
+            error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") +
+                    " failed with " + hr_text(hr) + removed_reason() +
+                    " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
+                    "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
+            return {};
+        }
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        // Another thread may have stored the same name meanwhile (E_INVALIDARG): the library has it either way.
+        if (library_ && SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) {
+            libraryDirty_ = true;
+            ++libraryMisses_;
+            D3d12PipelineCacheTotals add;
+            add.libraryMisses = 1;
+            d3d12_pipeline_cache_count(add);
+        }
     }
     made->SetName(L"fa-d3d12-pso");
     std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -819,6 +877,217 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
     auto [it, added] = psos_.try_emplace(key, made);
     (void)added;  // another thread made the same one meanwhile: both are the same state, the first one is kept
     return it->second;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The pipeline cache on disk: an ID3D12PipelineLibrary loaded from D3d12Options::pipelineCacheFile when the device is
+// made and written back by save_pipeline_cache() (PipelineCacheFile in d3d12_device.h says what the file holds)
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// A cache file bigger than this is not read (it would be one of thousands of PSOs; a damaged size field is likelier).
+constexpr std::int64_t kMaxPipelineCacheBytes = std::int64_t(1) << 30;
+
+template <class T>
+T read_at(const std::vector<std::uint8_t>& bytes, std::size_t at) {
+    T v{};
+    std::memcpy(&v, bytes.data() + at, sizeof v);
+    return v;
+}
+
+template <class T>
+void write_at(std::vector<std::uint8_t>& bytes, std::size_t at, T v) {
+    std::memcpy(bytes.data() + at, &v, sizeof v);
+}
+
+std::string hex32(std::uint32_t v) {
+    char text[16];
+    std::snprintf(text, sizeof text, "0x%04x", unsigned(v));
+    return text;
+}
+
+// The driver version DXGI reports as four 16-bit parts (31.0.101.5186).
+std::string driver_text(std::uint64_t v) {
+    return std::to_string((v >> 48) & 0xffffu) + "." + std::to_string((v >> 32) & 0xffffu) + "." +
+           std::to_string((v >> 16) & 0xffffu) + "." + std::to_string(v & 0xffffu);
+}
+
+}  // namespace
+
+void D3d12Device::init_pipeline_library() {
+    if (pipelineCacheFile_.empty()) return;
+    Com<ID3D12Device1> device1 = device_.as<ID3D12Device1>();
+    if (!device1) {
+        FA_INFO("render", "gpu d3d12: {} has no ID3D12Device1 (pipeline libraries): PSOs are cached in memory only",
+                adapterName_);
+        return;
+    }
+    const std::string file = fs::path_to_utf8(pipelineCacheFile_);
+    using F = PipelineCacheFile;
+    std::string discard;  // why the file is thrown away; empty = kept (or there is none)
+    std::vector<std::uint8_t> bytes;
+    const std::int64_t size = fs::file_size(file);
+    if (size > kMaxPipelineCacheBytes) {
+        discard = "it has " + std::to_string(size) + " bytes, more than the " + std::to_string(kMaxPipelineCacheBytes) +
+                  " a pipeline cache may have";
+    } else if (size >= 0) {
+        auto read = fs::read_bytes(file);
+        if (!read)
+            discard = "it could not be read: " + read.error().message;
+        else
+            bytes = std::move(*read);
+    }
+    if (discard.empty() && size >= 0) {
+        // Every check before the driver sees a byte: a damaged blob must not reach it.
+        if (bytes.size() < F::kHeaderBytes) {
+            discard = "it has " + std::to_string(bytes.size()) + " bytes, fewer than its header";
+        } else if (std::memcmp(bytes.data(), F::kMagic, 8) != 0) {
+            discard = "it is not a FactorIA pipeline cache (its first bytes are not FAPSOLIB)";
+        } else if (read_at<std::uint32_t>(bytes, F::kVersionAt) != F::kVersion ||
+                   read_at<std::uint32_t>(bytes, F::kHeaderSizeAt) != F::kHeaderBytes) {
+            discard = "it is format version " + std::to_string(read_at<std::uint32_t>(bytes, F::kVersionAt)) +
+                      " and this engine reads version " + std::to_string(F::kVersion);
+        } else {
+            const std::uint32_t vendor = read_at<std::uint32_t>(bytes, F::kVendorAt);
+            const std::uint32_t deviceId = read_at<std::uint32_t>(bytes, F::kVendorAt + 4);
+            const std::uint32_t subsys = read_at<std::uint32_t>(bytes, F::kVendorAt + 8);
+            const std::uint32_t revision = read_at<std::uint32_t>(bytes, F::kVendorAt + 12);
+            const std::uint64_t driver = read_at<std::uint64_t>(bytes, F::kDriverAt);
+            const std::uint64_t payload = read_at<std::uint64_t>(bytes, F::kPayloadSizeAt);
+            const std::string checksum(reinterpret_cast<const char*>(bytes.data() + F::kChecksumAt), 64);
+            if (vendor != identity_.vendor || deviceId != identity_.device || subsys != identity_.subsys ||
+                revision != identity_.revision) {
+                discard = "it was made on another GPU (vendor " + hex32(vendor) + ", device " + hex32(deviceId) +
+                          "; this one is " + adapterName_ + ", vendor " + hex32(identity_.vendor) + ", device " +
+                          hex32(identity_.device) + ")";
+            } else if (driver != identity_.driverVersion) {
+                discard = "it was made by driver " + driver_text(driver) + " and this one is " +
+                          driver_text(identity_.driverVersion);
+            } else if (payload != bytes.size() - F::kHeaderBytes) {
+                discard = "it is damaged (its header says " + std::to_string(payload) +
+                          " bytes of pipelines, it holds " + std::to_string(bytes.size() - F::kHeaderBytes) + ")";
+            } else if (sha256_hex(bytes.data() + F::kHeaderBytes, std::size_t(payload)) != checksum) {
+                discard = "it is damaged (its checksum does not match its bytes)";
+            }
+        }
+    }
+    auto create = [&](const std::vector<std::uint8_t>& blob) {
+        library_.reset();
+        return device1->CreatePipelineLibrary(blob.empty() ? nullptr : blob.data(), blob.size(),
+                                              __uuidof(ID3D12PipelineLibrary), library_.put_void());
+    };
+    HRESULT hr = S_OK;
+    bool loaded = false;
+    if (discard.empty() && size >= 0) {
+        // The library reads its blob for its whole life: it lives in libraryBlob_.
+        libraryBlob_.assign(bytes.begin() + std::ptrdiff_t(F::kHeaderBytes), bytes.end());
+        hr = create(libraryBlob_);
+        if (hr == E_INVALIDARG || hr == D3D12_ERROR_ADAPTER_NOT_FOUND || hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH)
+            discard = "the driver refused it (CreatePipelineLibrary: " + hr_text(hr) + ")";
+        else
+            loaded = SUCCEEDED(hr) && library_;
+    }
+    if (!loaded && (hr != DXGI_ERROR_UNSUPPORTED)) {
+        libraryBlob_.clear();
+        hr = create(libraryBlob_);  // an empty library: this run's PSOs go into it
+    }
+    if (FAILED(hr) || !library_) {
+        library_.reset();
+        libraryBlob_.clear();
+        // DXGI_ERROR_UNSUPPORTED: the driver has no pipeline libraries (or a graphics debugger is attached).
+        FA_INFO("render", "gpu d3d12: {} makes no pipeline library ({}): PSOs are cached in memory only", adapterName_,
+                hr_text(hr));
+        return;
+    }
+    library_->SetName(L"fa-d3d12-pipeline-library");
+    D3d12PipelineCacheTotals add;
+    if (loaded) add.filesLoaded = 1;
+    if (!discard.empty()) {
+        add.filesDiscarded = 1;
+        const std::string message =
+            "gpu d3d12: the pipeline cache " + file + " was thrown away: " + discard +
+            "; its pipelines are compiled again and the file is written anew (hint: nothing to fix; it happens after "
+            "a GPU or driver change, and deleting the file clears the cache)";
+        FA_WARN("render", "{}", message);
+        std::lock_guard<std::mutex> lock(msgMutex_);
+        warnings_.push_back(message);
+    }
+    d3d12_pipeline_cache_count(add);
+    std::lock_guard<std::mutex> lock(libraryMutex_);
+    if (!discard.empty()) {
+        ++cacheDiscarded_;
+        libraryDirty_ = true;  // the next save replaces the thrown-away file
+    }
+}
+
+Result<void> D3d12Device::save_pipeline_cache() {
+    if (pipelineCacheFile_.empty()) return {};
+    using F = PipelineCacheFile;
+    std::vector<std::uint8_t> bytes;
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        if (!library_ || !libraryDirty_) return {};
+        const SIZE_T payload = library_->GetSerializedSize();
+        if (std::uint64_t(payload) > std::uint64_t(kMaxPipelineCacheBytes) - F::kHeaderBytes)
+            return make_error(
+                "gpu d3d12: the pipeline cache has " + std::to_string(payload) +
+                    " bytes, more than a cache file may have; it is not written",
+                "a runaway number of distinct pipelines (D3d12Device::counters().psos says how many the device keeps)");
+        bytes.resize(F::kHeaderBytes + payload);
+        const HRESULT hr = library_->Serialize(bytes.data() + F::kHeaderBytes, payload);
+        if (FAILED(hr))
+            return make_error("gpu d3d12: serializing the pipeline library failed with " + hr_text(hr) +
+                                  removed_reason(),
+                              "the device was lost or out of memory; the old cache file was kept");
+        libraryDirty_ = false;  // a PSO stored from here on makes it dirty again
+    }
+    std::memcpy(bytes.data(), F::kMagic, 8);
+    write_at<std::uint32_t>(bytes, F::kVersionAt, F::kVersion);
+    write_at<std::uint32_t>(bytes, F::kHeaderSizeAt, std::uint32_t(F::kHeaderBytes));
+    write_at<std::uint32_t>(bytes, F::kVendorAt, identity_.vendor);
+    write_at<std::uint32_t>(bytes, F::kVendorAt + 4, identity_.device);
+    write_at<std::uint32_t>(bytes, F::kVendorAt + 8, identity_.subsys);
+    write_at<std::uint32_t>(bytes, F::kVendorAt + 12, identity_.revision);
+    write_at<std::uint64_t>(bytes, F::kDriverAt, identity_.driverVersion);
+    write_at<std::uint32_t>(bytes, F::kLuidAt, identity_.luidLow);
+    write_at<std::int32_t>(bytes, F::kLuidAt + 4, identity_.luidHigh);
+    const std::size_t payload = bytes.size() - F::kHeaderBytes;
+    write_at<std::uint64_t>(bytes, F::kPayloadSizeAt, std::uint64_t(payload));
+    const std::string checksum = sha256_hex(bytes.data() + F::kHeaderBytes, payload);
+    std::memcpy(bytes.data() + F::kChecksumAt, checksum.data(), 64);
+
+    const std::string file = fs::path_to_utf8(pipelineCacheFile_);
+    std::error_code ec;
+    std::filesystem::create_directories(pipelineCacheFile_.parent_path(), ec);  // a failure shows in the write
+    // A temporary file, then a rename over the old one: a reader never sees half a file, and a failed write (another
+    // process holds the file open, which Windows does not let a rename replace; a full disk) leaves the old one.
+    auto written = fs::write_bytes(file, bytes.data(), bytes.size());
+    D3d12PipelineCacheTotals add;
+    if (!written) {
+        add.storeFailed = 1;
+        d3d12_pipeline_cache_count(add);
+        {
+            std::lock_guard<std::mutex> lock(libraryMutex_);
+            libraryDirty_ = true;
+        }
+        const std::string message = "gpu d3d12: the pipeline cache could not be written to " + file + ": " +
+                                    written.error().message + "; the old file was kept";
+        const std::string hint =
+            "another process may hold the file open (Windows does not replace an open file), or the disk is full; the "
+            "cache is written again when the device is destroyed";
+        FA_WARN("render", "{} (hint: {})", message, hint);
+        {
+            std::lock_guard<std::mutex> lock(msgMutex_);
+            warnings_.push_back(message + " (hint: " + hint + ")");
+        }
+        return make_error(message, hint);
+    }
+    add.filesStored = 1;
+    d3d12_pipeline_cache_count(add);
+    std::lock_guard<std::mutex> lock(libraryMutex_);
+    ++cacheStored_;
+    return {};
 }
 
 Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {

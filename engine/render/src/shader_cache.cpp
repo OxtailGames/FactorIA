@@ -3,11 +3,15 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <utility>
 
 #include "fa/core/engine_version.h"
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/log.h"
+#include "gpu/d3d12_device.h"
 #include "gpu/device.h"
 
 #if defined(SOKOL_D3D11)
@@ -95,6 +99,20 @@ Json ShaderBuildStats::to_json(const char* backend) const {
         j["cacheDamaged"] = cacheDamaged;
         j["cacheStored"] = cacheStored;
         j["cacheStoreFailed"] = cacheStoreFailed;
+    }
+    if (named == gpu::Backend::D3d12) {
+        // The D3D12 devices' on-disk PSO cache (an ID3D12PipelineLibrary per device, gpu/d3d12_pipelines_win32.cpp).
+        const gpu::D3d12PipelineCacheTotals t = gpu::d3d12_pipeline_cache_totals();
+        Json p = Json::object();
+        const stdfs::path file = gpu::d3d12_pipeline_cache_file();
+        p["file"] = file.empty() ? std::string() : fs::path_to_utf8(file);
+        p["hits"] = t.libraryHits;
+        p["misses"] = t.libraryMisses;
+        p["filesLoaded"] = t.filesLoaded;
+        p["stored"] = t.filesStored;
+        p["discarded"] = t.filesDiscarded;
+        p["storeFailed"] = t.storeFailed;
+        j["pipelineCache"] = std::move(p);
     }
     return j;
 }
