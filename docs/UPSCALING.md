@@ -474,4 +474,4 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing) |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 
-How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_POST.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).
+How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).

@@ -1,5 +1,5 @@
 // M76-P1a: the per-pixel motion vectors the depth prepass writes as a second attachment (src/renderer_draw.cpp plan_prepass / prepass_pass /
-// fill_prev_models, mesh_common.glsl prepass programs, docs/design/ARCHITECTURE_RENDERING_POST.md "Motion vectors and jitter (M76)").
+// fill_prev_models, mesh_common.glsl prepass programs, docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md "Motion vectors and jitter (M76)").
 // The image is read back through RendererTestAccess::read_velocity (a copy of the camera's RG16F image as floats, forced on with
 // force_velocity). Every value is uvPrev - uvCurr from the UNJITTERED matrices (uv y down), the sentinel 1024 where no object wrote:
 //   - a still scene: ~0 on the meshes, the sentinel on the sky;

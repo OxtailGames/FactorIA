@@ -14,7 +14,7 @@
 // jittered, and starts a new history) on: a cut (the camera of the frame before is not the camera of this one: PostPlan::prevValid), a resize or
 // a change of the render scale (the images have another size), a floating-origin shift, a frame the effect did not run for the camera (it was
 // off, or the camera drew no picture), another scene (a load or a reload), a camera whose stack lost the effect. docs/UPSCALING.md and
-// docs/design/ARCHITECTURE_RENDERING_POST.md ("Motion vectors and jitter (M76)") say the same.
+// docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md ("Motion vectors and jitter (M76)") say the same.
 //
 // The resolve is written to be shared (taa_shared.glsl): the temporal upscaler of M76-P4 calls TaaFx::resolve with the picture at the render
 // resolution and the history at the output resolution (TaaResolveInput::inW/inH, outW/outH).
