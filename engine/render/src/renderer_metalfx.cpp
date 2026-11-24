@@ -39,8 +39,16 @@ bool Renderer::Impl::metalfx_fail(const std::string& why) {
     }
     mfxFailed = true;
     mfxScaler.release();
-    mfxLastWrote = false;
+    free_mfx_images();
     return false;
+}
+
+// The depth and motion images of the preparation pass are made at the render resolution only while MetalFX draws; a failure of MetalFX and
+// a frame of another upscaler give them back.
+void Renderer::Impl::free_mfx_images() {
+    if (mfxDepth.color.id) destroy_target(mfxDepth);
+    if (mfxMotion.color.id) destroy_target(mfxMotion);
+    mfxLastWrote = false;
 }
 
 // An image of the MetalFX preparation pass: `format` at w x h, a colour attachment that is also sampled.
@@ -66,6 +74,10 @@ bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, sg_pixel_fo
 bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, Target& out, const PassContext& c) {
     using render::metalfx::Kind;
     if (mfxFailed || !sg_isvalid() || !render::metalfx::on_metal() || !out.valid() || !src.valid()) return false;
+    // A command buffer of an earlier frame came back with an error (it finishes on another thread): MetalFX is given up from this frame on.
+    std::string commandError;
+    if (mfxScaler.command_failed(&commandError))
+        return metalfx_fail("a MetalFX command buffer finished with an error: " + commandError + ".");
     const render::metalfx::Support& support = metalfx_support();
     const bool temporalKind = temporalFrame && mfxFrame && upscaleTaa.on && support.temporal;
     if (temporalFrame && !temporalKind)
@@ -92,7 +104,6 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     d.autoExposure = false;  // the scene colour is exposed before the stage: pre-exposure 1
     std::string error;
     if (mfxForceCreateFail) return metalfx_fail("MetalFX creation was refused (test hook).");
-    if (!mfxScaler.configure(d, &error)) return metalfx_fail(error);
 
     render::metalfx::Frame f;
     f.color = src.texture_image();
@@ -155,12 +166,15 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         f.motionScaleX = float(in.renderW);
         f.motionScaleY = float(in.renderH);
         f.reset = !histValid;
-        mfxLastReset = f.reset || mfxScaler.encoded() == 0;
         mfxLastSerial = upscaleTaa.serial;
         mfxLastScene = upscaleTaa.sceneKey;
         mfxLastShifts = upscaleTaa.originShifts;
         mfxLastConfig = config;
     }
+    if (mfxPrepOnly) return false;  // test hook: the preparation pass is drawn and read, MetalFX is not asked
+    // After the preparation pass: a scaler MetalFX cannot make costs one preparation pass, once (the failure is for good).
+    if (!mfxScaler.configure(d, &error)) return metalfx_fail(error);
+    if (temporalKind) mfxLastReset = f.reset || mfxScaler.encoded() == 0;  // a scaler made just now starts its history
     // Encode splits the frame (sg_commit): the passes recorded so far, which wrote the picture, go first.
     if (!mfxScaler.encode(f, &error)) return metalfx_fail(error);
     mfxLastWrote = temporalKind;

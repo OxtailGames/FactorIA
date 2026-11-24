@@ -130,10 +130,8 @@ void Renderer::Impl::free_output_targets() {
     destroy_target(spatialTarget);
     destroy_target(outTarget);
     destroy_target(outFilterTarget);
-    destroy_target(mfxDepth);
-    destroy_target(mfxMotion);
+    free_mfx_images();
     mfxScaler.release();
-    mfxLastWrote = false;
     outHasStorage = false;
     outActive = false;
     outFilterActive = false;
@@ -301,6 +299,8 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // upscaler when the frame is jittered, then to the spatial one, as the effective mode lists them.
     if (upscaleImpl == UpscaleImpl::MetalFx && !metalfx_upscale(in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
+    if (mode != render::UpscalerMode::MetalFx)
+        free_mfx_images();  // another mode: the two images of its preparation pass are not kept
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
         upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
     switch (upscaleImpl) {
