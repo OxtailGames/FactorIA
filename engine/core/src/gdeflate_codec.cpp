@@ -40,7 +40,7 @@ constexpr std::size_t kHeaderBytes = 8;
 constexpr std::size_t kPreambleBytes = kLanes * 4;  // the first 32-bit word of every lane
 constexpr std::uint8_t kStreamId = 4;
 constexpr std::uint8_t kStreamMagic = 0xFB;  // id ^ 0xFF
-constexpr unsigned kMaxMatch = 65538;  // symbol 285: 3 + 16 extra bits
+constexpr unsigned kMaxMatch = 65538;        // symbol 285: 3 + 16 extra bits
 constexpr unsigned kMinMatch = 3;
 constexpr std::uint32_t kNone = 0xFFFFFFFFu;
 
@@ -49,12 +49,13 @@ constexpr std::array<std::uint16_t, 29> kLenBase = {3,  4,  5,  6,  7,  8,  9,  
                                                     31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 3};
 constexpr std::array<std::uint8_t, 29> kLenExtra = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2,
                                                     2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 16};
-constexpr std::array<std::uint32_t, 32> kDistBase = {1,   2,   3,   4,   5,   7,    9,    13,   17,   25,   33,
-                                                     49,  65,  97,  129, 193, 257,  385,  513,  769,  1025, 1537,
-                                                     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 32769, 49153};
-constexpr std::array<std::uint8_t, 32> kDistExtra = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3,  4,  4,  5,  5,  6,  6,
+constexpr std::array<std::uint32_t, 32> kDistBase = {
+    1,   2,   3,   4,   5,    7,    9,    13,   17,   25,   33,   49,    65,    97,    129,   193,
+    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 32769, 49153};
+constexpr std::array<std::uint8_t, 32> kDistExtra = {0, 0, 0, 0, 1, 1, 2,  2,  3,  3,  4,  4,  5,  5,  6,  6,
                                                      7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14};
-constexpr std::array<std::uint8_t, 19> kPrecodeOrder = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+constexpr std::array<std::uint8_t, 19> kPrecodeOrder = {16, 17, 18, 0, 8,  7, 9,  6, 10, 5,
+                                                        11, 4,  12, 3, 13, 2, 14, 1, 15};
 
 constexpr unsigned kEndOfBlock = 256;
 constexpr unsigned kNumLitLen = 288;
@@ -113,9 +114,8 @@ void huffman_lengths(const std::uint32_t* freq, unsigned n, unsigned maxLen, std
         unsigned m = 0;
         for (unsigned s = 0; s < n; ++s)
             if (f[s]) order[m++] = static_cast<std::uint16_t>(s);
-        std::sort(order.begin(), order.begin() + m, [&](std::uint16_t a, std::uint16_t b) {
-            return f[a] != f[b] ? f[a] < f[b] : a < b;
-        });
+        std::sort(order.begin(), order.begin() + m,
+                  [&](std::uint16_t a, std::uint16_t b) { return f[a] != f[b] ? f[a] < f[b] : a < b; });
         // Two-queue construction: the leaves in order, and the internal nodes, which are created in order too.
         std::array<std::uint32_t, 2 * kNumLitLen> weight{};
         std::array<std::uint16_t, 2 * kNumLitLen> left{}, right{}, depth{};
@@ -208,8 +208,7 @@ public:
     }
     // Writes what every lane still holds. The stream is complete afterwards.
     void finish() {
-        for (unsigned l = 0; l < kLanes; ++l)
-            store32(out_->data() + write_[l], static_cast<std::uint32_t>(bitbuf_[l]));
+        for (unsigned l = 0; l < kLanes; ++l) store32(out_->data() + write_[l], static_cast<std::uint32_t>(bitbuf_[l]));
     }
 
 private:
@@ -239,9 +238,9 @@ struct LevelParams {
 };
 
 LevelParams level_params(int level) {
-    static constexpr LevelParams table[12] = {{4, 16, false},   {8, 32, false},    {16, 64, false},    {16, 32, true},
-                                              {24, 48, true},   {48, 128, true},   {96, 192, true},    {192, 258, true},
-                                              {384, 512, true}, {768, 1024, true}, {1536, 2048, true}, {4096, 4096, true}};
+    static constexpr LevelParams table[12] = {
+        {4, 16, false},  {8, 32, false},   {16, 64, false},  {16, 32, true},    {24, 48, true},     {48, 128, true},
+        {96, 192, true}, {192, 258, true}, {384, 512, true}, {768, 1024, true}, {1536, 2048, true}, {4096, 4096, true}};
     return table[std::clamp(level, 1, 12) - 1];
 }
 
@@ -442,9 +441,12 @@ private:
         writer_.reset_lane();
         for (const Item& it : items_) {
             writer_.add(preCodes[it.symbol], preLens[it.symbol]);
-            if (it.symbol == 16) writer_.add(it.extra, 2);
-            else if (it.symbol == 17) writer_.add(it.extra, 3);
-            else if (it.symbol == 18) writer_.add(it.extra, 7);
+            if (it.symbol == 16)
+                writer_.add(it.extra, 2);
+            else if (it.symbol == 17)
+                writer_.add(it.extra, 3);
+            else if (it.symbol == 18)
+                writer_.add(it.extra, 7);
             writer_.advance();
         }
         writer_.reset_lane();
@@ -546,10 +548,10 @@ private:
 
 // Decode table entries: bits 0..4 the number of bits to consume, bits 5..9 the number of extra bits, bits 10..13 flags,
 // bits 16..31 the value (a literal byte, a length or distance base, a precode symbol, or a subtable's offset).
-constexpr std::uint32_t kSub = 1u << 10;   // a pointer to a subtable (bits 0..4: its index width)
-constexpr std::uint32_t kLit = 1u << 11;   // a literal
-constexpr std::uint32_t kEob = 1u << 12;   // end of block
-constexpr std::uint32_t kBad = 1u << 13;   // a symbol that cannot occur (or a hole in an incomplete code)
+constexpr std::uint32_t kSub = 1u << 10;  // a pointer to a subtable (bits 0..4: its index width)
+constexpr std::uint32_t kLit = 1u << 11;  // a literal
+constexpr std::uint32_t kEob = 1u << 12;  // end of block
+constexpr std::uint32_t kBad = 1u << 13;  // a symbol that cannot occur (or a hole in an incomplete code)
 
 enum class Kind { Precode, LitLen, Offset };
 
@@ -564,7 +566,8 @@ constexpr std::uint32_t make_entry(Kind kind, unsigned sym, unsigned len) {
                        (static_cast<std::uint32_t>(kLenExtra[sym - 257]) << 5) | len;
             return kBad | len;
         case Kind::Offset:
-            if (sym < kNumDist) return (kDistBase[sym] << 16) | (static_cast<std::uint32_t>(kDistExtra[sym]) << 5) | len;
+            if (sym < kNumDist)
+                return (kDistBase[sym] << 16) | (static_cast<std::uint32_t>(kDistExtra[sym]) << 5) | len;
             return kBad | len;
     }
     return kBad;
@@ -642,8 +645,8 @@ public:
         outPos_ = 0;
         pending_ = 0;
         if (in.size() < kPreambleBytes)
-            return fail("the tile holds " + std::to_string(in.size()) + " bytes, fewer than the 128 of its 32 lane words",
-                        0);
+            return fail(
+                "the tile holds " + std::to_string(in.size()) + " bytes, fewer than the 128 of its 32 lane words", 0);
         for (unsigned l = 0; l < kLanes; ++l) {
             buf_[l] = load32(in_ + 4 * l);
             cnt_[l] = 32;
@@ -663,7 +666,8 @@ public:
             if (last) break;
         }
         if (outPos_ != outSize_)
-            return fail("the tile decodes to " + std::to_string(outPos_) + " bytes, expected " + std::to_string(outSize_),
+            return fail("the tile decodes to " + std::to_string(outPos_) + " bytes, expected " +
+                            std::to_string(outSize_),
                         inPos_);
         consumed = inPos_;
         return true;
@@ -768,7 +772,8 @@ private:
                 } else {
                     rep = 11 + pop(lane, 7);
                 }
-                if (i + rep > total) return fail("the code lengths run past the " + std::to_string(total) + " announced", inPos_);
+                if (i + rep > total)
+                    return fail("the code lengths run past the " + std::to_string(total) + " announced", inPos_);
                 for (unsigned k = 0; k < rep; ++k) lens[i++] = value;
             }
             if (!ensure(lane)) return false;
@@ -790,7 +795,9 @@ private:
             } else {
                 const std::uint32_t e = lookup(litTable_, 10, lane);
                 if (e & kLit) {
-                    if (outPos_ == outSize_) return fail("the block decodes to more than the " + std::to_string(outSize_) + "-byte tile", inPos_);
+                    if (outPos_ == outSize_)
+                        return fail("the block decodes to more than the " + std::to_string(outSize_) + "-byte tile",
+                                    inPos_);
                     out_[outPos_++] = static_cast<std::uint8_t>(e >> 16);
                 } else if (e & kEob) {
                     break;
@@ -906,23 +913,27 @@ void gdeflate_compress(std::span<const std::uint8_t> input, int level, std::vect
 Result<std::size_t> gdeflate_decode_tile(std::span<const std::uint8_t> tile, std::span<std::uint8_t> out) {
     TileDecoder decoder;
     std::size_t consumed = 0;
-    if (!decoder.run(tile, out, consumed)) return block_error("gdeflate", decoder.error(), static_cast<std::ptrdiff_t>(decoder.error_at()));
+    if (!decoder.run(tile, out, consumed))
+        return block_error("gdeflate", decoder.error(), static_cast<std::ptrdiff_t>(decoder.error_at()));
     return consumed;
 }
 
 Result<void> gdeflate_decompress(std::span<const std::uint8_t> block, std::span<std::uint8_t> out) {
     if (block.size() < kHeaderBytes)
-        return block_error("gdeflate", "the block holds " + std::to_string(block.size()) + " bytes, fewer than the 8 of the stream header", 0);
+        return block_error(
+            "gdeflate",
+            "the block holds " + std::to_string(block.size()) + " bytes, fewer than the 8 of the stream header", 0);
     const std::uint8_t* b = block.data();
     if (b[0] != kStreamId || b[1] != kStreamMagic)
         return block_error("gdeflate",
-                           "the header is not a GDeflate stream (id " + std::to_string(b[0]) + ", magic " + std::to_string(b[1]) +
-                               "; expected 4 and 251)",
+                           "the header is not a GDeflate stream (id " + std::to_string(b[0]) + ", magic " +
+                               std::to_string(b[1]) + "; expected 4 and 251)",
                            0);
     const std::size_t tiles = load16(b + 2);
     const std::uint32_t word = load32(b + 4);
     if ((word & 3u) != 1u)
-        return block_error("gdeflate", "the tile size index is " + std::to_string(word & 3u) + ", only 1 (64 KiB tiles) exists", 4);
+        return block_error("gdeflate",
+                           "the tile size index is " + std::to_string(word & 3u) + ", only 1 (64 KiB tiles) exists", 4);
     const std::size_t lastField = (word >> 2) & 0x3FFFFu;
     if (lastField >= kTileSize || (word >> 20) != 0)
         return block_error("gdeflate", "the last tile size or the reserved bits of the header are invalid", 4);
@@ -931,9 +942,12 @@ Result<void> gdeflate_decompress(std::span<const std::uint8_t> block, std::span<
         tiles == 0 ? 0 : static_cast<std::uint64_t>(tiles - 1) * kTileSize + (lastField == 0 ? kTileSize : lastField);
     if (total != out.size())
         return block_error("gdeflate",
-                           "the stream holds " + std::to_string(total) + " bytes but " + std::to_string(out.size()) + " were expected", 2);
+                           "the stream holds " + std::to_string(total) + " bytes but " + std::to_string(out.size()) +
+                               " were expected",
+                           2);
     const std::uint64_t dataStart = kHeaderBytes + static_cast<std::uint64_t>(tiles) * 4;
-    if (dataStart > block.size()) return block_error("gdeflate", "the tile table is cut short", static_cast<std::ptrdiff_t>(block.size()));
+    if (dataStart > block.size())
+        return block_error("gdeflate", "the tile table is cut short", static_cast<std::ptrdiff_t>(block.size()));
     const std::uint8_t* table = b + kHeaderBytes;
     const std::uint8_t* data = b + dataStart;
     const std::uint64_t dataSize = block.size() - dataStart;
@@ -944,8 +958,8 @@ Result<void> gdeflate_decompress(std::span<const std::uint8_t> block, std::span<
         const std::ptrdiff_t at = static_cast<std::ptrdiff_t>(dataStart + begin);
         if (begin > end || end > dataSize)
             return block_error("gdeflate",
-                               "tile " + std::to_string(t) + " is bytes " + std::to_string(begin) + ".." + std::to_string(end) +
-                                   " of the tile data, which holds " + std::to_string(dataSize),
+                               "tile " + std::to_string(t) + " is bytes " + std::to_string(begin) + ".." +
+                                   std::to_string(end) + " of the tile data, which holds " + std::to_string(dataSize),
                                at);
         const std::size_t outBegin = t * kTileSize;
         const std::size_t outLen = std::min<std::size_t>(kTileSize, out.size() - outBegin);
