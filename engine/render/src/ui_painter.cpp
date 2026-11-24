@@ -425,6 +425,10 @@ std::unique_ptr<UiPainter> UiPainter::create(Renderer& renderer, std::string* er
         set_error(error, "UiPainter::create(Renderer&) needs an initialized renderer (call Renderer::init first)");
         return nullptr;
     }
+    // On the sokol context the renderer keeps its frame's command list open between frames, and a sokol device has one
+    // list at a time: the painter gets a device of its own over the same context, as create(error) makes it (the ids
+    // are shared, so it still shows the renderer's pictures).
+    if (device->backend() == gpu::built_sokol_backend()) return create(error);
     return make_ui_painter_on(*device, error);  // the renderer's device, not owned: the renderer outlives the painter
 }
 

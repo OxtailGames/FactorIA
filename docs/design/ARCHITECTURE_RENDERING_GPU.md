@@ -390,8 +390,11 @@ their device with `make_device(backend, init)` (the window environment's default
 `Gpu::init`; they never open, adopt or close the sokol context. Another sokol backend is an `init()` error that says
 which one the binary has. Every built-in program comes from `generated_shader_desc(device, ...)`, so each device
 gets its own dialect; `gpu_info().backend` names the device's backend ("d3d12", "vulkan", "dummy" for Recording).
-`UiPainter::create(Renderer&, error)` makes a painter on the renderer's device (not owned: destroy it before
-`Renderer::shutdown`); `UiPainter::create(error)` still makes one on the open sokol context (the editor).
+`UiPainter::create(Renderer&, error)` makes a painter that draws where the renderer draws: on D3D12, Vulkan and
+Recording the renderer's own device (not owned: destroy the painter before `Renderer::shutdown`); on the sokol backend
+a device of its own over the same context, as `UiPainter::create(error)` (the editor) makes it, since `Gpu` keeps its
+frame's list open between frames and a sokol device has one list at a time (the ids are shared, so it still shows the
+renderer's pictures).
 `Gpu::find_or_make` writes every vertex offset and stride out (`gpu::resolve_vertex_offsets`: sokol's rule, each
 buffer whose offsets are all 0 is packed on its own), so a backend that packs the whole layout at once reads the
 same attributes; vertex buffers say `usage.vertexBuffer`, and the lean 2D program binds only its texture and sampler.
@@ -407,10 +410,13 @@ Vulkan and Recording for now): every call fails with an error that says to draw 
 or pick the sokol backend, so a non-headless renderer on them fails `init()`.
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
-which opens the SPIR-V of every generated header. ON on Linux, Windows and Android; on macOS it follows
-`FA_BUILD_TESTS`, so the Debug suite draws the renderer on MoltenVK while a release build (the players, the editor:
-tests off) carries no SPIR-V; OFF on iOS and the web. It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws
-a 2D and a 3D frame on Vulkan and on the platform's sokol backend and compares them within the golden limits.
+which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
+configure, so turning `FA_BUILD_TESTS` on or off moves it): ON on Windows, whose player carries D3D11, D3D12 and
+Vulkan; on Linux, Android and macOS it follows `FA_BUILD_TESTS`, so the suite draws the renderer on lavapipe (the
+linux CI job) and MoltenVK while a release build (the players, the editor: tests off) carries no SPIR-V; OFF on iOS
+and the web. `ON` / `OFF` override it (the macOS CI job builds its tests with `OFF`, so its player-size step measures
+the player that ships). It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws a 2D and a 3D frame on
+Vulkan and on the platform's sokol backend and compares them within the golden limits.
 
 ## P5c: native_metal and the 2D painter
 

@@ -97,10 +97,12 @@ public:
     // Makes a painter on the open graphics context (Renderer::open_context, or a Renderer that opened one). Null with
     // `error` when there is none or the device cannot make its pipeline.
     static std::unique_ptr<UiPainter> create(std::string* error);
-    // Makes a painter on `renderer`'s GPU device (whatever RendererDesc::backend it draws through), so its pictures
-    // and the renderer's live on the same device. The renderer must be initialized and outlive the painter: destroy
-    // the painter before Renderer::shutdown(). Null with `error` when the renderer has no device or the device cannot
-    // make the painter's pipeline.
+    // Makes a painter that draws where `renderer` draws (whatever RendererDesc::backend it picked), so its pictures and
+    // the renderer's live on the same device: on D3D12, Vulkan and Recording the renderer's own device; on the sokol
+    // backend a device of its own over the same context, as create(error) (the ids are shared, and the renderer keeps
+    // its frame's command list open). The renderer must be initialized and outlive the painter: destroy the painter
+    // before Renderer::shutdown(). Null with `error` when the renderer has no device or the device cannot make the
+    // painter's pipeline.
     static std::unique_ptr<UiPainter> create(Renderer& renderer, std::string* error);
     explicit UiPainter(std::unique_ptr<UiPainterImpl> impl);  // see ui_painter_internal.h
     ~UiPainter();

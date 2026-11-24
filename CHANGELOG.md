@@ -20,10 +20,12 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   swapchains come later); a backend the build lacks names the one it has. Each built-in shader is taken in the device's dialect
   (`gpu::generated_shader_desc(device, ...)`), `gpu_info().backend` names the device's backend ("d3d12", "vulkan"), the window goes
   through a swapchain interface of the device (create, acquire, present, resize, the HDR format question), and
-  `UiPainter::create(Renderer&, error)` paints on the renderer's device. `FA_RENDER_VULKAN` (ON on Linux, Windows and Android; on
-  macOS only with the tests, so the Debug suite draws on MoltenVK; OFF on iOS and the web) compiles the SPIR-V of the built-in
-  shaders into `fa_render`: the Linux, Windows and Android players now carry it, the Apple and web ones do not. A test draws a 2D and
-  a 3D frame on Vulkan and on the sokol backend and compares them. The renderer now gives every pipeline explicit vertex offsets (the
+  `UiPainter::create(Renderer&, error)` paints where the renderer draws (its device, or on the sokol backend a device of its own over
+  the same context). `FA_RENDER_VULKAN` (`AUTO`, worked out at every configure: ON on Windows; on Linux, Android and macOS only in a
+  build with the tests, so the suite draws on lavapipe and MoltenVK; OFF on iOS and the web) compiles the SPIR-V of the built-in
+  shaders (about 3.4 MB) into `fa_render`: the Windows player now carries it, with D3D11, D3D12 and Vulkan in one binary, and its
+  size budget grew with it; the Linux, Android, Apple and web players do not. A test draws a 2D and a 3D frame on Vulkan and on the
+  sokol backend and compares them. The renderer now gives every pipeline explicit vertex offsets (the
   per-buffer packing of sokol_gfx, `gpu::resolve_vertex_offsets`), says `vertexBuffer` on its mesh and UI vertex buffers, and binds
   only the slots the lean 2D program declares, which the stricter backends ask for.
 - The editor draws its interface through a public 2D painter of the renderer, `fa::render::UiPainter` (`fa/render/ui_painter.h`): triangle lists

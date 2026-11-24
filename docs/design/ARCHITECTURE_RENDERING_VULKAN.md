@@ -20,7 +20,8 @@ Khronos headers (`external/vulkan_headers`) and link no Vulkan library: the load
 `VulkanOptions::loaderPath`), so a binary on a system without Vulkan starts and the error says what to install. There is
 no volk and no VMA. `make_device(Backend::Vulkan)` makes it (`DeviceInit` and the other options at their defaults)
 where `FA_RENDER_VULKAN` is on: the renderer's built-in shaders need their SPIR-V, which that option compiles into
-`fa_render` (ON on Linux, Windows and Android; on macOS only in a build with the tests; never on iOS or the web).
+`fa_render` (by default ON on Windows; on Linux, Android and macOS only in a build with the tests; never on iOS or
+the web).
 Tests make it with `make_vulkan_device(VulkanOptions)`.
 
 ## The core (M77-P8a)

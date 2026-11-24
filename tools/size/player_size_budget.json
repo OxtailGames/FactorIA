@@ -129,11 +129,11 @@
         }
       ],
       "map": "player/factoria_player.map",
-      "maxBytes": 28291226,
-      "baselineBytes": 25719296,
+      "maxBytes": 33116508,
+      "baselineBytes": 30105916,
       "note": "MSVC /MAP: the per-library numbers are the gaps between the public symbols, so a static function counts for the public symbol before it.",
       "baselineLibraries": {
-        "fa_render": 10000396,
+        "fa_render": 14387016,
         "fa_scene": 2897024,
         "fa_script": 2024232,
         "fa_runtime": 1689192,
