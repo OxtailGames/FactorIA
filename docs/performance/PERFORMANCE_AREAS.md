@@ -109,7 +109,7 @@ When the GPU is the limit, the cheapest saving is the number of pixels, and none
 | `temporalAAEnabled` | two passes at the render size and one history per camera | nothing: it is the cost of antialiasing without multisampling |
 | `motionBlurMode` `object` | the velocity image and three passes | `camera` mode is cheaper |
 
-`play.report` and `game.renderStats()` give `width`, `height`, `dynamicScale` and `frameMs` of the frame drawn; the `perf.measure` numbers of a run
+`game.renderStats()` gives `width`, `height`, `dynamicScale` and `frameMs` of the frame drawn (`window.upscaler` the last two); the `perf.measure` numbers of a run
 without graphics do not include any of it. `render.frame_graph` with `profileFrames` times each pass.
 
 ## Path finding on tile maps

@@ -132,7 +132,7 @@ says what is being retried.
 
 While the temporal antialiasing (`PostProcess.temporalAAEnabled`) or a temporal upscaler (`render.upscaler` mode `temporal` or `metalfx`) draws, a pixel keeps part of
 the frames before it. A fast, bright particle would blend with that history and trail or ghost, so a blended or additive particle writes `ParticleEmitter.reactive`
-(0 to 1, default 1) into a reactive mask that lowers the weight of the history where it is drawn (`temporalAAReactiveScale` of the `PostProcess` scales it). Leave it at
+(0 to 1, default 1) into a reactive mask that lowers the weight of the history where it is drawn (`temporalAAReactiveScale` of the `PostProcess` scales it, except with `metalfx`, which takes the mask as it is). Leave it at
 1 for sparks, fire and smoke; set 0 for an emitter whose particles are slow and wide enough that a little history helps. It does nothing when no temporal effect
 draws, and a particle writes no motion vector of its own. The mask holds the pixels a particle covers now: it does not clear the trail it left earlier
 ([UPSCALING.md](UPSCALING.md), "Temporal antialiasing").

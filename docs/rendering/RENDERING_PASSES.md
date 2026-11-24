@@ -29,6 +29,6 @@ ends with the **upscale stage** ([UPSCALING.md](../UPSCALING.md)):
 
 | Pass | When | What |
 |---|---|---|
-| `upscale` (inside it `upscale-stretch`, or `upscale-resolve` and `upscale-output`, or MetalFX's own command buffer, `upscale-metalfx-prep` first) | the render size is below the output, or a temporal mode or MetalFX asks for the stage at `native` quality | Brings the picture to the window's size: the plain stretch, the spatial upscaler's two passes, the temporal upscaler's resolve and sharpen, or MetalFX. It reads the camera's prepass, velocity image and reactive mask when they exist. |
+| `upscale` (inside it `upscale-stretch`, or `upscale-spatial-edge` and `upscale-spatial-sharpen`, or `upscale-resolve` and `upscale-output`, or MetalFX's own command buffer, `upscale-metalfx-prep` first) | the render size is below the output, or a temporal mode or MetalFX asks for the stage at `native` quality | Brings the picture to the window's size: the plain stretch, the spatial upscaler's two passes, the temporal upscaler's resolve and sharpen, or MetalFX. It reads the camera's prepass, velocity image and reactive mask when they exist. |
 | `hud-over-upscale` | the stage ran and screen-space items exist that the post stack would not change | The HUD and the UI drawn at the window's size, so their text stays sharp. |
 | `output-color-filter` | the stage ran and a colour filter is on | The accessibility colour filter over the output, after the HUD. |
