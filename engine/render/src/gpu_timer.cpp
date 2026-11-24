@@ -2,8 +2,9 @@
 // a result that is not ready is read on a later frame. D3D11: timestamp queries inside a disjoint query (the frame's pair and
 // one pair per pass). GLCORE: GL_TIME_ELAPSED for the frame and glQueryCounter(GL_TIMESTAMP) pairs for the passes (a
 // GL_TIME_ELAPSED query cannot nest). Metal, GLES3 and WebGL2: not measured (reason() says why).
-// What is measured is the span from the first command of the frame to the last one the GPU finishes, not the time the GPU was busy:
-// a frame that waits for the CPU (a game limited by its scripts, a present that blocks) reads long here although the GPU idled.
+// What is measured is the span from the first command of the frame to the last one the GPU finishes, not the time the
+// GPU was busy: a frame that waits for the CPU (a game limited by its scripts, a present that blocks) reads long here
+// although the GPU idled.
 #include "render_internal.h"
 
 #include <array>
@@ -147,8 +148,9 @@ struct GpuTimer::State {
         context()->End(s.end);
         context()->End(s.disjoint);
         // The results are read with D3D11_ASYNC_GETDATA_DONOTFLUSH: without a flush the queries sit in the command buffer until
-        // something else submits it (a Present, which render.frame_graph's redraws and a capture never reach). Every timed frame
-        // gets here: while the profiler or the dynamic resolution asks, one Flush per frame (a frame nobody times pays nothing).
+        // something else submits it (a Present, which render.frame_graph's redraws and a capture never reach). Every
+        // timed frame gets here: while the profiler or the dynamic resolution asks, one Flush per frame (a frame
+        // nobody times pays nothing).
         context()->Flush();
         pending.push_back(current);
         current = -1;

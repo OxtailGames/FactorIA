@@ -2313,7 +2313,12 @@
     detect() {
       const { benchmarkMs, benchmark, ...rest } = graphicsResult(N.graphicsDetect());
       const { frameMs, totalMs, ...bench } = benchmark;
-      return Object.freeze({ ...rest, benchmark: Object.freeze(bench) });
+      // Deeply frozen: the GPU and the device class are objects of their own.
+      const freezeAll = (o) => {
+        if (o !== null && typeof o === "object") for (const k of Object.keys(o)) freezeAll(o[k]);
+        return Object.freeze(o);
+      };
+      return freezeAll({ ...rest, benchmark: bench });
     },
   });
   const game = {

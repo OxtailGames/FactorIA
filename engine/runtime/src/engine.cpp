@@ -102,8 +102,9 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 // that is below 1 or the mode that really draws is not stretch (at scale 1 the renderer decides each frame, from the mode it draws then: the spatial
 // sharpen is the only thing to draw there; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
 // the video recorder: hold_render_scale without the player's option) is that size and no stage. The scale mode is told too: pixel art
-// keeps the plain nearest scaling (the effective mode is stretch there). The dynamic resolution's factor multiplies in here and nowhere else
-// (dynamic_factor is 1 while it is off, so nothing changes); the renderer is also told the scale without it, which its temporal history follows.
+// keeps the plain nearest scaling (the effective mode is stretch there). The dynamic resolution's factor multiplies
+// in here and nowhere else (dynamic_factor is 1 while it is off, so nothing changes); the renderer is also told the
+// scale without it, which its temporal history follows.
 void Engine::Impl::apply_render_scale() {
     if (!renderer) return;
     renderer->set_scale_mode(project.scaleMode);
@@ -130,7 +131,8 @@ float Engine::Impl::dynamic_factor() const {
     return dynRes.scale();
 }
 
-// The settings (ScriptHost's) reach the controller and the renderer's GPU timing here, and the factor reaches the render scale.
+// The settings (ScriptHost's) reach the controller and the renderer's GPU timing here, and the factor reaches the
+// render scale.
 void Engine::Impl::sync_dynamic_resolution() {
     const render::DynamicResolutionSettings settings = self->dynamic_resolution();
     dynRes.configure(settings);
@@ -141,12 +143,13 @@ void Engine::Impl::sync_dynamic_resolution() {
     apply_render_scale();
 }
 
-// One frame of the controller. The sample is a GPU time where the backend has timer queries (the Renderer times the frames and answers a
-// few frames late), else the time between frames the platform measured (`dt`; a frame of a loading hitch is no sample). A test injects it.
-// Nothing here reads a clock, and nothing of the simulation reads the result: it changes the size the next picture is drawn at.
-// Samples that say nothing about the scale are kept out of the controller: the frames right after a step (the new images are made
-// at the step, and a GPU result arrives a few frames late), the seconds after a scene load (shaders compile, assets arrive) and, where
-// the GPU timer never answers (a driver that reports every query as disjoint), the GPU time is given up for the time between frames.
+// One frame of the controller. The sample is a GPU time where the backend has timer queries (the Renderer times the
+// frames and answers a few frames late), else the time between frames the platform measured (`dt`; a frame of a
+// loading hitch is no sample). A test injects it. Nothing here reads a clock, and nothing of the simulation reads the
+// result: it changes the size the next picture is drawn at. Samples that say nothing about the scale are kept out of
+// the controller: the frames right after a step (the new images are made at the step, and a GPU result arrives a few
+// frames late), the seconds after a scene load (shaders compile, assets arrive) and, where the GPU timer never
+// answers (a driver that reports every query as disjoint), the GPU time is given up for the time between frames.
 void Engine::Impl::dynamic_resolution_tick(double dt) {
     if (!renderer || cfg.editorMode || !dynRes.settings().enabled) return;
     double sample = -1.0;
@@ -155,17 +158,24 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
     if (injectedFrameMs) {
         sample = *injectedFrameMs;
         source = "injected";
-    } else if (windowed && cfg.renderMode != RenderMode::OnDemand) {
+    } else if ((windowed || injectedGpuMs) && cfg.renderMode != RenderMode::OnDemand) {
         bool gpu = false;
-        if (renderer->gpu_timing_supported()) {
+        // A frame the renderer did not draw since the last tick cannot have a GPU time: it is no miss of the timer.
+        const bool drew = drawCount != tickDrawCount;
+        tickDrawCount = drawCount;
+        if (injectedGpuMs || renderer->gpu_timing_supported()) {
             gpuFrameScratch.clear();
-            renderer->take_gpu_frame_ms(gpuFrameScratch);
+            if (injectedGpuMs) {
+                if (*injectedGpuMs >= 0.0 && drew) gpuFrameScratch.push_back(*injectedGpuMs);
+            } else {
+                renderer->take_gpu_frame_ms(gpuFrameScratch);
+            }
             if (!gpuFrameScratch.empty()) {
                 double sum = 0.0;
                 for (double v : gpuFrameScratch) sum += v;
                 sample = sum / double(gpuFrameScratch.size());
                 gpuMissFrames = 0;
-            } else if (gpuMissFrames < kGpuMissFrames) {
+            } else if (drew && gpuMissFrames < kGpuMissFrames) {
                 ++gpuMissFrames;
             }
             gpu = gpuMissFrames < kGpuMissFrames;
@@ -197,12 +207,12 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
     }
 }
 
-// The display's refresh rate (M76-P6d). The platform is asked at the first frame and again every kRefreshPollS seconds of
-// frames, so a window moved to another monitor follows that one's rate. Where it does not say (the web, a driver that does
-// not), the estimate measures the time between presented frames, but only while the display paces them: vsync on, no
-// window.frameCap and a continuous render mode; otherwise the rate stays the default. A change of the display's size (another
-// monitor) or of the pacing starts the estimate again. Time here is the frames' dt, never a clock read, and the result only
-// moves the frame time the dynamic resolution holds.
+// The display's refresh rate (M76-P6d). The platform is asked at the first frame and again every kRefreshPollS
+// seconds of frames, so a window moved to another monitor follows that one's rate. Where it does not say (the web, a
+// driver that does not), the estimate measures the time between presented frames, but only while the display paces
+// them: vsync on, no window.frameCap and a continuous render mode; otherwise the rate stays the default. A change of
+// the display's size (another monitor) or of the pacing starts the estimate again. Time here is the frames' dt, never
+// a clock read, and the result only moves the frame time the dynamic resolution holds.
 void Engine::Impl::track_display_refresh(double dt) {
     if ((!windowed && !injectedRefreshHz) || cfg.editorMode) return;
     const bool paced =
@@ -224,8 +234,8 @@ void Engine::Impl::track_display_refresh(double dt) {
         const bool restart = std::string_view(refreshSource) == "platform" || paced != refreshPaced ||
                              w != refreshDisplayW || h != refreshDisplayH;
         refreshPaced = paced;
-        // An estimate that found no steady rate (a game that never held a rate while it measured) starts over now and then, so one bad
-        // second at the start does not leave the target at 60 Hz for the whole run.
+        // An estimate that found no steady rate (a game that never held a rate while it measured) starts over now and
+        // then, so one bad second at the start does not leave the target at 60 Hz for the whole run.
         const bool retry =
             refreshEstimator.done() && refreshEstimator.hz() <= 0.0 && ++refreshGaveUpPolls >= kRefreshRetryPolls;
         if (retry) {
@@ -279,7 +289,8 @@ void Engine::Impl::apply_project_settings() {
             }
         }
     }
-    // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid: load_project checked it.
+    // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
+    // load_project checked it.
     if (!appliedProjectDynRes || *appliedProjectDynRes != project.dynamicResolution) {
         appliedProjectDynRes = project.dynamicResolution;
         self->set_dynamic_resolution(render::dynamic_resolution_to_json(project.dynamicResolution), "factoria.json");
@@ -660,6 +671,7 @@ void Engine::Impl::draw(double dt, bool settled) {
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
     if (input.force_touch()) ui.sync_touch_controls(world, input, design_size());  // a scene loaded since the last step
     renderer->begin_frame();
+    ++drawCount;
     renderer->render_world(world, float(dt));
     renderer->end_frame();
     // HDR output (docs/RENDERING.md, "HDR output"): the window's swapchain follows SceneSettings.hdrOutput and the display the
@@ -1161,9 +1173,11 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
-            I.sync_dynamic_resolution();  // the project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality draws below the window's size from the first frame)
-            I.apply_graphics_quality();   // and so did the project's graphics preset
-            I.apply_fallback_fonts();     // the renderer did not exist when the start language was chosen
+            // The project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality
+            // draws below the window's size from the first frame).
+            I.sync_dynamic_resolution();
+            I.apply_graphics_quality();  // and so did the project's graphics preset
+            I.apply_fallback_fonts();    // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
@@ -1915,6 +1929,8 @@ render::DynamicResolutionState Engine::dynamic_resolution_state() const {
 }
 
 void Engine::set_display_refresh_hz(std::optional<double> hz) { impl_->injectedRefreshHz = hz; }
+
+void Engine::set_dynamic_resolution_gpu_ms(std::optional<double> ms) { impl_->injectedGpuMs = ms; }
 
 void Engine::set_dynamic_resolution_frame_ms(std::optional<double> ms) {
     impl_->injectedFrameMs = ms;

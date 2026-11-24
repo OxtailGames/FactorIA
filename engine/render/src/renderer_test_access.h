@@ -153,6 +153,7 @@ struct RendererTestAccess {
     static void last_cluster_info(Renderer& r, float out[4]);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
+    static void inject_gpu_frame_ms(Renderer& r, double ms);
     static render::SkyBuilds sky_builds(Renderer& r);
     static std::uint64_t decal_atlas_bytes(Renderer& r);
     static bool read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error);
@@ -221,6 +222,10 @@ inline bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& 
 inline void renderer_set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     RendererTestAccess::set_before_frame_graph(r, std::move(hook));
 }
+
+// A GPU frame time the next poll of the timer answers as if the timer had resolved it (the profiler's
+// take_gpu_ms() and the dynamic resolution's take_gpu_frame_ms() each get it once).
+inline void renderer_inject_gpu_frame_ms(Renderer& r, double ms) { RendererTestAccess::inject_gpu_frame_ms(r, ms); }
 
 // The probe atlas (renderer_probes.h): a rectangle of its texels as RGBA floats, top row first (RGBA8 atlas: bytes / 255); the tile of a probe
 // (`id`: the entity's bits; render::kProbeSkyId for the sky's entry); and the next probe GPU objects as an RGBA8 GPU would make them (call before

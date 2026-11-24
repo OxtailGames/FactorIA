@@ -144,7 +144,7 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   phases) and MetalFX gets the picture at the render size, a depth image, a motion image and the jitter, and keeps its own history at the
   window's size. A small pass at the render size prepares the two images: the depth of the camera's prepass squashed to 0..1 (1 for the sky
   and for pixels no mesh wrote), and the motion in UV units as the velocity image holds it. Where no object wrote a velocity (the sentinel
-  `1024`: particles, sprites, skins of more than 32 joints, the sky) MetalFX does **not** get the sentinel: the pass reprojects the camera's own
+  `1024`: particles, instanced or material-batch quads, the sky) MetalFX does **not** get the sentinel: the pass reprojects the camera's own
   movement from the depth, as the temporal upscaler does, so those pixels move with the camera. The history resets on the events of the
   temporal upscaler: a camera cut, another scene, a floating-origin shift, a change of the render size or the quality, a frame MetalFX did not
   draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
@@ -362,8 +362,9 @@ reading a sub-rectangle (the post chain, the temporal history and the bloom chai
 survives the steps**: the history of the `temporal` upscaler lives at the output size and is kept, and its key follows the scale the
 game asked for, without the factor, so a step does not reset it. A step also keeps what does not depend on the render size: the
 automatic exposure each camera has adapted to (the picture does not flash brighter or darker at a step), and the images of
-CameraViews, render targets and probes. What is at the render size starts again (the other cameras' temporal histories, SSR, fog,
-volumetrics, SSAO and the depth-of-field chain). The jitter sequence is rounded up to a multiple of 4 phases while a
+render targets and probes (they have their own size). A CameraView's image is its rectangle's size times the render scale, so it is
+made again at the step (its first frame at the new size is drawn in the same frame, not black). What is at the render size starts
+again (the other cameras' temporal histories, SSR, fog, volumetrics, SSAO and the depth-of-field chain). The jitter sequence is rounded up to a multiple of 4 phases while a
 factor is on, so the phase changes smoothly when the size does.
 
 **Presets.** No preset turns it on. A preset is a static set of limits that gives the same picture on every machine; this one decides
@@ -439,18 +440,21 @@ upscaler is not put back by itself: applying the preset again does.
   software one (llvmpipe, WARP, SwiftShader) and on the web (the page would freeze while the pipelines are made). A call blocks the
   frame it is made in, whether it comes from a command or from a script's `update`: call it once, from a loading screen, never every
   frame. `reason` names the budget the picture fit in ("at most 8 ms"), never the measured time.
+- Thresholds: they were set with the benchmark in the Gamma colour space, and it now draws in the game's own (a Linear game is
+  timed in Linear). The thresholds were not tuned again for Linear, and the cost of the benchmark there has not been compared with
+  Gamma's: a Linear game on a GPU near a threshold may be suggested another preset than the same scene in Gamma.
 - Rule: at most 4 ms for `ultra`, 8 ms for `high`, 16 ms for `medium`, more is `low`; a software renderer is `low`; a phone or tablet
   is capped at `medium` and a handheld at `high`; a device tier of `low`, or a discrete GPU with under 2048 MB, caps at `medium`;
   without a benchmark the tier alone decides (`low`, `medium`, `high`; never `ultra`). `reason` says which rule applied.
 - Scripts: `game.graphics.preset()` reads, `game.graphics.preset("high")` applies, `game.graphics.detect()` detects; the results
   are the objects above, and a wrong name throws with the same hint. `game.graphics.detect()` leaves out `benchmarkMs`,
   `benchmark.frameMs` and `benchmark.totalMs`: they differ from machine to machine and from run to run, and a script that branched
-  on one would not play the same twice. A game decides on `preset`, `gpu` and `device`; the command `graphics.detect` (CLI, MCP,
+  on one would not play the same twice. The object is frozen all the way down (`gpu`, `device` and `benchmark` too). A game decides on `preset`, `gpu` and `device`; the command `graphics.detect` (CLI, MCP,
   tests) answers the times too, for tools that tune the thresholds.
 - Saving for tools: `project.graphics` (CLI, MCP) reads, and with `preset`, `upscaler` {mode, quality, sharpness} or
   `dynamicResolution` writes, the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of `factoria.json`,
-  the same code the editor's View > Graphics window saves with: the keys given replace the file's, a value at its default removes
-  its key, the rest of the file stays, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
+  the same code the editor's View > Graphics window saves with: only the keys given are written (a number the call does not name stays as the file spells it, `16.67` is not rounded to the
+  editor's `16.7`), a value at its default removes its key, the rest of the file stays byte for byte, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
   written. `graphics.preset` and `render.upscaler` change only the running game. Example: `factoria call project.graphics
   '{"preset":"medium"}'`.
 - Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
