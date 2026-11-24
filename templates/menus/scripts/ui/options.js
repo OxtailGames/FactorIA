@@ -321,6 +321,7 @@ export default class Options extends Behaviour {
     const g = this.s.graphics;
     const pick = name === "auto" ? settings.detectPreset(this.s) : name;
     if (name === "auto" && !pick) return this.applyQuality(() => {}); // the detection failed (logged): nothing changes
+    const was = g.preset;
     g.preset = name;
     g.upscaler = {};
     const quality = settings.PRESET_QUALITY[pick];
@@ -329,6 +330,12 @@ export default class Options extends Behaviour {
       g.effects = {};
     }
     settings.applyRenderSettings(this.s);
+    if (name === "custom" && was && was !== "custom") {
+      // The engine put back the upscaler the game had before a preset (a manual choice made earlier included): save what the page shows,
+      // so the next start draws the same.
+      const { mode, quality, sharpness } = window.upscaler;
+      g.upscaler = { mode, quality, sharpness };
+    }
     this.changeGraphics(); // the post stack, the save and refreshGraphics()
   }
 

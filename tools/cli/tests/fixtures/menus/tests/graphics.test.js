@@ -349,6 +349,27 @@ test("graphics page: a manual upscaler choice wins over the preset's, and pickin
   }
 });
 
+test("graphics page: manual -> preset -> custom saves the upscaler the engine puts back, and the next start draws it", () => {
+  openQuality();
+  try {
+    game.click("gfx_mode_spatial");
+    expect(saved().upscaler.mode).toBe("spatial");
+    game.click("gfx_preset_low");
+    expect(saved().upscaler).toEqual({});
+    game.click("gfx_preset_custom");
+    expect(window.upscaler.mode).toBe("spatial"); // the engine restored the game's own setting
+    expect(saved().upscaler.mode).toBe("spatial"); // ...and the save says the same
+    // The next start: the engine begins from the project's upscaler and the kit applies the save.
+    window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
+    engine.graphics.preset("custom");
+    settings.apply();
+    expect(window.upscaler.mode).toBe("spatial");
+    expect(engine.graphics.preset().preset).toBe("custom");
+  } finally {
+    restore();
+  }
+});
+
 test("graphics settings: the saved preset, upscaler and render scale apply at the start, and an old save changes nothing", () => {
   storage.set("settings", { graphics: { preset: "medium", upscaler: { mode: "spatial", sharpness: 0.3 }, renderScale: 0.75 } });
   try {

@@ -133,7 +133,8 @@ void Editor::draw_graphics_settings_panel() {
     show_problem("/render/upscaler/quality");
     ImGui::BeginDisabled(g.mode == "stretch");
     float sharp = float(g.sharpness);
-    if (ImGui::SliderFloat("Sharpness", &sharp, 0.0f, 1.0f, "%.2f")) g.sharpness = double(std::round(sharp * 100.0f)) / 100.0;
+    if (ImGui::SliderFloat("Sharpness", &sharp, 0.0f, 1.0f, "%.2f"))
+        g.sharpness = double(std::round(sharp * 100.0f)) / 100.0;
     at_track("gfx:sharpness", g.mode != "stretch");
     ImGui::EndDisabled();
     gfx_tip("render.upscaler.sharpness, 0 to 1. The contrast-adaptive sharpen of the spatial and temporal modes; the "

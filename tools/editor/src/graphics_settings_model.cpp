@@ -45,9 +45,9 @@ const std::vector<std::string>& upscaler_qualities() {
 std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSettings& s) {
     std::vector<GraphicsSettingsProblem> out;
     if (!render::parse_graphics_preset(s.preset))
-        out.push_back({"/render/graphicsPreset",
-                       std::string(kFile) + "#/render/graphicsPreset: unknown graphics preset \"" + s.preset + "\". " +
-                           did_you_mean(s.preset, graphics_presets())});
+        out.push_back({"/render/graphicsPreset", std::string(kFile) +
+                                                     "#/render/graphicsPreset: unknown graphics preset \"" + s.preset +
+                                                     "\". " + did_you_mean(s.preset, graphics_presets())});
     // One key at a time, so each problem has its own pointer (the engine's parser reports the first wrong key).
     for (const char* key : {"mode", "quality", "sharpness"}) {
         Json one = Json::object();
@@ -105,11 +105,14 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
         return make_error(problems.front().pointer + ": " + problems.front().message,
                           "Fix the field before saving; nothing was written.");
     const std::string path = project_file_path(projectDir);
-    auto text = fs::read_text(path);
-    if (!text.ok())
+    // The raw bytes, so a UTF-8 BOM the file starts with is written back (read_text drops it).
+    auto bytes = fs::read_bytes(path);
+    if (!bytes.ok())
         return make_error("Cannot save the graphics settings: " + path + " cannot be read.",
                           "Open a project folder that contains factoria.json.");
-    auto parsed = parse_json(*text, path);
+    const std::string rawText(bytes->begin(), bytes->end());
+    const bool hasBom = rawText.compare(0, 3, "\xEF\xBB\xBF") == 0;
+    auto parsed = parse_json(hasBom ? rawText.substr(3) : rawText, path);
     if (!parsed.ok())
         return make_error(parsed.error().message,
                           "Fix the JSON syntax of factoria.json first; the graphics settings are not saved over a "
@@ -123,9 +126,11 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
     const bool presetDefault = s.preset == "custom";
     std::vector<JsonPatchOp> ops;
     // Would `render` be empty afterwards? Then the key goes too.
-    Json render = parsed->contains("render") && (*parsed)["render"].is_object() ? (*parsed)["render"] : Json::object();
-    if ((*parsed).contains("render") && !(*parsed)["render"].is_object())
+    // "render": null loads as no render settings, so it is an absent object here too.
+    const bool hasRender = parsed->contains("render") && !(*parsed)["render"].is_null();
+    if (hasRender && !(*parsed)["render"].is_object())
         return make_error(path + "#/render: expected an object.", "Replace the value of \"render\" with an object.");
+    Json render = hasRender ? (*parsed)["render"] : Json::object();
     if (upscalerDefault)
         render.erase("upscaler");
     else
@@ -135,17 +140,20 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
     else
         render["graphicsPreset"] = s.preset;
     if (render.empty()) {
-        if (parsed->contains("render")) ops.push_back({{"render"}, std::nullopt});
+        if (hasRender) ops.push_back({{"render"}, std::nullopt});
     } else {
+        if (parsed->contains("render") && !hasRender) ops.push_back({{"render"}, Json::object()});  // null -> {}
         // Remove what is default, set what is not: one op per key, so the rest of `render` stays byte for byte.
-        ops.push_back({{"render", "upscaler"}, upscalerDefault ? std::optional<Json>() : std::optional<Json>(render["upscaler"])});
+        ops.push_back({{"render", "upscaler"},
+                       upscalerDefault ? std::optional<Json>() : std::optional<Json>(render["upscaler"])});
         ops.push_back({{"render", "graphicsPreset"},
                        presetDefault ? std::optional<Json>() : std::optional<Json>(Json(s.preset))});
     }
-    auto patched = patch_json_text(*text, ops, path);
+    auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();
-    if (*patched == *text) return {};
-    return fs::write_text(path, *patched);
+    const std::string out = (hasBom ? std::string("\xEF\xBB\xBF") : std::string()) + *patched;
+    if (out == rawText) return {};
+    return fs::write_bytes(path, out.data(), out.size());
 }
 
 }  // namespace fa::editor
