@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "fa/core/log.h"
+
 namespace fa::gpu::vk {
 
 namespace {
@@ -697,11 +699,31 @@ View VulkanDevice::make_view(const ViewDesc& desc) {
         rec.view = VK_NULL_HANDLE;
         rec.tracked = nullptr;
     }
+    // A texture view takes a slot of the bindless table (bindless_index()); a full table leaves it without one.
+    if (rec.view && rec.type == ViewType::Texture && descriptors_.bindless_capacity() > 0) {
+        rec.bindlessSlot = descriptors_.bindless_alloc();
+        if (rec.bindlessSlot != kNoSlot) {
+            descriptors_.bindless_write(rec.bindlessSlot, rec.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        } else {
+            const std::string w = "gpu vulkan: make_view '" + label + "': the bindless table is full (" +
+                                  std::to_string(descriptors_.bindless_capacity()) +
+                                  " slots), so this texture view and the next ones have no bindless index (hint: "
+                                  "raise VulkanOptions::bindlessDescriptors, or destroy texture views no longer drawn)";
+            std::lock_guard<std::mutex> msgLock(msgMutex_);
+            if (std::find(notYetReported_.begin(), notYetReported_.end(), "bindless-full") == notYetReported_.end()) {
+                notYetReported_.push_back("bindless-full");
+                FA_WARN("render", "{}", w);
+                warnings_.push_back(w);
+            }
+        }
+    }
     const bool ok = rec.tracked != nullptr;
     const VkImageView made = rec.view;
+    const std::uint32_t slot = rec.bindlessSlot;
     rec.serial = ++viewSerial_;  // what the framebuffer cache knows the view by (a handle can be reused)
     const std::uint32_t id = views_.add(std::move(rec));
     if (id == 0) {
+        if (slot != kNoSlot) descriptors_.bindless_free(slot);  // no command named it yet
         if (made) fn_.vkDestroyImageView(device_, made, nullptr);
         report("gpu vulkan: make_view '" + label + "': the view pool is full (" + std::to_string(views_.capacity()) +
                " views) (hint: destroy views you no longer use, or raise DeviceInit::viewPoolSize)");
@@ -725,11 +747,12 @@ void VulkanDevice::destroy_view(View view) {
     }
     // The framebuffers made with it go first (deferred like the view: a frame in flight may draw into them).
     if (rec.view) forget_framebuffers(rec.serial);
-    if (rec.tracked || rec.view) {
-        // The VkImageView goes once the frames whose descriptors may name it are finished.
+    if (rec.tracked || rec.view || rec.bindlessSlot != kNoSlot) {
+        // The VkImageView and its bindless slot go once the frames whose descriptors may name them are finished.
         Deferred d;
         d.tracked = std::move(rec.tracked);
         d.view = rec.view;
+        d.bindlessSlot = rec.bindlessSlot;
         defer(std::move(d));
     }
 }
