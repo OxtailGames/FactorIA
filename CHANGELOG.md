@@ -34,6 +34,16 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ### Temporal antialiasing and open upscalers: the shared API (M76)
 
+- Texture mip bias for the temporal passes: while the temporal upscaler (`temporal`, `metalfx`) or the temporal antialiasing accumulates
+  jittered frames, the scene's textures are read at the level of `log2(render width / output width)` plus an offset, so they keep the detail
+  of the output size (what FSR 2, DLSS and XeSS ask of a game). New field `PostProcess.temporalAAMipBias` (-2..0, default -0.5; at scale 1
+  with the antialiasing alone it is the whole bias; 0 gives the pure resolution ratio). It reaches meshes, terrain layers, impostors,
+  the material graph's `texture`, `texture.normal` and `triplanar` nodes and `fa_base_sample()` of full shaders; custom shaders read
+  `fa_mip_bias` (a `float`, mesh and full shaders only). Sprites, tiles, text, the UI, the shadow maps and the post passes take none, and
+  every frame without a jittered camera is the same picture bit for bit as before. The default -0.5 applies to every camera that has
+  `temporalAAEnabled` on (also at render scale 1, where it used to read the textures at their plain level), and to the temporal upscaler's
+  camera whether or not its stack has the effect; set `temporalAAMipBias` to 0 to keep the previous level at scale 1. The bias follows the dynamic resolution step by step.
+  docs/UPSCALING.md, "Texture mip bias".
 - New effect `PostEffect::TemporalAA` (`PostProcess.temporalAAEnabled`, `temporalAAFeedback`, `temporalAASharpen`,
   `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It is drawn now (see
   "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
