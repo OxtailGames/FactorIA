@@ -226,6 +226,9 @@ struct Renderer::Impl {
     // that ask: its model matrix of the frame before (`prev`) and of the last frame it was drawn (`cur`), with the postSerial of that
     // frame. An entity not drawn in the frame before, or new, has prev = cur: no motion of its own. origin_shifted moves both.
     bool forceVelocity = false;
+    // RendererTestAccess::probe_camera: the entity bits of the only camera whose velocity and reactive images the probes copy (probeCameraOnly false = every camera, the last wins; the first entity's bits are 0).
+    std::uint64_t probeCamera = 0;
+    bool probeCameraOnly = false;
     // RendererTestAccess::read_velocity: while forceVelocity is on, a pass copies the velocity image of the last camera into this RGBA16F
     // image (rg = the vector as it is, prepass_view.glsl mode 4), which a test reads back after the frame.
     Target velocityProbe;

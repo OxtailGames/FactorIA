@@ -10,7 +10,8 @@
 // carries, per vertex, motion.xyz = how far the quad's item moved in the world since the frame before (the item's origin now minus its
 // origin on the frame before; 0 for what has no history) and motion.w = the reactive value. The previous position of a vertex is then
 // `position - motion.xyz` through the previous frame's view-projection: a translation only (a rotation or a scale change of the item between
-// two frames is not part of it).
+// two frames is not part of it). The quad is rasterised with the matrix the colour is drawn with (the jitter of the temporal antialiasing
+// included), so its coverage and depth test hit the colour's pixels, and the vectors come from the matrices without the jitter.
 // Coverage per mode, as quad_common.glsl draws it: 0, 5, 6 = the texture's alpha times the tint's; 1, 2, 3 = circle, ring, soft dot;
 // 4 = the glyph; 7 = a Shape2D, whose whole box counts (its rounded corners and soft edge are not followed). The +8, +16 and +32 flags
 // of the mode do not change the coverage and are dropped.
@@ -70,7 +71,8 @@ bool qm_hidden() {
 
 @vs vs
 layout(binding=0) uniform quad_motion_vs_params {
-    mat4 cur_vp;        // this frame's view-projection, without the jitter
+    mat4 draw_vp;       // the matrix the picture is drawn with (the jitter included): where the pixels are
+    mat4 cur_vp;        // this frame's view-projection, without the jitter: the motion
     mat4 prev_vp;       // the frame before's (the same one when the camera has no history)
     vec4 depth_row;     // view depth of a world point p = dot(depth_row, vec4(p, 1)) (what the prepass stores in r)
 };
@@ -91,7 +93,7 @@ out float react;
 void main() {
     vec4 cur = cur_vp * vec4(position, 1.0);
     vec4 prev = prev_vp * vec4(position - motion.xyz, 1.0);
-    gl_Position = cur;
+    gl_Position = draw_vp * vec4(position, 1.0);  // as the colour and the prepass: the same pixels, and the jitter is not part of the motion
     uv = texcoord0;
     color = color0;
     params = params0;

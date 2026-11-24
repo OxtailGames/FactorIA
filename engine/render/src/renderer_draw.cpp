@@ -3526,6 +3526,8 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
     }
     const Frame& fr = ctx.fr;
     quad_motion_quad_motion_vs_params_t vu{};
+    copy_mat(vu.draw_vp,
+             fr.cam.drawViewProj);  // the matrix the colour and the prepass raster with (the jitter included)
     copy_mat(vu.cur_vp, fr.cam.viewProj);
     copy_mat(vu.prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : fr.cam.viewProj);
     for (int c = 0; c < 4; ++c)
@@ -3535,6 +3537,9 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
     const sg_view preView = depth && depth->texView.id ? depth->texView : assets->white()->view;
     for (const QuadBatch& qb : ctx.gWorld.batches) {
         if (qb.effect || qb.instances > 0 || qb.quadCount == 0) continue;
+        // A scissor (a clipped item) and a material (its `discard`, its vertex()) change which pixels the quads cover: this pass applies
+        // neither, so such a batch writes nothing here (the camera's motion, no mask) rather than a footprint that is not the colour's.
+        if (qb.clip.w > 0 || qb.use) continue;
         if (reactive ? !qb.reactive : qb.blend != BlendMode::Alpha) continue;
         sg_apply_pipeline(pip);
         apply_uniforms(UB_quad_motion_quad_motion_vs_params, vu);
@@ -4958,7 +4963,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             : fr.wantWorld ? "game"
                            : "game-hud",
             std::move(reads), {game}, [this, &ctx](const PassContext& c) { main_pass(ctx, c); });
-        if (forceVelocity && velRes.valid())
+        const bool probed = forceVelocity && (!probeCameraOnly || probeCamera == fr.cam.entity.bits());
+        if (probed && velRes.valid())
             add(
                 "velocity-probe", {velRes}, {},
                 [this, &ctx, velRes](const PassContext& c) {
@@ -4966,7 +4972,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         velocity_probe_pass(ctx, *v, velocityProbe, "velocity-probe");
                 },
                 true);
-        if (forceVelocity && ctx.postPlan.reactive.valid())
+        if (probed && ctx.postPlan.reactive.valid())
             add(
                 "reactive-probe", {ctx.postPlan.reactive.res}, {},
                 [this, &ctx](const PassContext& c) {

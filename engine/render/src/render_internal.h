@@ -152,7 +152,7 @@ inline int prepass_prev_attr(bool skinned, bool custom, const MeshExtras& e) {
 // vectors and no uniform is used. The image is a stream of texels in rows of kPrevPaletteWidth: a joint is 3 texels, a palette is
 // kPrevPaletteTexels (the 64 joints, the unused ones the identity, so a joint index the weights ignore still reads a matrix) and each
 // skinned draw of the frame has its own. At most kPrevPaletteMaxRows rows (16 MiB): 5461 skinned draws a camera and frame; the rest write the
-// sentinel (a warning, once). The image is uploaded before the first pass of the frame (Impl::upload_prev_palettes, Gpu::write_palette_image).
+// sentinel (a warning, once). One image per camera job and frame (Impl::upload_prev_palettes, Gpu::write_palette_image: the frame graph runs after every job has uploaded, so each camera keeps its own).
 // Slot table: vertex view 29 and vertex sampler 11 belong to fa_prev_palette (a vertex-stage slot, so none of the fragment-stage rows of
 // kMeshFragmentViews below uses it), and sampler 11 was the last free one of the 12 sokol has: the next vertex-stage image must share a sampler.
 constexpr int kPrevPaletteWidth = 1024, kPrevPaletteMaxRows = 1024;
@@ -957,7 +957,7 @@ struct QuadItem {
     std::uint32_t effect =
         0;  // QuadList::set_effect(): 1 + the index in QuadList::effects of the built-in 2D effect; 0 = none
     // M76-P1d, the motion of the item for the velocity image. QuadList::set_motion_source(): the owner's Entity::bits() (0 = the item is
-    // still in the world: a Tilemap, Text) and where the item's origin is in the world now; Renderer::Impl::fill_quad_motion turns them,
+    // still in the world: Text) and where the item's origin is in the world now; Renderer::Impl::fill_quad_motion turns them,
     // with the history of the owners, into `motion` (the origin now minus the origin on the frame before; 0 without history).
     std::uint64_t motionKey = 0;
     Vec3 origin{};
@@ -1866,8 +1866,9 @@ public:
     };
     LightImage write_light_image(int rows, const float* texels);
     // The image of the previous joint palettes of the motion vectors (M76-P1c, kPrevPaletteWidth wide, the same format and the same rules as
-    // write_light_image). Its own image, not a slot of the light pool: the lights of a frame and the palettes have different row counts, and a
-    // pooled image is made again whenever the slot it lands in changes its rows.
+    // write_light_image). One image per call (one per camera job: the frame graph runs after every job has uploaded, so a second camera must
+    // not overwrite the first one's texels), from a pool of its own that restarts with the transient buffers: not a slot of the light pool,
+    // whose slots change their row counts and so are made again, where the palette rows are rounded up.
     LightImage write_palette_image(int rows, const float* texels);
     // Frees the pooled light images from index `keep` on (the pool is restarted, none is in use).
     void trim_light_images(std::size_t keep);
@@ -1877,7 +1878,7 @@ public:
     // the sokol frame here, outside any pass, so the pool stays bounded without rewriting a bound buffer.
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
-        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16;
+        const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16 || paletteImagesUsed_ >= 16;
         if (!committed_ && full) sg_commit();
         if (committed_ || full) {
             // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
@@ -1887,7 +1888,7 @@ public:
                 lightImagesPeak_ = 0;
                 lightImagesRestarts_ = 0;
             }
-            transientUsed_ = lightImagesUsed_ = 0;
+            transientUsed_ = lightImagesUsed_ = paletteImagesUsed_ = 0;
         }
         committed_ = false;
     }
@@ -1984,7 +1985,9 @@ private:
         int rows = 0;
     };
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
-    LightImg paletteImage_;              // write_palette_image's, written once a frame
+    std::vector<LightImg>
+        paletteImages_;  // the pool of write_palette_image, one image per job (camera) and frame, restarted with transient_
+    std::size_t paletteImagesUsed_ = 0;
     LightImage fill_light_image(LightImg& l, int rows, const float* texels);
     std::size_t lightImagesUsed_ = 0;
     std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim

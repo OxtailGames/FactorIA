@@ -1153,6 +1153,11 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
         render::destroy_target(r.impl_->reactiveProbe);
     }
 }
+void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
+    if (!r.impl_) return;
+    r.impl_->probeCameraOnly = !camera.is_null();
+    r.impl_->probeCamera = camera.is_null() ? 0 : camera.bits();
+}
 void RendererTestAccess::force_no_velocity_target(Renderer& r, bool on) {
     if (r.impl_) r.impl_->noVelocityTarget = on;
 }
