@@ -100,6 +100,13 @@ jobs:
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
 
+      # The engine's own Vulkan backend runs its tests (render_vulkan_device) on Mesa's CPU driver lavapipe with the
+      # Khronos validation layer and its synchronization validation; FA_VULKAN_REQUIRE=1 on the test step turns a
+      # missing driver, loader or layer from a skip into a failure. Only this job: the sanitizer jobs keep skipping
+      # (an uninstrumented driver under ASan/LSan reports the driver's own leaks).
+      - name: Install the Vulkan CPU driver and validation layers (lavapipe)
+        run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-validationlayers
+
       # The key must not be a prefix of another job's (ccache-Linux-linux-asan-, -tsan-, -fuzz-, -coverage-): restore-keys
       # would hand this GCC job whichever Clang cache is the newest (2% hits, a 55-minute build). The `bench` job reads this
       # cache on purpose. scripts/check-ci-cache-keys.py (the `lint` job) fails on such a collision.
@@ -162,6 +169,7 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
           FA_REQUIRE_COMPUTE: '1'  # llvmpipe offers GL 4.5: a runner without compute must fail, not skip the compute tests
+          FA_VULKAN_REQUIRE: '1'  # lavapipe and the validation layers are installed above: the Vulkan tests must run
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary

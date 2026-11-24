@@ -1,9 +1,12 @@
-// The engine's own Vulkan backend (src/gpu/vulkan_*: resources M77-P8a, shaders, pipelines and drawing M77-P8c). Where
-// the backend is built every case makes a device on this machine's Vulkan driver (MoltenVK on macOS, lavapipe on Linux
-// CI) with the validation layer and checks that the layer reported no error; the drawing cases draw with the SPIR-V of
-// tests/shaders/vulkan_test.glsl (the twins of d3d12_device_tests.cpp's HLSL) and check their targets per texel; a
-// machine without a Vulkan loader or device says so (MESSAGE) and passes. Where the backend is not built (web, iOS) one
-// case checks the factory's teaching error.
+// The engine's own Vulkan backend (src/gpu/vulkan_*: resources M77-P8a, shaders, pipelines and drawing M77-P8c, GPU
+// timers, asynchronous reads and synchronization fixes M77-P8b1). Where the backend is built every case makes a device
+// on this machine's Vulkan driver (MoltenVK on macOS; Mesa's lavapipe on the Linux CI job, which installs it with the
+// validation layers) with the validation layer and its synchronization validation, and checks that the layer reported
+// no error; the drawing cases draw with the SPIR-V of tests/shaders/vulkan_test.glsl (the twins of
+// d3d12_device_tests.cpp's HLSL) and check their targets per texel. A machine without a Vulkan loader or device, or with
+// a loader older than 1.2, says so (MESSAGE) and passes, unless FA_VULKAN_REQUIRE=1 (the Linux CI job): then a skip and
+// a missing validation layer fail. Where the backend is not built (web, iOS) one case checks the factory's teaching
+// error.
 #include <doctest.h>
 
 #include <algorithm>
@@ -44,14 +47,30 @@ using fa::gpu::vk::VulkanDevice;
 
 namespace {
 
-// A device with the validation layer, or null (with a MESSAGE) when this machine has no Vulkan loader or device. Any
-// other failure fails the case.
+// FA_VULKAN_REQUIRE=1 (the Linux CI job, which installs lavapipe and the validation layers): a machine that cannot run
+// the cases fails them instead of skipping.
+bool vulkan_required() {
+    const char* v = std::getenv("FA_VULKAN_REQUIRE");
+    return v && std::strcmp(v, "1") == 0;
+}
+
+// What a machine that cannot run the cases answers: no loader, no device, a loader older than 1.2, or a driver that
+// does not start.
+bool cannot_run_here(const std::string& e) {
+    return contains(e, "no Vulkan loader") || contains(e, "no Vulkan device") || contains(e, "needs 1.2") ||
+           contains(e, "VK_ERROR_INITIALIZATION_FAILED");
+}
+
+// A device with the validation layer and its synchronization validation, or null (with a MESSAGE) when this machine
+// cannot run Vulkan (cannot_run_here). Any other failure fails the case, and so does a skip or a missing layer under
+// FA_VULKAN_REQUIRE=1.
 std::unique_ptr<VulkanDevice> make_vk(VulkanOptions o = {}) {
     o.validation = true;
+    o.synchronizationValidation = true;
     auto d = make_vulkan_device(o);
     if (!d) {
         const std::string e = d.error().to_string();
-        if (contains(e, "no Vulkan loader") || contains(e, "no Vulkan device")) {
+        if (cannot_run_here(e) && !vulkan_required()) {
             MESSAGE("vulkan: skipped, " << e);
             return nullptr;
         }
@@ -59,8 +78,16 @@ std::unique_ptr<VulkanDevice> make_vk(VulkanOptions o = {}) {
         return nullptr;
     }
     std::unique_ptr<VulkanDevice> dev(static_cast<VulkanDevice*>(d.value().release()));
-    if (!dev->validation_active())
+    if (!dev->validation_active()) {
+        if (vulkan_required()) {
+            FAIL("vulkan: FA_VULKAN_REQUIRE=1 but the validation layer is not installed (apt install "
+                 "vulkan-validationlayers)");
+            return nullptr;
+        }
         MESSAGE("vulkan: the validation layer is not installed: the case runs without its checks");
+    } else if (!dev->synchronization_validation_active()) {
+        MESSAGE("vulkan: the validation layer has no synchronization validation: the case runs without it");
+    }
     return dev;
 }
 
@@ -221,9 +248,12 @@ TEST_CASE("vulkan: a device answers what it can do") {
     if (!dev) return;
     std::string step = "info";
     INFO("step: " << step);
-    MESSAGE("vulkan: " << dev->device_name() << ", loader " << dev->loader_path()
-                       << std::string(dev->synchronization2_active() ? ", synchronization2" : "")
-                       << std::string(dev->portability_subset() ? ", portability subset" : ""));
+    MESSAGE(
+        "vulkan: " << dev->device_name() << ", loader " << dev->loader_path()
+                   << std::string(dev->synchronization2_active() ? ", synchronization2" : "")
+                   << std::string(dev->portability_subset() ? ", portability subset" : "")
+                   << std::string(dev->validation_active() ? ", validation layer" : "")
+                   << std::string(dev->synchronization_validation_active() ? " with synchronization validation" : ""));
     CHECK(dev->backend() == Backend::Vulkan);
     CHECK(std::string(dev->info().name) == backend_name(Backend::Vulkan));
     CHECK(!dev->device_name().empty());
@@ -254,11 +284,10 @@ TEST_CASE("vulkan: a device answers what it can do") {
     CHECK(dev->environment_defaults().colorFormat == PixelFormat::Bgra8);
     CHECK(dev->environment_defaults().depthFormat == PixelFormat::DepthStencil);
     CHECK(dev->vk_format(PixelFormat::DepthStencil) != VK_FORMAT_UNDEFINED);
-    step = "timers and async reads are M77-P8b's";
+    step = "timers (where the queue has timestamps, or a reason) and async reads";
     std::string why;
-    CHECK(!dev->timer_supported(&why));
-    CHECK(contains(why, "M77-P8b"));
-    CHECK(!dev->async_read_supported());
+    if (!dev->timer_supported(&why)) CHECK_MESSAGE(contains(why, "timestamp"), why);
+    CHECK(dev->async_read_supported());
     step = "the validation layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
@@ -916,6 +945,7 @@ ShaderDesc fill_shader_desc() { return from_sg(*vktest_fill_shader_desc(SG_BACKE
 ShaderDesc instance_shader_desc() { return from_sg(*vktest_instance_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc two_views_shader_desc() { return from_sg(*vktest_two_views_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc compute_shader_desc() { return from_sg(*vktest_compute_shader_desc(SG_BACKEND_VULKAN)); }
+ShaderDesc sample_shader_desc() { return from_sg(*vktest_sample_shader_desc(SG_BACKEND_VULKAN)); }
 
 // A render pipeline of `shader` drawing into one `color` target (plus `depth`) with `samples` samples.
 PipelineDesc render_desc(Shader shader, PixelFormat color, PixelFormat depth = PixelFormat::None, int samples = 1) {
@@ -1603,10 +1633,10 @@ TEST_CASE("vulkan: the command list says what is wrong, skips what depends on it
 
     step = "the validation layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
-    step = "timers and async readbacks are still M77-P8b's";
+    step = "an async read of no buffer is a teaching error";
     auto ticket = dev->request_buffer_read(Buffer{}, 0, 4);
     REQUIRE(!ticket);
-    CHECK(contains(ticket.error().message, "M77-P8b"));
+    CHECK(contains(ticket.error().message, "is not a live buffer"));
 }
 
 TEST_CASE("vulkan: commit listeners, frame counting and statistics") {
@@ -1651,7 +1681,7 @@ TEST_CASE("vulkan: a CPU device (lavapipe) on request, or a teaching error") {
     auto d = make_vulkan_device(o);
     if (!d) {
         const std::string e = d.error().to_string();
-        if (contains(e, "no Vulkan loader")) {
+        if (cannot_run_here(e) && !contains(e, "no CPU Vulkan device") && !vulkan_required()) {
             MESSAGE("vulkan: skipped, " << e);
             return;
         }
@@ -1664,6 +1694,493 @@ TEST_CASE("vulkan: a CPU device (lavapipe) on request, or a teaching error") {
     CHECK(dev.cpu_device());
     round_trips(dev);
     CHECK_MESSAGE(layer_errors(dev).empty(), layer_errors(dev));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GPU timers, asynchronous reads, synchronization (M77-P8b1)
+// ---------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("vulkan: a timed frame with two scopes resolves to frame and scope times a few frames later") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("vulkan: skipped, this queue cannot time: " << why);
+        CHECK(!why.empty());
+        return;
+    }
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    const Pipeline pipeline = dev->make_pipeline(render_desc(shader, PixelFormat::Rgba8));
+    const Target t = make_target(*dev, Attach::Color, 64, 64, PixelFormat::Rgba8);
+    REQUIRE_MESSAGE(dev->state(pipeline) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(t.view) == ResourceState::Valid, all_errors(*dev));
+    std::string step = "timed frames";
+    INFO("step: " << step);
+    std::vector<double> frames;
+    for (int i = 0; i < 4; ++i) {
+        dev->timer_begin_frame();
+        CommandList& list = dev->begin_commands("timed");
+        list.begin_timed_scope("clear");
+        list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+        list.end_pass();
+        list.end_timed_scope();
+        list.begin_timed_scope("fill");  // left open: submit ends it
+        list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+        list.set_pipeline(pipeline);
+        const Vec4 depth{0.0f, 0.0f, 0.0f, 0.0f};
+        const Vec4 colour{0.5f, 0.25f, 1.0f, 1.0f};
+        list.set_uniforms(0, bytes_of(depth));
+        list.set_uniforms(1, bytes_of(colour));
+        list.draw(0, 3);
+        list.end_pass();
+        dev->submit(list);
+        dev->timer_end_frame();
+        dev->commit();
+        dev->timer_poll(frames);  // never waits: whatever has arrived
+    }
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 4);  // every timed frame arrives once, in order
+    for (double ms : frames) CHECK(ms >= 0.0);
+    const std::vector<Device::ScopeTime> scopes = dev->timer_last_scopes();
+    REQUIRE(scopes.size() == 2);
+    CHECK(scopes[0].name == "clear");
+    CHECK(scopes[1].name == "fill");
+    CHECK(scopes[0].ms >= 0.0);
+    CHECK(scopes[1].ms >= 0.0);
+
+    step = "a scope outside a timed frame records nothing";
+    CommandList& untimed = dev->begin_commands("untimed");
+    untimed.begin_timed_scope("ignored");
+    untimed.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    untimed.end_pass();
+    untimed.end_timed_scope();
+    submit_and_finish(*dev, untimed);
+    frames.clear();
+    dev->timer_poll(frames);
+    CHECK(frames.empty());
+    CHECK(dev->timer_last_scopes().size() == 2);  // still the last timed frame's
+
+    step = "a scope whose list is not submitted before the frame ends is not reported";
+    dev->timer_begin_frame();
+    CommandList& late = dev->begin_commands("late");
+    late.begin_timed_scope("late");
+    late.end_timed_scope();
+    dev->timer_end_frame();
+    submit_and_finish(*dev, late);
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 1);
+    CHECK(dev->timer_last_scopes().empty());
+
+    step = "timer_forget drops the results in flight";
+    dev->timer_begin_frame();
+    CommandList& forgotten = dev->begin_commands("forgotten");
+    forgotten.begin_timed_scope("forgotten");
+    forgotten.end_timed_scope();
+    dev->submit(forgotten);
+    dev->timer_end_frame();
+    dev->timer_forget();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    frames.clear();
+    dev->timer_poll(frames);
+    CHECK(frames.empty());
+    CHECK(dev->timer_last_scopes().empty());
+
+    step = "a full ring skips frames instead of waiting";
+    for (int i = 0; i < 10; ++i) {  // never polled: six frames fill the ring, the rest are not timed
+        dev->timer_begin_frame();
+        dev->timer_end_frame();
+    }
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 6);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+namespace {
+
+Buffer make_storage_buffer(VulkanDevice& dev, const std::vector<std::uint8_t>& data, const char* label) {
+    BufferDesc bd;
+    bd.size = data.size();
+    bd.usage.storageBuffer = true;
+    bd.data = range_of(data);
+    bd.label = label;
+    return dev.make_buffer(bd);
+}
+
+}  // namespace
+
+TEST_CASE("vulkan: async reads of a buffer and of an image region") {
+    auto dev = make_vk();
+    if (!dev) return;
+    CHECK(dev->async_read_supported());
+    std::string step = "buffer";
+    INFO("step: " << step);
+    const std::vector<std::uint8_t> data = pattern(5000, 7);
+    const Buffer buf = make_storage_buffer(*dev, data, "async-src");
+    REQUIRE(dev->state(buf) == ResourceState::Valid);
+    auto t = dev->request_buffer_read(buf, 100, 3000);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    REQUIRE(t.value().valid());
+    std::vector<std::uint8_t> out;
+    REQUIRE(dev->poll_buffer_read(t.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin() + 100, data.begin() + 3100));
+
+    step = "a write in a submitted list comes before the read";
+    const std::vector<std::uint8_t> patch = pattern(64, 8);
+    CommandList& list = dev->begin_commands("patch");
+    BufferWrite w;
+    w.data = range_of(patch);
+    w.buffer = buf;
+    w.dstOffset = 0;
+    list.write_buffer(w);
+    dev->submit(list);
+    t = dev->request_buffer_read(buf, 0, 64);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    bool done = false;
+    for (int i = 0; i < 100000 && !done; ++i) done = dev->poll_buffer_read(t.value(), out, false);  // no stall
+    if (!done) done = dev->poll_buffer_read(t.value(), out, true);
+    REQUIRE(done);
+    CHECK(out == patch);
+    dev->commit();
+
+    step = "image: a 33x3 region of a 37x5 RGBA8 image, and the whole image";
+    const std::vector<std::uint8_t> texels = pattern(std::size_t(37) * 5 * 4, 9);
+    ImageDesc id;
+    id.width = 37;
+    id.height = 5;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.data.mipLevels[0] = range_of(texels);
+    id.label = "async-image";
+    const Image img = dev->make_image(id);
+    REQUIRE(dev->state(img) == ResourceState::Valid);
+    auto ti = dev->request_image_read(img, 0, 0, 3, 1, 33, 3);
+    REQUIRE_MESSAGE(ti, ti.error().to_string());
+    REQUIRE(ti.value().valid());
+    REQUIRE(dev->poll_buffer_read(ti.value(), out, true));
+    CHECK(out == crop(texels, 37, 4, 3, 1, 33, 3));
+    ti = dev->request_image_read(img, 0, 0, 0, 0, 37, 5);
+    REQUIRE_MESSAGE(ti, ti.error().to_string());
+    REQUIRE(dev->poll_buffer_read(ti.value(), out, true));
+    CHECK(out == texels);
+
+    step = "bad requests are teaching errors";
+    auto bad = dev->request_buffer_read(buf, 4000, 2000);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "go past its 5000 bytes"));
+    bad = dev->request_buffer_read(buf, 0, 0);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "is no read"));
+    bad = dev->request_buffer_read(Buffer{}, 0, 4);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "is not a live buffer"));
+    bad = dev->request_image_read(img, 0, 0, 30, 0, 8, 1);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "outside its 37x5 mip 0"));
+    bad = dev->request_image_read(img, 1, 0, 0, 0, 1, 1);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "mip 1 is outside"));
+
+    step = "a read survives destroy_buffer";
+    t = dev->request_buffer_read(buf, 0, 5000);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    dev->destroy_buffer(buf);
+    dev->commit();
+    REQUIRE(dev->poll_buffer_read(t.value(), out, true));
+    std::vector<std::uint8_t> expected = data;
+    std::memcpy(expected.data(), patch.data(), patch.size());
+    CHECK(out == expected);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: async read tickets are generation-checked, and every slot can be in flight at once") {
+    auto dev = make_vk();
+    if (!dev) return;
+    const std::vector<std::uint8_t> data = pattern(1024, 11);
+    const Buffer buf = make_storage_buffer(*dev, data, "tickets");
+    REQUIRE(dev->state(buf) == ResourceState::Valid);
+    std::string step = "a ticket is read once";
+    INFO("step: " << step);
+    std::vector<std::uint8_t> out;
+    auto a = dev->request_buffer_read(buf, 0, 16);
+    REQUIRE_MESSAGE(a, a.error().to_string());
+    REQUIRE(dev->poll_buffer_read(a.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin(), data.begin() + 16));
+    out.clear();
+    CHECK(!dev->poll_buffer_read(a.value(), out, true));  // stale: already read
+    CHECK(out.empty());
+    CHECK(!dev->poll_buffer_read(ReadTicket{}, out, true));
+    CHECK(!dev->poll_buffer_read(ReadTicket{1000, 1}, out, true));
+
+    step = "a released ticket is stale, and a stale ticket does not touch the slot's next request";
+    auto b = dev->request_buffer_read(buf, 16, 16);
+    REQUIRE_MESSAGE(b, b.error().to_string());
+    dev->release_buffer_read(b.value());
+    CHECK(!dev->poll_buffer_read(b.value(), out, true));
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    auto c = dev->request_buffer_read(buf, 32, 16);
+    REQUIRE_MESSAGE(c, c.error().to_string());
+    CHECK(c.value().slot == b.value().slot);  // the slot came back once its copy finished
+    CHECK(c.value().generation != b.value().generation);
+    dev->release_buffer_read(b.value());  // stale: ignored
+    dev->release_buffer_read(a.value());
+    CHECK(!dev->poll_buffer_read(b.value(), out, true));
+    REQUIRE(dev->poll_buffer_read(c.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin() + 32, data.begin() + 48));
+
+    step = "32 reads in flight; the 33rd gets an invalid ticket with ok";
+    std::vector<ReadTicket> tickets;
+    for (int i = 0; i < 32; ++i) {
+        auto t = dev->request_buffer_read(buf, std::size_t(i) * 32, 32);
+        REQUIRE_MESSAGE(t, t.error().to_string());
+        REQUIRE_MESSAGE(t.value().valid(), "read " << i);
+        tickets.push_back(t.value());
+    }
+    auto full = dev->request_buffer_read(buf, 0, 4);
+    REQUIRE_MESSAGE(full, full.error().to_string());
+    CHECK(!full.value().valid());
+    for (std::size_t i = tickets.size(); i-- > 0;) {  // in reverse: no order between slots
+        REQUIRE_MESSAGE(dev->poll_buffer_read(tickets[i], out, true), "read " << i);
+        CHECK_MESSAGE(out == std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(i * 32),
+                                                       data.begin() + std::ptrdiff_t(i * 32 + 32)),
+                      "read " << i);
+    }
+    auto again = dev->request_buffer_read(buf, 0, 4);
+    REQUIRE_MESSAGE(again, again.error().to_string());
+    CHECK(again.value().valid());
+    dev->release_buffer_read(again.value());
+
+    step = "a read bigger than the slot's buffer grows it";
+    std::vector<std::uint8_t> big = pattern(200000, 12);
+    const Buffer large = make_storage_buffer(*dev, big, "large");
+    REQUIRE(dev->state(large) == ResourceState::Valid);
+    auto l = dev->request_buffer_read(large, 0, big.size());
+    REQUIRE_MESSAGE(l, l.error().to_string());
+    REQUIRE(dev->poll_buffer_read(l.value(), out, true));
+    CHECK(out == big);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+namespace {
+
+// A compute pass writes an 8x8 storage image; a second compute pipeline samples it as a texture (a compute read) and a
+// fragment shader samples it after that (a read in another stage, which must still wait for the write); the
+// synchronization validation checks every barrier.
+void read_after_read(VulkanDevice& dev) {
+    const Shader computeShader = dev.make_shader(compute_shader_desc());
+    const Shader sampleShader = dev.make_shader(sample_shader_desc());
+    const Shader twoShader = dev.make_shader(two_views_shader_desc());
+    REQUIRE_MESSAGE(dev.state(sampleShader) == ResourceState::Valid, all_errors(dev));
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = computeShader;
+    pd.label = "write";
+    const Pipeline write = dev.make_pipeline(pd);
+    pd.shader = sampleShader;
+    pd.label = "sample";
+    const Pipeline sample = dev.make_pipeline(pd);
+    const Pipeline draw = dev.make_pipeline(render_desc(twoShader, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev.state(sample) == ResourceState::Valid, all_errors(dev));
+    REQUIRE_MESSAGE(dev.state(draw) == ResourceState::Valid, all_errors(dev));
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "written";
+    const Image written = dev.make_image(id);
+    id.label = "copied";
+    const Image copied = dev.make_image(id);
+    BufferDesc bd;
+    bd.size = 64 * 4;
+    bd.usage.storageBuffer = true;
+    bd.label = "words";
+    const Buffer words = dev.make_buffer(bd);
+    ViewDesc v;
+    v.storageImage.image = written;
+    const View writtenStorage = dev.make_view(v);
+    v = {};
+    v.texture.image = written;
+    const View writtenTexture = dev.make_view(v);
+    v = {};
+    v.storageImage.image = copied;
+    const View copiedStorage = dev.make_view(v);
+    v = {};
+    v.storageBuffer.buffer = words;
+    const View wordsView = dev.make_view(v);
+    const Sampler nearest = make_clamped_sampler(dev, Filter::Nearest);
+    const Target t = make_target(dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+
+    CommandList& list = dev.begin_commands("read-after-read");
+    list.begin_compute_pass("write");
+    list.set_pipeline(write);
+    Bindings wb;
+    wb.views[0] = writtenStorage;
+    wb.views[1] = wordsView;
+    list.set_bindings(wb);
+    const std::int32_t mode[4] = {0, 0, 0, 0};
+    list.set_uniforms(0, Range{mode, sizeof mode});
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+    list.begin_compute_pass("sample");
+    list.set_pipeline(sample);
+    Bindings sb;
+    sb.views[0] = writtenTexture;
+    sb.views[1] = copiedStorage;
+    sb.samplers[0] = nearest;
+    list.set_bindings(sb);
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(draw);
+    Bindings db;
+    db.views[0] = writtenTexture;  // the read in a second stage
+    db.views[1] = make_texture(dev, 1, 1, {0, 0, 0, 0});
+    db.samplers[0] = nearest;
+    db.samplers[1] = nearest;
+    list.set_bindings(db);
+    list.set_uniforms(0, bytes_of(Vec4{1.0f, 1.0f, 1.0f, 1.0f}));
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(dev, list);
+    const auto pattern8 = [](int x, int y) { return std::array<int, 4>{x * 32, y * 32, 0, 255}; };
+    std::string bad = first_mismatch(read_rgba8(dev, copied, 8, 8), 8, 8, 0, pattern8);
+    CHECK_MESSAGE(bad.empty(), "the compute read: " << bad);
+    // The centre of the 8x8 image with a nearest sampler: texel (4, 4).
+    bad = first_mismatch(read_rgba8(dev, t.image, 4, 4), 4, 4, 1,
+                         [](int, int) { return std::array<int, 4>{128, 128, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), "the fragment read: " << bad);
+    CHECK_MESSAGE(all_errors(dev).empty(), all_errors(dev));
+}
+
+}  // namespace
+
+TEST_CASE("vulkan: a read in a second stage after a compute write waits for the write (synchronization validation)") {
+    auto dev = make_vk();
+    if (!dev) return;
+    read_after_read(*dev);
+}
+
+TEST_CASE("vulkan: the Vulkan 1.0 barriers carry the storage and sampled bits of a compute write and its reads") {
+    VulkanOptions o;
+    o.synchronization2 = false;
+    auto dev = make_vk(o);
+    if (!dev) return;
+    CHECK(!dev->synchronization2_active());
+    read_after_read(
+        *dev);  // VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT is above bit 31: mapped to VK_ACCESS_SHADER_WRITE_BIT
+}
+
+TEST_CASE("vulkan: switching between pipelines with different set-0 layouts binds every set again") {
+    auto dev = make_vk();
+    if (!dev) return;
+    const Shader fill = dev->make_shader(fill_shader_desc());      // set 0: two uniform blocks
+    const Shader two = dev->make_shader(two_views_shader_desc());  // set 0: one block; set 1: views and samplers
+    const Pipeline fillPip = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+    const Pipeline twoPip = dev->make_pipeline(render_desc(two, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(fillPip) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(twoPip) == ResourceState::Valid, all_errors(*dev));
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    Bindings bind;
+    bind.views[0] = make_texture(*dev, 1, 1, {255, 0, 0, 255});
+    bind.views[1] = make_texture(*dev, 1, 1, {0, 255, 0, 255});
+    bind.samplers[0] = make_clamped_sampler(*dev, Filter::Nearest);
+    bind.samplers[1] = make_clamped_sampler(*dev, Filter::Linear);
+    const auto draw_fill = [&](CommandList& list, const Vec4& colour) {
+        list.set_pipeline(fillPip);
+        list.set_uniforms(0, bytes_of(Vec4{0.0f, 0.0f, 0.0f, 0.0f}));
+        list.set_uniforms(1, bytes_of(colour));
+        list.draw(0, 3);
+    };
+    const auto draw_two = [&](CommandList& list, float scale) {
+        list.set_pipeline(twoPip);
+        list.set_bindings(bind);
+        list.set_uniforms(0, bytes_of(Vec4{scale, scale, scale, 1.0f}));
+        list.draw(0, 3);
+    };
+    std::string step = "fill, then two views: the views' set survives the new set 0";
+    INFO("step: " << step);
+    CommandList& a = dev->begin_commands("fill-then-two");
+    a.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    draw_fill(a, Vec4{0.0f, 0.0f, 1.0f, 1.0f});
+    draw_two(a, 1.0f);
+    a.end_pass();
+    submit_and_finish(*dev, a);
+    std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 0,
+                                     [](int, int) { return std::array<int, 4>{255, 255, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+
+    step = "two views, fill, two views: each draw binds what its layout needs";
+    CommandList& b = dev->begin_commands("two-fill-two");
+    b.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    draw_two(b, 1.0f);
+    draw_fill(b, Vec4{0.0f, 0.0f, 1.0f, 1.0f});
+    draw_two(b, 0.0f);  // black with alpha 1: only a missing or stale binding would show
+    b.end_pass();
+    submit_and_finish(*dev, b);
+    bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 0,
+                         [](int, int) { return std::array<int, 4>{0, 0, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a texture view and a storage image view of one subresource in one dispatch is a teaching error") {
+    auto dev = make_vk();
+    if (!dev) return;
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev->make_shader(sample_shader_desc());
+    pd.label = "sample";
+    const Pipeline sample = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "both";
+    const Image img = dev->make_image(id);
+    ViewDesc v;
+    v.texture.image = img;
+    Bindings b;
+    b.views[0] = dev->make_view(v);
+    v = {};
+    v.storageImage.image = img;
+    b.views[1] = dev->make_view(v);
+    b.samplers[0] = make_clamped_sampler(*dev, Filter::Nearest);
+    CommandList& list = dev->begin_commands("conflict");
+    list.begin_compute_pass("conflict");
+    list.set_pipeline(sample);
+    list.set_bindings(b);
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string e = all_errors(*dev);
+    CHECK_MESSAGE(contains(e, "in the same dispatch"), e);
+    CHECK_MESSAGE(contains(e, "cannot be bound together"), e);
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));  // nothing broken was recorded
+}
+
+TEST_CASE("vulkan: storage_image_loadable answers per format, with a reason") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string why = "stale";
+    for (PixelFormat f : {PixelFormat::Rgba8, PixelFormat::Rgba16F, PixelFormat::R32F, PixelFormat::Rgba32F}) {
+        CHECK_MESSAGE(dev->storage_image_loadable(f, &why), pixel_format_name(f) << ": " << why);
+        CHECK(why.empty());
+    }
+    CHECK(!dev->storage_image_loadable(PixelFormat::DepthStencil, &why));
+    CHECK_MESSAGE(contains(why, "cannot use"), why);
+    CHECK_MESSAGE(contains(why, "storage image"), why);
+    CHECK(!dev->storage_image_loadable(PixelFormat::DepthStencil, nullptr));
 }
 
 #endif
