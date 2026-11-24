@@ -349,6 +349,24 @@ Shockwave, heat haze, radial blur pulse, flash and fade: five short effects of t
 finished picture, started by `camera.shockwave(opts)` and its four siblings or by the `feel.*` commands, on the game clock. They
 have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md).
 
+## Choosing the GPU backend
+
+`"render": {"backend": "vulkan"}` in `factoria.json` asks for a GPU backend. The values are `"auto"` (the default), `"d3d11"`,
+`"d3d12"`, `"vulkan"`, `"metal"`, `"gl"`, `"gles3"` and `"webgl2"`. A name that is none of them fails the load with the pointer
+`/render/backend`, the valid names and a "did you mean".
+
+- `"auto"` is the backend this build of the engine uses today: the sokol one it was built with (OpenGL on Linux, Direct3D 11 on
+  Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web). Later M77 work makes `auto` pick the best backend of the machine.
+- A name this platform or binary cannot have (Metal on Windows, `d3d12` off Windows, `vulkan` in a build without `FA_VULKAN_BACKEND`, or
+  another sokol backend than the one built) starts the game with one warning that says which backends the binary has, and uses `auto`.
+- The environment variable `FA_GPU_BACKEND` (same names) overrides `factoria.json`, for tests and for players that tools run;
+  `EngineConfig::gpuBackend` overrides both. A wrong name in the variable fails the start with the same teaching error.
+- `d3d12` and `vulkan` draw offscreen only until their window paths land. A headless run (`factoria call`, `factoria test`, the MCP
+  server, tests) uses the one asked for. In a window the renderer cannot start on them: the engine warns once (what was asked, why
+  it failed, what draws instead) and the window uses the `auto` backend.
+- The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
+  backend of the renderer's device in `backend`, and the one asked for in `requestedBackend` when they differ.
+
 ## Temporal effects and upscaling at a glance (M76)
 
 What each M76 feature is switched on with, which GPU backends draw it and what it costs. The contract of every setting is
