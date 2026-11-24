@@ -92,9 +92,10 @@ struct Renderer::Impl {
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
     // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same):
     // destroy_targets keeps what does not depend on the render size (the cameras' adapted exposure, the temporal
-    // upscaler's history at the output size) and the slots of the CameraView and render-target images (view_image
-    // makes an image again only when its pixel size changes: a CameraView's size follows renderScale, so a step
-    // makes it again at its next draw; a render target's has its own size and survives) and frees the rest.
+    // upscaler's history and the upscale stage's images at the output size; not MetalFX's, made for the input) and
+    // the slots of the CameraView and render-target images (view_image makes an image again only when its pixel size
+    // changes: a CameraView's size follows renderScale, so a step makes it again at its next draw; a render target's
+    // has its own size and survives) and frees the rest.
     bool scaleStepOnly = false;
     float renderBaseScale =
         1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
