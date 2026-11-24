@@ -604,11 +604,11 @@ TEST_CASE(
     camera(w);
     rect(w, {0, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1},
          {400, 300});  // fills the picture: the middle pixel is the whole picture
-    // The middle pixel (red byte) of the image behind game_target_image_id(), the one ImGui shows. Only an 8-bit image can be read back.
+    // The middle pixel (red byte) of the image behind game_target_texture().image, the one ImGui shows. Only an 8-bit image can be read back.
     auto viewed = [](Own& o) {
-        const std::uint32_t id = o.r.game_target_image_id();
+        const std::uint32_t id = o.r.game_target_texture().image;
         REQUIRE(id != 0);
-        CHECK(o.r.game_target_view_id() != 0);
+        CHECK(o.r.game_target_texture().view != 0);
         sg_image image{};
         image.id = id;
         std::vector<std::uint8_t> px;
@@ -637,11 +637,12 @@ TEST_CASE(
         linear(w, false);
         r.draw(g, w);
         const std::int64_t images = live_images();
-        const std::uint32_t gammaId = r.r.game_target_image_id();  // gamma: the game image itself, no copy was made
+        const std::uint32_t gammaId =
+            r.r.game_target_texture().image;  // gamma: the game image itself, no copy was made
 
         linear(w);
         const Image linShot = r.draw(g, w);
-        CHECK(r.r.game_target_image_id() != gammaId);
+        CHECK(r.r.game_target_texture().image != gammaId);
         const int linByte = viewed(r);
         CHECK(std::abs(linByte - shot_byte(linShot)) <= 1);
         CHECK(linByte >= 126);  // the colour as picked
@@ -677,21 +678,21 @@ TEST_CASE(
         linear(w);
         r.draw(g, w);
         const int tw = r.r.target_width(), th = r.r.target_height();
-        const std::uint32_t copyBefore = r.r.game_target_image_id();  // the encoded copy at the old size
+        const std::uint32_t copyBefore = r.r.game_target_texture().image;  // the encoded copy at the old size
         r.r.set_target_size(tw + 64, th + 36);
         // The copy is made at the end of a frame: until then the viewport falls back to the game image itself.
-        CHECK(r.r.game_target_image_id() != 0);
-        CHECK(r.r.game_target_image_id() != copyBefore);
-        CHECK(r.r.game_target_view_id() != 0);
+        CHECK(r.r.game_target_texture().image != 0);
+        CHECK(r.r.game_target_texture().image != copyBefore);
+        CHECK(r.r.game_target_texture().view != 0);
         const Image bigger = r.draw(g, w);
-        CHECK(r.r.game_target_image_id() != 0);
+        CHECK(r.r.game_target_texture().image != 0);
         CHECK(bigger.width == tw + 64);
-        CHECK(r.r.game_target_view_id() != 0);  // never the viewport's "no render target" text while graphics run
+        CHECK(r.r.game_target_texture().view != 0);  // never the viewport's "no render target" text while graphics run
         CHECK(std::abs(viewed(r) - int(std::lround(bigger.pixel(bigger.width / 2, bigger.height / 2).r * 255.0f))) <=
               1);
         r.r.set_target_size(tw, th);
         r.draw(g, w);
-        CHECK(r.r.game_target_view_id() != 0);
+        CHECK(r.r.game_target_texture().view != 0);
         CHECK(viewed(r) >= 126);  // the encoded copy again, at the old size
     }
     if (!wasEnabled) sg_disable_stats();

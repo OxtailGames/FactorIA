@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "sokol_app.h"
-#include "sokol_gfx.h"
 
 namespace fa::editor::ui {
 
@@ -66,9 +65,9 @@ void metal_make_window_readable(bool show) {
     give_keyboard_back();
 }
 
-bool metal_read_drawable(const void* drawablePtr, int w, int h, std::uint8_t* out) {
+bool metal_read_drawable(const void* drawablePtr, const void* queuePtr, int w, int h, std::uint8_t* out) {
     id<CAMetalDrawable> drawable = (__bridge id<CAMetalDrawable>)drawablePtr;
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)queuePtr;
     if (!drawable || !queue) return false;
     id<MTLTexture> tex = drawable.texture;
     if (!tex || tex.framebufferOnly || int(tex.width) != w || int(tex.height) != h) return false;
@@ -76,7 +75,7 @@ bool metal_read_drawable(const void* drawablePtr, int w, int h, std::uint8_t* ou
     const bool bgra = fmt == MTLPixelFormatBGRA8Unorm || fmt == MTLPixelFormatBGRA8Unorm_sRGB;
     if (!bgra && fmt != MTLPixelFormatRGBA8Unorm && fmt != MTLPixelFormatRGBA8Unorm_sRGB) return false;
 
-    // Called after sg_commit(): this command buffer runs after the frame's on the same queue, and the drawable (presented
+    // Called after the frame's commit: this command buffer runs after the frame's on the same queue, and the drawable (presented
     // by then) keeps its pixels while the autorelease pool of the frame callback holds it.
     const NSUInteger bytesPerRow = NSUInteger(w) * 4;
     id<MTLBuffer> buf = [queue.device newBufferWithLength:bytesPerRow * NSUInteger(h) options:MTLResourceStorageModeShared];

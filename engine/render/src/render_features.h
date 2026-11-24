@@ -99,7 +99,8 @@ FeatureBackend feature_backend_of(gpu::Backend backend);
 // The environment of a backend from what its GPU reports: `caps` answers per pixel format; `metalDevice` (the id<MTLDevice>
 // of Device::native().device; null = not asked) asks the MetalFX framework on Metal. The hdr fields stay unasked (set_hdr_env).
 FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& limits, bool compute,
-                                    const std::function<gpu::PixelFormatCaps(gpu::PixelFormat)>& caps, const void* metalDevice);
+                                    const std::function<gpu::PixelFormatCaps(gpu::PixelFormat)>& caps,
+                                    const void* metalDevice);
 
 // The environment of `device`: its backend, pixel formats, features and limits.
 FeatureEnv feature_env_from_device(const gpu::Device& device);
