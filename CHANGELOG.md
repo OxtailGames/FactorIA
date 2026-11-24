@@ -12,6 +12,11 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- A game chooses its GPU backend (M77-P9a): `"render": {"backend": "auto" | "d3d11" | "d3d12" | "vulkan" | "metal" | "gl" | "gles3" |
+  "webgl2"}` in `factoria.json` (a wrong name fails with `/render/backend`, the valid names and a did-you-mean; one the platform or binary
+  lacks warns and uses `auto`, which is still the sokol backend of the build), the `FA_GPU_BACKEND` environment variable and
+  `EngineConfig::gpuBackend` override it. Headless runs use D3D12 or Vulkan; a window falls back to `auto` with one warning until their
+  swapchains land. The startup report names the device's backend and the asked one when it differs (docs/RENDERING.md, "Choosing the GPU backend").
 - The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
   `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
   a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is
