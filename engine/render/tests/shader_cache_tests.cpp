@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -12,6 +13,7 @@
 
 #include "fa/core/blob_cache.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "shader_cache.h"
 
 using namespace fa;
@@ -225,4 +227,32 @@ TEST_CASE("shader cache: the stats report is plain numbers") {
     CHECK(j.at("backend").get<std::string>() == "d3d11");
     CHECK(j.at("programs").get<int>() == 3);
     CHECK(j.at("cacheHits").get<int>() == 2);
+}
+
+TEST_CASE("shader cache: on Vulkan a stage given as text is base64 SPIR-V, decoded into bytecode") {
+    const std::uint32_t words[2] = {0x07230203u, 0x00010000u};
+    const std::string vs = base64_encode(words, sizeof words);
+    gpu::ShaderDesc desc;
+    desc.vertexFunc.source = vs.c_str();
+    desc.fragmentFunc.source = vs.c_str();
+    std::size_t seen = 0;
+    bool bytecode = false;
+    make_shader_via(gpu::Backend::Vulkan, desc, "spirv", [&](const gpu::ShaderDesc* prepared) {
+        REQUIRE(prepared);
+        seen = prepared->vertexFunc.bytecode.size;
+        bytecode = prepared->vertexFunc.source == nullptr && prepared->fragmentFunc.bytecode.size == sizeof words &&
+                   std::memcmp(prepared->vertexFunc.bytecode.ptr, words, sizeof words) == 0;
+        return gpu::Shader{};
+    });
+    CHECK(seen == sizeof words);
+    CHECK(bytecode);
+
+    // Not base64 of whole 32-bit words: the backend gets the desc as it is and reports the stage.
+    desc.fragmentFunc.source = "#version 450";
+    bool asIs = false;
+    make_shader_via(gpu::Backend::Vulkan, desc, "spirv", [&](const gpu::ShaderDesc* prepared) {
+        asIs = prepared == nullptr;
+        return gpu::Shader{};
+    });
+    CHECK(asIs);
 }

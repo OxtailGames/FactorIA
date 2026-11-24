@@ -68,6 +68,7 @@ std::string backend_dialect(const gpu::DeviceInfo& info) {
     switch (info.backend) {
         case gpu::Backend::D3d11: return "hlsl5";
         case gpu::Backend::Gl: return "glsl430";
+        case gpu::Backend::Vulkan: return "spirv_vk";
         case gpu::Backend::Gles3:
         case gpu::Backend::WebGl2: return "glsl300es";
         case gpu::Backend::Metal:

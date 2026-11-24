@@ -1,5 +1,5 @@
 // Private to fa_render: the engine's own Vulkan backend of the GPU interface (M77.3,
-// docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend").
+// docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
 //
 // The first part of this header compiles everywhere: the options and make_vulkan_device(), which returns a teaching
 // error where the backend is not built (the web and iOS builds, FA_VULKAN_BACKEND off). The second part declares
@@ -17,8 +17,12 @@
 // images, views, samplers, image layouts and access tracked per subresource with automatic barriers (synchronization2
 // where the device has it, the Vulkan 1.0 barriers otherwise), the transfers of a command list, debug labels, the
 // per-frame descriptor pools and the bindless reservation, the blocking readbacks, statistics and commit listeners.
-// Shaders, pipelines, passes, draws, dispatches, bindings, uniforms, GPU timers and asynchronous reads come in
-// M77-P8c: until then they report a "not built yet (M77-P8c)" error (errors()) and do nothing.
+// What M77-P8c built (vulkan_pipelines.cpp, vulkan_commands.cpp): shaders from SPIR-V with sokol-shdc's descriptor
+// layout, cached descriptor set layouts, pipeline layouts, render passes and pipelines (a VkPipelineCache under them),
+// render passes recorded into secondary command buffers, compute passes, bindings, uniforms through dynamic uniform
+// buffers, viewports, scissors, draws and dispatches. GPU timers and asynchronous reads come in M77-P8b (until then
+// timer_supported() and async_read_supported() are false, a timed scope does nothing and request_buffer_read returns an
+// error naming the package); a pass into the window comes in M77-P9 (until then begin_pass reports an error naming it).
 #pragma once
 
 #include <cstddef>
@@ -92,6 +96,7 @@ Result<std::unique_ptr<Device>> make_vulkan_device(const VulkanOptions& options 
 #include <array>
 #include <atomic>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
@@ -191,7 +196,35 @@ std::string prepare_validation_layer();
     X(vkCmdPipelineBarrier)                                                                                            \
     X(vkCmdCopyBuffer)                                                                                                 \
     X(vkCmdCopyBufferToImage)                                                                                          \
-    X(vkCmdCopyImageToBuffer)
+    X(vkCmdCopyImageToBuffer)                                                                                          \
+    X(vkCreateShaderModule)                                                                                            \
+    X(vkDestroyShaderModule)                                                                                           \
+    X(vkCreatePipelineLayout)                                                                                          \
+    X(vkDestroyPipelineLayout)                                                                                         \
+    X(vkCreateGraphicsPipelines)                                                                                       \
+    X(vkCreateComputePipelines)                                                                                        \
+    X(vkDestroyPipeline)                                                                                               \
+    X(vkCreatePipelineCache)                                                                                           \
+    X(vkDestroyPipelineCache)                                                                                          \
+    X(vkGetPipelineCacheData)                                                                                          \
+    X(vkCreateRenderPass)                                                                                              \
+    X(vkDestroyRenderPass)                                                                                             \
+    X(vkCreateFramebuffer)                                                                                             \
+    X(vkDestroyFramebuffer)                                                                                            \
+    X(vkCmdBeginRenderPass)                                                                                            \
+    X(vkCmdEndRenderPass)                                                                                              \
+    X(vkCmdExecuteCommands)                                                                                            \
+    X(vkCmdBindPipeline)                                                                                               \
+    X(vkCmdBindDescriptorSets)                                                                                         \
+    X(vkCmdBindVertexBuffers)                                                                                          \
+    X(vkCmdBindIndexBuffer)                                                                                            \
+    X(vkCmdSetViewport)                                                                                                \
+    X(vkCmdSetScissor)                                                                                                 \
+    X(vkCmdSetBlendConstants)                                                                                          \
+    X(vkCmdSetStencilReference)                                                                                        \
+    X(vkCmdDraw)                                                                                                       \
+    X(vkCmdDrawIndexed)                                                                                                \
+    X(vkCmdDispatch)
 
 // Every function the backend calls (VK_NO_PROTOTYPES: there are no others).
 struct VkFunctions {
@@ -546,6 +579,82 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Shaders, layouts, pipelines, render passes (vulkan_pipelines.cpp)
+// ---------------------------------------------------------------------------------------------------------------------
+
+// A shader's modules and the reflection the command lists bind by. Shared by the shader record and every pipeline made
+// from it, so destroy_shader() never pulls the modules from under a pipeline being made. The destructor destroys the
+// modules.
+struct ShaderInfo {
+    VulkanDevice* device = nullptr;
+    bool compute = false;
+    std::string label;
+    VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE, cs = VK_NULL_HANDLE;
+    std::string vsEntry = "main", fsEntry = "main", csEntry = "main";
+    std::uint32_t uniformSize[kMaxUniformBlocks]{};  // 0 = the slot is unused
+    ViewType viewType[kMaxViews]{};                  // Invalid = the slot is unused
+    bool viewWritable[kMaxViews]{};                  // a storage image, or a storage buffer that is not readonly
+    ImageType viewImageType[kMaxViews]{};            // textures and storage images: what the view must be
+    std::string codeKey;                             // SHA-256 of the SPIR-V and the entries (the pipeline cache key)
+    ShaderInfo() = default;
+    ShaderInfo(const ShaderInfo&) = delete;
+    ShaderInfo& operator=(const ShaderInfo&) = delete;
+    ~ShaderInfo();
+};
+
+// A pipeline layout as sokol-shdc lays the descriptors out: set 0 holds the uniform blocks (dynamic uniform buffers),
+// set 1 the views and samplers, set 2 the bindless table (every layout has it when the device has one). Cached by its
+// key: every shader with the same bindings shares one.
+struct PipelineLayoutInfo {
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};  // an empty layout where a set is unused
+    DescriptorCounts counts[2]{};                                      // what one set of each holds
+    bool hasSet[2] = {false, false};
+    std::uint32_t uniformBinding[kMaxUniformBlocks]{};
+    std::uint8_t uniformOrder[kMaxUniformBlocks]{};  // the used slots by binding (the order of the dynamic offsets)
+    int uniformCount = 0;
+    std::uint32_t viewBinding[kMaxViews]{};
+    VkPipelineStageFlags2 viewStage[kMaxViews]{};  // the stage that reads the view (what its barriers wait for)
+    std::uint32_t samplerBinding[kMaxSamplers]{};
+    std::uint32_t samplerUsed = 0;  // bit i = sampler slot i
+    bool bindless = false;          // set 2 is the bindless table
+    std::string key;
+};
+
+// What a pipeline draws with: its VkPipeline (owned by the device's cache), its layout and shader, and the state the
+// command list sets with it.
+struct PipelineState {
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    std::shared_ptr<const PipelineLayoutInfo> layout;
+    std::shared_ptr<const ShaderInfo> shader;
+    bool compute = false;
+    IndexType indexType = IndexType::None;
+    std::uint32_t buffersUsed = 0;  // bit i = vertex buffer slot i
+    float blendColor[4]{};
+    std::uint32_t stencilRef = 0;
+    TargetFormat format{};
+    int colorCount = 0;
+    std::string label;
+};
+
+// A render pass by its attachments: the formats and sample count, and what it does with each at its start and end.
+// Pipelines are made with a compatible pass (every load and store DONT_CARE); begin_pass uses the real one.
+struct RenderPassKey {
+    VkFormat color[2] = {VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED};
+    int colorCount = 0;
+    VkFormat depth = VK_FORMAT_UNDEFINED;    // UNDEFINED = no depth attachment
+    VkFormat resolve = VK_FORMAT_UNDEFINED;  // UNDEFINED = no resolve of colour attachment 0
+    VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+    VkAttachmentLoadOp colorLoad = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    VkAttachmentStoreOp colorStore = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    VkAttachmentLoadOp depthLoad = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    VkAttachmentStoreOp depthStore = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    VkAttachmentLoadOp stencilLoad = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    VkAttachmentStoreOp stencilStore = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    std::string text() const;
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Command lists
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -563,7 +672,7 @@ public:
     void begin_pass(const PassDesc& pass) override;
     void begin_compute_pass(const char* label) override;
     void end_pass() override;
-    PassState pass_state() const override { return PassState::None; }
+    PassState pass_state() const override { return passState_; }
     void set_pipeline(Pipeline pipeline) override;
     void set_bindings(const Bindings& bindings) override;
     void set_uniforms(int slot, Range data) override;
@@ -592,6 +701,9 @@ public:
     // Records the barriers require() collected (before every command that needs them).
     void flush_barriers();
     VkCommandBuffer native() const { return cmd_; }
+    // Where draws, bindings and debug labels go now: the pass's secondary command buffer inside a render pass, the list's
+    // own command buffer elsewhere.
+    VkCommandBuffer recording() const { return rec_ ? rec_ : cmd_; }
     const std::string& label() const { return label_; }
     // A buffer this list copies from or into that nothing else holds (a dedicated upload, a repack scratch buffer):
     // released with the frame.
@@ -607,7 +719,24 @@ private:
     Result<void> create(const char* what);
     // Opens the list for recording (its previous commands must be finished).
     Result<void> open(const char* label);
-    void not_yet(const char* what);
+    // Reports "CommandList::<what> in list '<label>': <error>".
+    void fail(const char* what, const std::string& error);
+    // Forgets the pipeline, uniforms and bindings (a new pass or pipeline).
+    void reset_bind_state();
+    // A command of the open pass needs mips [mip, mip + mipCount) of layers [layer, layer + layerCount) of `t` in
+    // `state`. In a render pass the needs are merged and applied before the pass begins (no barrier can go inside
+    // one); in a compute pass they are kept for every dispatch. False with `error` set when the render pass already
+    // uses a subresource in another layout.
+    bool need(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount, std::uint32_t layer,
+              std::uint32_t layerCount, const SubState& state, std::string& error);
+    // A secondary command buffer for the next render pass (reset with the list); null with `error` set.
+    VkCommandBuffer next_secondary(std::string& error);
+    // Forgets the pass (end_pass, open).
+    void clear_pass_state();
+    // Checks that a draw or dispatch can run and binds what changed (the uniform set).
+    bool ready_to_run(const char* what, bool compute);
+    void record_draw(const char* what, int base, int count, int instances, int baseVertex, int baseInstance);
+    void apply_viewport(const char* what, float x, float y, float width, float height, bool originTopLeft);
     void transition(Use& u, std::uint32_t sub, const SubState& state);
     // Copies texels from CPU memory into an image through the upload ring: a width x height region at (x, y) of mip
     // `mip`, `count` layers from `layer` (2D, cube, array) or `count` depth slices from `layer` (3D). Source rows are
@@ -637,6 +766,42 @@ private:
     std::unordered_map<TrackedResource*, std::size_t> useIndex_;
     std::vector<Barrier> pending_;
     std::vector<std::shared_ptr<TrackedResource>> keep_;
+    std::uint64_t openFrame_ = 0;  // the frame it was opened in (its uniforms and descriptors are that frame's)
+
+    // The pass
+    struct Need {
+        std::shared_ptr<TrackedResource> res;
+        std::uint32_t sub = 0;
+        SubState state{};
+    };
+    PassState passState_ = PassState::None;
+    bool passFailed_ = false;   // begin_pass failed: the pass's commands are skipped
+    bool drawsFailed_ = false;  // a pipeline, bindings or uniforms failed: draws are skipped until the next pipeline
+    TargetFormat passFormat_{};
+    int passColors_ = 0;
+    std::uint32_t passWidth_ = 0, passHeight_ = 0;
+    bool viewportEmpty_ = false;            // the viewport has no area: draws are skipped
+    VkCommandBuffer rec_ = VK_NULL_HANDLE;  // the render pass's secondary command buffer (null outside one)
+    VkRenderPass passHandle_ = VK_NULL_HANDLE;
+    VkFramebuffer passFramebuffer_ = VK_NULL_HANDLE;
+    std::vector<VkClearValue> passClears_;
+    std::vector<Need> passNeeds_;  // render pass: the states its attachments and draws need, merged
+    std::map<std::pair<const TrackedResource*, std::uint32_t>, std::size_t> passNeedIndex_;  // -> passNeeds_
+    std::vector<Need> boundNeeds_;  // compute pass: what the bound views need before each dispatch
+    std::vector<VkCommandBuffer> secondaries_;
+    std::size_t secondaryNext_ = 0;
+    std::vector<VkFramebuffer> framebuffers_;  // destroyed when the list is reused (its GPU work is done)
+    std::vector<std::string> passGroups_;      // debug groups pushed inside the render pass and still open
+    int passOuterPops_ = 0;                    // pops inside the render pass of groups pushed before it
+
+    // Pipeline, bindings, uniforms
+    std::shared_ptr<const PipelineState> pipeline_;
+    std::uint32_t uniformsSet_ = 0;  // bit i = uniform slot i was set since set_pipeline
+    bool bindingsSet_ = false;
+    bool uniformsDirty_ = false;  // the uniform set must be bound again before the next draw
+    VkBuffer uniformBuffer_[kMaxUniformBlocks]{};
+    std::uint32_t uniformOffset_[kMaxUniformBlocks]{};
+    std::unordered_map<std::string, VkDescriptorSet> uniformSets_;  // set 0 by (layout, buffers): reset with the list
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -658,6 +823,11 @@ struct VulkanCounters {
     std::uint32_t frameDescriptors = 0;        // descriptors of every kind in them
     std::uint32_t bindlessUsed = 0;      // bindless slots handed out (freed ones waiting for their frame included)
     std::uint32_t bindlessCapacity = 0;  // the bindless table's size (0 = none)
+    // The caches of pipelines (VkPipeline by shader code, layout and state), layouts (descriptor set and pipeline
+    // layouts) and render passes: hits, and misses (objects made).
+    std::uint64_t pipelineCacheHits = 0, pipelineCacheMisses = 0;
+    std::uint64_t layoutCacheHits = 0, layoutCacheMisses = 0;
+    std::uint64_t renderPassCacheHits = 0, renderPassCacheMisses = 0;
 };
 
 // The Vulkan Device. Made, used for resources and destroyed on one thread (the render thread); command lists may be
@@ -730,7 +900,7 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket) override {}
 
-    // ---- Vulkan only (tests, M77-P8c) ---------------------------------------------------------------------------------
+    // ---- Vulkan only (tests, the backend's own code) ------------------------------------------------------------------
     const VkFunctions& fn() const { return fn_; }
     VkInstance vk_instance() const { return instance_; }
     VkPhysicalDevice physical_device() const { return physical_; }
@@ -777,6 +947,12 @@ public:
     MemoryAllocator& memory() { return memory_; }
     // The VkFormat of `f` on this device (DepthStencil: D24S8 where it is a depth attachment, else D32S8).
     VkFormat vk_format(PixelFormat f) const;
+    // The VkPipelineCache every pipeline is made through (M77-P8b saves and loads its data).
+    VkPipelineCache pipeline_cache() const { return pipelineCache_; }
+    // A pipeline's state (null when `pipeline` names nothing or failed).
+    std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
+    // The render pass of `key`, from the cache or made now; null with `error` set when Vulkan refused.
+    VkRenderPass render_pass(const RenderPassKey& key, std::string& error);
     // Names a Vulkan object in captures and validation messages (with debug utils; nothing otherwise).
     void set_name(VkObjectType type, std::uint64_t handle, const char* label) const;
     // Records `barriers` (merged where adjacent mips and layers go the same way) with synchronization2 or the 1.0
@@ -836,6 +1012,13 @@ private:
         void (*func)(void*) = nullptr;
         void* user = nullptr;
     };
+    struct ShaderRecord {
+        std::shared_ptr<ShaderInfo> info;  // null when the creation failed
+        std::shared_ptr<const PipelineLayoutInfo> layout;
+    };
+    struct PipelineRecord {
+        std::shared_ptr<const PipelineState> state;  // null when the creation failed
+    };
 
     Result<void> init(const VulkanOptions& options);
     Result<void> init_instance(const VulkanOptions& options);
@@ -867,6 +1050,15 @@ private:
     // Copies a region of the image into a host-visible buffer and waits; the rows come back tightly packed.
     Result<void> read_texture(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y, int width,
                               int height, std::vector<std::uint8_t>& out, const char* what);
+    // A descriptor set layout of `bindings` (cached by `key`); null with `error` set when Vulkan refused.
+    VkDescriptorSetLayout set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings,
+                                     std::string& error);
+    // The pipeline layout of a shader (cached by its bindings); null with `error` set when it cannot be one.
+    std::shared_ptr<const PipelineLayoutInfo> pipeline_layout(const ShaderDesc& desc, const ShaderInfo& info,
+                                                              std::string& error);
+    // A VkPipeline from the cache, or made now; null with `error` set when Vulkan refused.
+    VkPipeline pipeline_object(const std::string& key, const VkGraphicsPipelineCreateInfo* graphics,
+                               const VkComputePipelineCreateInfo* compute, std::string& error);
 
     // The Vulkan objects
     VulkanLibrary library_{};
@@ -892,6 +1084,7 @@ private:
     bool descriptorIndexing_ = false;
     int framesInFlight_ = kInflightFrames;
     VkFormat depthStencilFormat_ = VK_FORMAT_D24_UNORM_S8_UINT;
+    bool depthBiasClamp_ = false;
     std::size_t imageUploadAlign_ = 16;
 
     // What the device can do
@@ -910,6 +1103,19 @@ private:
     Pool<ImageRecord> images_;
     Pool<ViewRecord> views_;
     Pool<SamplerRecord> samplers_;
+    Pool<ShaderRecord> shaders_;
+    Pool<PipelineRecord> pipelines_;
+
+    // The caches (cacheMutex_): made once, destroyed with the device
+    mutable std::mutex cacheMutex_;
+    VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
+    std::unordered_map<std::string, VkDescriptorSetLayout> setLayouts_;
+    std::unordered_map<std::string, std::shared_ptr<const PipelineLayoutInfo>> pipelineLayouts_;
+    std::unordered_map<std::string, VkPipeline> pipelineObjects_;
+    std::unordered_map<std::string, VkRenderPass> renderPasses_;
+    std::uint64_t pipelineHits_ = 0, pipelineMisses_ = 0;
+    std::uint64_t layoutHits_ = 0, layoutMisses_ = 0;
+    std::uint64_t renderPassHits_ = 0, renderPassMisses_ = 0;
 
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;
@@ -930,7 +1136,7 @@ private:
     mutable std::mutex msgMutex_;
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
-    std::vector<std::string> notYetReported_;  // each "not yet" call is reported once
+    std::vector<std::string> notYetReported_;  // each call not built yet (M77-P8b, M77-P9) is reported once
 
     // Statistics (resMutex_)
     bool statsEnabled_ = false;

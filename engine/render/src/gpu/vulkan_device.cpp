@@ -1,6 +1,6 @@
 // The Vulkan device: the factory, the instance and the validation layer, the physical and logical device, the queue,
 // the timeline semaphore and the frames in flight, the deferred releases, the capabilities, the statistics and the
-// commit listeners (docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend").
+// commit listeners (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
 #include "gpu/vulkan_device.h"
 
 #include <string>
@@ -496,6 +496,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     e.samplerAnisotropy = q.samplerAnisotropy;
     e.independentBlend = q.independentBlend;
     e.dualSrcBlend = q.dualSrcBlend;
+    e.depthBiasClamp = q.depthBiasClamp;
     e.imageCubeArray = q.imageCubeArray;
     e.shaderStorageImageReadWithoutFormat = q.shaderStorageImageReadWithoutFormat;
     e.shaderStorageImageWriteWithoutFormat = q.shaderStorageImageWriteWithoutFormat;
@@ -504,6 +505,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     e.textureCompressionETC2 = q.textureCompressionETC2;
     e.textureCompressionASTC_LDR = q.textureCompressionASTC_LDR;
     anisotropy_ = q.samplerAnisotropy == VK_TRUE;
+    depthBiasClamp_ = q.depthBiasClamp == VK_TRUE;
     imageView2DOn3D_ = !portability_ || qPort.imageView2DOn3DImage;
     features_.mrtIndependentBlendState = q.independentBlend == VK_TRUE;
     features_.mrtIndependentWriteMask = q.independentBlend == VK_TRUE;
@@ -572,6 +574,18 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
     images_.init(in.imagePoolSize);
     views_.init(in.viewPoolSize);
     samplers_.init(in.samplerPoolSize);
+    shaders_.init(in.shaderPoolSize);
+    pipelines_.init(in.pipelinePoolSize);
+    {
+        VkPipelineCacheCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        const VkResult r = fn_.vkCreatePipelineCache(device_, &ci, nullptr, &pipelineCache_);
+        if (r != VK_SUCCESS) {
+            pipelineCache_ = VK_NULL_HANDLE;
+            return vk_error("vkCreatePipelineCache", r, "the device is out of memory");
+        }
+        set_name(VK_OBJECT_TYPE_PIPELINE_CACHE, handle_bits(pipelineCache_), "fa-vulkan-pipeline-cache");
+    }
 
     std::uint32_t bindless = std::uint32_t(options.bindlessDescriptors);
     if (bindless > 0 && !descriptorIndexing_) {
@@ -593,12 +607,20 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
         p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
         p2.pNext = &p12;
         fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
-        const std::uint32_t most = std::min(p12.maxPerStageDescriptorUpdateAfterBindSampledImages,
-                                            p12.maxDescriptorSetUpdateAfterBindSampledImages);
+        // Every pipeline layout has the bindless set next to its own sets 0 and 1: a stage keeps room for a shader's
+        // own views, uniform blocks and colour attachments, which count against the same per-stage limits.
+        auto less = [](std::uint32_t a, std::uint32_t b) { return a > b ? a - b : 0u; };
+        const std::uint32_t own = std::uint32_t(kMaxViews + kMaxUniformBlocks + kMaxColorAttachments);
+        const std::uint32_t most = std::min({less(std::min(p12.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                                                           p12.maxDescriptorSetUpdateAfterBindSampledImages),
+                                                  std::uint32_t(kMaxViews)),
+                                             less(p12.maxPerStageUpdateAfterBindResources, own)});
         if (bindless > most) {
             const std::string w = "gpu vulkan: VulkanOptions::bindlessDescriptors is " + std::to_string(bindless) +
                                   ", more than the " + std::to_string(most) + " sampled images " + deviceName_ +
-                                  " binds in one stage: the bindless table holds " + std::to_string(most);
+                                  " binds in one stage next to a shader's own " + std::to_string(kMaxViews) +
+                                  " views, uniform blocks and attachments: the bindless table holds " +
+                                  std::to_string(most);
             FA_WARN("render", "{}", w);
             std::lock_guard<std::mutex> lock(msgMutex_);
             warnings_.push_back(w);
@@ -625,8 +647,8 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
     // The ring hands out offsets aligned to at most 256 bytes: a size in whole 64 KiB blocks keeps every one inside it.
     const VkDeviceSize ringBytes = align_up(options.uploadRingBytes, 64u * 1024u);
     std::string error;
-    ringBuffer_ = make_raw_buffer(ringBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, MemoryUse::Upload, true,
-                                  "fa-vulkan-upload-ring", error);
+    ringBuffer_ = make_raw_buffer(ringBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                  MemoryUse::Upload, true, "fa-vulkan-upload-ring", error);
     if (!ringBuffer_)
         return make_error("gpu vulkan: the upload ring (" + std::to_string(ringBytes) + " bytes): " + error,
                           "lower VulkanOptions::uploadRingBytes");
@@ -746,6 +768,21 @@ VulkanDevice::~VulkanDevice() {
             if (s.sampler) fn_.vkDestroySampler(device_, s.sampler, nullptr);
         });
         samplers_.clear();
+        shaders_.clear();  // the ShaderInfo destructors destroy the modules
+        pipelines_.clear();
+    }
+    if (device_) {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        for (auto& [key, p] : pipelineObjects_) fn_.vkDestroyPipeline(device_, p, nullptr);
+        pipelineObjects_.clear();
+        for (auto& [key, l] : pipelineLayouts_) fn_.vkDestroyPipelineLayout(device_, l->layout, nullptr);
+        pipelineLayouts_.clear();
+        for (auto& [key, l] : setLayouts_) fn_.vkDestroyDescriptorSetLayout(device_, l, nullptr);
+        setLayouts_.clear();
+        for (auto& [key, rp] : renderPasses_) fn_.vkDestroyRenderPass(device_, rp, nullptr);
+        renderPasses_.clear();
+        if (pipelineCache_) fn_.vkDestroyPipelineCache(device_, pipelineCache_, nullptr);
+        pipelineCache_ = VK_NULL_HANDLE;
     }
     if (device_) descriptors_.destroy();
     ringBuffer_.reset();
@@ -818,49 +855,22 @@ TotalStats VulkanDevice::total_stats() const {
     pool(s.images, images_.alive(), images_.capacity());
     pool(s.views, views_.alive(), views_.capacity());
     pool(s.samplers, samplers_.alive(), samplers_.capacity());
+    pool(s.shaders, shaders_.alive(), shaders_.capacity());
+    pool(s.pipelines, pipelines_.alive(), pipelines_.capacity());
     return s;
 }
 
 bool VulkanDevice::timer_supported(std::string* why) const {
-    if (why) *why = "the Vulkan backend measures GPU time from M77-P8c on (timestamp queries are not built yet)";
+    if (why) *why = "the Vulkan backend measures GPU time from M77-P8b on (timestamp queries are not built yet)";
     return false;
 }
 
 Result<ReadTicket> VulkanDevice::request_buffer_read(Buffer, std::size_t, std::size_t) {
-    return make_error("gpu vulkan: request_buffer_read is not built yet (M77-P8c)",
+    return make_error("gpu vulkan: request_buffer_read is not built yet (M77-P8b)",
                       "async_read_supported() is false on this device: read with read_buffer(), which waits");
 }
 
 bool VulkanDevice::poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) { return false; }
-
-Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
-    report(std::string("gpu vulkan: make_shader('") + (desc.label ? desc.label : "") +
-           "') is not built yet (M77-P8c) (hint: the Vulkan backend makes buffers, images, views and samplers and "
-           "records transfers for now; draw with the sokol backend until M77-P8c)");
-    return {};
-}
-
-Pipeline VulkanDevice::make_pipeline(const PipelineDesc& desc) {
-    report(std::string("gpu vulkan: make_pipeline('") + (desc.label ? desc.label : "") +
-           "') is not built yet (M77-P8c) (hint: the Vulkan backend makes buffers, images, views and samplers and "
-           "records transfers for now; draw with the sokol backend until M77-P8c)");
-    return {};
-}
-
-void VulkanDevice::destroy_shader(Shader shader) {
-    if (shader.valid())
-        report("gpu vulkan: destroy_shader: shader " + std::to_string(shader.id) +
-               " names nothing (this device makes no shaders before M77-P8c)");
-}
-
-void VulkanDevice::destroy_pipeline(Pipeline pipeline) {
-    if (pipeline.valid())
-        report("gpu vulkan: destroy_pipeline: pipeline " + std::to_string(pipeline.id) +
-               " names nothing (this device makes no pipelines before M77-P8c)");
-}
-
-ResourceState VulkanDevice::state(Shader) const { return ResourceState::Invalid; }
-ResourceState VulkanDevice::state(Pipeline) const { return ResourceState::Invalid; }
 
 void VulkanDevice::report(const std::string& message) {
     FA_ERROR("render", "{}", message);
@@ -927,6 +937,13 @@ VulkanCounters VulkanDevice::counters() const {
     c.frameDescriptors = descriptors_.frame_descriptors_used();
     c.bindlessUsed = descriptors_.bindless_used();
     c.bindlessCapacity = descriptors_.bindless_capacity();
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    c.pipelineCacheHits = pipelineHits_;
+    c.pipelineCacheMisses = pipelineMisses_;
+    c.layoutCacheHits = layoutHits_;
+    c.layoutCacheMisses = layoutMisses_;
+    c.renderPassCacheHits = renderPassHits_;
+    c.renderPassCacheMisses = renderPassMisses_;
     return c;
 }
 
@@ -999,6 +1016,7 @@ VulkanCommandList* VulkanDevice::acquire_list(const char* label, bool internal) 
                     return nullptr;
                 }
                 l->internal_ = internal;
+                l->openFrame_ = frame_;
                 return l.get();
             }
         if (lists_.size() < kMaxLists) break;
@@ -1027,6 +1045,7 @@ VulkanCommandList* VulkanDevice::acquire_list(const char* label, bool internal) 
         return nullptr;
     }
     l->internal_ = internal;
+    l->openFrame_ = frame_;
     lists_.push_back(std::move(l));
     return lists_.back().get();
 }
@@ -1070,11 +1089,38 @@ void VulkanDevice::submit(CommandList& l) {
                    "' is not open (hint: submit each list once; take a new one with begin_commands())");
         return;
     }
+    // The pass first: ending it moves the debug groups still open inside it onto the list's own command buffer.
+    if (list->passState_ != PassState::None) {
+        report("gpu vulkan: submit: list '" + list->label_ +
+               "' is still inside a pass (hint: end_pass() before submit(); it was ended here)");
+        list->end_pass();
+    }
     if (list->debugDepth_ != 0) {
         report("gpu vulkan: submit: list '" + list->label_ + "' still has " + std::to_string(list->debugDepth_) +
                " debug group(s) open (hint: pop_debug_group() once for each push_debug_group())");
         for (; list->debugDepth_ > 0; --list->debugDepth_)
             if (fn_.vkCmdEndDebugUtilsLabelEXT) fn_.vkCmdEndDebugUtilsLabelEXT(list->cmd_);
+    }
+    if (list->openFrame_ != frame_) {
+        // Its uniforms and descriptor sets are in the ring room and the descriptor pool of the frame it was opened in,
+        // which commit() handed back to the frames after it: running it could read what a later frame wrote there.
+        report("gpu vulkan: submit: list '" + list->label_ + "' was begun in frame " +
+               std::to_string(list->openFrame_) + " and submitted in frame " + std::to_string(frame_) +
+               "; it was dropped (hint: submit() every list in the frame begin_commands() returned it, before "
+               "commit())");
+        fn_.vkEndCommandBuffer(list->cmd_);
+        list->open_ = false;
+        list->uses_.clear();
+        list->useIndex_.clear();
+        list->pending_.clear();
+        for (std::shared_ptr<TrackedResource>& r : list->keep_) {
+            Deferred d;
+            d.frame = frame_;
+            d.tracked = std::move(r);
+            deferred_.push_back(std::move(d));
+        }
+        list->keep_.clear();
+        return;
     }
     flush_prelude();  // the initial uploads of resources this list may use go first
     execute(*list);
@@ -1284,8 +1330,9 @@ UploadAlloc VulkanDevice::upload(std::size_t size, std::size_t align, VulkanComm
     if (ring_.alloc(size, align, a)) return a;
     // Bigger than the ring, or the frames in flight hold it all: a buffer of its own, released with the frame.
     std::string error;
-    std::shared_ptr<TrackedResource> t = make_raw_buffer(align_up(size, 256), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                                         MemoryUse::Upload, true, "fa-vulkan-upload", error);
+    std::shared_ptr<TrackedResource> t =
+        make_raw_buffer(align_up(size, 256), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                        MemoryUse::Upload, true, "fa-vulkan-upload", error);
     if (!t) {
         report("gpu vulkan: an upload of " + std::to_string(size) + " bytes that does not fit the ring: " + error);
         return {};

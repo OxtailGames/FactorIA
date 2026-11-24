@@ -1,5 +1,5 @@
 // The Vulkan backend's memory: the engine's own suballocator, the upload ring, the per-frame descriptor pools and the
-// bindless table (docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend").
+// bindless table (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
 #include "gpu/vulkan_device.h"
 
 #if defined(FA_VULKAN_BACKEND)

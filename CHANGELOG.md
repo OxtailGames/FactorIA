@@ -13,9 +13,16 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   (it replaces `game_target_image_id()` / `game_target_view_id()`). The editor no longer calls sokol_gfx or sokol_imgui, and the screenshots
   of the autotest look the same. MetalFX orders its work against the frame through `gpu::Device::native_metal()`.
 - Shaders for the Vulkan backend (M77): `tools/shaders/compile_shaders.sh` also asks sokol-shdc for `spirv_vk`, so every built-in
-  shader (the compute Hi-Z one too) has its SPIR-V in the generated headers, behind `#if defined(SOKOL_VULKAN)`: no other backend's player
-  carries a byte of it (the headers grow by a quarter, 75 MB to 95 MB in the repository). The pinned sokol-shdc already supports it, so the
-  pin does not move. Nothing in the player reads the SPIR-V yet.
+  shader (the compute Hi-Z one too) has its SPIR-V in the generated headers, behind `#if defined(SOKOL_VULKAN) ||
+  defined(FA_SHADERS_SPIRV)`: no other backend's player carries a byte of it (the headers grow by a quarter, 75 MB to 95 MB in the
+  repository). The pinned sokol-shdc already supports it, so the pin does not move. Nothing in the player reads the SPIR-V yet.
+- The engine's own Vulkan backend draws and computes (M77, for its tests and tools; the renderer does not run on it yet): shaders from
+  sokol-shdc's SPIR-V with its descriptor sets (uniform blocks in set 0, views and samplers in set 1, the bindless table in set 2),
+  cached set layouts, pipeline layouts, render passes and pipelines over a `VkPipelineCache`, render and compute passes with
+  load/store/clear and MSAA resolve, viewports, scissors, bindings, uniforms, indexed and instanced draws with a base vertex, and
+  dispatches, with automatic barriers and errors that name what is wrong. On it a custom material takes its `spirv_vk` twin, whose
+  base64 stages `render::make_shader` decodes. GPU timers and asynchronous reads come next (until then they say so), passes into
+  the window after that. docs/design/ARCHITECTURE_RENDERING_VULKAN.md.
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;

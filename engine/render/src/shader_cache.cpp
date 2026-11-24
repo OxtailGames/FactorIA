@@ -8,6 +8,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/log.h"
+#include "fa/core/strings.h"
 #include "gpu/device.h"
 
 #if defined(SOKOL_D3D11)
@@ -74,6 +75,23 @@ bool d3d_compile_stage(const gpu::ShaderFunction& fn, std::vector<std::uint8_t>&
     return !out.empty();
 }
 #endif
+
+// Vulkan: a stage given as text is SPIR-V in base64 (a custom material's spirv_vk twin); it becomes the bytecode the
+// device takes. False when a stage is not base64 of a whole number of 32-bit words: the backend then gets the desc as
+// it is and reports the stage.
+bool decode_spirv_stages(gpu::ShaderDesc& copy, std::vector<std::uint8_t> (&bytes)[3]) {
+    gpu::ShaderFunction* const fns[3] = {&copy.vertexFunc, &copy.fragmentFunc, &copy.computeFunc};
+    for (int i = 0; i < 3; ++i) {
+        gpu::ShaderFunction& fn = *fns[i];
+        if (fn.bytecode.ptr || !fn.source) continue;  // given as bytecode already, or no such stage
+        const std::vector<unsigned char> decoded = base64_decode(fn.source);
+        if (decoded.empty() || decoded.size() % 4 != 0) return false;
+        bytes[i].assign(decoded.begin(), decoded.end());
+        fn.bytecode = {bytes[i].data(), bytes[i].size()};
+        fn.source = nullptr;
+    }
+    return true;
+}
 
 }  // namespace
 
@@ -197,13 +215,22 @@ gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, c
             st.fn->source = nullptr;
         }
         shader = make(viaCache ? &copy : nullptr);  // copy's bytes (vs, fsb) outlive this call
+    } else if (backend == gpu::Backend::Vulkan) {
+        gpu::ShaderDesc copy = desc;
+        std::vector<std::uint8_t> bytes[3];
+        shader = make(decode_spirv_stages(copy, bytes) ? &copy : nullptr);  // bytes outlive this call
     } else {
         shader = make(nullptr);
     }
 #else
-    (void)desc;
     (void)label;
-    shader = make(nullptr);
+    if (backend == gpu::Backend::Vulkan) {
+        gpu::ShaderDesc copy = desc;
+        std::vector<std::uint8_t> bytes[3];
+        shader = make(decode_spirv_stages(copy, bytes) ? &copy : nullptr);  // bytes outlive this call
+    } else {
+        shader = make(nullptr);
+    }
 #endif
     ++g_stats.programs;
     g_stats.createMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
