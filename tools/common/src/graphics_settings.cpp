@@ -248,7 +248,9 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         "It does not change a running game: graphics.preset, render.upscaler and render.dynamic_resolution do that, "
         "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
         "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, written}; `written` is false when "
-        "nothing changed (a read, or the same values). Errors: `invalid_argument` (unknown key or wrong value), "
+        "the file's bytes did not change (a read, or the same values written the same way; a key given at its "
+        "default that the file spelled out is removed, so that counts as a write). Errors: `invalid_argument` (unknown "
+        "key or wrong value), "
         "`failed` (no factoria.json, a file that is not valid JSON, or one that cannot be written).";
     info.inputSchema = Json::parse(R"({"type":"object","properties":{
         "preset":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"render.graphicsPreset: the preset a run starts with (custom removes the key)."},
