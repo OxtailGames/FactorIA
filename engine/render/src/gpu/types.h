@@ -938,13 +938,13 @@ struct PassDesc {
 
     TargetFormat format{};  // the formats and sample count of the attachments (what its pipelines must match)
 
-    LoadAction colorLoad = LoadAction::DontCare;
+    LoadAction colorLoad = LoadAction::DontCare;  // both colour attachments (color and color1) load this way
     StoreAction colorStore = StoreAction::Store;
     Color clearColor{};
     Color clearColor1{};  // what a Clear of colour attachment 1 fills it with
     LoadAction depthLoad = LoadAction::DontCare;
     float clearDepth = 1.0f;
-    LoadAction stencilLoad = LoadAction::DontCare;
+    LoadAction stencilLoad = LoadAction::DontCare;  // a Clear clears the stencil to 0 (no clear value field)
     StoreAction depthStore = StoreAction::Default;
     StoreAction stencilStore = StoreAction::Default;
 

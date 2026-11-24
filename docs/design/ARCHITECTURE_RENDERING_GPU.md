@@ -557,7 +557,23 @@ D3D12 would refuse or misdraw first: a vertex attribute without an HLSL semantic
 sample count other than 1, 2, 4 or 8, a compute pipeline with a render shader or the reverse, a failed shader. PSOs
 are cached in memory by a key text of the bytecode's SHA-256, the root signature's key and every field
 (`counters().psos`, `psoCacheHits`, `psoCacheMisses`): equal descs share one PSO, which lives as long as the device.
-`D3d12Device::pso()` is the seam of the on-disk PSO cache (M77-P7b).
+On resource binding tier 1 a shader with more writable views (storage buffers and images, all stages) than the tier
+binds (8 at feature level 11.0, 64 above) fails with the count and the limit. `storage_image_loadable` asks the
+format's `UAV_TYPED_LOAD` support (and `TypedUAVLoadAdditionalFormats` for all but R32F) and says which one is missing.
+
+**Pipeline cache on disk (M77-P7b).** With `D3d12Options::pipelineCacheFile` set (the engine's file is
+`d3d12_pipeline_cache_file()`: `<cache dir>/shaders/d3d12-pipelines.bin`, next to the shader cache) the device keeps an
+`ID3D12PipelineLibrary`: `pso()` loads a PSO from it by the SHA-256 of its key before compiling, and stores what it
+compiles. The file is a 120-byte header (`PipelineCacheFile`: magic `FAPSOLIB`, version, the adapter's vendor, device,
+subsystem and revision ids, the driver version, the payload's size and SHA-256) and the library's bytes. A file that
+fails a check, or that `CreatePipelineLibrary` refuses (`E_INVALIDARG`, `D3D12_ERROR_ADAPTER_NOT_FOUND`,
+`D3D12_ERROR_DRIVER_VERSION_MISMATCH`), is thrown away with one warning (`warnings()` and the log) that says why: the
+PSOs are compiled again and the file written anew. `save_pipeline_cache()` writes the file when the library holds PSOs
+it does not (also when the device is destroyed), atomically through `fs::write_bytes`; a failure (another process holds
+the file, a full disk) keeps the old file and warns. Deleting the file clears the cache. `counters()` has
+`pipelineLibrary`, `psoLibraryHits`, `psoLibraryMisses`, `pipelineCacheStored` and `pipelineCacheDiscarded`; the
+process totals are the `pipelineCache` object of the shader cache report (`ShaderBuildStats::to_json`, the `gpu` part
+of `loading.startup`). The renderer sets the option once it draws through D3D12 (M77-P9).
 
 **Passes and draws.** `begin_pass` checks its attachments (live views of the right kind, one size, the resolve
 single-sampled with the colour format, the depth sample count equal to the colour one) and that `PassDesc::format` is
@@ -566,7 +582,7 @@ and a viewport and scissor over the whole target. `end_pass` resolves an MSAA co
 into the window (`PassDesc::swapchain`) is an error until M77-P9. `set_pipeline` checks that the pipeline is a render
 one in a render pass and a compute one in a compute pass, and that its formats, colour count and sample count equal
 the pass's. `set_bindings` checks every slot against the shader (an empty slot the shader declares, a slot it does
-not, a view of the wrong kind, a buffer without the usage) and `set_uniforms` the block's exact size; uniforms are
+not, a view of the wrong kind, a buffer without the usage, a view of a mip and layer the pass draws into) and `set_uniforms` the block's exact size; uniforms are
 copied into the upload ring (256-byte aligned) and bound as root CBVs. Draws and dispatches check that every uniform
 block was set and `set_bindings` called since `set_pipeline`. As in sokol, once a `set_pipeline`, `set_bindings` or
 `set_uniforms` fails, the draws are skipped without further errors until the next `set_pipeline`, and everything
@@ -584,9 +600,12 @@ pass; a uniform-colour fullscreen triangle into RGBA8 and RGBA16F; the engine's 
 viewport; an MSAA 4x resolve (the texels on the triangle's edge are partly covered); a compute pass writing a storage
 image and a storage buffer, whose second dispatch reads the first's writes. GPU timers: timed frames with two scopes
 resolving to non-negative times in order, a scope outside a timed frame, an unsubmitted scope, `timer_forget` and a
-full ring. Asynchronous reads: a buffer, a 33x3 region of a 37x5 RGBA8 image (rows that are not 256-byte multiples),
+full ring, a dropped frame's slot, a scope whose slot was reused. Asynchronous reads: a buffer, a 33x3 region of a 37x5 RGBA8 image (rows that are not 256-byte multiples),
 bad requests, a read that outlives `destroy_buffer`, stale and released tickets, 32 reads in flight and the 33rd
-refused, a slot buffer that grows. Then the PSO and root-signature caches,
+refused, a slot buffer that grows. The pipeline cache file: a second device loads every PSO from it; a damaged
+file, another GPU's, another driver's, a cut one and one that is not a cache are each thrown away with one warning; a
+held file keeps its old bytes. `storage_image_loadable` for RGBA8, R32F and a format it never loads; a view of the
+pass's own attachment. Then the PSO and root-signature caches,
 the root signature of a shader with one block, two views and two samplers, and every error of `make_shader`,
 `make_pipeline` and the command list. A Windows without WARP says so with a MESSAGE and passes. Elsewhere one case
 checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_root_layout()` and
