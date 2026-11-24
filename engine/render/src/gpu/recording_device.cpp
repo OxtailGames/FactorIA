@@ -34,6 +34,9 @@ const char* command_kind_name(CommandKind kind) {
         case CommandKind::Commit: return "commit";
         case CommandKind::ReadImage: return "read_image";
         case CommandKind::ReadBuffer: return "read_buffer";
+        case CommandKind::Signal: return "signal";
+        case CommandKind::WaitList: return "wait_list";
+        case CommandKind::WaitQueue: return "wait_queue";
     }
     return "?";
 }
@@ -110,6 +113,8 @@ Features desktop_features() {
     f.vertexFormatInt10N2 = true;
     f.copyBufferToImageRelaxedBufferType = true;
     f.copyBufferToImageRelaxedBytesPerRow = true;
+    f.asyncCompute = true;
+    f.multiThreadRecording = true;
     return f;
 }
 
@@ -294,6 +299,7 @@ struct RecordingDevice::State {
     // The label of the last list submitted with commands since the last commit() (a read now would not see its work).
     std::optional<std::string> uncommitted;
     bool statsEnabled = false;
+    std::uint64_t issued[kQueueKinds]{};  // the last token handed out per queue
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -354,7 +360,8 @@ std::string RecordingDevice::stream_text() const {
     std::string out;
     for (const RecordedCommand& c : state_->stream) {
         out += "frame " + std::to_string(c.frame) + " ";
-        if (c.kind != CommandKind::Commit && c.kind != CommandKind::ReadImage && c.kind != CommandKind::ReadBuffer)
+        if (c.kind != CommandKind::Commit && c.kind != CommandKind::ReadImage && c.kind != CommandKind::ReadBuffer &&
+            c.kind != CommandKind::WaitQueue)
             out += "[" + c.list + "] ";
         out += c.text;
         out += '\n';
@@ -791,33 +798,49 @@ ResourceState RecordingDevice::state(Pipeline p) const {
 }
 
 // ---- the frame ------------------------------------------------------------------------------------------------------
-CommandList& RecordingDevice::begin_commands(const char* label) {
+CommandList& RecordingDevice::begin_commands(const char* label) { return begin_commands(label, QueueKind::Graphics); }
+
+QueueKind RecordingDevice::resolve_queue(QueueKind asked) const {
+    return features_.asyncCompute && std::size_t(asked) < std::size_t(kQueueKinds) ? asked : QueueKind::Graphics;
+}
+
+CommandList& RecordingDevice::begin_commands(const char* label, QueueKind queue) {
     std::lock_guard<std::mutex> lock(mutex_);
+    const QueueKind resolved = resolve_queue(queue);
     for (auto& l : lists_) {
         if (!l->open_) {
-            l->reset(label);
+            l->reset(label, resolved);
             return *l;
         }
     }
     lists_.push_back(std::make_unique<RecordingCommandList>(*this));
-    lists_.back()->reset(label);
+    lists_.back()->reset(label, resolved);
     return *lists_.back();
 }
 
 void RecordingDevice::submit(CommandList& list) {
     std::lock_guard<std::mutex> lock(mutex_);
+    submit_locked(list, false);
+}
+
+SyncToken RecordingDevice::submit_token(CommandList& list) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return submit_locked(list, true);
+}
+
+SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal) {
     RecordingCommandList* mine = nullptr;
     for (auto& l : lists_)
         if (l.get() == &list) mine = l.get();
     if (!mine) {
         fail_locked("submit", nullptr, "the command list is not one of this device's",
                     "submit a list to the device whose begin_commands() returned it");
-        return;
+        return {};
     }
     if (!mine->open_) {
         fail_locked("submit", mine->label_.c_str(), "the list was submitted already",
                     "call begin_commands() for a new list each time; a list is not used after submit()");
-        return;
+        return {};
     }
     if (mine->passState_ != PassState::None)
         fail_locked("submit", mine->label_.c_str(), "pass " + quoted(mine->passLabel_) + " is still open",
@@ -829,12 +852,100 @@ void RecordingDevice::submit(CommandList& list) {
     if (mine->timedScopeOpen_)
         fail_locked("submit", mine->label_.c_str(), "a timed scope is still open", "end_timed_scope() before submit()");
     if (!mine->commands_.empty()) state_->uncommitted = mine->label_;
+    for (RecordedCommand& c : mine->waits_) {
+        c.frame = state_->frames;
+        state_->stream.push_back(std::move(c));
+    }
     for (RecordedCommand& c : mine->commands_) {
         c.frame = state_->frames;
         state_->stream.push_back(std::move(c));
     }
+    SyncToken token;
+    if (signal) {
+        token.queue = mine->queue_;
+        token.value = ++state_->issued[int(mine->queue_)];
+        RecordedCommand c;
+        c.kind = CommandKind::Signal;
+        c.frame = state_->frames;
+        c.list = mine->label_;
+        c.queue = mine->queue_;
+        c.args[0] = int(token.queue);
+        c.args[1] = int(std::min<std::uint64_t>(token.value, INT_MAX));
+        c.text = std::string("signal ") + queue_name(token.queue) + " " + std::to_string(token.value);
+        state_->stream.push_back(std::move(c));
+    }
     mine->commands_.clear();
+    mine->waits_.clear();
     mine->open_ = false;
+    return token;
+}
+
+bool RecordingDevice::check_token_locked(const char* call, const char* label, SyncToken token) {
+    if (std::size_t(token.queue) >= std::size_t(kQueueKinds)) {
+        fail_locked(call, label, "the sync token names a queue that does not exist",
+                    "pass the token submit_token() returned, unchanged");
+        return false;
+    }
+    if (token.value > state_->issued[int(token.queue)]) {
+        fail_locked(call, label,
+                    std::string("the sync token (") + queue_name(token.queue) + " " + std::to_string(token.value) +
+                        ") was never returned by submit_token() (the last one is " +
+                        std::to_string(state_->issued[int(token.queue)]) + ")",
+                    "a wait can only name work already submitted with submit_token(): signal the producer's list "
+                    "first, then record the wait");
+        return false;
+    }
+    return true;
+}
+
+void RecordingDevice::wait_list(CommandList& list, SyncToken token) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    RecordingCommandList* mine = nullptr;
+    for (auto& l : lists_)
+        if (l.get() == &list) mine = l.get();
+    if (!mine || !mine->open_) {
+        fail_locked("wait_list", mine ? mine->label_.c_str() : nullptr,
+                    mine ? "the list was submitted already" : "the command list is not one of this device's",
+                    "wait before submit(), on a list begin_commands() returned");
+        return;
+    }
+    if (!token.valid() || !check_token_locked("wait_list", mine->label_.c_str(), token)) return;
+    RecordedCommand c;
+    c.kind = CommandKind::WaitList;
+    c.list = mine->label_;
+    c.queue = mine->queue_;
+    c.args[0] = int(token.queue);
+    c.args[1] = int(std::min<std::uint64_t>(token.value, INT_MAX));
+    c.text = std::string("wait_list ") + queue_name(token.queue) + " " + std::to_string(token.value);
+    if (token.queue == mine->queue_) c.text += " (same queue: no wait)";
+    mine->waits_.push_back(std::move(c));
+}
+
+void RecordingDevice::wait_queue(QueueKind queue, SyncToken token) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!token.valid() || !check_token_locked("wait_queue", nullptr, token)) return;
+    const QueueKind resolved = resolve_queue(queue);
+    RecordedCommand c;
+    c.kind = CommandKind::WaitQueue;
+    c.frame = state_->frames;
+    c.queue = resolved;
+    c.args[0] = int(token.queue);
+    c.args[1] = int(std::min<std::uint64_t>(token.value, INT_MAX));
+    c.text = std::string("wait_queue ") + queue_name(resolved) + " <- " + queue_name(token.queue) + " " +
+             std::to_string(token.value);
+    if (token.queue == resolved) c.text += " (same queue: no wait)";
+    state_->stream.push_back(std::move(c));
+}
+
+std::uint32_t RecordingDevice::bindless_index(View view) const {
+    if (!features_.bindless) return kNoBindlessIndex;
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto* e = state_->views.live(view.id);
+    if (!e || e->state != ResourceState::Valid) return kNoBindlessIndex;
+    if (e->info.type != ViewType::Texture && e->info.type != ViewType::StorageImage &&
+        e->info.type != ViewType::StorageBuffer)
+        return kNoBindlessIndex;
+    return Pool<ViewInfo>::slot_of(view.id) - 1;
 }
 
 void RecordingDevice::commit() {
@@ -1109,10 +1220,12 @@ std::string format_text(const TargetFormat& f) {
 
 }  // namespace
 
-void RecordingCommandList::reset(const char* label) {
+void RecordingCommandList::reset(const char* label, QueueKind queue) {
     label_ = str(label);
     open_ = true;
+    queue_ = queue;
     commands_.clear();
+    waits_.clear();
     passState_ = PassState::None;
     passLabel_.clear();
     passFormat_ = {};
@@ -1128,6 +1241,7 @@ void RecordingCommandList::record(CommandKind kind, std::uint32_t id, std::initi
     RecordedCommand c;
     c.kind = kind;
     c.list = label_;
+    c.queue = queue_;
     c.id = id;
     int i = 0;
     for (int a : args)
@@ -1186,6 +1300,9 @@ void RecordingCommandList::begin_pass(const PassDesc& p) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     auto& s = *device_.state_;
     const char* cmd = "begin_pass";
+    if (queue_ != QueueKind::Graphics)
+        fail(cmd, std::string("the list runs on the ") + queue_name(queue_) + " queue, which has no render passes",
+             "record render passes on a QueueKind::Graphics list");
     if (passState_ != PassState::None) {
         fail(cmd, "pass " + quoted(passLabel_) + " is still open; passes do not nest",
              "end_pass() before the next begin_pass()");
@@ -1259,6 +1376,9 @@ void RecordingCommandList::begin_compute_pass(const char* label) {
     if (passState_ != PassState::None)
         fail("begin_compute_pass", "pass " + quoted(passLabel_) + " is still open; passes do not nest",
              "end_pass() before the next begin_compute_pass()");
+    if (queue_ == QueueKind::Transfer)
+        fail("begin_compute_pass", "the list runs on the transfer queue, which has no compute passes",
+             "record compute passes on a QueueKind::Compute (or Graphics) list");
     if (!device_.features_.compute)
         fail("begin_compute_pass", "the device has no compute (Features::compute is false)",
              "check Device::features().compute and take the CPU path where it is false");

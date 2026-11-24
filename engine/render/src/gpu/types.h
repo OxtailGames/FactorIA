@@ -380,6 +380,15 @@ struct Features {
     bool copyBufferToImageRelaxedBufferType = false;   // any buffer can be the source of copy_buffer_to_image
     bool copyBufferToImageRelaxedBytesPerRow = false;  // copy_buffer_to_image accepts any row pitch
     bool glTextureViews = false;                       // GL: views can name a mip/slice range of an image
+    // M77 queues, recording and bindless (the contract is in gpu/device.h, "Queues, threads and bindless").
+    bool asyncCompute =
+        false;  // Device::begin_commands(label, QueueKind::Compute) gives a list that runs on a queue of
+                // its own, concurrently with the graphics queue; false = every queue is the graphics one
+    bool multiThreadRecording =
+        false;              // several threads may each hold a command list of the same frame (begin_commands
+                            // from any thread, record in parallel); false = the render thread's list only
+    bool bindless = false;  // Device::bindless_index(view) names the view's slot in the global table that
+                            // shaders index; false = no table, bindless_index() answers kNoBindlessIndex
 };
 
 // Limits of the device (sg_limits).
@@ -1016,6 +1025,33 @@ struct ReadTicket {
     std::uint32_t generation = 0;
     bool valid() const { return slot >= 0 && generation != 0; }
 };
+
+// The hardware queue a command list runs on (Device::begin_commands(label, queue)). A backend without Features::asyncCompute
+// runs every list on the graphics queue, whatever was asked, and says so through CommandList::queue().
+enum class QueueKind : std::uint8_t {
+    Graphics,  // draws, compute passes and copies; the queue that presents
+    Compute,   // compute passes and copies, concurrent with Graphics (Features::asyncCompute)
+    Transfer,  // copies and uploads only, concurrent with the other two (the copy engine)
+    Count
+};
+inline constexpr int kQueueKinds = int(QueueKind::Count);
+// The name of a queue ("graphics", "compute", "transfer"), for reports and recorded streams.
+const char* queue_name(QueueKind queue);
+
+// A point on one queue's timeline: "everything submitted to `queue` up to and including the list whose submit_token()
+// returned this token has finished". `value` is that queue's fence value: it starts at 1, only grows, and is never reused
+// or reset (not by commit(), not by a swapchain resize), so a token of an earlier frame stays valid and means "already
+// done" once the GPU is past it. value 0 is the invalid token: waiting for it waits for nothing.
+struct SyncToken {
+    QueueKind queue = QueueKind::Graphics;
+    std::uint64_t value = 0;
+    constexpr bool valid() const { return value != 0; }
+    friend constexpr bool operator==(SyncToken a, SyncToken b) { return a.queue == b.queue && a.value == b.value; }
+    friend constexpr bool operator!=(SyncToken a, SyncToken b) { return !(a == b); }
+};
+
+// Device::bindless_index() when the view has no slot in the global table.
+inline constexpr std::uint32_t kNoBindlessIndex = 0xFFFFFFFFu;
 
 }  // namespace fa::gpu
 

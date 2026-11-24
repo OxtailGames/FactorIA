@@ -177,6 +177,12 @@ public:
 
     CommandList& begin_commands(const char* label) override;
     void submit(CommandList& list) override;
+    // One queue, one immediate list (no async compute, no parallel recording, no bindless: the features stay false):
+    // every queue is the graphics queue, a signal is the order the lists were submitted in, a wait changes nothing.
+    CommandList& begin_commands(const char* label, QueueKind queue) override;
+    SyncToken submit_token(CommandList& list) override;
+    void wait_list(CommandList& list, SyncToken token) override;
+    void wait_queue(QueueKind queue, SyncToken token) override;
     void commit() override;
     std::uint64_t frame_index() const override { return frames_; }
     bool add_commit_listener(void (*func)(void* user), void* user) override;

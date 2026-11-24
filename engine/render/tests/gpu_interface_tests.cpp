@@ -1623,3 +1623,301 @@ TEST_CASE("UiPainter: a frame is a pipeline, bindings per texture change, and a 
     painter->destroy_texture(a);
     painter->destroy_texture(b);
 }
+
+// ---- queues, sync tokens, parallel recording and bindless (M77 P10a) -------------------------------------------------
+namespace {
+
+// A compute pass with no dispatch: the smallest work a compute-queue list can hold.
+void empty_compute(CommandList& cl, const char* label) {
+    cl.begin_compute_pass(label);
+    cl.end_pass();
+}
+
+// A recording device that reports no async compute (and what compute needs), like a backend with one queue.
+DeviceInit one_queue_init() {
+    RecordingDevice probe;
+    DeviceInit init;
+    init.recordingDefaultCaps = false;
+    init.recordingFeatures = probe.features();
+    init.recordingFeatures.asyncCompute = false;
+    init.recordingFeatures.multiThreadRecording = false;
+    init.recordingLimits = probe.limits();
+    return init;
+}
+
+std::vector<CommandKind> kinds_of(const RecordingDevice& dev) {
+    std::vector<CommandKind> kinds;
+    for (const RecordedCommand& c : dev.commands()) kinds.push_back(c.kind);
+    return kinds;
+}
+
+}  // namespace
+
+TEST_CASE("queues: a device without async compute runs every list on the graphics queue, in submission order") {
+    RecordingDevice dev(one_queue_init());
+    CHECK_FALSE(dev.features().asyncCompute);
+    CHECK_FALSE(dev.features().multiThreadRecording);
+    CHECK_FALSE(dev.features().bindless);
+
+    CommandList& hiz = dev.begin_commands("hiz", QueueKind::Compute);
+    CHECK(hiz.queue() == QueueKind::Graphics);  // the queue the list really runs on
+    empty_compute(hiz, "reduce");
+    const SyncToken a = dev.submit_token(hiz);
+    CommandList& up = dev.begin_commands("upload", QueueKind::Transfer);
+    CHECK(up.queue() == QueueKind::Graphics);
+    const SyncToken b = dev.submit_token(up);
+    CHECK(a.valid());
+    CHECK(a.queue == QueueKind::Graphics);
+    CHECK(a.value == 1);
+    CHECK(b.queue == QueueKind::Graphics);
+    CHECK(b.value == 2);  // complete in submission order
+
+    // A wait for a token of the queue the list is on keeps the order and adds nothing to wait for.
+    CommandList& gfx = dev.begin_commands("main");
+    dev.wait_list(gfx, a);
+    dev.wait_list(gfx, SyncToken{});  // the invalid token waits for nothing
+    empty_compute(gfx, "after");
+    dev.submit(gfx);
+    dev.wait_queue(QueueKind::Compute, b);
+    dev.commit();
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+    const std::string text = dev.stream_text();
+    CHECK(contains(text, "wait_list graphics 1 (same queue: no wait)"));
+    CHECK(contains(text, "wait_queue graphics <- graphics 2 (same queue: no wait)"));
+    CHECK_FALSE(contains(text, "compute 1"));
+    const std::vector<CommandKind> kinds = kinds_of(dev);
+    const std::vector<CommandKind> expected = {
+        CommandKind::BeginComputePass, CommandKind::EndPass,   CommandKind::Signal,
+        CommandKind::Signal,           CommandKind::WaitList,  CommandKind::BeginComputePass,
+        CommandKind::EndPass,          CommandKind::WaitQueue, CommandKind::Commit};
+    CHECK(kinds == expected);
+    for (const RecordedCommand& c : dev.commands()) CHECK(c.queue == QueueKind::Graphics);
+
+    // The defaults of Device itself (what a backend that overrides none of them does): the same answers.
+    Device& base = dev;
+    CommandList& l1 = base.Device::begin_commands("d1", QueueKind::Compute);
+    CHECK(l1.queue() == QueueKind::Graphics);
+    const SyncToken t1 = base.Device::submit_token(l1);
+    CommandList& l2 = base.Device::begin_commands("d2", QueueKind::Transfer);
+    const SyncToken t2 = base.Device::submit_token(l2);
+    CHECK(t1.queue == QueueKind::Graphics);
+    CHECK(t1.value == 1);
+    CHECK(t2.value == 2);
+    CommandList& l3 = base.begin_commands("d3");
+    const std::string before = dev.stream_text();
+    base.Device::wait_list(l3, t2);
+    base.Device::wait_queue(QueueKind::Graphics, t2);
+    base.submit(l3);
+    CHECK(dev.stream_text() == before);  // the defaults record nothing and wait for nothing
+    CHECK(base.Device::bindless_index(View{1}) == kNoBindlessIndex);
+}
+
+TEST_CASE("queues: RecordingDevice with async compute records each list's queue, its signals and its waits") {
+    RecordingDevice dev;
+    CHECK(dev.features().asyncCompute);
+    CHECK(dev.features().multiThreadRecording);
+    CHECK_FALSE(dev.features().bindless);
+    Scene s(dev);
+
+    CommandList& gfx = dev.begin_commands("main", QueueKind::Graphics);
+    CommandList& hiz = dev.begin_commands("hiz", QueueKind::Compute);
+    CommandList& up = dev.begin_commands("upload", QueueKind::Transfer);
+    CHECK(gfx.queue() == QueueKind::Graphics);
+    CHECK(hiz.queue() == QueueKind::Compute);
+    CHECK(up.queue() == QueueKind::Transfer);
+
+    empty_compute(hiz, "reduce");
+    const SyncToken reduced = dev.submit_token(hiz);
+    CHECK(reduced.queue == QueueKind::Compute);
+    CHECK(reduced.value == 1);
+    dev.submit(up);  // a plain submit hands out no token
+
+    // The graphics list waits for the compute token; the wait is recorded late but holds before its first command.
+    ready(gfx, s);
+    gfx.draw(0, 3, 1);
+    gfx.end_pass();
+    dev.wait_list(gfx, reduced);
+    dev.wait_list(gfx, SyncToken{});
+    const SyncToken drawn = dev.submit_token(gfx);
+    CHECK(drawn.queue == QueueKind::Graphics);
+    CHECK(drawn.value == 1);                    // each queue counts for itself
+    dev.wait_queue(QueueKind::Compute, drawn);  // the next compute work starts after the frame's graphics
+    CommandList& hiz2 = dev.begin_commands("hiz2", QueueKind::Compute);
+    empty_compute(hiz2, "reduce 2");
+    CHECK(dev.submit_token(hiz2).value == 2);
+    dev.commit();
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+
+    const auto cmds = dev.commands();
+    // hiz (2 commands + its signal), then main: its wait first, then its commands.
+    REQUIRE(cmds.size() >= 6);
+    CHECK(cmds[0].queue == QueueKind::Compute);
+    CHECK(cmds[2].kind == CommandKind::Signal);
+    CHECK(cmds[2].text == "signal compute 1");
+    CHECK(cmds[3].kind == CommandKind::WaitList);  // ahead of main's commands though it was recorded after them
+    CHECK(cmds[3].list == "main");
+    CHECK(cmds[3].queue == QueueKind::Graphics);
+    CHECK(cmds[3].args[0] == int(QueueKind::Compute));
+    CHECK(cmds[3].args[1] == 1);
+    CHECK(cmds[3].text == "wait_list compute 1");
+    CHECK(cmds[4].kind == CommandKind::BeginPass);
+    CHECK(dev.stream_text().find("[main] wait_list compute 1") != std::string::npos);
+    int waitQueues = 0;
+    for (const RecordedCommand& c : cmds)
+        if (c.kind == CommandKind::WaitQueue) {
+            ++waitQueues;
+            CHECK(c.queue == QueueKind::Compute);
+            CHECK(c.text == "wait_queue compute <- graphics 1");
+            CHECK(c.list.empty());
+        }
+    CHECK(waitQueues == 1);
+
+    // A token of an earlier frame stays valid: waiting for it is allowed and raises no error.
+    CommandList& next = dev.begin_commands("next frame");
+    dev.wait_list(next, reduced);
+    dev.submit(next);
+    dev.commit();
+    CHECK(dev.errors().empty());
+}
+
+TEST_CASE("queues: RecordingDevice reports a queue used for what it cannot do and a token nobody signalled") {
+    RecordingDevice dev;
+    CommandList& comp = dev.begin_commands("comp", QueueKind::Compute);
+    PassDesc swap;
+    const Swapchain sc;
+    swap.swapchain = &sc;
+    swap.label = "present";
+    comp.begin_pass(swap);
+    comp.end_pass();
+    dev.submit(comp);
+    CHECK(has_error(dev.errors(), {"begin_pass", "compute queue", "no render passes", "QueueKind::Graphics"}));
+    dev.take_errors();
+
+    CommandList& xfer = dev.begin_commands("xfer", QueueKind::Transfer);
+    xfer.begin_compute_pass("nope");
+    xfer.end_pass();
+    dev.submit(xfer);
+    CHECK(has_error(dev.errors(), {"begin_compute_pass", "transfer queue", "no compute passes"}));
+    dev.take_errors();
+
+    CommandList& g = dev.begin_commands("g");
+    dev.wait_list(g, SyncToken{QueueKind::Compute, 7});
+    CHECK(has_error(dev.errors(), {"wait_list", "'g'", "never returned by submit_token()", "compute 7"}));
+    dev.take_errors();
+    dev.wait_queue(QueueKind::Graphics, SyncToken{QueueKind::Compute, 7});
+    CHECK(has_error(dev.errors(), {"wait_queue", "never returned by submit_token()"}));
+    dev.take_errors();
+    dev.submit(g);
+    dev.wait_list(g, SyncToken{});  // submitted already
+    CHECK(has_error(dev.errors(), {"wait_list", "submitted already"}));
+    const std::string text = dev.stream_text();
+    CHECK_FALSE(contains(text, "wait_list compute 7"));
+    CHECK_FALSE(contains(text, "wait_queue graphics <- compute 7"));
+}
+
+TEST_CASE("threads: two threads begin and record a graphics and a compute list at once, submitted in a fixed order") {
+    for (int round = 0; round < 20; ++round) {
+        RecordingDevice dev;
+        REQUIRE(dev.features().multiThreadRecording);
+        Scene s(dev);
+        CommandList* gfx = nullptr;
+        CommandList* comp = nullptr;
+        // begin_commands and the whole recording happen on the worker threads (Features::multiThreadRecording).
+        std::thread a([&] {
+            gfx = &dev.begin_commands("main", QueueKind::Graphics);
+            ready(*gfx, s);
+            for (int i = 0; i < 40; ++i) gfx->draw(i, 3, 1);
+            gfx->end_pass();
+        });
+        std::thread b([&] {
+            comp = &dev.begin_commands("hiz", QueueKind::Compute);
+            for (int i = 0; i < 10; ++i) empty_compute(*comp, "reduce");
+        });
+        // The render thread reads the read-only queries meanwhile.
+        for (int i = 0; i < 100; ++i) {
+            CHECK(dev.features().compute);
+            CHECK(dev.state(s.pipeline) == ResourceState::Valid);
+            CHECK(dev.bindless_index(s.textureView) == kNoBindlessIndex);
+        }
+        a.join();
+        b.join();
+        REQUIRE(gfx != nullptr);
+        REQUIRE(comp != nullptr);
+        CHECK(gfx != comp);
+        CHECK(gfx->queue() == QueueKind::Graphics);
+        CHECK(comp->queue() == QueueKind::Compute);
+        // The join is the happens-before edge; the render thread submits in the order it wants the queues to run.
+        const SyncToken t = dev.submit_token(*comp);
+        dev.wait_list(*gfx, t);
+        dev.submit(*gfx);
+        dev.commit();
+        INFO(joined(dev.errors()));
+        CHECK(dev.errors().empty());
+        const auto cmds = dev.commands();
+        REQUIRE(cmds.size() == 20 + 1 + 1 + (5 + 40) + 1);
+        CHECK(cmds.front().list == "hiz");
+        CHECK(cmds[20].kind == CommandKind::Signal);
+        CHECK(cmds[21].kind == CommandKind::WaitList);
+        CHECK(cmds[22].list == "main");
+        CHECK(cmds.back().kind == CommandKind::Commit);
+    }
+}
+
+TEST_CASE("bindless: Features::bindless gives a texture or storage view a stable index, nothing else has one") {
+    {
+        RecordingDevice dev;  // the default caps have no table
+        Scene s(dev);
+        CHECK(dev.bindless_index(s.textureView) == kNoBindlessIndex);
+    }
+    RecordingDevice probe;
+    DeviceInit init;
+    init.recordingDefaultCaps = false;
+    init.recordingFeatures = probe.features();
+    init.recordingFeatures.bindless = true;
+    init.recordingLimits = probe.limits();
+    RecordingDevice dev(init);
+    REQUIRE(dev.features().bindless);
+    Scene s(dev);
+    const std::uint32_t index = dev.bindless_index(s.textureView);
+    CHECK(index != kNoBindlessIndex);
+    CHECK(dev.bindless_index(s.textureView) == index);       // never changes for a live view
+    CHECK(dev.bindless_index(s.color) == kNoBindlessIndex);  // an attachment is not in the table
+    CHECK(dev.bindless_index(View{}) == kNoBindlessIndex);
+    ViewDesc tv;
+    tv.texture.image = s.texture;
+    tv.label = "second";
+    const View second = dev.make_view(tv);
+    CHECK(dev.bindless_index(second) != kNoBindlessIndex);
+    CHECK(dev.bindless_index(second) != index);
+    dev.destroy_view(second);
+    CHECK(dev.bindless_index(second) == kNoBindlessIndex);  // a destroyed view has no slot
+}
+
+TEST_CASE("queues: SokolDevice has one queue, no async compute and no parallel recording") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the SokolDevice queue case is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    CHECK_FALSE(dev.features().asyncCompute);
+    CHECK_FALSE(dev.features().multiThreadRecording);
+    CHECK_FALSE(dev.features().bindless);
+    CommandList& compute = dev.begin_commands("compute", QueueKind::Compute);
+    CHECK(compute.queue() == QueueKind::Graphics);
+    const SyncToken a = dev.submit_token(compute);
+    CommandList& transfer = dev.begin_commands("transfer", QueueKind::Transfer);
+    dev.wait_list(transfer, a);  // a no-op that keeps the order
+    dev.wait_queue(QueueKind::Compute, a);
+    const SyncToken b = dev.submit_token(transfer);
+    CHECK(a.queue == QueueKind::Graphics);
+    CHECK(a.value == 1);
+    CHECK(b.value == 2);
+    CommandList& plain = dev.begin_commands("plain");
+    dev.submit(plain);
+    CHECK(dev.bindless_index(View{1}) == kNoBindlessIndex);
+}
