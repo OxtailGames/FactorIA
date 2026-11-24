@@ -61,6 +61,18 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   jittered matrices; culling, picking and every query use the unjittered ones. Nothing jitters while no effect needs it,
   so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_POST.md.
 
+### Graphics page of the menu kit and the editor's Graphics window (M76)
+
+- Menu kit: the Graphics tab of the options panel has a second page ("Preset and upscaling") with a Preset row (Auto, Low, Medium,
+  High, Ultra, Custom), an Upscaling row (Auto and each mode this GPU draws; the others greyed out with the reason), the upscaling
+  quality, the render scale (0.33 to 1) and the sharpness (only where the mode uses it). Auto runs `game.graphics.detect()` once and
+  keeps its pick. A preset drives the tab's "quality" row of screen effects, so the two do not fight. Everything is saved in
+  `settings.graphics` (`preset`, `detected`, `upscaler`, `renderScale`; an old save loads as before) and applied when a scene
+  starts. docs/MENUS.md (the Graphics tab); new texts in the kit's `en`, `es` and `ar` tables; `tests/graphics.test.js` covers it.
+- Editor: View > Graphics edits `render.graphicsPreset` and `render.upscaler` (mode, quality, sharpness) of `factoria.json` with
+  Save and Revert, checked by the engine's own parsers (a wrong value is named with its JSON pointer and a "did you mean"); only
+  those two keys of the file are written. There is no preview of a preset or mode in the editor: press Play after Save.
+
 ## 0.35.2
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
