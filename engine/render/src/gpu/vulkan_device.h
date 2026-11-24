@@ -22,7 +22,9 @@
 // render passes recorded into secondary command buffers, compute passes, bindings, uniforms through dynamic uniform
 // buffers, viewports, scissors, draws and dispatches. What M77-P8b1 built: GPU timers (timestamp query pools,
 // vulkan_timers.cpp), asynchronous buffer and image reads (vulkan_readback.cpp) and storage_image_loadable. A pass into
-// the window comes in M77-P9 (until then begin_pass reports an error naming it).
+// the window comes in M77-P9 (until then begin_pass reports an error naming it). What M77-P10c built: the graphics,
+// async compute and transfer queues with a timeline semaphore each, sync tokens, queue handoffs (queue family
+// ownership transfers), recording from several threads, bindless indices (Device: "Queues, threads and bindless").
 #pragma once
 
 #include <cstddef>
@@ -78,6 +80,15 @@ struct VulkanOptions {
     // Barriers through VK_KHR_synchronization2 (core in Vulkan 1.3) where the device has it. False = the Vulkan 1.0
     // barriers everywhere (tests of that path).
     bool synchronization2 = true;
+    // The queues of Compute and Transfer lists (Device::begin_commands(label, QueueKind); ARCHITECTURE_RENDERING_VULKAN.md,
+    // "Queues"). Auto: async compute on a compute-only family, else on a second queue of the graphics family, else
+    // none (Features::asyncCompute false, every list on the graphics queue); transfer on a transfer-only family whose
+    // copies take single texels (minImageTransferGranularity 1x1x1), else the compute queue's. GraphicsOnly: every list
+    // on the graphics queue. OtherFamilies: as Auto, but where Auto finds no compute queue it takes one of another
+    // family that computes (even one that also draws), and where it finds no transfer family a third family: MoltenVK
+    // exposes identical families of one queue each, so this runs the queue family ownership transfers there (tests).
+    enum class Queues : std::uint8_t { Auto, GraphicsOnly, OtherFamilies };
+    Queues queues = Queues::Auto;
     // The Vulkan loader to open (a UTF-8 path); empty = the platform's search (libvulkan.so.1, vulkan-1.dll,
     // libvulkan.1.dylib with the Homebrew prefixes on macOS).
     std::string loaderPath;
@@ -123,6 +134,7 @@ std::uint64_t storage_buffer_range(std::uint64_t bufferBytes, std::uint64_t offs
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -417,6 +429,14 @@ struct TrackedResource {
     std::vector<SubState> states;
     std::uint32_t mips = 1;
     std::uint32_t layers = 1;  // array layers or cube faces (1 for buffers and 3D images)
+    // The queue that owns it (Device: "RESOURCES BETWEEN QUEUES"): Graphics when made, the `to` of each handoff after.
+    // `states` are the states that queue leaves it in. After a handoff between queues of different families the
+    // producer's family released it (`acquireFrom`, VK_QUEUE_FAMILY_IGNORED = nothing to acquire) and the first list of
+    // the owner that uses it (or hands it on) records the acquire. `handed` is the handoff's token, checked against the
+    // consumer's waits at its first submit. All under the device's queue lock.
+    QueueKind owner = QueueKind::Graphics;
+    std::uint32_t acquireFrom = VK_QUEUE_FAMILY_IGNORED;
+    SyncToken handed{};
     std::uint32_t subresource(std::uint32_t mip, std::uint32_t layer) const { return mip + layer * mips; }
     std::uint32_t subresource_count() const { return mips * layers; }
     TrackedResource() = default;
@@ -432,6 +452,8 @@ struct Barrier {
     VkImageAspectFlags aspects = 0;
     std::uint32_t mip = 0, mipCount = 1, layer = 0, layerCount = 1;
     SubState from{}, to{};
+    // A queue family ownership transfer (its release or its acquire half); IGNORED twice = none.
+    std::uint32_t srcFamily = VK_QUEUE_FAMILY_IGNORED, dstFamily = VK_QUEUE_FAMILY_IGNORED;
 };
 
 // A fixed-size table of records with generation-counted 32-bit ids (sokol's scheme): id = generation << 16 | (index +
@@ -760,6 +782,7 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    QueueKind queue() const override { return queue_; }
 
     // ---- the backend's side ------------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
@@ -789,6 +812,7 @@ private:
         // stage that barrier did not reach waits for it again.
         std::vector<SubState> since;
     };
+    // Makes its command pool (of the family of queue_, which acquire_list set) and its two command buffers.
     Result<void> create(const char* what);
     // Opens the list for recording (its previous commands must be finished).
     Result<void> open(const char* label);
@@ -833,9 +857,12 @@ private:
     VkCommandBuffer fixup_ = VK_NULL_HANDLE;  // the barriers submit() records before this list
     std::string label_;
     bool open_ = false;
-    bool internal_ = false;    // the device's own list (initial uploads, readbacks), never handed out
-    bool empty_ = true;        // no command recorded yet
-    std::uint64_t fence_ = 0;  // the timeline value its last submission signals
+    bool internal_ = false;                  // the device's own list (initial uploads, readbacks), never handed out
+    bool empty_ = true;                      // no command recorded yet
+    std::uint64_t fence_ = 0;                // the value its last submission signals on its queue's timeline
+    QueueKind queue_ = QueueKind::Graphics;  // the queue it runs on (a queue of the device's own, never a fallback)
+    // wait_list(): the value of each queue's timeline its submission waits for (0 = none; reset by open()).
+    std::uint64_t waits_[kQueueKinds] = {};
     int debugDepth_ = 0;
     std::vector<Use> uses_;
     std::unordered_map<TrackedResource*, std::size_t> useIndex_;
@@ -880,6 +907,9 @@ private:
 
     // Pipeline, bindings, uniforms
     std::shared_ptr<const PipelineState> pipeline_;
+    // Every pipeline the list bound, held until it is submitted (or dropped): the command buffer names them, so one
+    // destroyed meanwhile is retired, and its VkPipeline freed, only after the GPU ran the list.
+    std::unordered_set<std::shared_ptr<const PipelineState>> boundPipelines_;
     std::uint32_t uniformsSet_ = 0;  // bit i = uniform slot i was set since set_pipeline
     bool bindingsSet_ = false;
     // Bit n = descriptor set n (0 uniforms, 1 views and samplers, 2 bindless) must be bound again before the next draw
@@ -949,7 +979,9 @@ struct PipelineCacheFile {
 };
 
 // The Vulkan Device. Made, used for resources and destroyed on one thread (the render thread); command lists may be
-// recorded on other threads (mutexes guard the queue, the pools, the ring, the allocator and the descriptor pools).
+// begun and recorded on other threads (Features::multiThreadRecording: each list has a command pool of its own, and
+// mutexes guard the lists, the resource pools, the caches, the ring, the allocator, the descriptor pools and the
+// timers).
 class VulkanDevice final : public Device {
 public:
     static Result<std::unique_ptr<VulkanDevice>> create(const VulkanOptions& options);
@@ -988,9 +1020,22 @@ public:
     ResourceState state(Shader shader) const override;
     ResourceState state(Pipeline pipeline) const override;
 
+    using Device::begin_commands;
+    using Device::submit_token;
     CommandList& begin_commands(const char* label) override;
     void submit(CommandList& list) override;
     void commit() override;
+    // Queues, tokens and handoffs (ARCHITECTURE_RENDERING_VULKAN.md, "Queues"): a list of a queue the device does not
+    // have runs on the nearest it has (Transfer, then Compute, then Graphics); a token is the queue's timeline value
+    // after the list; a handoff to a queue of another family records the release at the end of the producer's list and
+    // the acquire at the head of the consumer's first list that uses the resource.
+    CommandList& begin_commands(const char* label, QueueKind queue) override;
+    SyncToken submit_token(CommandList& list, std::span<const QueueHandoff> handoffs) override;
+    void wait_list(CommandList& list, SyncToken token) override;
+    void wait_queue(QueueKind queue, SyncToken token) override;
+    // The slot of a Texture view in the bindless table (set 2): taken when the view is made, freed once the frames that
+    // may read it are done after it is destroyed.
+    std::uint32_t bindless_index(View view) const override;
     std::uint64_t frame_index() const override { return frame_; }
     bool add_commit_listener(void (*func)(void* user), void* user) override;
     bool remove_commit_listener(void (*func)(void* user), void* user) override;
@@ -1031,11 +1076,18 @@ public:
     VkInstance vk_instance() const { return instance_; }
     VkPhysicalDevice physical_device() const { return physical_; }
     VkDevice vk_device() const { return device_; }
-    VkQueue queue() const { return queue_; }
-    std::uint32_t queue_family() const { return queueFamily_; }
-    // The queue of a transfer-only family (null when the GPU has none; the graphics queue copies then).
-    VkQueue transfer_queue() const { return transferQueue_; }
-    std::uint32_t transfer_queue_family() const { return transferFamily_; }
+    // The VkQueue, its family and its index in the family that lists of `kind` run on (a kind the device has no queue
+    // of gives the queue it falls back to), and the kind they really run on.
+    VkQueue queue(QueueKind kind = QueueKind::Graphics) const { return queues_[int(resolve_queue(kind))].queue; }
+    std::uint32_t queue_family(QueueKind kind = QueueKind::Graphics) const {
+        return queues_[int(resolve_queue(kind))].family;
+    }
+    std::uint32_t queue_index(QueueKind kind = QueueKind::Graphics) const {
+        return queues_[int(resolve_queue(kind))].index;
+    }
+    QueueKind resolve_queue(QueueKind kind) const {
+        return std::size_t(kind) < std::size_t(kQueueKinds) ? resolved_[int(kind)] : QueueKind::Graphics;
+    }
     // The physical device's name ("Apple M5", "llvmpipe (LLVM 18.1.3, 256 bits)").
     const std::string& device_name() const { return deviceName_; }
     // The loader that was opened (a UTF-8 path or library name).
@@ -1056,8 +1108,9 @@ public:
     // the GPU binds, a pipeline cache file thrown away or not written).
     std::vector<std::string> warnings();
     void clear_messages();
-    // Waits until the GPU finished everything submitted, then releases everything pending, the current frame's
-    // destroyed objects included (their upload ring room is freed by the frame's commit, as lists may still be open).
+    // Waits until the GPU finished everything submitted on every queue, then releases what is pending: the current
+    // frame's destroyed objects too when no list is open (an open list's command buffer may name them: they wait for
+    // its frame then). Their upload ring room is freed by the frame's commit, as lists may still be open.
     Result<void> wait_idle();
     VulkanCounters counters() const;
     // Mip `mip` of layer `layer` (array layer, cube face or 3D slice), the rectangle (x, y, w, h), tightly packed rows
@@ -1068,9 +1121,11 @@ public:
     // image's own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread
     // only.
     Result<ReadTicket> request_image_read(Image image, int mip, int layer, int x, int y, int width, int height);
-    // The ticks of a timestamp that are valid (the queue family's timestampValidBits; 0 = no timers) and the
-    // nanoseconds per tick.
-    std::uint32_t timestamp_valid_bits() const { return timestampBits_; }
+    // The ticks of a timestamp that are valid (the timestampValidBits of the family of `kind`'s queue; 0 = no timers)
+    // and the nanoseconds per tick.
+    std::uint32_t timestamp_valid_bits(QueueKind kind = QueueKind::Graphics) const {
+        return queues_[int(resolve_queue(kind))].timestampBits;
+    }
     float timestamp_period() const { return props_.limits.timestampPeriod; }
     // Upload room for this frame: from the ring, else a buffer of its own (kept by `keeper` until its frame is done).
     // !ok() only when Vulkan could not make that buffer (reported in errors()).
@@ -1156,7 +1211,8 @@ private:
         std::size_t offset = 0;             // a storage buffer view's first byte
         VkImageView view = VK_NULL_HANDLE;  // image views
         VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
-        std::uint64_t serial = 0;  // unique for the device's life (the framebuffer cache's key)
+        std::uint64_t serial = 0;              // unique for the device's life (the framebuffer cache's key)
+        std::uint32_t bindlessSlot = kNoSlot;  // a Texture view's slot in the bindless table (kNoSlot = none)
     };
     struct SamplerRecord {
         VkSampler sampler = VK_NULL_HANDLE;  // null when the creation failed
@@ -1188,28 +1244,71 @@ private:
     struct PipelineRecord {
         std::shared_ptr<const PipelineState> state;  // null when the creation failed
     };
+    // One queue of the device's own (Graphics always; Compute and Transfer when VulkanOptions::queues found one).
+    struct QueueRecord {
+        bool own = false;
+        VkQueue queue = VK_NULL_HANDLE;
+        std::uint32_t family = 0;
+        std::uint32_t index = 0;          // in its family
+        std::uint32_t timestampBits = 0;  // its family's timestampValidBits
+        VkSemaphore timeline = VK_NULL_HANDLE;
+        std::uint64_t value = 0;  // the last value signalled on its timeline (queueMutex_)
+        // wait_queue(): the value of each queue's timeline every later submission on this queue waits for (0 = none;
+        // a handoff whose token is at or below it was waited for). queueMutex_.
+        std::uint64_t waitFloor[kQueueKinds] = {};
+    };
+    // The value every queue's timeline had at a frame's commit: the frame is done when each reached its own.
+    struct FrameValues {
+        std::uint64_t frame = 0;
+        std::uint64_t values[kQueueKinds] = {};
+    };
+    // A resource a handoff names (looked up at submit_token).
+    struct Handed {
+        std::shared_ptr<TrackedResource> res;
+        QueueKind to = QueueKind::Graphics;
+    };
 
     Result<void> init(const VulkanOptions& options);
     Result<void> init_instance(const VulkanOptions& options);
     Result<void> init_device(const VulkanOptions& options);
     void init_caps();
-    // A free command list (open for recording), from the pool or new; null with errors() when Vulkan failed.
-    VulkanCommandList* acquire_list(const char* label, bool internal);
-    // Ends `list`, records its fix-up barriers, submits both and signals the timeline (list.fence_). The resources'
-    // tracked states and the list's timed scopes change only when the submission worked; false (reported) otherwise.
+    // A free command list of queue `queue` (one of the device's own) open for recording, from the pool or new; null
+    // with errors() when Vulkan failed.
+    VulkanCommandList* acquire_list(const char* label, bool internal, QueueKind queue = QueueKind::Graphics);
+    // The checks of submit() and submit_token(); false when the list cannot run (reported, and dropped when it is
+    // open).
+    bool submittable(VulkanCommandList& list, const char* call);
+    // Ends `list`, records its fix-up barriers (with the acquires of resources handed to its queue), the releases of
+    // `handoffs` at its end, submits both with the list's waits and signals its queue's timeline (list.fence_). The
+    // resources' tracked states and owners and the list's timed scopes change only when the submission worked; false
+    // (reported) otherwise. Under queueMutex_.
+    bool execute(VulkanCommandList& list, std::span<const Handed> handoffs = {});
+    // Submits `count` command buffers on `queue`, waiting for `waits` (one value per queue; null = none) and the
+    // queue's wait_queue() floors (values its timelines never signalled are reported and not waited for), and
+    // signals ++value of its timeline. Under queueMutex_.
+    bool submit_signal(QueueKind queue, const VkCommandBuffer* cmds, std::uint32_t count, const char* what,
+                       const std::uint64_t* waits = nullptr);
+    // Reports the resources `list` uses on a queue that does not own them, or before it waited for their handoff's
+    // token (`waits`: the value of each queue's timeline the submission waits for); a handoff waited for is settled.
     // Under queueMutex_.
-    bool execute(VulkanCommandList& list);
-    // Submits `count` command buffers and signals ++timelineValue_. Under queueMutex_.
-    bool submit_signal(const VkCommandBuffer* cmds, std::uint32_t count, const char* what);
+    void check_owners(const VulkanCommandList& list, const std::uint64_t* waits);
+    // The label of the buffer or image record of `t` ("buffer 'x'", "image 'y'"), for reports. Under queueMutex_ (takes
+    // resMutex_: resMutex_ may be taken under queueMutex_, never the other way round).
+    std::string describe(const TrackedResource& t);
+    // A token value the queue's timeline never signalled is reported (it would hang the GPU) and gives false.
+    bool check_token(const char* call, const std::string& label, SyncToken token);
     // The device's own list for initial uploads and readbacks, opened on first use. Under queueMutex_.
     VulkanCommandList& prelude();
     // A list that ignores everything, for when Vulkan could not give one (deadLists_). Under queueMutex_.
     VulkanCommandList& dead_list();
     // Executes the prelude if it recorded anything. Under queueMutex_.
     void flush_prelude();
-    // Waits (bounded) until the timeline reaches `value`. Under queueMutex_ or not.
-    Result<void> wait_timeline(std::uint64_t value, const char* what);
-    std::uint64_t completed_value() const;
+    // Waits (bounded) until the timeline of `queue` reaches `value`. Under queueMutex_ or not.
+    Result<void> wait_timeline(std::uint64_t value, const char* what, QueueKind queue = QueueKind::Graphics);
+    std::uint64_t completed_value(QueueKind queue = QueueKind::Graphics) const;
+    // Whether every queue's timeline reached the frame's values; waits for them (bounded).
+    bool frame_done(const FrameValues& f) const;
+    Result<void> wait_frame(const FrameValues& f, const char* what);
     // Releases what the GPU is done with and gives the finished frames' ring room back. Under queueMutex_.
     void collect();
     void defer(Deferred d);
@@ -1269,12 +1368,9 @@ private:
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
-    VkQueue queue_ = VK_NULL_HANDLE;
-    std::uint32_t queueFamily_ = 0;
-    std::uint32_t timestampBits_ = 0;  // the queue family's timestampValidBits
-    VkQueue transferQueue_ = VK_NULL_HANDLE;
-    std::uint32_t transferFamily_ = 0;
-    VkSemaphore timeline_ = VK_NULL_HANDLE;
+    // The queues by QueueKind (only `own` ones are used) and the queue each kind's lists run on.
+    QueueRecord queues_[kQueueKinds];
+    QueueKind resolved_[kQueueKinds] = {QueueKind::Graphics, QueueKind::Graphics, QueueKind::Graphics};
     VkPhysicalDeviceProperties props_{};
     std::string deviceName_;
     std::uint32_t apiVersion_ = 0;
@@ -1344,11 +1440,10 @@ private:
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;
     std::vector<std::unique_ptr<VulkanCommandList>> lists_;
-    VulkanCommandList* prelude_ = nullptr;
-    std::uint64_t timelineValue_ = 0;
+    VulkanCommandList* prelude_ = nullptr;  // a graphics list
     std::uint64_t frame_ = 0;
-    std::uint64_t completedFrames_ = 0;  // frames [0, completedFrames_) are finished on the GPU
-    std::deque<std::pair<std::uint64_t, std::uint64_t>> frameValues_;  // (frame, timeline value of its commit)
+    std::uint64_t completedFrames_ = 0;    // frames [0, completedFrames_) are finished on the GPU, on every queue
+    std::deque<FrameValues> frameValues_;  // the committed frames not finished yet, oldest first
     std::deque<Deferred> deferred_;
     std::shared_ptr<TrackedResource> ringBuffer_;
     UploadRing ring_;
