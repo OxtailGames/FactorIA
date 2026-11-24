@@ -130,7 +130,8 @@ struct ExportOptions {
                   // and ~/.factoria/export.json (nullptr = this machine); only tests change it
     const SetupContext* setup =
         nullptr;  // linux appimage: which computer this is, where the AppImage tools are installed and how
-                  // programs are run (nullptr = this machine); only tests change it
+                  // programs are run; windows with export.pack.directStorage: where the DirectStorage DLLs are
+                  // installed (nullptr = this machine); only tests change it
 };
 
 // One row of the size report of an export (ExportReport::largestFolders, ExportReport::webFiles).

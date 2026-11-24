@@ -1921,7 +1921,7 @@ constexpr const char* kSchemaText =
             "directStorage": {
               "type": "boolean",
               "default": false,
-              "description": "Used by DirectStorage, which arrives in M77: true makes a Windows export pack its compressed files as gdeflate (see \"codec\") so that the player can hand their blocks to the GPU. It changes nothing else yet. Default false."
+              "description": "true makes a Windows export pack its compressed files as gdeflate (see \"codec\") and, in a release export, copy the DirectStorage DLLs that `factoria setup directstorage` installed next to the game, whose player then reads and decompresses those files through DirectStorage (on its worker threads for now; decompression on the GPU comes with GPU destinations). Without the DLLs the export warns and the game decodes them on the CPU. Default false."
             },
             "useLoadOrder": {
               "type": "boolean",

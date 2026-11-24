@@ -12,6 +12,7 @@
 #include "fa/tooling/export.h"
 #include "fa/tooling/load_order.h"
 #include "fa/tooling/scaffold.h"
+#include "fa/tooling/setup.h"
 #include "test_helpers.h"
 
 #ifdef _WIN32
@@ -523,7 +524,11 @@ TEST_CASE(
         (*j)["export"]["pack"]["directStorage"] = c.directStorage;
         (*j)["export"]["pack"]["codecs"] = Json::object({{".dat", "store"}});
         testing::write_all(file, j->dump(2));
-        auto r = export_project(options_for(tmp, proj, c.platform, true));
+        SetupContext setup;  // no DirectStorage DLLs installed: the case after this one covers them
+        setup.home = tmp.sub("fhome");
+        ExportOptions o = options_for(tmp, proj, c.platform, true);
+        o.setup = &setup;
+        auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const std::string dir = std::string(c.platform) == "windows" ? "pack-test-windows" : "pack-test-linux";
         auto pack = PackReader::open(tmp.sub("out/" + dir + "/game.pak"));
@@ -537,4 +542,56 @@ TEST_CASE(
         CHECK(big->size() == 200000);
         CHECK(r->packBytes < r->packFileBytes);
     }
+}
+
+TEST_CASE(
+    "export --release for Windows with export.pack.directStorage ships the DirectStorage DLLs, or says how to get "
+    "them") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const stdfs::path file = stdfs::path(proj) / "factoria.json";
+    auto j = parse_json(testing::read_all(file), "factoria.json");
+    REQUIRE(j.ok());
+    (*j)["export"]["pack"]["directStorage"] = true;
+    testing::write_all(file, j->dump(2));
+    SetupContext setup;
+    setup.home = tmp.sub("fhome");
+    const stdfs::path out = tmp.path / "out" / "pack-test-windows";
+    auto has_warning = [](const ExportReport& r) {
+        return std::any_of(r.warnings.begin(), r.warnings.end(), [](const std::string& w) {
+            return w.find("factoria setup directstorage") != std::string::npos;
+        });
+    };
+
+    // Not installed: the export succeeds without them and the warning names the command that installs them.
+    ExportOptions o = options_for(tmp, proj, "windows", true);
+    o.setup = &setup;
+    auto missing = export_project(o);
+    REQUIRE_MESSAGE(missing.ok(), (missing.ok() ? "" : missing.error().to_string()));
+    CHECK(has_warning(missing.value()));
+    CHECK_FALSE(stdfs::exists(out / "dstorage.dll"));
+    CHECK(stdfs::exists(out / "game.pak"));
+
+    // Installed (fake DLLs where `setup directstorage` puts them): both are copied next to the executable.
+    const stdfs::path installed = fs::path_from_utf8(directstorage_install_dir(setup));
+    testing::write_all(installed / "dstorage.dll", "fake dstorage");
+    testing::write_all(installed / "dstoragecore.dll", "fake dstoragecore");
+    REQUIRE(installed_directstorage_dir(setup) == fs::path_to_utf8(installed));
+    auto shipped = export_project(o);
+    REQUIRE_MESSAGE(shipped.ok(), (shipped.ok() ? "" : shipped.error().to_string()));
+    CHECK_FALSE(has_warning(shipped.value()));
+    CHECK(testing::read_all(out / "dstorage.dll") == "fake dstorage");
+    CHECK(testing::read_all(out / "dstoragecore.dll") == "fake dstoragecore");
+
+    // Only a Windows release export with the option on: not a folder export, not another platform.
+    ExportOptions debug = options_for(tmp, proj, "windows", false);
+    debug.outDir = tmp.sub("out-debug");
+    debug.setup = &setup;
+    REQUIRE(export_project(debug).ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out-debug" / "pack-test-windows" / "dstorage.dll"));
+    CHECK(stdfs::exists(tmp.path / "out-debug" / "pack-test-windows"));
+    ExportOptions forLinux = options_for(tmp, proj, "linux", true);
+    forLinux.setup = &setup;
+    REQUIRE(export_project(forLinux).ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out" / "pack-test-linux" / "dstorage.dll"));
 }

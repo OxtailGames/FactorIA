@@ -359,6 +359,34 @@ Result<void> pack_game(const Project& p, const std::string& platform, const std:
     return {};
 }
 
+// export.pack.directStorage on a Windows release: the DirectStorage DLLs `setup directstorage` installed go next to the
+// executable, where the game's pack reader loads them (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). Without them
+// the export still succeeds, with a warning: the game then decompresses its gdeflate blocks on the CPU.
+Result<void> copy_directstorage(const ExportOptions& options, const stdfs::path& exeDir, ExportReport& report) {
+    const SetupContext defaultContext;
+    const SetupContext& ctx = options.setup ? *options.setup : defaultContext;
+    const std::string dir = installed_directstorage_dir(ctx);
+    if (dir.empty()) {
+        report.warnings.push_back(
+            "export.pack.directStorage is on, but the DirectStorage DLLs are not installed on this computer: the game "
+            "was exported without dstorage.dll and dstoragecore.dll and decompresses its gdeflate blocks on the CPU. "
+            "Run "
+            "`factoria setup directstorage` and export again.");
+        return {};
+    }
+    for (const char* name : kSetupDirectStorageFiles) {
+        const stdfs::path from = fs::path_from_utf8(dir) / name;
+        std::error_code ec;
+        stdfs::copy_file(os_path(from), os_path(exeDir / name), stdfs::copy_options::overwrite_existing, ec);
+        if (ec)
+            return err("export: cannot copy " + fs::path_to_utf8(from) + " next to the game (" +
+                           fs::path_to_utf8(exeDir) + "): " + ec.message(),
+                       "Check that the output folder is writable, or run `factoria setup directstorage --force` if the "
+                       "installed DLLs are damaged.");
+    }
+    return {};
+}
+
 }  // namespace
 
 Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
@@ -454,6 +482,8 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
     if (options.release) {
         if (auto r = pack_game(p, platform, files, packFile, report); !r.ok()) return r;
+        if (platform == "windows" && p.settings.pack.directStorage)
+            if (auto r = copy_directstorage(options, exeDest.parent_path(), report); !r.ok()) return r;
     } else if (auto r = copy_game(p, files, gameDest); !r.ok()) {
         return r;
     }
