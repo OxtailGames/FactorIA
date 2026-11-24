@@ -12,8 +12,8 @@
 // groups, the blocking readbacks, statistics and commit listeners (M77-P7a); shaders (DXBC SM 5.1, compiled from HLSL
 // when given source) with one cached root signature per binding layout, graphics and compute pipelines with an
 // in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
-// scissors, draws and dispatches (M77-P7c1). GPU timers and asynchronous reads come in M77-P7c2 (they report a
-// "not yet" error), passes into the window in M77-P9.
+// scissors, draws and dispatches (M77-P7c1); GPU timers (timestamp queries) and asynchronous reads of buffers and
+// texture regions (M77-P7c2). Passes into the window come in M77-P9.
 #pragma once
 
 #include <cstddef>
@@ -51,7 +51,8 @@ struct D3d12Options {
     int cpuSamplerDescriptors = 0;
     // The shader-visible CBV/SRV/UAV heap: a range reserved for the bindless table (every root signature sees it as
     // an unbounded SRV range at t0, space1; 0 = no bindless table), then one segment per frame in flight that the
-    // bindings of that frame are copied into.
+    // bindings of that frame are copied into. A GPU of resource binding tier 1 has no unbounded ranges: there the
+    // device makes no bindless table, whatever this asks (D3d12Device::bindless_descriptors() says what it made).
     int bindlessDescriptors = 32768;
     int frameViewDescriptors = 32768;
     // The shader-visible sampler heap: one segment per frame in flight (D3D12 allows 2048 samplers in all).
@@ -59,7 +60,7 @@ struct D3d12Options {
 };
 
 // Makes a Direct3D 12 device. Fails with a teaching error where D3D12 does not exist (every platform but Windows), when
-// no adapter makes a feature level 11.0 device with resource binding tier 2, or when an option is out of range.
+// no adapter makes a feature level 11.0 device, or when an option is out of range.
 Result<std::unique_ptr<Device>> make_d3d12_device(const D3d12Options& options = {});
 
 }  // namespace fa::gpu
@@ -81,6 +82,7 @@ Result<std::unique_ptr<Device>> make_d3d12_device(const D3d12Options& options = 
 #include <array>
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -441,6 +443,14 @@ public:
 
 private:
     friend class D3d12Device;
+    // A timed scope this list recorded: scope `scope` of the timed frame `serial`, in the query heap `heap` (the
+    // device's timer slot `slot`).
+    struct ScopeRef {
+        std::uint64_t serial = 0;
+        int slot = -1;
+        std::uint32_t scope = 0;
+        ID3D12QueryHeap* heap = nullptr;  // lives as long as the device
+    };
     struct Use {
         std::shared_ptr<TrackedResource> res;
         std::vector<StateBits> first;    // the state the list needs at its start; kStateUnknown = not used
@@ -452,6 +462,8 @@ private:
     void transition(Use& u, std::uint32_t sub, StateBits state);
     // A UAV barrier on `t` when this list already left it in the UAV state (a write before this use).
     void uav_barrier_if_written(const std::shared_ptr<TrackedResource>& t);
+    // Records the end timestamp of the timed scope still open (end_timed_scope, and submit for a scope left open).
+    void close_scope();
     // Reports an error of CommandList::`what` in this list.
     void fail(const char* what, const std::string& error);
     // The checks every draw and dispatch makes: false (reported) when it cannot run.
@@ -514,6 +526,9 @@ private:
     // UAV barrier on each (its writes must be visible to the next command).
     std::vector<std::shared_ptr<TrackedResource>> boundUavs_;
     bool uavsWritten_ = false;
+    // The timed scopes recorded in this list (reset by open()); the last one is still open when scopeOpen_.
+    std::vector<ScopeRef> scopes_;
+    bool scopeOpen_ = false;
 };
 
 // What the backend counted (tests, the profiler).
@@ -593,12 +608,14 @@ public:
     bool stats_enabled() const override { return statsEnabled_; }
     TotalStats total_stats() const override;
 
+    // GPU timers (d3d12_timers_win32.cpp): timestamp queries on the direct queue, a ring of kTimerSlots timed frames,
+    // each with its own query heap and readback buffer, resolved once the frame's fence passed.
     bool timer_supported(std::string* why) const override;
-    void timer_begin_frame() override {}
-    void timer_end_frame() override {}
-    void timer_poll(std::vector<double>&) override {}
-    std::vector<ScopeTime> timer_last_scopes() const override { return {}; }
-    void timer_forget() override {}
+    void timer_begin_frame() override;
+    void timer_end_frame() override;
+    void timer_poll(std::vector<double>& frameMs) override;
+    std::vector<ScopeTime> timer_last_scopes() const override;
+    void timer_forget() override;
 
     Result<void> read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) override;
     Result<void> read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) override;
@@ -606,12 +623,26 @@ public:
                                     std::vector<std::uint8_t>& out) override;
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
-    bool async_read_supported() const override { return false; }
+    // Asynchronous reads (d3d12_readback_win32.cpp): kAsyncReads slots, each with a readback buffer it keeps while it
+    // is big enough. A request records the copy on an internal list and executes it at once (no wait); the slot's
+    // fence value says when the bytes are there. A released slot is reused only once its copy finished.
+    bool async_read_supported() const override { return true; }
     Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) override;
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
-    void release_buffer_read(ReadTicket ticket) override {}
+    void release_buffer_read(ReadTicket ticket) override;
 
-    // ---- D3D12 only (tests, M77-P7c2, M77-P9) -------------------------------------------------------------------------
+    // ---- D3D12 only (tests, M77-P9) ----------------------------------------------------------------------------------
+    // The asynchronous read of a texel region: mip `mip` of layer `layer` (array layer, cube face or 3D slice), the
+    // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
+    // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.
+    Result<ReadTicket> request_image_read(Image image, int mip, int layer, int x, int y, int width, int height);
+    // The size of the bindless table every root signature sees (0 = none: D3d12Options::bindlessDescriptors was 0, or
+    // the GPU has resource binding tier 1).
+    std::uint32_t bindless_descriptors() const { return bindlessDescriptors_; }
+    // The GPU's resource binding tier (1, 2 or 3).
+    int resource_binding_tier() const { return bindingTier_; }
+    // Ticks per second of the direct queue's timestamps (0 when it cannot time).
+    std::uint64_t timestamp_frequency() const { return timestampFrequency_; }
     ID3D12Device* d3d_device() const { return device_.get(); }
     ID3D12CommandQueue* queue() const { return queue_.get(); }
     // The adapter's description ("Microsoft Basic Render Driver" for WARP).
@@ -738,9 +769,35 @@ private:
     Com<ID3D12Resource> make_committed(const D3D12_RESOURCE_DESC& desc, D3D12_HEAP_TYPE heap,
                                        D3D12_RESOURCE_STATES state, const char* what, const char* label);
     void upload_initial_image(const ImageRecord& rec, const ImageDesc& desc);
+    // Where a texel region lands in a readback buffer: its footprint (GetCopyableFootprints: rows 256-byte aligned),
+    // the tight bytes of one row and the buffer bytes it needs.
+    struct TextureFootprint {
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT placed{};
+        std::uint32_t rows = 0;
+        std::uint32_t rowBytes = 0;
+        std::uint64_t total = 0;
+    };
+    // Checks that the region (x, y, width, height) of mip `mip`, layer `layer` can be read back, and its footprint.
+    Result<TextureFootprint> texture_read_footprint(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer,
+                                                    int x, int y, int width, int height, const char* what) const;
+    // Records the copy of that region into `dst` at offset 0 (barriers included). Under queueMutex_.
+    void record_texture_read(D3d12CommandList& list, const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer,
+                             int x, int y, const TextureFootprint& fp, ID3D12Resource* dst);
     // Copies `region` of the image into a readback buffer and waits; `rowBytes` per row come back tightly packed.
     Result<void> read_texture(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y, int width,
                               int height, std::vector<std::uint8_t>& out, const char* what);
+    // A READBACK-heap buffer of `bytes` bytes (COPY_DEST, the only state it has); null with errors() on failure.
+    Com<ID3D12Resource> make_readback(std::uint64_t bytes, const char* what);
+    // The timers' query heaps and readback buffers, and the queue's timestamp frequency (init; timerWhy_ when not).
+    void init_timer();
+    // timer_end_frame's work, under queueMutex_ and timerMutex_.
+    void end_timer_frame_locked();
+    // A free asynchronous read slot (its copy finished and no ticket names it), or -1.
+    int free_async_slot() const;
+    // Whether `ticket` names the request its slot holds now.
+    bool async_ticket_current(ReadTicket ticket) const;
+    // Records the copy of an async read on an internal list, executes it, and hands the slot its ticket.
+    Result<ReadTicket> start_async_read(int slot, const char* what, const std::function<void(D3d12CommandList&)>& copy);
 
     // The D3D12 objects
     Com<IDXGIFactory4> factory_;
@@ -779,6 +836,46 @@ private:
     std::unordered_map<std::string, Com<ID3D12PipelineState>> psos_;
     std::uint64_t psoHits_ = 0, psoMisses_ = 0, rootHits_ = 0;
     std::uint32_t bindlessDescriptors_ = 0;  // the reserved range of viewHeap_ (0 = no bindless table)
+    int bindingTier_ = 0;                    // D3D12_OPTIONS.ResourceBindingTier (1, 2 or 3)
+
+    // GPU timers (timerMutex_; taken after queueMutex_ when both are held). A timed frame takes the next slot of the
+    // ring: query 0 is its start, 1 its end, 2 + 2i and 3 + 2i scope i's.
+    static constexpr int kTimerSlots = 6;       // timed frames in flight; a full ring skips the frame
+    static constexpr int kMaxTimedScopes = 64;  // scopes measured per frame (as GpuTimer::kMaxTimedPasses)
+    struct TimerSlot {
+        Com<ID3D12QueryHeap> heap;
+        Com<ID3D12Resource> readback;  // the resolved ticks
+        std::uint64_t serial = 0;      // the timed frame it holds
+        std::uint64_t fence = 0;       // the fence value after its resolve
+        std::vector<std::string> names;
+        std::vector<bool> submitted;  // scope i's list ran before timer_end_frame (else it is not reported)
+    };
+    mutable std::mutex timerMutex_;
+    bool timerOk_ = false;
+    std::string timerWhy_;
+    std::uint64_t timestampFrequency_ = 0;
+    std::array<TimerSlot, kTimerSlots> timerSlots_;
+    std::deque<int> timerPending_;  // ended frames waiting for their fence, oldest first
+    int timerCurrent_ = -1;         // the slot of the open timed frame; -1 = none
+    std::uint64_t timerSerial_ = 0;
+    std::uint64_t timerNext_ = 0;
+    std::size_t timerStale_ = 0;  // results still to arrive that timer_forget() dropped
+    std::vector<ScopeTime> timerLastScopes_;
+
+    // Asynchronous reads (render thread only; the copy itself under queueMutex_)
+    static constexpr int kAsyncReads = 32;  // as SokolDevice: 8 rings of 4
+    struct AsyncRead {
+        Com<ID3D12Resource> buffer;  // READBACK heap, kept while big enough
+        std::uint64_t capacity = 0;
+        std::uint64_t fence = 0;       // the copy is done once the fence reaches it
+        std::uint32_t generation = 0;  // the ticket's; 0 = no ticket (free once the fence passed)
+        std::size_t bytes = 0;         // a buffer read's bytes
+        std::uint32_t rows = 0;        // a texture read: rows of rowBytes, rowPitch apart (0 = a buffer read)
+        std::uint32_t rowBytes = 0;
+        std::uint32_t rowPitch = 0;
+    };
+    std::array<AsyncRead, kAsyncReads> asyncReads_;
+    std::uint32_t readGeneration_ = 0;
 
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;
