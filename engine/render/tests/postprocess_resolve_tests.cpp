@@ -693,7 +693,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 // spatialUpscaler in P3b, temporalUpscaler in P4); temporalAA is the effect row of that name and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"metalfx", "dynamicResolution"}) {
+    for (const char* name : {"metalfx"}) {
         CAPTURE(name);
         const int i = find_feature(name);
         REQUIRE(i >= 0);
@@ -703,6 +703,15 @@ TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx 
         std::string why;
         CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
         CHECK(why == "planned (M76)");
+    }
+    // Dynamic resolution is drawn (M76-P6c): every GPU backend, no longer planned.
+    {
+        const int i = find_feature("dynamicResolution");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whyDyn;
+        CHECK(supported(full, "dynamicResolution", &whyDyn));
     }
     // The motion vectors are drawn since M76-P1a (the prepass writes them for a consumer: the debug view, the temporal antialiasing).
     const int mv = find_feature("motionVectors");

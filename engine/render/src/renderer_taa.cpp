@@ -18,7 +18,8 @@ namespace {
 float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
 static_assert(UB_taa_taa_vs_params == 0 && UB_taa_taa_params == 1, "the taa program uniform slots");
-static_assert(VIEW_taa_tex_c == 0 && VIEW_taa_tex_p == 1 && VIEW_taa_tex_v == 2 && VIEW_taa_tex_h == 3 && VIEW_taa_tex_r == 4,
+static_assert(VIEW_taa_tex_c == 0 && VIEW_taa_tex_p == 1 && VIEW_taa_tex_v == 2 && VIEW_taa_tex_h == 3 &&
+                  VIEW_taa_tex_r == 4,
               "the taa resolve view slots");
 static_assert(VIEW_taa_tex_o == 5, "the taa output view slot");
 static_assert(SMP_taa_smp_lin == 0 && SMP_taa_smp_pt == 1 && SMP_taa_smp_o == 2, "the taa sampler slots");
@@ -67,7 +68,8 @@ TaaPlan build_taa_plan(const CameraInfo& cam, const PostProcess& f, std::uint64_
     p.sceneKey = sceneKey;
     p.originShifts = originShifts;
     const Mat4& P = cam.proj;
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     bool finite = std::fabs(P.at(0, 0)) > 1e-12f && std::fabs(P.at(1, 1)) > 1e-12f;
     for (float t : terms) finite = finite && std::isfinite(t);
     for (int i = 0; i < 8; ++i) p.proj[i] = terms[i];
@@ -84,8 +86,8 @@ TaaPlan build_taa_plan(const CameraInfo& cam, const PostProcess& f, std::uint64_
 
 }  // namespace
 
-TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available, std::uint64_t camKey,
-                      std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available,
+                      std::uint64_t camKey, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
                       const Mat4& prevViewProj, bool prevValid) {
     if (!gameFrame || !available || !stack.has(PostEffect::TemporalAA)) return TaaPlan{};
     return build_taa_plan(cam, stack.fx, camKey, serial, sceneKey, originShifts, prevViewProj, prevValid);
@@ -115,10 +117,11 @@ bool TaaFx::ready() {
             s = {};
         }
         state_ = -1;
-        FA_ERROR("render",
-                 "Temporal antialiasing is unavailable: its shaders failed to compile for this graphics backend (see the sokol log "
-                 "lines above). The game renders without it and without the camera jitter. Hint: update the graphics driver (Mesa: try "
-                 "LIBGL_ALWAYS_SOFTWARE=1) or turn temporalAAEnabled off.");
+        FA_ERROR("render", "Temporal antialiasing is unavailable: its shaders failed to compile for this graphics "
+                           "backend (see the sokol log "
+                           "lines above). The game renders without it and without the camera jitter. Hint: update the "
+                           "graphics driver (Mesa: try "
+                           "LIBGL_ALWAYS_SOFTWARE=1) or turn temporalAAEnabled off.");
         return false;
     }
     state_ = 1;
@@ -142,7 +145,8 @@ sg_pipeline TaaFx::pipeline(Prog prog, const TargetFormat& format) {
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = prog == Prog::Resolve ? "taa-resolve" : "taa-output";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -155,8 +159,10 @@ sg_pixel_format TaaFx::pick_format() {
         if (!warnedFormat_) {
             warnedFormat_ = true;
             FA_INFO("render",
-                    "Temporal antialiasing: this GPU cannot render to half-float images, so the history is 8 bits per channel "
-                    "(colours above 1 are clipped in it and the depth that rejects a surface that was uncovered is not kept: more "
+                    "Temporal antialiasing: this GPU cannot render to half-float images, so the history is 8 bits per "
+                    "channel "
+                    "(colours above 1 are clipped in it and the depth that rejects a surface that was uncovered is not "
+                    "kept: more "
                     "ghosting behind moving objects). Hint: nothing to do; a GPU with half-float targets keeps both.");
         }
     }
@@ -184,7 +190,9 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
     // The budget counts every other camera's images (this one is made again).
     std::uint64_t used = 0;
     for (const auto& e : slots_)
-        if (e.second != slot) used = std::min<std::uint64_t>(used + history_bytes(e.second->w, e.second->h, e.second->format), kBudgetBytes + 1);
+        if (e.second != slot)
+            used = std::min<std::uint64_t>(used + history_bytes(e.second->w, e.second->h, e.second->format),
+                                           kBudgetBytes + 1);
     const std::uint64_t wanted = history_bytes(w, h, format);
     if (!slot) slot = std::make_shared<Slot>();
     destroy(*slot);
@@ -203,8 +211,10 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
         slots_.erase(camKey);
         refused_ = true;
         FA_ERROR("render",
-                 "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the histories take at most "
-                 "{} MB, or the GPU refused the images). The game renders without it and without the camera jitter. Hint: lower the "
+                 "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the "
+                 "histories take at most "
+                 "{} MB, or the GPU refused the images). The game renders without it and without the camera jitter. "
+                 "Hint: lower the "
                  "render scale or turn temporalAAEnabled off.",
                  job, w, h, kBudgetBytes >> 20);
         return nullptr;
@@ -246,9 +256,15 @@ bool TaaFx::last_used_history(std::uint64_t camKey) const {
     return it != slots_.end() && it->second->usedHistory;
 }
 
-void TaaFx::forget_targets() {
-    for (auto& e : slots_) destroy(*e.second);
-    slots_.clear();
+void TaaFx::forget_targets(bool keepUpscale) {
+    for (auto it = slots_.begin(); it != slots_.end();) {
+        if (keepUpscale && it->first == kUpscaleCamKey) {
+            ++it;
+            continue;
+        }
+        destroy(*it->second);
+        it = slots_.erase(it);
+    }
     refused_ = false;
 }
 

@@ -146,10 +146,13 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
     if (const Target* t = upscaleReactive.target(c)) r.reactive = t->texView;
     r.inW = in.renderW;
     r.inH = in.renderH;
-    // What the history is bound to besides the camera: the size the picture is drawn at and the quality (a change of either drops it).
-    const std::uint64_t config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
-                                 (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 |
-                                 (std::uint64_t(int(upscaler.quality)) & 0xFF);
+    // What the history is bound to besides the camera: the render scale WITHOUT the dynamic resolution's factor (the player's scale and the
+    // quality; a change of either drops it) and the quality. Not the render size: a step of the dynamic resolution changes that every few
+    // seconds and the resolve takes the size of each frame (inSize), so the history lives on across it. A change of the output size makes
+    // another history by itself (TaaFx::slot_for). The jitter phases follow the size, so a step also changes the length of the sequence.
+    const std::uint64_t config =
+        (std::uint64_t(std::clamp(std::lround(double(renderBaseScale) * 1000.0), 0L, 0xFFFFFL)) & 0xFFFFF) << 20 |
+        (std::uint64_t(int(upscaler.quality)) & 0xFF);
     if (!taa.upscale(gpu, upscaleTaa, r, config, out)) return false;
     stats.drawCalls += 2;  // the resolve and the sharpened copy
     return true;

@@ -83,14 +83,16 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
 // (window.renderScale) times the quality's, never below `minScale` (the engine's 0.25 floor). The stage is on when that scale is below 1
 // or the effective mode is spatial (at scale 1 it is the sharpen alone; the temporal mode has nothing to do at scale 1), and never above 1: a scale above 1 is a bigger
 // picture (a screenshot's "scale"), not an upscale. Only the renderer's `effective` mode decides: pixel art is stretch there.
+// `dynamicScale` is the factor of the dynamic resolution (fa/render/dynamic_resolution.h, 1 while it is off): the one place it multiplies in.
 struct UpscaleScalePlan {
     float scale = 1.0f;
     bool stage = false;
 };
 constexpr UpscaleScalePlan plan_upscale_scale(float windowScale, UpscalerQuality quality, UpscalerMode effective,
-                                              float minScale) {
+                                              float minScale, float dynamicScale = 1.0f) {
     float s = windowScale * upscaler_quality_scale(quality);
-    if (!(s >= minScale)) s = minScale;  // also a NaN
+    if (dynamicScale != 1.0f) s *= dynamicScale;  // off is the same arithmetic as before: bit-identical
+    if (!(s >= minScale)) s = minScale;           // also a NaN
     UpscaleScalePlan p;
     p.scale = s;
     p.stage = s <= 1.0f && (s < 1.0f || effective == UpscalerMode::Spatial);
