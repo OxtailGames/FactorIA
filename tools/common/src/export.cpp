@@ -1234,8 +1234,8 @@ Result<ExportReport> export_project(const ExportOptions& options) {
 
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     const SetupContext thisMachine;
-    if (auto assetsReady =
-            prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine);
+    if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine,
+                                               options.vulkan);
         !assetsReady.ok()) {
         remove_output(outRoot, keepGradle, ec);
         return assetsReady.error();

@@ -319,6 +319,8 @@ struct ExportAssets {
     Json manifest;              // the assets.json that ships: import settings, no provenance; steps may add to it
     ExportReport& report;       // warnings
     const SetupContext& setup;  // how sokol-shdc is found and started (convert_shaders)
+    bool vulkan =
+        false;  // ExportOptions::vulkan: convert_shaders adds the spirv_vk twin where the platform can run Vulkan
     bool mobile() const { return platform == "android" || platform == "ios"; }
     // Devices whose GPUs may sample only 2048 px on a side (GLES3 phones, and browsers, which run on them too): atlas pages stay
     // that small. The web otherwise ships PNGs like the desktop: WebGL2 guarantees no compressed texture format.
@@ -329,7 +331,7 @@ struct ExportAssets {
 
 // Runs the asset steps on `files` (what collect_game_files found) and records the converted files in p.staged.
 Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files,
-                                 ExportReport& report, const SetupContext& setup);
+                                 ExportReport& report, const SetupContext& setup, bool vulkan = false);
 
 // Custom materials (export_shaders.cpp): every shipped *.material.json gets <material>.json.<slang>.shader for each dialect
 // of the platform, and the snippets they name are not shipped. A material that does not compile fails the export.
