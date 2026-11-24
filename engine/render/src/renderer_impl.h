@@ -210,6 +210,7 @@ struct Renderer::Impl {
     TaaPlan upscaleTaa;
     PrepassRef upscalePrepass;
     VelocityRef upscaleVelocity;
+    PrepassRef upscaleReactive;  // the reactive mask of the camera the upscaler resolves (M76-P1d); invalid: none
     bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     // M76-P5b, MetalFX (renderer_metalfx.cpp). mfxFrame: this frame's jittered picture goes to MetalFX's temporal scaler (render() decides it
     // with temporalFrame). The scaler and the preparation pass (the 0..1 depth and the UV motion it reads, made at the render resolution
@@ -253,11 +254,17 @@ struct Renderer::Impl {
     // that ask: its model matrix of the frame before (`prev`) and of the last frame it was drawn (`cur`), with the postSerial of that
     // frame. An entity not drawn in the frame before, or new, has prev = cur: no motion of its own. origin_shifted moves both.
     bool forceVelocity = false;
+    // RendererTestAccess::probe_camera: the entity bits of the only camera whose velocity and reactive images the probes copy (probeCameraOnly false = every camera, the last wins; the first entity's bits are 0).
+    std::uint64_t probeCamera = 0;
+    bool probeCameraOnly = false;
     // RendererTestAccess::read_velocity: while forceVelocity is on, a pass copies the velocity image of the last camera into this RGBA16F
     // image (rg = the vector as it is, prepass_view.glsl mode 4), which a test reads back after the frame.
     Target velocityProbe;
-    void velocity_probe_pass(DrawContext& ctx, const Target& velocity);
+    // The same for the reactive mask (R8; the copy holds r in the first channel): RendererTestAccess::read_reactive.
+    Target reactiveProbe;
+    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label);
     bool read_velocity(std::vector<float>& out, int& w, int& h, std::string* error);
+    bool read_reactive(std::vector<float>& out, int& w, int& h, std::string* error);
     struct PrevModel {
         Mat4 prev, cur;
         std::uint64_t frame = 0;
@@ -272,6 +279,18 @@ struct Renderer::Impl {
         std::uint64_t frame = 0;
     };
     std::unordered_map<std::uint64_t, PrevPalette> prevPalettes;  // by Entity::bits()
+    // The origin of the 2D items that move (M76-P1d, QuadItem::motionKey) in the world, of the last frame they were drawn (`cur`) and the one
+    // before (`prev`), with the postSerial of that frame; same keys and life as prevModels. origin_shifted moves both.
+    struct PrevQuadOrigin {
+        Vec3 prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevQuadOrigin> prevQuadOrigins;  // by Entity::bits()
+    std::uint64_t prevQuadsPruned = ~std::uint64_t(0);  // the postSerial prevQuadOrigins was last swept in
+    std::vector<float>
+        quadMotionStream;  // build_quad_stream: the per-vertex motion of `stream` (vertex buffer 1 of the quad motion programs)
+    std::vector<float>
+        prevPalTexels;  // upload_prev_palettes' CPU copy of the palette image (the capacity stays from frame to frame)
     // The game time (World::time, seconds) of the last frame that kept the histories (`clockCur`, the postSerial `clockFrame`) and of the one
     // before (`clockPrev`): what a material's vertex() sees as fa_time.x in the second run of the motion vectors.
     float clockPrev = 0.0f, clockCur = 0.0f;
@@ -281,7 +300,12 @@ struct Renderer::Impl {
         false;  // one warning for skinned draws that got no previous palette (upload_prev_palettes)
     // Tests (RendererTestAccess::force_no_velocity_target): behave as a GPU that cannot render to RG16F.
     bool noVelocityTarget = false;
+    // Tests (RendererTestAccess::force_no_palette_sampling / set_palette_row_cap): behave as a GPU that cannot sample RGBA32F in the vertex stage,
+    // and as one whose palette image holds only `paletteRowCap` rows (kPrevPaletteMaxRows: the real limit, 5461 skinned draws).
+    bool noPaletteSampling = false;
+    int paletteRowCap = kPrevPaletteMaxRows;
     void fill_prev_models(DrawContext& ctx);
+    void fill_quad_motion(DrawContext& ctx);
     void keep_prev_palette(const MeshItem& mi);
     const std::vector<Mat4>& prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const;
     void upload_prev_palettes(DrawContext& ctx);
@@ -917,6 +941,12 @@ struct Renderer::Impl {
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
+    // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world. plan_quad_motion decides after plan_prepass whether the
+    // job draws the "quad-velocity" pass (over the prepass's velocity image, or an image of its own when the job has no prepass) and the
+    // "quad-reactive" pass (an R8 image, PostPlan::reactive); quad_motion_pass draws one of them over the batches of ctx.gWorld.
+    // `depth`: the prepass (the quads behind a mesh are left out), null when the job has none.
+    void plan_quad_motion(DrawContext& ctx);
+    void quad_motion_pass(DrawContext& ctx, const Target& t, bool reactive, const Target* depth, bool clear);
     // `backFaces`: draws the back faces only (the realtime GI's distance pictures).
     // `velocity`: the second attachment of the pass (VelocityRef's image), null for a pass that does not write the motion vectors.
     void prepass_pass(DrawContext& ctx, const Target& t, bool backFaces = false, const Target* velocity = nullptr);

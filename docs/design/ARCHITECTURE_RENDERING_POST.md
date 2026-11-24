@@ -356,10 +356,10 @@ The readers of the image: the temporal antialiasing and the temporal upscaler (r
   RGBA32F image read in the vertex stage with `texelFetch` (view slot 29, nearest sampler 11, block `fa_prev_palette`): 3 texels per joint, all
   `kPrevPaletteTexels` (192) of a palette padded with identity, one palette after the other as a stream of texels, texel `t` at
   `(t & 1023, t >> 10)`. `upload_prev_palettes` (called by `upload_instances`) writes the stream of every skinned batch of the frame with
-  `Gpu::write_light_image` (the pool of the light data, 1024 wide, rows rounded up to 16) before the frame graph runs, and the draw passes
+  `Gpu::write_palette_image` (one image per camera job and frame, from a pool of its own that restarts with the transient buffers: the frame graph runs after every job has uploaded, so a second camera must not overwrite the first one's texels; the format and width of the light data, rows rounded up to 16 so the images are not made again for every skinned draw that comes or goes) before the frame graph runs, and the draw passes
   the first texel of its palette in `fa_vel_on.w`. So there is no joint limit beyond the skin's own 64: the 40-joint and 64-joint fixtures of
   the tests have real vectors. The program reads the texture only in the previous-model run (`fa_prev_model()` is called inside
-  `if (want_prev)`, so a draw with no velocity never fetches). A frame that asks for no velocity does not build, bind or upload any of this: the
+  `if (want_prev)`, so a draw with no velocity never fetches). A frame that asks for no velocity does not upload any of this: the
   prepass is the same as before (tested bit for bit). The image needs RGBA32F **sampling** (`sg_query_pixelformat`; every GPU backend of the
   engine has it: GLES3 and WebGL2 vertex texture fetch of an unfilterable float texture is core, D3D11 and Metal sample it in the vertex stage,
   and it is the format of the light data image the engine already reads that way). Where it cannot be sampled, and for the more than
@@ -382,13 +382,54 @@ The readers of the image: the temporal antialiasing and the temporal upscaler (r
   a pipeline has 16 (`SG_MAX_VERTEX_ATTRIBUTES`). Without a skin the engine's 9 mesh attributes leave room for the previous model and up to 4
   extra `vec4`s; a program with more than 4, and a skinned one (11 attributes before the extras) with 3 or more, does not fit: `prepass_prev_attr`
   returns -1 and the vertex shader writes the sentinel. The same for a material that draws from storage buffers, for a skinned draw whose
-  previous palette cannot be uploaded (no RGBA32F sampling, or a frame past `kPrevPaletteMaxRows`), for particles, sprites and quads, and for
-  the reactive mask. The pass that reads the image then reprojects those pixels from the depth with the camera's matrices (the contract
-  above), which is right for anything static.
+  previous palette cannot be uploaded (no RGBA32F sampling, or a frame past `kPrevPaletteMaxRows`), and for what no quad drew and no mesh
+  covers (the sky, the background of a 2D scene, a blended or additive particle: see the next two entries). The pass that reads the image
+  then reprojects those pixels from the depth with the camera's matrices (the contract above), which is right for anything static. Both
+  sentinel paths of the palette image have tests (`RendererTestAccess::force_no_palette_sampling`, `set_palette_row_cap`).
+- **Sprites, shapes, tiles, text, quads and particles (M76-P1d).** The 2D items of the world are pre-transformed quads
+  (`Vertex2D`, world position), drawn by the main pass with no prepass of their own. When a camera needs the velocity (`request_velocity`,
+  the temporal effects, the debug view, `force_velocity`) `plan_quad_motion` scans the items of the world and adds up to two passes after
+  the prepass, each a single-attachment pass over the same batches and vertices as the main pass (`quad_motion_pass`, program
+  `quad_motion.glsl`, `Gpu::quad_motion_pipeline`):
+  - `quad-velocity` writes the velocity of an item whose batch is `Alpha` blended, whose coverage at the pixel is at least one half (the
+    texture's alpha times the tint's, the glyph's, the circle of a `Shape2D` as a whole box) and that is not marked reactive: a **cutout**.
+    It writes **over the prepass's image** (LOAD) when the camera has a prepass (a perspective camera with a mesh, or any effect that reads
+    depth), and into an image of its own cleared to `kNone` otherwise (a 2D scene, where the temporal effect then has a velocity image and no
+    depth: it reprojects from the far depth, which is exactly the camera's motion for an orthographic camera). In a perspective camera the quad is
+    tested against the prepass's depth in the fragment shader (`texelFetch` of the view depth, with a small bias), so a sprite behind a mesh
+    leaves the mesh's vector alone. A blended or additive batch writes **no** velocity: it never overwrites the opaque surface behind it.
+  - `quad-reactive` writes the **reactive mask**: R8, cleared to 0, the MAX blend of the item's reactive value times its coverage (so
+    overlapping particles do not add up past 1), with the same depth test. See the next entry.
+  - **The motion.** Per vertex a second stream (vertex buffer 1, `kQuadMotionBuffer`, 4 floats: the item's translation since the frame
+    before, and its reactive value) says where the vertex was on the frame before: `position - motion`, through the previous view-projection.
+    The translation is the item's origin now minus its origin on the frame before (`Impl::prevQuadOrigins`, keyed by the entity as
+    `prevModels` is, stamped with `postSerial`, pruned once per frame, shifted with the floating origin). An item with no history (new, not
+    drawn the frame before, the first frame after a cut) has none: the camera's motion only. Sprites, shapes and tilemaps give their entity and
+    transform (`QuadList::set_motion_source` in `scene2d.cpp`); text has no source yet and counts as still in the world (the camera's motion only). **Limitations:** a translation only (a sprite that turns or changes size
+    between two frames is followed at its centre, not at its corners), the whole box of a `Shape2D` counts as covered, an item that draws as
+    instances or with a screen effect writes nothing, a batch with a clip rectangle or a sprite material of its own (its `discard` or `vertex()`) is skipped
+    by both passes (the passes apply neither, so they would cover other pixels than the colour: such a quad has the camera's motion and no mask), and a particle
+    writes no velocity at all (it is reactive instead). The passes rasterise with `drawViewProj`, the matrix of the colour and the prepass (the jitter
+    included), so their coverage and depth test hit the colour's pixels; the vectors use the matrices without the jitter.
+- **The reactive mask.** A pixel of the mask says "trust this frame here": `taa_resolve.glsl` lowers the weight of the history at that pixel by
+  `1 - clamp(mask * temporalAAReactiveScale, 0, 1)` (the upscaler's resolve reads it the same way). Writers: a blended or additive **particle**
+  or trail (`ParticleEmitter.reactive`, 0..1, default 1; 0 opts out; an `Additive` item with no value set counts as 1, as every
+  `Additive` sprite does), and any quad item given a value with `QuadList::set_reactive`. The mask is declared only when the
+  camera has a temporal effect and an item asks (`PostPlan::needsReactive`, dropped when the frame cannot resolve); with a temporal
+  effect off the pass does not exist and the picture is the same bit for bit (tested). **The format is R8** (`Gpu::reactive_format()`): a
+  single 8-bit channel is renderable and sampleable on GLES3, WebGL2, D3D11 and Metal, and the MAX blend (`SG_BLENDOP_MAX`) is core on all of
+  them, where blending RGBA16F or R16F would need extensions on the GLES3 and WebGL2 floors. 256 steps are far more than the resolve needs.
+  **What it does not do:** it holds the pixels the particle covers **now**. It cannot clear the trail on the pixels the particle has already
+  left (nothing says they are stale), and on a flat background the neighbourhood clamp of the resolve already limits that trail; the mask is
+  for the leading edge and the fine detail of a fast particle over a busy picture, where the history it would blend is a different picture
+  (`quad_motion_tests.cpp`: the leading edge of a checkered additive square over a busy background is 6 times closer to the truth with the mask).
+  Flags: `Sprite.reactive` (0..1) marks a sprite or an in-world UI-like quad; a `Shape2D` or a material has no flag of its own yet
+  (a gap: mark a quad item reactive from C++ with `set_reactive`, or use a `Sprite` or an emitter). Screen-space quads (`space: screen`)
+  are in the HUD list, not the world list: they write neither velocity nor mask, and are drawn after the world picture is resolved.
 - **No RG16F.** A GPU that cannot render to RG16F (`Gpu::velocity_ready()` false) gets no second attachment and no previous-model
   work (`ctx.collectPrev` is false); the renderer logs a warning once (`warnedNoVelocity`) and the temporal passes reproject from the depth.
 - **Warm-up.** `warm_step` builds the velocity variant of the prepass pipelines (plain, double sided, skinned when an Animator exists) while
-  a loading screen is up when a camera has `temporalAAEnabled`, so the first frame of the effect does not compile them.
+  a loading screen is up when a camera has `temporalAAEnabled`, so the first frame of the effect does not compile them. The two quad-motion programs (velocity, reactive) are built the same way when the world has a sprite, shape, tile map or emitter.
 - **The probe.** `velocity_probe_pass` (tests and the debug view) reads the image with the debug view `prepass_view` mode 4, which is
   **test-only**: it returns the raw RG16F values; the GL row flip of the read-back is the one of `readback_rgba8` (reasoned, not measured on GL).
 - **Cost.** With the image: 4 bytes per pixel of the prepass (RG16F) plus 48 bytes per drawn opaque instance per frame, one
