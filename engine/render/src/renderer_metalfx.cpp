@@ -9,6 +9,7 @@
 
 #include "fa/core/log.h"
 
+#include "fullscreen_gpu.h"
 #include "renderer_impl.h"
 
 #include "shaders/upscale_mfx.glsl.h"
@@ -46,23 +47,23 @@ bool Renderer::Impl::metalfx_fail(const std::string& why) {
 // The depth and motion images of the preparation pass are made at the render resolution only while MetalFX draws; a failure of MetalFX and
 // a frame of another upscaler give them back.
 void Renderer::Impl::free_mfx_images() {
-    if (mfxDepth.color.id) destroy_target(mfxDepth);
-    if (mfxMotion.color.id) destroy_target(mfxMotion);
+    if (mfxDepth.color.id) destroy_target(gpu.device(), mfxDepth);
+    if (mfxMotion.color.id) destroy_target(gpu.device(), mfxMotion);
     mfxLastWrote = false;
 }
 
 // An image of the MetalFX preparation pass: `format` at w x h, a colour attachment that is also sampled.
 bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, sg_pixel_format format, int w, int h) {
-    if (t.color.id && (t.w != w || t.h != h || t.format.color != format)) destroy_target(t);
+    if (t.color.id && (t.w != w || t.h != h || t.format.color != format)) destroy_target(gpu.device(), t);
     if (t.color.id) return true;
     TargetDesc d;
     d.label = label;
     d.width = w;
     d.height = h;
     d.colorFormat = format;
-    t = make_target(d);
-    if (!t.valid()) {
-        destroy_target(t);
+    t = make_target(gpu.device(), d);
+    if (!t.valid(gpu.device())) {
+        destroy_target(gpu.device(), t);
         return false;
     }
     return true;
@@ -73,7 +74,7 @@ bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, sg_pixel_fo
 // (a frame that drew no mesh has none: everything is sky then) and reads the velocity when there is one.
 bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, Target& out, const PassContext& c) {
     using render::metalfx::Kind;
-    if (mfxFailed || !sg_isvalid() || !render::metalfx::on_metal() || !out.valid() || !src.valid()) return false;
+    if (mfxFailed || !gpu.has_device() || !render::metalfx::on_metal() || !out.valid() || !src.valid()) return false;
     // A command buffer of an earlier frame came back with an error (it finishes on another thread): MetalFX is given up from this frame on.
     std::string commandError;
     if (mfxScaler.command_failed(&commandError))
@@ -85,7 +86,8 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     if (!temporalKind && !support.spatial)
         return false;  // a GPU with the temporal scaler only: the next implementation draws this frame
     if (temporalKind && (!assets || !assets->white())) return false;
-    if (temporalKind && !mfxPrep.ready()) return metalfx_fail("the input preparation shader did not compile.");
+    if (temporalKind && !mfxPrep.ready(gpu.device()))
+        return metalfx_fail("the input preparation shader did not compile.");
 
     render::metalfx::Desc d;
     d.kind = temporalKind ? Kind::Temporal : Kind::Spatial;
@@ -144,14 +146,17 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         p.format.color1 = mfxMotion.format.color;
         p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel of both images is drawn
         p.colorStore = SG_STOREACTION_STORE;
-        gpu.begin_pass(p);
-        sg_apply_pipeline(mfxPrep.pipeline(p.format));
-        sg_bindings b{};
-        b.vertex_buffers[0] = gpu.fullscreen_triangle();
-        b.views[VIEW_upscale_mfx_tex_p] = prepass ? prepass->texView : assets->white()->view;
-        b.views[VIEW_upscale_mfx_tex_v] = velocity ? velocity->texView : assets->white()->view;
+        const gpu::Pipeline prepPipeline = mfxPrep.pipeline(p.format);  // before the pass: nothing is made inside one
+        gpu::CommandList& list = pass_list(c, gpu);
+        gpu::Swapchain swapchain;
+        list.begin_pass(gpu::from_render(p, swapchain));
+        list.set_pipeline(prepPipeline);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
+        b.views[VIEW_upscale_mfx_tex_p] = gpu::from_sg(prepass ? prepass->texView : assets->white()->view);
+        b.views[VIEW_upscale_mfx_tex_v] = gpu::from_sg(velocity ? velocity->texView : assets->white()->view);
         b.samplers[SMP_upscale_mfx_smp_pt] = gpu.sampler(SamplerKind::Nearest);
-        sg_apply_bindings(&b);
+        list.set_bindings(b);
         upscale_mfx_mfx_params_t u{};
         u.s[0] = float(in.renderW);
         u.s[1] = float(in.renderH);
@@ -164,9 +169,9 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         for (int i = 0; i < 4; ++i) u.pa[i] = upscaleTaa.proj[i];
         for (int i = 0; i < 4; ++i) u.pb[i] = upscaleTaa.proj[4 + i];
         for (int i = 0; i < 16; ++i) u.m[i] = upscaleTaa.prevFromView.m[i];
-        apply_uniforms(UB_upscale_mfx_mfx_params, u);
-        sg_draw(0, 3, 1);
-        gpu.end_pass();
+        list.set_uniforms(UB_upscale_mfx_mfx_params, gpu::Range{&u, sizeof(u)});
+        list.draw(0, 3, 1);
+        list.end_pass();
         ++stats.drawCalls;
 
         f.depth = mfxDepth.color;

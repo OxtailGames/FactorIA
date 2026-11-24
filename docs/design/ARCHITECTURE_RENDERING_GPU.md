@@ -298,7 +298,16 @@ those classes makes its shaders, pipelines, images and samplers on `gpu.device()
 (`device_`), because `release()` has no `Gpu` at hand. A pass declared in the frame graph records on
 `PassContext::commands()` (`c.commands() ? *c.commands() : g->commands()`); one drawn outside the graph records on
 `gpu.commands()`. Two calls keep a transitional overload that asks `Gpu::active_device()`: `FogFx::ready(Prog)` and
-`VolumetricFx::can_draw(targets, plan)`; delete them now that renderer_draw.cpp has moved.
+`VolumetricFx::can_draw(targets, plan)`; delete them now that renderer_draw.cpp has moved. P4c: the 3D post-process and
+upscale passes and the present (renderer_dof, renderer_ssr, renderer_ssao, renderer_taa, renderer_custom_post,
+renderer_upscale, render_upscale_spatial, render_upscale_metalfx, renderer_present and the preparation pass of
+renderer_metalfx). They share fullscreen_gpu.h: `pass_list(c, gpu)` (the frame's list, or the Gpu's own when a CPU-only
+graph has none) and `make_triangle_pipeline`. Each class remembers the `gpu::Device` of its `ready(...)` call and makes
+its pipelines before the pass begins; TaaFx::ready() and Ssao::draw_apply(Gpu&, ...) without a list are the transitional
+overloads for renderer.cpp and renderer_draw.cpp. The MetalFX wrapper itself (metalfx.h, metalfx_apple.mm, metalfx.cpp)
+stays on sokol until P5: `Scaler::encode` splits the frame with `sg_commit()` and orders its own MTLCommandBuffer
+against sokol's open one (`fa_sg_mtl_command_buffer()`), which the `Device` interface has no equivalent of, and its
+tests drive sokol directly.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

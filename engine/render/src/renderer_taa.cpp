@@ -8,6 +8,7 @@
 
 #include "postprocess.h"
 #include "postprocess_resolve.h"
+#include "fullscreen_gpu.h"
 #include "shader_cache.h"
 #include "shaders/taa.glsl.h"
 
@@ -104,17 +105,19 @@ TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, boo
     return p;
 }
 
-bool TaaFx::ready() {
+bool TaaFx::ready() { return ready(Gpu::active_device()); }
+
+bool TaaFx::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
-    const sg_backend backend = sg_query_backend();
-    shaders_[int(Prog::Resolve)] = make_shader(taa_taa_shader_desc(backend), "taa_resolve");
-    shaders_[int(Prog::Out)] = make_shader(taa_out_shader_desc(backend), "taa_out");
+    device_ = &dev;
+    shaders_[int(Prog::Resolve)] = make_shader(dev, gpu::generated_shader_desc(taa_taa_shader_desc), "taa_resolve");
+    shaders_[int(Prog::Out)] = make_shader(dev, gpu::generated_shader_desc(taa_out_shader_desc), "taa_out");
     bool ok = true;
-    for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    for (gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {
-        for (sg_shader& s : shaders_) {
-            if (s.id) sg_destroy_shader(s);
-            s = {};
+        for (gpu::Shader& sh : shaders_) {
+            if (sh.id) dev.destroy_shader(sh);
+            sh = {};
         }
         state_ = -1;
         FA_ERROR("render", "Temporal antialiasing is unavailable: its shaders failed to compile for this graphics "
@@ -128,32 +131,22 @@ bool TaaFx::ready() {
     return true;
 }
 
-sg_pipeline TaaFx::pipeline(Prog prog, const TargetFormat& format) {
+gpu::Pipeline TaaFx::pipeline(Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
-    if (state_ <= 0) return {};
-    sg_pipeline_desc d{};
-    d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    // The output pass writes the colour of the picture and leaves its alpha (coverage) as the passes before made it.
-    if (prog == Prog::Out) d.colors[0].write_mask = SG_COLORMASK_RGB;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
-    d.label = prog == Prog::Resolve ? "taa-resolve" : "taa-output";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (state_ <= 0 || !device_) return {};
+    const char* label = prog == Prog::Resolve ? "taa-resolve" : "taa-output";
+    // `pos`, location 0. The output pass writes the colour of the picture and leaves its alpha (coverage) as the passes before made it.
+    const gpu::Pipeline p = make_triangle_pipeline(*device_, shaders_[int(prog)], format, label, 0,
+                                                   prog == Prog::Out ? gpu::ColorMask::Rgb : gpu::ColorMask::Default);
+    if (device_->state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
 
 sg_pixel_format TaaFx::pick_format() {
     sg_pixel_format f = SG_PIXELFORMAT_RGBA16F;
-    const sg_pixelformat_info info = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    const gpu::PixelFormatCaps info = device_->pixel_format_caps(gpu::PixelFormat::Rgba16F);  // after a ready()
     if (forceRgba8_ || !(info.render && info.sample && info.filter)) {
         f = SG_PIXELFORMAT_RGBA8;
         if (!warnedFormat_) {
@@ -176,7 +169,8 @@ void TaaFx::force_rgba8(bool force) {
 }
 
 void TaaFx::destroy(Slot& s) {
-    for (Target& t : s.img) destroy_target(t);
+    if (device_)
+        for (Target& t : s.img) destroy_target(*device_, t);
     s.wrote = false;
     s.last = -1;
 }
@@ -185,7 +179,8 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
                                              const std::string& job) {
     std::shared_ptr<Slot> slot;
     if (const auto it = slots_.find(camKey); it != slots_.end()) slot = it->second;
-    if (slot && slot->w == w && slot->h == h && slot->format == format && slot->img[0].valid() && slot->img[1].valid())
+    if (slot && slot->w == w && slot->h == h && slot->format == format && slot->img[0].valid(*device_) &&
+        slot->img[1].valid(*device_))
         return slot;
     // The budget counts every other camera's images (this one is made again).
     std::uint64_t used = 0;
@@ -204,8 +199,8 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
         d.width = w;
         d.height = h;
         d.colorFormat = format;
-        slot->img[i] = make_target(d);
-        ok = slot->img[i].valid();
+        slot->img[i] = make_target(*device_, d);
+        ok = slot->img[i].valid(*device_);
     }
     if (!ok) {
         destroy(*slot);
@@ -254,9 +249,10 @@ void TaaFx::reset(std::uint64_t camKey) {
 
 int TaaFx::history_image_count() const {
     int n = 0;
+    if (!device_) return 0;
     for (const auto& e : slots_)
         for (const Target& t : e.second->img)
-            if (t.valid()) ++n;
+            if (t.valid(*device_)) ++n;
     return n;
 }
 
@@ -279,13 +275,14 @@ void TaaFx::forget_targets(bool keepUpscale) {
 }
 
 void TaaFx::release() {
-    for (PipelineEntry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
-    pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
-        s = {};
+    if (device_) {
+        for (PipelineEntry& e : pipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        for (gpu::Shader& sh : shaders_)
+            if (sh.id) device_->destroy_shader(sh);
     }
+    pipelines_.clear();
+    for (gpu::Shader& sh : shaders_) sh = {};
     state_ = 0;
     forget_targets();
     warnedFormat_ = false;
@@ -294,30 +291,30 @@ void TaaFx::release() {
 namespace {
 
 template <class T>
-void apply_params(const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(UB_taa_taa_params, &r);
+void apply_params(gpu::CommandList& list, const T& u) {
+    list.set_uniforms(UB_taa_taa_params, gpu::Range{&u, sizeof(T)});
 }
 
 }  // namespace
 
-bool TaaFx::resolve(Gpu& gpu, const PassDesc& pd, const TaaResolveInput& in) {
-    if (!pd.color.id || !in.color.id || !in.dummy.id || !ready()) return false;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipeline(Prog::Resolve, pd.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_taa_tex_c] = in.color;
-    b.views[VIEW_taa_tex_p] = in.depth.id ? in.depth : in.dummy;
-    b.views[VIEW_taa_tex_v] = in.velocity.id ? in.velocity : in.dummy;
-    b.views[VIEW_taa_tex_h] = in.history.id && in.historyValid ? in.history : in.dummy;
-    b.views[VIEW_taa_tex_r] = in.reactive.id ? in.reactive : in.dummy;
+bool TaaFx::resolve(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const TaaResolveInput& in) {
+    if (!pd.color.id || !in.color.id || !in.dummy.id || !ready(gpu.device())) return false;
+    const gpu::Pipeline pipe = pipeline(Prog::Resolve, pd.format);  // made before the pass opens
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.set_pipeline(pipe);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_taa_tex_c] = gpu::from_sg(in.color);
+    b.views[VIEW_taa_tex_p] = gpu::from_sg(in.depth.id ? in.depth : in.dummy);
+    b.views[VIEW_taa_tex_v] = gpu::from_sg(in.velocity.id ? in.velocity : in.dummy);
+    b.views[VIEW_taa_tex_h] = gpu::from_sg(in.history.id && in.historyValid ? in.history : in.dummy);
+    b.views[VIEW_taa_tex_r] = gpu::from_sg(in.reactive.id ? in.reactive : in.dummy);
     b.samplers[SMP_taa_smp_lin] = gpu.sampler(SamplerKind::LinearClamp);
     b.samplers[SMP_taa_smp_pt] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     const float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(UB_taa_taa_vs_params, &vr);
+    list.set_uniforms(UB_taa_taa_vs_params, gpu::Range{flip, sizeof(flip)});
     taa_taa_params_t u{};
     u.a[0] = flip[0];
     u.a[1] = float(in.inW);
@@ -338,36 +335,38 @@ bool TaaFx::resolve(Gpu& gpu, const PassDesc& pd, const TaaResolveInput& in) {
     for (int i = 0; i < 4; ++i) u.pa[i] = in.proj[i];
     for (int i = 0; i < 4; ++i) u.pb[i] = in.proj[4 + i];
     for (int i = 0; i < 16; ++i) u.m[i] = in.prevFromView.m[i];
-    apply_params(u);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    apply_params(list, u);
+    list.draw(0, 3, 1);
+    list.end_pass();
     return true;
 }
 
-bool TaaFx::output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen, const int* part) {
-    if (!pd.color.id || !history.id || !ready()) return false;
-    Gpu::begin_pass(pd);
+bool TaaFx::output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen,
+                   const int* part) {
+    if (!pd.color.id || !history.id || !ready(gpu.device())) return false;
+    const gpu::Pipeline pipe = pipeline(Prog::Out, pd.format);  // made before the pass opens
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(pd, swapchain));
     if (part) {
-        sg_apply_viewport(part[0], part[1], part[2], part[3], true);
-        sg_apply_scissor_rect(part[0], part[1], part[2], part[3], true);
+        list.set_viewport(part[0], part[1], part[2], part[3], true);
+        list.set_scissor(part[0], part[1], part[2], part[3], true);
     }
-    sg_apply_pipeline(pipeline(Prog::Out, pd.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_taa_tex_o] = history;
+    list.set_pipeline(pipe);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_taa_tex_o] = gpu::from_sg(history);
     b.samplers[SMP_taa_smp_o] = gpu.sampler(SamplerKind::LinearClamp);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     const float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(UB_taa_taa_vs_params, &vr);
+    list.set_uniforms(UB_taa_taa_vs_params, gpu::Range{flip, sizeof(flip)});
     taa_taa_params_t u{};
     u.a[0] = flip[0];
     u.hs[0] = float(w);
     u.hs[1] = float(h);
     u.g[2] = sharpen;
-    apply_params(u);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    apply_params(list, u);
+    list.draw(0, 3, 1);
+    list.end_pass();
     return true;
 }
 
@@ -382,7 +381,8 @@ bool TaaFx::reserve_upscale(int outW, int outH, std::uint64_t serial) {
 }
 
 bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {
-    if (!plan.on || !out.valid() || !in.color.id || !in.dummy.id || !ready() || upscaleRefused_) return false;
+    if (!plan.on || !in.color.id || !in.dummy.id || !ready(gpu.device()) || !out.valid(gpu.device()) || upscaleRefused_)
+        return false;
     in.outW = out.w;
     in.outH = out.h;
     const sg_pixel_format hf = pick_format();
@@ -408,7 +408,7 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     in.history = readIdx >= 0 ? slot->img[readIdx].texView : sg_view{};
     PassDesc pd = pass_into(slot->img[writeIdx], "upscale-resolve");
     pd.colorLoad = SG_LOADACTION_DONTCARE;
-    if (!resolve(gpu, pd, in)) return false;
+    if (!resolve(gpu.commands(), gpu, pd, in)) return false;
     slot->last = writeIdx;
     slot->wrote = true;
     slot->serial = plan.serial;
@@ -421,7 +421,7 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     od.colorLoad = SG_LOADACTION_CLEAR;
     od.clearColor = sg_color{0.0f, 0.0f, 0.0f, 1.0f};
     od.colorStore = SG_STOREACTION_STORE;
-    return output(gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
+    return output(gpu.commands(), gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
 int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rectIn, int picW, int picH,
@@ -431,7 +431,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     if (!plan.on || !srcTex.id || !dummy.id) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
-    if (!ready() || refused_) return 0;
+    if (!ready(gpu.device()) || refused_) return 0;
     const sg_pixel_format hf = pick_format();
     const std::shared_ptr<Slot> slot = slot_for(plan.camKey, rect.w, rect.h, hf, job);
     if (!slot) return 0;
@@ -506,7 +506,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
         if (readIdx >= 0) in.history = slot->img[readIdx].texView;
         PassDesc pd = pass_into(slot->img[writeIdx], "taa-resolve");
         pd.colorLoad = SG_LOADACTION_DONTCARE;
-        if (!self->resolve(*g, pd, in)) return;
+        if (!self->resolve(pass_list(c, *g), *g, pd, in)) return;
         slot->last = writeIdx;
         slot->wrote = true;
         slot->serial = serial;
@@ -519,7 +519,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     // The result into the camera's rectangle of the picture, sharpened. The picture's own alpha stays (the pipeline writes red, green and blue).
     const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
     const float sharpen = plan.sharpen;
-    add("taa-output", {outRes, game}, {game}, [=](const PassContext&) {
+    add("taa-output", {outRes, game}, {game}, [=](const PassContext& c) {
         if (!slot->wrote || slot->serial != serial || slot->last != writeIdx) return;  // the resolve did not run
         PassDesc pd;
         pd.label = "taa-output";
@@ -529,7 +529,8 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
         pd.colorLoad = SG_LOADACTION_LOAD;
         pd.colorStore = SG_STOREACTION_STORE;
         const int part[4] = {rect.x, rect.y, rect.w, rect.h};
-        if (self->output(*g, pd, slot->img[writeIdx].texView, rect.w, rect.h, sharpen, rect.whole ? nullptr : part))
+        if (self->output(pass_list(c, *g), *g, pd, slot->img[writeIdx].texView, rect.w, rect.h, sharpen,
+                         rect.whole ? nullptr : part))
             ++*drawCalls;
     });
     return declared;

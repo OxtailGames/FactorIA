@@ -69,16 +69,18 @@ public:
     void forget_targets();
 
     enum class Prog { Trace, Copy, Count };
-    bool ready();
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    bool ready(Gpu& gpu);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    gpu::Device* device_ =
+        nullptr;  // the device of the first ready(): the shaders and pipelines are made and destroyed on it
+    gpu::Shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;
