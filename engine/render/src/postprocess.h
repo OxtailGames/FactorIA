@@ -76,7 +76,7 @@ struct PrepassRef {
     static constexpr float kFarDepth = 60000.0f;
 };
 
-// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md). The
+// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md). The
 // depth prepass writes it as its second attachment when PostPlan::needsVelocity (request_velocity()); PostPlan::velocity is invalid when
 // nothing asked or the prepass did not run. What the meshes, instances, terrain, foliage and impostors write is the motion of the object; the
 // skinned meshes (of up to 64 joints, the engine maximum) and custom vertex() materials write it too (M76-P1b); a skin of more than 64 joints holds kNone. The alpha-tested cutout quads of the world (sprites, shapes, tiles, text) write their translation in a
@@ -157,7 +157,11 @@ struct PostPlan {
     // renderer for the debug view "motionVectors" and the test hook; a later effect or upscaler that is drawn adds itself to that table.
     // The velocity image needs the prepass but not the depth or normals it holds: a consumer that reads them asks for those itself.
     bool needsVelocity = false;
-    void request_velocity() { needsVelocity = true; }
+    // Set by request_velocity(): something other than the temporal antialiasing wants it (the object motion blur, the debug view, the test
+    // hook, the temporal upscaler). make_post_plan sets needsVelocity alone for the temporal antialiasing, so that a frame that cannot resolve
+    // it (a capture) can take the request back (renderer_draw.cpp, plan_job) without taking the others'.
+    bool velocityPinned = false;
+    void request_velocity() { needsVelocity = velocityPinned = true; }
     // M76-P1d: the reactive mask (`reactive` below) is wanted too: the temporal passes (TemporalAA, the temporal upscaler) call it next to
     // request_velocity(); the debug view and the test hook ask for the velocity alone.
     bool needsReactive = false;

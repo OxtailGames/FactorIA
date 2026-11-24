@@ -54,10 +54,10 @@ void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
         pm.prev = shiftModel * pm.prev;
         pm.cur = shiftModel * pm.cur;
     }
-    // The origins of the 2D items the motion vectors follow (M76-P1d) are world positions too: they move with the world.
+    // The matrices of the 2D items the motion vectors follow (M76-P1d) are in the world too: they move with it, as the models above.
     for (auto& [bits, po] : prevQuadOrigins) {
-        po.prev -= off;
-        po.cur -= off;
+        po.prev = shiftModel * po.prev;
+        po.cur = shiftModel * po.cur;
     }
     // The 2D GI field and its irradiance history (units of the Transform: 2D pixels).
     gi2d.shift(offset.x, offset.y);
