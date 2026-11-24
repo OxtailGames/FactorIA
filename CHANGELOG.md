@@ -39,6 +39,15 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   bound in order, the Vulkan 1.0 barriers keep the storage and sampled bits above bit 31, and a texture and a storage image view of
   one subresource in one dispatch is a teaching error. Its tests run on Linux CI on Mesa's lavapipe with the validation layers
   (`FA_VULKAN_REQUIRE=1` makes a skip fail) (M77-P8b1).
+- The Vulkan backend keeps its pipeline cache on disk (`VulkanOptions::pipelineCacheFile`): the file carries the GPU, driver
+  and cache UUID it was made with and a SHA-256 of its data, a foreign or damaged file is thrown away with one warning, and the
+  save is atomic and keeps the old file when it cannot write (a file open in another process on Windows). Its descriptor pools
+  chain up to `frameDescriptorPools` a frame instead of refusing a full one; a destroyed shader's pipelines and layouts, and a
+  destroyed view's framebuffers, leave the caches (framebuffers are now cached across lists); new uniforms bind set 0 alone.
+  `make_shader` refuses SPIR-V whose instruction word counts do not add up, a point list needs a vertex stage that writes
+  `gl_PointSize`, a storage buffer view stops at `maxStorageBufferRange`, BGRA8 is never a loadable storage image, the Windows
+  loader takes an absolute `loaderPath` written with '/', and the notices carry the Vulkan headers' Apache-2.0 and MIT texts
+  in full (M77-P8b2).
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;

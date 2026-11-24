@@ -12,6 +12,8 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -195,8 +197,68 @@ bool spirv_words(const ShaderFunction& fn, const char* stage, std::vector<std::u
     }
     out.resize(size / 4);
     std::memcpy(out.data(), fn.bytecode.ptr, size);
+    // Every instruction's word count (its first word's high half) must be at least 1 and end inside the bytecode:
+    // a driver walks them without checking, so a cut or damaged module would read past its end.
+    for (std::size_t i = 5; i < out.size();) {
+        const std::uint32_t count = out[i] >> 16;
+        if (count == 0 || count > out.size() - i) {
+            error = std::string("the ") + stage + " stage's bytecode is damaged SPIR-V: the instruction at word " +
+                    std::to_string(i) + " (opcode " + std::to_string(out[i] & 0xFFFFu) + ") says it has " +
+                    std::to_string(count) + " words, and " + std::to_string(out.size() - i) +
+                    " are left (hint: the SPIR-V was cut or overwritten; compile the shader again)";
+            out.clear();
+            return false;
+        }
+        i += count;
+    }
     return true;
 }
+
+}  // namespace
+
+// Whether a vertex stage's (checked) SPIR-V stores to its PointSize built-in: an OpStore to a variable decorated
+// BuiltIn PointSize, to the member of gl_PerVertex decorated so (through an access chain with a constant index), or to
+// the whole gl_PerVertex. glslang declares the member in every vertex shader, written or not, and a point list draws
+// points of an undefined size when it is not written, so the declaration alone does not count.
+bool spirv_writes_point_size(const std::vector<std::uint32_t>& words) {
+    constexpr std::uint32_t kOpConstant = 43, kOpTypePointer = 32, kOpVariable = 59, kOpStore = 62, kOpAccessChain = 65,
+                            kOpInBoundsAccessChain = 66, kOpDecorate = 71, kOpMemberDecorate = 72, kBuiltIn = 11,
+                            kPointSize = 1, kOutput = 3;
+    std::unordered_map<std::uint32_t, std::uint32_t> blockMember;    // struct type -> its PointSize member
+    std::unordered_map<std::uint32_t, std::uint32_t> blockPointer;   // pointer type to such a struct -> the member
+    std::unordered_map<std::uint32_t, std::uint32_t> blockVariable;  // Output variable of such a struct -> the member
+    std::unordered_map<std::uint32_t, std::uint32_t> constants;      // 32-bit integer constant -> its value
+    std::unordered_set<std::uint32_t> targets;                       // pointers whose store writes PointSize
+    for (std::size_t i = 5; i < words.size();) {
+        const std::uint32_t count = words[i] >> 16, op = words[i] & 0xFFFFu;
+        if (count == 0 || count > words.size() - i) break;  // spirv_words checked it already
+        const std::uint32_t* w = words.data() + i;
+        if (op == kOpDecorate && count >= 4 && w[2] == kBuiltIn && w[3] == kPointSize) targets.insert(w[1]);
+        if (op == kOpMemberDecorate && count >= 5 && w[3] == kBuiltIn && w[4] == kPointSize) blockMember[w[1]] = w[2];
+        if (op == kOpConstant && count == 4) constants[w[2]] = w[3];
+        if (op == kOpTypePointer && count == 4 && w[2] == kOutput) {
+            const auto m = blockMember.find(w[3]);
+            if (m != blockMember.end()) blockPointer[w[1]] = m->second;
+        }
+        if (op == kOpVariable && count >= 4 && w[3] == kOutput) {
+            const auto m = blockPointer.find(w[1]);
+            if (m != blockPointer.end()) {
+                blockVariable[w[2]] = m->second;
+                targets.insert(w[2]);  // a store of the whole block writes the member too
+            }
+        }
+        if ((op == kOpAccessChain || op == kOpInBoundsAccessChain) && count >= 5) {
+            const auto v = blockVariable.find(w[3]);
+            const auto c = constants.find(w[4]);
+            if (v != blockVariable.end() && c != constants.end() && c->second == v->second) targets.insert(w[2]);
+        }
+        if (op == kOpStore && count >= 3 && targets.count(w[1])) return true;
+        i += count;
+    }
+    return false;
+}
+
+namespace {
 
 // The state structs of a graphics pipeline. The create info points into this struct: it is filled in place and never
 // copied.
@@ -356,6 +418,7 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
             return;
         }
         entry = fn.entry && *fn.entry ? fn.entry : "main";
+        if (&out == &info->vs) info->pointSize = spirv_writes_point_size(words);
         h.update(std::string(stage) + ":" + std::to_string(words.size()) + ":" + entry + ":");
         h.update(words.data(), words.size() * 4);
         VkShaderModuleCreateInfo ci{};
@@ -392,8 +455,9 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         rec.info = std::move(info);
         rec.layout = std::move(layout);
     }
-    std::lock_guard<std::mutex> lock(resMutex_);
+    std::unique_lock<std::mutex> lock(resMutex_);
     const bool ok = rec.info != nullptr;
+    const std::string codeKey = ok ? rec.info->codeKey : std::string();
     const std::uint32_t id = shaders_.add(std::move(rec));
     if (id == 0) {
         report("gpu vulkan: make_shader '" + label + "': the shader pool is full (" +
@@ -402,16 +466,38 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         return {};
     }
     count_make(stats_.shaders, ok);
+    lock.unlock();
+    if (ok) {
+        // The cached pipelines of this code stay while a live shader has it (destroy_shader lets them go).
+        std::lock_guard<std::mutex> cache(cacheMutex_);
+        ++codeUsers_[codeKey];
+    }
     return Shader{id};
 }
 
-VkDescriptorSetLayout VulkanDevice::set_layout(const std::string& key,
-                                               const std::vector<VkDescriptorSetLayoutBinding>& bindings,
-                                               std::string& error) {
+SetLayoutObject::~SetLayoutObject() {
+    if (device) device->retire_set_layout(layout);
+}
+
+PipelineObject::~PipelineObject() {
+    if (device) device->retire_pipeline(pipeline);
+}
+
+PipelineLayoutInfo::~PipelineLayoutInfo() {
+    if (device) device->retire_pipeline_layout(layout);
+    // setObjects[] go after it (members are destroyed after the body): a set layout outlives the layouts made with it
+}
+
+std::shared_ptr<const SetLayoutObject>
+VulkanDevice::set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings,
+                         std::string& error) {
     std::lock_guard<std::mutex> lock(cacheMutex_);
     if (auto it = setLayouts_.find(key); it != setLayouts_.end()) {
-        ++layoutHits_;
-        return it->second;
+        if (auto live = it->second.lock()) {
+            ++layoutHits_;
+            return live;
+        }
+        setLayouts_.erase(it);  // its last layout went: made again below
     }
     VkDescriptorSetLayoutCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -422,12 +508,15 @@ VkDescriptorSetLayout VulkanDevice::set_layout(const std::string& key,
     if (r != VK_SUCCESS) {
         error = "vkCreateDescriptorSetLayout (" + std::to_string(bindings.size()) + " bindings) failed with " +
                 result_text(r) + " (hint: the device is out of memory)";
-        return VK_NULL_HANDLE;
+        return nullptr;
     }
     set_name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, handle_bits(made), "fa-vulkan-set-layout");
     ++layoutMisses_;
-    setLayouts_.emplace(key, made);
-    return made;
+    auto object = std::make_shared<SetLayoutObject>();
+    object->device = this;
+    object->layout = made;
+    setLayouts_.emplace(key, object);
+    return object;
 }
 
 std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const ShaderDesc& desc, const ShaderInfo& info,
@@ -493,8 +582,11 @@ std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const Sh
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
         if (auto it = pipelineLayouts_.find(key.s); it != pipelineLayouts_.end()) {
-            ++layoutHits_;
-            return it->second;
+            if (auto live = it->second.lock()) {
+                ++layoutHits_;
+                return live;
+            }
+            pipelineLayouts_.erase(it);  // no shader or pipeline holds it any more: made again below
         }
     }
 
@@ -516,8 +608,9 @@ std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const Sh
         for (const VkDescriptorSetLayoutBinding& b : sets[s])
             setKey += std::to_string(b.binding) + ":" + descriptor_type_name(b.descriptorType) + ":" +
                       std::to_string(b.stageFlags) + ",";
-        layout->sets[s] = set_layout(setKey, sets[s], error);
-        if (!layout->sets[s]) return nullptr;
+        layout->setObjects[s] = set_layout(setKey, sets[s], error);
+        if (!layout->setObjects[s]) return nullptr;
+        layout->sets[s] = layout->setObjects[s]->layout;
         layout->hasSet[s] = !sets[s].empty();
     }
     VkDescriptorSetLayout all[3] = {layout->sets[0], layout->sets[1], bindless};
@@ -533,15 +626,20 @@ std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const Sh
         return nullptr;
     }
     set_name(VK_OBJECT_TYPE_PIPELINE_LAYOUT, handle_bits(layout->layout), "fa-vulkan-pipeline-layout");
+    layout->device = this;  // from here on its destructor hands the VkPipelineLayout back
     std::lock_guard<std::mutex> lock(cacheMutex_);
     auto [it, added] = pipelineLayouts_.try_emplace(layout->key, layout);
     if (added) {
         ++layoutMisses_;
-    } else {
-        ++layoutHits_;  // another thread made the same one meanwhile: the first one is kept
-        fn_.vkDestroyPipelineLayout(device_, layout->layout, nullptr);
+        return layout;
     }
-    return it->second;
+    if (auto live = it->second.lock()) {
+        ++layoutHits_;  // another thread made the same one meanwhile: the first one is kept (ours is retired)
+        return live;
+    }
+    it->second = layout;  // the cached one went meanwhile
+    ++layoutMisses_;
+    return layout;
 }
 
 void VulkanDevice::destroy_shader(Shader shader) {
@@ -557,7 +655,30 @@ void VulkanDevice::destroy_shader(Shader shader) {
         count_destroy(stats_.shaders);
     }
     // The modules live on in the pipelines being made from it; the last holder destroys them (no pipeline needs them
-    // once made).
+    // once made). The cache lets go of the pipelines of its code once no live shader has that code (a shader reloaded
+    // with new code leaves none behind): each goes with its last pipeline state, once the frames that used it are done.
+    if (!rec.info) return;
+    const std::string codeKey = rec.info->codeKey;
+    rec.layout.reset();  // so the purge below sees whether a pipeline still holds it
+    std::vector<std::shared_ptr<const PipelineObject>> gone;  // released outside the lock
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    auto users = codeUsers_.find(codeKey);
+    if (users == codeUsers_.end() || --users->second > 0) return;
+    codeUsers_.erase(users);
+    const std::string compute = "compute|" + codeKey + "|", render = "render|" + codeKey + "|";
+    for (auto it = pipelineObjects_.begin(); it != pipelineObjects_.end();) {
+        if (it->first.compare(0, compute.size(), compute) == 0 || it->first.compare(0, render.size(), render) == 0) {
+            gone.push_back(std::move(it->second));
+            it = pipelineObjects_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // The layouts no shader or pipeline holds any more leave the cache too.
+    for (auto it = pipelineLayouts_.begin(); it != pipelineLayouts_.end();)
+        it = it->second.expired() ? pipelineLayouts_.erase(it) : std::next(it);
+    for (auto it = setLayouts_.begin(); it != setLayouts_.end();)
+        it = it->second.expired() ? setLayouts_.erase(it) : std::next(it);
 }
 
 ResourceState VulkanDevice::state(Shader shader) const {
@@ -929,8 +1050,10 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
 
 }  // namespace
 
-VkPipeline VulkanDevice::pipeline_object(const std::string& key, const VkGraphicsPipelineCreateInfo* graphics,
-                                         const VkComputePipelineCreateInfo* compute, std::string& error) {
+std::shared_ptr<const PipelineObject> VulkanDevice::pipeline_object(const std::string& key,
+                                                                    const VkGraphicsPipelineCreateInfo* graphics,
+                                                                    const VkComputePipelineCreateInfo* compute,
+                                                                    std::string& error) {
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
         if (auto it = pipelineObjects_.find(key); it != pipelineObjects_.end()) {
@@ -949,16 +1072,25 @@ VkPipeline VulkanDevice::pipeline_object(const std::string& key, const VkGraphic
                 result_text(r) +
                 " (hint: the validation layer (VulkanOptions::validation) names the field; a shader whose SPIR-V "
                 "bindings or vertex inputs differ from its ShaderDesc is refused here)";
-        return VK_NULL_HANDLE;
+        return nullptr;
     }
     set_name(VK_OBJECT_TYPE_PIPELINE, handle_bits(made), "fa-vulkan-pipeline");
+    auto object = std::make_shared<PipelineObject>();
+    object->device = this;
+    object->pipeline = made;
+    // The key is "compute|<code>|..." or "render|<code>|...": the cache keeps it while a live shader has that code (a
+    // shader destroyed while the pipeline was made leaves it to its pipeline state alone).
+    const std::size_t codeAt = key.find('|') + 1;
+    const std::string code = key.substr(codeAt, key.find('|', codeAt) - codeAt);
     std::lock_guard<std::mutex> lock(cacheMutex_);
-    auto [it, added] = pipelineObjects_.try_emplace(key, made);
-    if (added) {
-        ++pipelineMisses_;
-    } else {
-        ++pipelineHits_;  // another thread made the same one meanwhile: both are the same state, the first is kept
-        fn_.vkDestroyPipeline(device_, made, nullptr);
+    cacheDirty_ = true;  // the VkPipelineCache has a new pipeline: the file is written again
+    ++pipelineMisses_;
+    if (codeUsers_.find(code) == codeUsers_.end()) return object;
+    auto [it, added] = pipelineObjects_.try_emplace(key, object);
+    if (!added) {
+        // another thread made the same one meanwhile: both are the same state, the first is kept (ours is retired)
+        --pipelineMisses_;
+        ++pipelineHits_;
     }
     return it->second;
 }
@@ -1004,10 +1136,14 @@ Pipeline VulkanDevice::make_pipeline(const PipelineDesc& desc) {
             c.stage.module = shader->cs;
             c.stage.pName = shader->csEntry.c_str();
             c.layout = layout->layout;
-            st->pipeline = pipeline_object("compute|" + shader->codeKey + "|" + layout->key, nullptr, &c, e);
+            st->object = pipeline_object("compute|" + shader->codeKey + "|" + layout->key, nullptr, &c, e);
         } else {
             auto g = std::make_unique<GraphicsBuild>();
             e = graphics_desc(desc, *this, props_.limits, portability_, depthBiasClamp_, *st, *g);
+            if (e.empty() && desc.primitiveType == PrimitiveType::Points && !shader->pointSize)
+                e = "it draws points and the vertex stage of shader '" + shader->label +
+                    "' does not write gl_PointSize, which Vulkan needs for a point list (hint: add `gl_PointSize = "
+                    "1.0;` to the vertex shader, or draw a small quad per point)";
             VkRenderPass pass = VK_NULL_HANDLE;
             if (e.empty()) pass = render_pass(g->pass, e);
             if (e.empty()) {
@@ -1033,10 +1169,11 @@ Pipeline VulkanDevice::make_pipeline(const PipelineDesc& desc) {
                 gi.layout = layout->layout;
                 gi.renderPass = pass;
                 gi.subpass = 0;
-                st->pipeline =
+                st->object =
                     pipeline_object("render|" + shader->codeKey + "|" + layout->key + "|" + g->key.s, &gi, nullptr, e);
             }
         }
+        if (st->object) st->pipeline = st->object->pipeline;
         if (!st->pipeline) fail(e);
     }
     if (!error.empty()) report("gpu vulkan: make_pipeline '" + label + "': " + error);
@@ -1068,8 +1205,9 @@ void VulkanDevice::destroy_pipeline(Pipeline pipeline) {
         }
         count_destroy(stats_.pipelines);
     }
-    // A list that set it holds its state until the list is reused; the VkPipeline stays in the cache for the device's
-    // life (the state's last holder may let go of the shader modules: the record is released outside the lock).
+    // A list that set it holds its state until the list is reused; the VkPipeline stays in the cache while a live
+    // shader has its code, and goes with the last holder after that, once the frames that used it are done (the
+    // state's last holder may let go of the shader modules: the record is released outside the lock).
 }
 
 ResourceState VulkanDevice::state(Pipeline pipeline) const {
