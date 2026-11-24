@@ -494,6 +494,7 @@ void Renderer::shutdown() {
         im.sceneFx.release();
         im.taa.release();
         im.spatial.release();
+        im.mfxPrep.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -525,14 +526,31 @@ void Renderer::set_target_size(int width, int height) {
     impl_->shadowTargetFailed = false;  // a shadow map that could not be made is tried again after a resize
     impl_->create_targets(width, height);
 }
-void Renderer::set_render_scale(float scale) {
+void Renderer::set_render_scale(float scale, float baseScale) {
     if (!initialized()) return;
     if (!(scale >= kMinRenderScale)) scale = 1.0f;
     scale = std::min(scale, kMaxRenderScale);
+    if (!(baseScale >= kMinRenderScale)) baseScale = scale;  // 0 (and a NaN): no dynamic part
+    baseScale = std::min(baseScale, kMaxRenderScale);
+    const bool dynamicStep =
+        baseScale == impl_->renderBaseScale;  // only the dynamic part moved: the history of the upscaler lives on
+    impl_->renderBaseScale = baseScale;
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
     impl_->shadowTargetFailed = false;
+    impl_->keepUpscaleHistory = dynamicStep;
     impl_->create_targets(impl_->targetW, impl_->targetH);
+    impl_->keepUpscaleHistory = false;
+}
+void Renderer::set_gpu_frame_timing(bool on) {
+    if (!initialized()) return;
+    impl_->gpuFrameWanted = on;
+    if (!on) impl_->gpuFrameMs.clear();
+}
+void Renderer::take_gpu_frame_ms(std::vector<double>& out) {
+    if (!impl_ || impl_->gpuFrameMs.empty()) return;
+    out.insert(out.end(), impl_->gpuFrameMs.begin(), impl_->gpuFrameMs.end());
+    impl_->gpuFrameMs.clear();
 }
 void Renderer::set_upscale_stage(bool on) {
     if (!initialized() || impl_->upscaleStage == on) return;
@@ -1158,6 +1176,18 @@ int RendererTestAccess::upscale_impl(Renderer& r) { return r.impl_ ? int(r.impl_
 bool RendererTestAccess::upscale_used_history(Renderer& r) {
     return r.impl_ && r.impl_->taa.last_used_history(render::kUpscaleCamKey);
 }
+bool RendererTestAccess::mfx_failed(Renderer& r) { return r.impl_ && r.impl_->mfxFailed; }
+int RendererTestAccess::mfx_encoded(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.encoded() : 0; }
+int RendererTestAccess::mfx_generation(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.generation() : 0; }
+bool RendererTestAccess::mfx_reset(Renderer& r) { return r.impl_ && r.impl_->mfxLastReset; }
+void RendererTestAccess::mfx_force_create_failure(Renderer& r, bool fail) {
+    if (r.impl_) r.impl_->mfxForceCreateFail = fail;
+}
+void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSign) {
+    if (!r.impl_) return;
+    r.impl_->mfxJitterSign = jitterSign;
+    r.impl_->mfxMotionSign = motionSign;
+}
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
 void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
@@ -1267,12 +1297,21 @@ void Renderer::Impl::render(World& world, float dt) {
     frameOutput = render::select_output(output(), float_display());
     frameAboveWhite = false;
     auto t0 = std::chrono::steady_clock::now();
-    if (Profiler::on()) {
+    if (Profiler::on() || gpuFrameWanted) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
+        const std::size_t before = gpuFrames.size();
         gpuTimer.poll(gpuFrames);
+        if (gpuFrameWanted) {  // the dynamic resolution reads the same results (a second list: take_gpu_ms() empties gpuFrames)
+            constexpr std::size_t kKeepFrames = 64;
+            gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
+                              gpuFrames.end());
+            if (gpuFrameMs.size() > kKeepFrames)
+                gpuFrameMs.erase(gpuFrameMs.begin(), gpuFrameMs.end() - std::ptrdiff_t(kKeepFrames));
+        }
         constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
         if (gpuFrames.size() > kKeepGpuFrames)
             gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
+        if (!Profiler::on()) gpuFrames.clear();  // only the dynamic resolution asked: nobody takes these
         gpuTimer.begin();
     } else {
         // Nothing is measured now: what an earlier run of the profiler left would show as the GPU time of this frame's
@@ -1296,12 +1335,23 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalFrame = false;
     upscaleTaa = TaaPlan{};
     upscaleImpl = render::UpscaleImpl::Stretch;
+    mfxFrame = false;
+    outStorage = false;
     int wantedPhases = 0;
     if (upscale_active()) {
         render::UpscalerCaps oneCamera = upscaler_caps();
         oneCamera.multiCamera = false;
-        if (render::effective_upscaler_mode(upscaler, oneCamera) == render::UpscalerMode::Temporal)
+        const render::UpscalerMode oneCameraMode = render::effective_upscaler_mode(upscaler, oneCamera);
+        // MetalFX: its temporal scaler takes the same jittered frame (and needs the TAA resolve ready, as the fallback of a frame it cannot
+        // draw); a GPU with only its spatial scaler draws an unjittered frame (run_upscale).
+        mfxFrame = oneCameraMode == render::UpscalerMode::MetalFx && oneCamera.metalfxTemporal && oneCamera.temporal;
+        outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
+        if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
+        // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is made longer in steps of
+        // 4 phases, so it changes every few steps and the jitter of the frames before it stays valid for the history (the frame index goes on).
+        if (wantedPhases > 0 && renderScale != renderBaseScale)
+            wantedPhases = std::min((wantedPhases + 3) / 4 * 4, kJitterPhasesMax);
     }
     temporalPhases = temporalBlocked ? 0 : wantedPhases;
     lastCams = collect_cameras(world);
@@ -1313,7 +1363,7 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalBlocked = !oneFullCamera;
     if (temporalPhases > 0) {
         temporalFrame = true;
-        upscaleImpl = render::UpscaleImpl::Temporal;
+        upscaleImpl = mfxFrame ? render::UpscaleImpl::MetalFx : render::UpscaleImpl::Temporal;
     }
     refresh_logic_cameras(world);
     occlusionPrev = std::move(

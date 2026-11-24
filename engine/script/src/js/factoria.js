@@ -1517,7 +1517,7 @@
       }
       winSet("setMode", 0, mode);
     },
-    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current, refreshHz: m.refreshHz })); },
     get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
     setMonitor(index) {
       if (!Number.isInteger(index) || index < 0) {
@@ -1576,9 +1576,20 @@
       if (v === null || typeof v !== "object" || Array.isArray(v)) {
         throw new Error(`window.upscaler expects an object like { mode: "spatial", quality: "balanced", sharpness: 0.5 } (every key is optional), but got ${inspect(v)}`);
       }
-      const { effectiveMode, scale, ...settings } = v;  // what a read gave back can be written back
+      const { effectiveMode, scale, dynamicScale, frameMs, ...settings } = v;  // what a read gave back can be written back
       const err = N.upscalerSet(settings);
       if (err) throw new Error(`window.upscaler = ${inspect(v)}: ${err}`);
+    },
+    // The dynamic resolution (M76, docs/UPSCALING.md): { enabled, targetMs (0 = the display's refresh), minScale, maxScale } plus, read-only,
+    // effectiveTargetMs, scale (the factor in force), frameMs (the smoothed frame time) and source. Writing takes any of the four keys.
+    get dynamicResolution() { return N.dynamicResolutionGet(); },
+    set dynamicResolution(v) {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error(`window.dynamicResolution expects an object like { enabled: true, targetMs: 16.7, minScale: 0.6, maxScale: 1 } (every key is optional), but got ${inspect(v)}`);
+      }
+      const { effectiveTargetMs, scale, frameMs, source, refreshHz, refreshSource, ...settings } = v;  // what a read gave back can be written back
+      const err = N.dynamicResolutionSet(settings);
+      if (err) throw new Error(`window.dynamicResolution = ${inspect(v)}: ${err}`);
     },
     // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor

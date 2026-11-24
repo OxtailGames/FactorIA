@@ -91,7 +91,7 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
-        graphicsPreset != render::GraphicsPreset::Custom) {
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -105,6 +105,10 @@ Json ProjectSettings::to_json() const {
             render["upscaler"] = render::upscaler_to_json(upscaler);
         else
             render.erase("upscaler");
+        if (dynamicResolution != render::DynamicResolutionSettings{})
+            render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
+        else
+            render.erase("dynamicResolution");
         if (graphicsPreset != render::GraphicsPreset::Custom)
             render["graphicsPreset"] = std::string(render::graphics_preset_name(graphicsPreset));
         else
@@ -114,6 +118,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
         j["render"].erase("upscaler");
+        j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         if (j["render"].empty()) j.erase("render");
     }
@@ -663,6 +668,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!parsed.ok()) return parsed.error();
             s.upscaler = parsed.value();
         }
+        if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
+            Result<render::DynamicResolutionSettings> parsed = render::parse_dynamic_resolution_settings(
+                *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
+            if (!parsed.ok()) return parsed.error();
+            s.dynamicResolution = parsed.value();
+        }
         if (auto gp = it->find("graphicsPreset"); gp != it->end() && !gp->is_null()) {
             std::optional<render::GraphicsPreset> preset;
             if (gp->is_string()) preset = render::parse_graphics_preset(gp->get<std::string>());
@@ -1071,6 +1082,39 @@ constexpr const char* kSchemaText =
               "maximum": 1,
               "default": 0.5,
               "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            }
+          }
+        },
+        "dynamicResolution": {
+          "type": "object",
+          "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true turns the controller on. false (default) draws at the fixed render scale."
+            },
+            "targetMs": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 100,
+              "default": 0,
+              "description": "The frame time to hold, in ms: 33.3 for 30 fps, 16.7 for 60 fps. 0 or null (default) follows the refresh rate of the display the window is on (the OS's, else one estimated from the frame times, else 60 Hz: docs/UPSCALING.md, \"The display's refresh rate\"). 0, or 4 to 100."
+            },
+            "minScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 0.5,
+              "description": "The smallest share of the render size's width and height the controller uses, 0.25 to 1. Default 0.5 (a quarter of the pixels)."
+            },
+            "maxScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 1,
+              "description": "The largest share, where it starts, minScale to 1. Default 1."
             }
           }
         },

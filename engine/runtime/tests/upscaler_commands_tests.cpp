@@ -506,14 +506,16 @@ TEST_CASE("render.upscaler spatial changes the size drawn and the effective mode
     eval(e, "window.upscaler = { quality: 'performance' }; 0");
     eval(e, "window.renderScale = 1; 0");
 
-    // The scale of the quality is the same under temporal, metalfx and auto; auto picks the temporal upscaler (the best drawable here), and
-    // metalfx draws as the next best until its own package lands.
+    // The scale of the quality is the same under temporal, metalfx and auto; auto picks the best drawable here: MetalFX where this machine
+    // has it (the Metal backend on an OS and a GPU with its scalers), else the temporal upscaler; metalfx draws as the next best where it
+    // cannot (the reason is in the log and in render.supports).
+    const std::string bestHere = render::metalfx_available_here().available ? "metalfx" : "temporal";
     r = c.call("render.upscaler", Json::parse(R"({"mode":"auto"})"));
     REQUIRE(r.ok);
-    CHECK(r.result["effectiveMode"] == "temporal");
+    CHECK(r.result["effectiveMode"] == bestHere);
     r = c.call("render.upscaler", Json::parse(R"({"mode":"metalfx"})"));
     REQUIRE(r.ok);
-    CHECK(r.result["effectiveMode"] == "temporal");
+    CHECK(r.result["effectiveMode"] == bestHere);
     r = c.call("render.upscaler", Json::parse(R"({"mode":"spatial"})"));
     REQUIRE(r.ok);
     CHECK(r.result["effectiveMode"] == "spatial");
@@ -585,12 +587,15 @@ TEST_CASE("without a renderer effectiveMode is what a GPU would draw: pixel perf
         r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["effectiveMode"] == "stretch");
-        // Temporal, auto and metalfx: what a GPU here would draw (temporal; metalfx is not built).
+        // Temporal: what a GPU here would draw. Auto and metalfx: what the default GPU of this machine would draw (M76-P5b): metalfx on an
+        // Apple build where MetalFX is available (metalfx_available_here, asked of the system), else temporal. Temporal itself stays temporal.
+        const std::string best = render::metalfx_available_here().available ? "metalfx" : "temporal";
         for (const char* mode : {"temporal", "auto", "metalfx"}) {
             r = e.commands().call("render.upscaler", Json::parse(std::string("{\"mode\":\"") + mode + "\"}"));
             REQUIRE_MESSAGE(r.ok, r.error.dump());
-            CHECK_MESSAGE(r.result["effectiveMode"] == "temporal", mode);
-            CHECK_MESSAGE(eval(e, "window.upscaler.effectiveMode") == "temporal", mode);
+            const std::string want = std::string(mode) == "temporal" ? "temporal" : best;
+            CHECK_MESSAGE(r.result["effectiveMode"] == want, mode);
+            CHECK_MESSAGE(eval(e, "window.upscaler.effectiveMode") == want, mode);
         }
     }
     {

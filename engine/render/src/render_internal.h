@@ -1979,6 +1979,9 @@ struct TargetDesc {
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
     sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
+    // The colour image can also be written as a storage image (usage.storage_image next to color_attachment): what MetalFX needs of its
+    // output (metalfx.h). Single-sample targets only.
+    bool storage = false;
 };
 struct Target {
     sg_image color{}, resolve{}, depth{};

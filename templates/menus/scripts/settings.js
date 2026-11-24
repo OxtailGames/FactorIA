@@ -66,6 +66,28 @@ const MODE_FEATURE = { spatial: "spatialUpscaler", temporal: "temporalUpscaler",
 export const RENDER_SCALE_MIN = 0.33;
 export const RENDER_SCALE_MAX = 1;
 
+/**
+ * The dynamic resolution row's choices (window.dynamicResolution, docs/UPSCALING.md): off, or on holding a frame time of 30 fps, 60 fps or one refresh of
+ * the display. The "off" row leaves the fixed render scale; "custom" is only ever shown (the game set another target itself), never saved.
+ */
+export const DYNAMIC_CHOICES = ["off", "30", "60", "display"];
+const DYNAMIC_TARGET_MS = { 30: 1000 / 30, 60: 1000 / 60, display: 0 };
+
+/** The choice in force: the one the player saved, else what window.dynamicResolution says ("custom": on with a target that is none of the three). */
+export function dynamicChoice(s = load()) {
+  const saved = s.graphics.dynamicResolution;
+  if (DYNAMIC_CHOICES.includes(saved)) return saved;
+  const d = window.dynamicResolution;
+  if (!d.enabled) return "off";
+  if (d.targetMs === 0) return "display";
+  return Math.abs(d.targetMs - 1000 / 30) < 0.5 ? "30" : Math.abs(d.targetMs - 1000 / 60) < 0.5 ? "60" : "custom";
+}
+
+/** Puts a choice into the engine (it keeps the game's minScale and maxScale); the engine rejects a bad one with an error that says why. */
+export function applyDynamicChoice(choice) {
+  window.dynamicResolution = { enabled: choice !== "off", targetMs: DYNAMIC_TARGET_MS[choice] ?? 0 };
+}
+
 /** The main screen effects the graphics tab switches one by one: `id` is the key in settings.graphics.effects, `field` the PostProcess field. */
 export const GRAPHICS_EFFECTS = [
   { id: "bloom", field: "bloomEnabled" },
@@ -114,8 +136,9 @@ function defaults() {
     // lighting2d is null (every GlobalIllumination2D keeps the scene's own enabled and quality) or the player's choice, one of LIGHTING_QUALITIES.
     // The second page of the tab (docs/MENUS.md): preset is null (the engine keeps its own, the project's render.graphicsPreset) or one of GRAPHICS_PRESETS;
     // detected is the pick of game.graphics.detect() ("auto" asks once, here), null until it ran; upscaler holds only the keys of window.upscaler the player
-    // set (mode, quality, sharpness: they win over what a preset writes); renderScale is null (full size) or window.renderScale.
-    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null },
+    // set (mode, quality, sharpness: they win over what a preset writes); renderScale is null (full size) or window.renderScale;
+    // dynamicResolution is null (the game's own: window.dynamicResolution, off by default) or one of DYNAMIC_CHOICES.
+    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null },
   };
 }
 
@@ -306,7 +329,7 @@ export function detectPreset(s = load()) {
 
 /**
  * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, then the render
- * scale. Nothing the player never chose is touched, so a save of an older kit changes nothing; a value the engine rejects is logged and skipped.
+ * scale and the dynamic resolution. Nothing the player never chose is touched, so a save of an older kit changes nothing; a value the engine rejects is logged and skipped.
  * Settings outlive scene loads and so does the engine's state: apply() calls this once per run, and a row of the page calls it after each change.
  */
 export function applyRenderSettings(s = load()) {
@@ -323,6 +346,7 @@ export function applyRenderSettings(s = load()) {
     if (name) tryApply("the graphics preset", () => game.graphics.preset(name));
   }
   if (Object.keys(g.upscaler).length) tryApply("the upscaler", () => (window.upscaler = g.upscaler));
+  if (DYNAMIC_CHOICES.includes(g.dynamicResolution)) tryApply("the dynamic resolution", () => applyDynamicChoice(g.dynamicResolution));
   if (g.renderScale !== null) tryApply("the render scale", () => (window.renderScale = Math.min(RENDER_SCALE_MAX, Math.max(RENDER_SCALE_MIN, g.renderScale))));
 }
 

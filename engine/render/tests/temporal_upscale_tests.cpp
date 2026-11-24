@@ -255,8 +255,22 @@ TEST_CASE("temporal upscaler: the effective mode is temporal where it can be dra
     CHECK(render::effective_upscaler_mode(s, noTaa) == UpscalerMode::Spatial);
     s.mode = UpscalerMode::MetalFx;
     CHECK(render::effective_upscaler_mode(s, can) ==
-          UpscalerMode::Temporal);  // metalfx is not drawn yet: the next best
+          UpscalerMode::Temporal);  // this GPU has no MetalFX (caps.metalfx false): the next best
     CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);
+    // M76-P5b: with MetalFX the mode is itself; its temporal scaler has one history, so several cameras drop it as the temporal upscaler
+    // (to the engine's spatial upscaler), while a GPU with only its spatial scaler keeps it on every frame.
+    render::UpscalerCaps fx = can;
+    fx.metalfx = true;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::MetalFx);
+    render::UpscalerCaps fxSeveral = fx;
+    fxSeveral.multiCamera = true;
+    CHECK(render::effective_upscaler_mode(s, fxSeveral) == UpscalerMode::Spatial);
+    fxSeveral.metalfxTemporal = false;
+    CHECK(render::effective_upscaler_mode(s, fxSeveral) == UpscalerMode::MetalFx);
+    s.mode = UpscalerMode::Auto;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::MetalFx);
+    fx.pixelArt = true;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::Stretch);
 }
 
 TEST_CASE("temporal upscaler: its plan uses the camera's TemporalAA fields, or the defaults, and its own history key") {
@@ -561,6 +575,37 @@ TEST_CASE("temporal upscaler: a cut, a resize, a render scale change and a quali
     CHECK(RendererTestAccess::taa_resets(own.r) == beforeResize + 1);
     own.frame(s.w);
     CHECK(RendererTestAccess::upscale_used_history(own.r));
+}
+
+TEST_CASE("temporal upscaler: a step of the dynamic resolution keeps the history, any other change of the render size "
+          "starts it "
+          "again (M76-P6c)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    own.upscale(0.6f);  // the base scale: window.renderScale x the quality's
+    own.frame(s.w, 3);
+    CHECK(RendererTestAccess::upscale_used_history(own.r));
+    const int started = RendererTestAccess::taa_resets(own.r);
+
+    // The controller steps down and up: the scale drawn changes (new images), the base scale does not.
+    for (float drawn : {0.5f, 0.45f, 0.55f, 0.6f}) {
+        own.r.set_render_scale(drawn, 0.6f);
+        own.frame(s.w);
+        CHECK(RendererTestAccess::upscale_used_history(own.r));
+        CHECK(RendererTestAccess::taa_resets(own.r) == started);
+        CHECK(own.r.render_scale() == doctest::Approx(drawn));
+    }
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::taa_resets(own.r) == started);
+
+    // The same drawn scale without the base (the player changed window.renderScale to it): another render size, the history starts again.
+    own.r.set_render_scale(0.5f);
+    own.frame(s.w);
+    CHECK_FALSE(RendererTestAccess::upscale_used_history(own.r));
+    CHECK(RendererTestAccess::taa_resets(own.r) == started + 1);
 }
 
 TEST_CASE("temporal upscaler: the HUD is drawn at the output size, as sharp as at scale 1, and the history of the "
