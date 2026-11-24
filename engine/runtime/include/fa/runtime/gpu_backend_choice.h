@@ -12,7 +12,8 @@ namespace fa {
 
 struct GpuBackendChoice {
     GpuBackend backend = GpuBackend::Default;  // Default = auto: the backend this binary was built with
-    GpuBackend requested = GpuBackend::Default;  // what was asked, even when this binary has none of it (then backend is Default)
+    GpuBackend requested =
+        GpuBackend::Default;         // what was asked, even when this binary has none of it (then backend is Default)
     std::string source = "default";  // "EngineConfig", "FA_GPU_BACKEND", "factoria.json" or "default"
     std::string asked;               // the name that was asked ("" when nothing was); "auto" is a request for auto
     std::vector<std::string> warnings;  // what this platform or binary does not have (then backend is Default)

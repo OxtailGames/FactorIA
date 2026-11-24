@@ -11,8 +11,10 @@ Result<GpuBackend> parse_named(const std::string& value, const std::string& wher
     std::vector<std::string> names = gpu_backend_names();
     std::string list = "\"auto\"";
     for (const std::string& n : names) list += ", \"" + n + "\"";
-    return make_error(where + ": unknown GPU backend \"" + value + "\"",
-                      did_you_mean(value, names) + " Use one of " + list + ".");
+    names.push_back("auto");
+    std::string hint = did_you_mean(value, names);
+    if (!hint.empty()) hint += " ";
+    return make_error(where + ": unknown GPU backend \"" + value + "\"", hint + "Use one of " + list + ".");
 }
 
 }  // namespace
@@ -44,7 +46,8 @@ Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, cons
         for (const std::string& n : gpu_backend_names())
             if (auto b = parse_gpu_backend_name(n); b && gpu_backend_available(*b))
                 has += (has.empty() ? "" : ", ") + n;
-        c.warnings.push_back(where + " asks for the " + c.asked + " backend, which this platform or this build does not have (it has: " +
+        c.warnings.push_back(where + " asks for the " + c.asked +
+                             " backend, which this platform or this build does not have (it has: " +
                              (has.empty() ? std::string("none") : has) + "); using auto.");
         return c;
     }
