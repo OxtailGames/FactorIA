@@ -8,6 +8,7 @@
 // the sort key), so `instances` is the count of that one entity.
 #pragma once
 
+#include "gpu/device.h"
 #include "mesh_batch.h"
 
 namespace fa {
@@ -32,9 +33,9 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
 
 // Binds the views to the slots `prog` declares for them (the vertex stage's copy and the fragment stage's copy of each
 // buffer).
-void bind_mesh_buffers(sg_bindings& b, const MeshBufferUse& use, const MaterialProgram& prog);
+void bind_mesh_buffers(gpu::Bindings& b, const MeshBufferUse& use, const MaterialProgram& prog);
 
 // Applies the entity's model matrix as the vertex uniform block of a program that declares it.
-void apply_mesh_base_model(const MaterialProgram& prog, const Mat4& model);
+void apply_mesh_base_model(gpu::CommandList& list, const MaterialProgram& prog, const Mat4& model);
 
 }  // namespace fa::render
