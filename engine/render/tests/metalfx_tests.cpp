@@ -17,6 +17,9 @@ using namespace fa;
 using namespace fa::test;
 namespace mfx = fa::render::metalfx;
 
+// The helpers below are used by the Metal tests only: off Metal they would be unused functions (a warning, an error with
+// FA_WARNINGS_AS_ERRORS).
+#if defined(SOKOL_METAL)
 namespace {
 
 // True when this host can run a scaler of `kind`; else says why in the test output.
@@ -128,7 +131,15 @@ std::vector<std::uint8_t> bilinear_up(const std::vector<std::uint8_t>& in, int i
     return out;
 }
 
+// A read back goes through a command buffer of its own: the frame's sokol buffer must be submitted first (Scaler::encode leaves one open
+// for the passes after it), or the read back waits behind it for ever.
+bool read_back(sg_image image, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
+    sg_commit();
+    return render::readback_rgba8(image, w, h, out, error);
+}
+
 }  // namespace
+#endif
 
 TEST_CASE("metalfx: the support answer says what is missing") {
     REQUIRE(gfx().ok);  // the Metal device exists
@@ -218,7 +229,7 @@ TEST_CASE(
     REQUIRE_MESSAGE(scaler.encode(f, &error), error);
     CHECK(scaler.encoded() == 1);
     std::vector<std::uint8_t> got;
-    REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+    REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
     const double err = mean_diff(got, reference, outW, outH, 4);
     const double errBilinear = mean_diff(got, bilinear_up(in, inW, inH, outW, outH), outW, outH, 4);
     // The picture a bilinear upscale gives and the scene itself sampled at the output size, within what MetalFX changes (it sharpens;
@@ -260,7 +271,7 @@ TEST_CASE(
     CHECK(!scaler.encode(f, &error));  // the 48x32 colour against a 24x16 scaler
     f.color = color2;
     REQUIRE_MESSAGE(scaler.encode(f, &error), error);
-    REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+    REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
     const double err2 = mean_diff(got, reference, outW, outH, 4);
     CHECK_MESSAGE(err2 < 0.03, "mean error of the 4x spatial upscale: " << std::round(err2 * 10000.0) / 10000.0);
 
@@ -334,7 +345,7 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
             f.reset = frame == 0;
             REQUIRE_MESSAGE(scaler.encode(f, &error), error);
             std::vector<std::uint8_t> got;
-            REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+            REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
             const double e = mean_diff(got, reference, outW, outH, 4);
             if (frame == 0) first = e;
             if (frame == 15) err[run] = e;
@@ -439,7 +450,7 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     int wrong = 0;
     for (int i = 0; i < frames; ++i) {
         std::vector<std::uint8_t> px;
-        REQUIRE_MESSAGE(render::readback_rgba8(shown[std::size_t(i)].color, outW, outH, px, &error), error);
+        REQUIRE_MESSAGE(read_back(shown[std::size_t(i)].color, outW, outH, px, &error), error);
         const std::size_t centre = (std::size_t(outH / 2) * outW + outW / 2) * 4;
         const double v = double(px[centre]) / 255.0;
         if (std::abs(v - double(grey[std::size_t(i)])) > 0.03) {
@@ -456,17 +467,16 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     gpu.shutdown();
 }
 
-TEST_CASE(
-    "metalfx: the temporal scaler follows a moving pattern when the motion points from the pixel to where it was") {
-    Gfx& g = gfx();
-    REQUIRE(g.ok);
-    if (!can_run(mfx::Kind::Temporal)) return;
+namespace {
+// A stripe pattern (vertical stripes moving to the right, or horizontal stripes moving down) that MetalFX's temporal scaler follows with a
+// motion image of sign +1 (where the pixel was), -1 and 0; err[run] is the mean error against the pattern after the last frame.
+void moving_pattern_errors(bool vertical, double err[3]) {
     const int inW = 160, inH = 90, outW = 320, outH = 180, frames = 24;
-    const float shift = 0.8f;  // render pixels the pattern moves to the right every frame
+    const float shift = 0.8f;  // render pixels the pattern moves (to the right, or down) every frame
     // A pattern with detail a single frame does not carry (about 2.6 render pixels a period): only the history, aligned by the motion, does.
     auto pattern = [&](float px, float py, float t) {
-        (void)py;
-        return std::sin((px - shift * t) * (6.2831853f / 2.6f)) > 0.0f ? 0.95f : 0.05f;
+        const float along = vertical ? py : px;
+        return std::sin((along - shift * t) * (6.2831853f / 2.6f)) > 0.0f ? 0.95f : 0.05f;
     };
     auto halton = [](int i, int base) {
         float f = 1.0f, r = 0.0f;
@@ -479,7 +489,10 @@ TEST_CASE(
     const std::vector<std::uint16_t> unused(1);
     std::vector<float> depth(std::size_t(inW) * inH, 0.5f);
     for (std::size_t k = 0; k < depth.size(); ++k)
-        depth[k] = (k % std::size_t(inW)) < std::size_t(inW) / 2 ? 0.5f : 1.0f;
+        depth[k] =
+            (vertical ? k / std::size_t(inW) < std::size_t(inH) / 2 : (k % std::size_t(inW)) < std::size_t(inW) / 2)
+                ? 0.5f
+                : 1.0f;
     sg_image depthImg =
         make_data_image(inW, inH, SG_PIXELFORMAT_R32F, depth.data(), depth.size() * 4, "metalfx-test-depth");
     REQUIRE(sg_query_image_state(depthImg) == SG_RESOURCESTATE_VALID);
@@ -491,15 +504,16 @@ TEST_CASE(
         const int e = int((b >> 23) & 0xFF) - 127 + 15;
         return std::uint16_t(sign | (std::uint32_t(e) << 10) | ((b >> 13) & 0x3FF));
     };
-    double err[3] = {1, 1, 1};
     for (int run = 0; run < 3; ++run) {
         const float sgn = run == 0 ? 1.0f : run == 1 ? -1.0f : 0.0f;
-        // Where this pixel's surface was on the frame before, in pictures: it was `shift` pixels to the left (x = -shift / inW).
-        const float mx = -sgn * shift / float(inW);
+        // Where this pixel's surface was on the frame before, in pictures: `shift` pixels to the left (x = -shift / inW), or above
+        // (y = -shift / inH, the picture's y runs down).
+        const float mx = vertical ? 0.0f : -sgn * shift / float(inW);
+        const float my = vertical ? -sgn * shift / float(inH) : 0.0f;
         std::vector<std::uint16_t> mv(std::size_t(inW) * inH * 2);
         for (std::size_t i = 0; i < std::size_t(inW) * inH; ++i) {
             mv[i * 2] = half(mx);
-            mv[i * 2 + 1] = 0;
+            mv[i * 2 + 1] = half(my);
         }
         sg_image motion =
             make_data_image(inW, inH, SG_PIXELFORMAT_RG16F, mv.data(), mv.size() * 2, "metalfx-test-motion");
@@ -524,7 +538,7 @@ TEST_CASE(
             std::vector<std::uint16_t> in(std::size_t(inW) * inH * 4);
             for (int y = 0; y < inH; ++y)
                 for (int x = 0; x < inW; ++x) {
-                    const std::uint16_t b = half(pattern(float(x) + 0.5f + jx, float(y), float(frame)));
+                    const std::uint16_t b = half(pattern(float(x) + 0.5f + jx, float(y) + 0.5f + jy, float(frame)));
                     std::uint16_t* p = &in[(std::size_t(y) * inW + x) * 4];
                     p[0] = p[1] = p[2] = b;
                     p[3] = half(1.0f);
@@ -545,6 +559,7 @@ TEST_CASE(
             std::vector<std::uint8_t> got;
             {
                 std::vector<float> gf;
+                sg_commit();  // the read back's own command buffer must not queue behind the open sokol one (see read_back)
                 REQUIRE_MESSAGE(render::readback_rgba16f(out.image, outW, outH, gf, &error), error);
                 got.resize(gf.size());
                 for (std::size_t k = 0; k < gf.size(); ++k)
@@ -555,7 +570,8 @@ TEST_CASE(
                 for (int y = 0; y < outH; ++y)
                     for (int x = 0; x < outW; ++x) {
                         const float px = (float(x) + 0.5f) * float(inW) / float(outW);
-                        const std::uint8_t b = std::uint8_t(std::lround(pattern(px, float(y), float(frame)) * 255.0f));
+                        const float py = (float(y) + 0.5f) * float(inH) / float(outH);
+                        const std::uint8_t b = std::uint8_t(std::lround(pattern(px, py, float(frame)) * 255.0f));
                         std::uint8_t* p = &truth[(std::size_t(y) * outW + x) * 4];
                         p[0] = p[1] = p[2] = b;
                         p[3] = 255;
@@ -568,15 +584,37 @@ TEST_CASE(
         destroy_output(out);
         sg_destroy_image(motion);
     }
-    MESSAGE("mean error after " << frames << " frames: motion = where the pixel was "
-                                << std::round(err[0] * 10000.0) / 10000.0 << ", opposite "
-                                << std::round(err[1] * 10000.0) / 10000.0 << ", none "
-                                << std::round(err[2] * 10000.0) / 10000.0);
+    sg_destroy_image(depthImg);
+    sg_commit();
+}
+}  // namespace
+
+TEST_CASE(
+    "metalfx: the temporal scaler follows a moving pattern when the motion points from the pixel to where it was") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!can_run(mfx::Kind::Temporal)) return;
+    double err[3] = {1, 1, 1};
+    moving_pattern_errors(false, err);
+    MESSAGE("horizontal motion, mean error after 24 frames: motion = where the pixel was "
+            << std::round(err[0] * 10000.0) / 10000.0 << ", opposite " << std::round(err[1] * 10000.0) / 10000.0
+            << ", none " << std::round(err[2] * 10000.0) / 10000.0);
     // The convention the renderer hands MetalFX (docs/UPSCALING.md): the right sign is clearly the best one.
     CHECK(err[0] < 0.8 * err[1]);
     CHECK(err[0] < 0.8 * err[2]);
-    sg_destroy_image(depthImg);
-    sg_commit();
+}
+
+TEST_CASE("metalfx: the same in y: horizontal stripes moving down, the motion image's y runs down like the picture's") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!can_run(mfx::Kind::Temporal)) return;
+    double err[3] = {1, 1, 1};
+    moving_pattern_errors(true, err);
+    MESSAGE("vertical motion, mean error after 24 frames: motion = where the pixel was "
+            << std::round(err[0] * 10000.0) / 10000.0 << ", opposite " << std::round(err[1] * 10000.0) / 10000.0
+            << ", none " << std::round(err[2] * 10000.0) / 10000.0);
+    CHECK(err[0] < 0.8 * err[1]);
+    CHECK(err[0] < 0.8 * err[2]);
 }
 
 #else

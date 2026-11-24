@@ -117,6 +117,7 @@ struct VertexData {          // vertex(): world space, after instancing and skin
 | `fa_camera_pos` | `surface()` only | `vec4`; `.xyz` is the camera position in world space. |
 | `fa_instance_index` | `vertex()` | `int`: the instance of a mesh drawn from compute buffers ([how](shaders/SHADERS_COMPUTE.md#drawing-from-a-compute-buffer)). |
 | `fa_tangent_normal(i, n)` | `surface()` | A tangent-space normal `n` (-1..1, e.g. a normal-map texel times 2 minus 1) turned into a world-space normal. Assign it to `s.normal`. |
+| `fa_mip_bias` | `surface()` only | `float`: the frame's texture level-of-detail bias, 0 or negative (below 0 only while the temporal upscaler or the temporal antialiasing accumulates frames, docs/UPSCALING.md "Texture mip bias"). Read a texture with it, `texture(sampler2D(t, t_smp), i.uv, fa_mip_bias)`, to keep the detail of the output size; without it the texture is read as the render size picks. |
 
 Params are globals named like the JSON keys (`strength`, `tint.rgb`). Textures are sampled with the **separate** texture
 and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv)` is an error with that hint.

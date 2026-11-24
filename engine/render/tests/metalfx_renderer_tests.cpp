@@ -1,14 +1,19 @@
-// M76-P5b: MetalFX in the renderer (UpscaleImpl::MetalFx, src/renderer_metalfx.cpp, shaders/upscale_mfx.glsl). The scenes are the white unlit
-// square turned 30 degrees of temporal_upscale_tests.cpp, drawn at half the output size and brought up by the MetalFX temporal scaler.
+// M76-P5b/P5c: MetalFX in the renderer (UpscaleImpl::MetalFx, src/renderer_metalfx.cpp, shaders/upscale_mfx.glsl). The scenes are the white unlit
+// square turned 30 degrees of temporal_upscale_tests.cpp, drawn at half the output size and brought up by the MetalFX temporal scaler, and a
+// textured stripe surface under a camera that pans and pitches.
 //
-// The tests that draw with MetalFX need the Metal backend on an OS and a GPU that have it: on any other host (Linux and Windows CI, the macOS
-// VM of CI whose paravirtual GPU has no MetalFX) they say so with a MESSAGE and return, they never pass silently. The tests of what a host
-// without MetalFX does (the fallback and its warning) and of what is reported run everywhere.
+// What runs where. The tests that draw with MetalFX need the Metal backend on an OS and a GPU that have it: on any other host (Linux and Windows
+// CI, the macOS VM of CI whose paravirtual GPU has no MetalFX) they say so with a MESSAGE and return, they never pass silently. The tests
+// that make the renderer believe MetalFX is there (RendererTestAccess::mfx_force_support) need the Metal backend only, with or without MetalFX:
+// they run the preparation shader, the fallback after a failure and the clean-up of its images on every Metal GPU, the CI macOS VM included.
+// On a backend that is not Metal they say so with a MESSAGE too; there the fallback is covered by "the mode reported ..." below.
 #include "test_util.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -187,6 +192,13 @@ std::vector<float> supersampled(Gfx& g, float boxX = 0.0f) {
     return reference_plane(big.draw(s.w), 4);
 }
 
+// True when the renderer can be made to believe MetalFX is there (any Metal GPU); else says why in the test output.
+bool metal_here(const char* test) {
+    const bool ok = sg_isvalid() && render::metalfx::on_metal();
+    if (!ok) MESSAGE("This is not the Metal backend, the test is skipped (" << test << ")");
+    return ok;
+}
+
 int warnings_with(const char* part) {
     int n = 0;
     for (const LogEntry& e : recent_logs(500, LogLevel::Warn))
@@ -316,9 +328,8 @@ TEST_CASE("metalfx renderer: a moving object leaves no ghost with the motion han
     }
     MESSAGE("ghost pixels after " << frames << " frames: motion handed to MetalFx " << ghosts[0] << ", opposite sign "
                                   << ghosts[1] << ", no motion " << ghosts[2]);
-    // A few pixels of a soft edge, not a trail of the twenty places the square was in. The three counts are close: on this scene the
-    // output of the temporal scaler barely depends on the sign of the motion image (see "Open" in docs/UPSCALING.md, MetalFX), so the test
-    // cannot tell the right sign from the wrong one here; the sign is checked where it shows, in metalfx_tests.cpp.
+    // A few pixels of a soft edge, not a trail of the twenty places the square was in. A square leaves few ghost pixels with either sign
+    // (its edge is one soft step), so this test cannot tell the right sign from the wrong one; the stripe texture below and metalfx_tests.cpp do.
     CHECK(ghosts[0] < 40);
 }
 
@@ -434,4 +445,276 @@ TEST_CASE("metalfx renderer: with the mode off, the picture is the same bit for 
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Stretch));
     CHECK(RendererTestAccess::upscale_phases(own.r) == 0);
     CHECK(same_pixels(before, after));
+}
+
+namespace {
+
+// A textured surface of high-frequency vertical stripes (a png in a temporary directory of its own, two white texels and two black ones, tiled 42 times over the
+// quad: a period of about 2.6 render pixels at half size) that moves to the right, under a camera that pans to the right and pitches: detail a
+// single frame at half size cannot carry, that only a history aligned by the motion keeps. state(f) is the world of frame f.
+struct StripeScene {
+    World w;
+    Entity cam = kNullEntity, quad = kNullEntity;
+    std::filesystem::path dir;  // the texture's: not the working directory, which the tests share
+    static constexpr float kTiles = 42.0f;
+    StripeScene(const StripeScene&) = delete;
+    StripeScene& operator=(const StripeScene&) = delete;
+    ~StripeScene() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+    explicit StripeScene(float f = 0.0f) {
+        static std::atomic<int> counter{0};
+        dir = std::filesystem::temp_directory_path() /
+              ("fa_mfx_stripes_" + std::to_string(counter++) + "_" +
+               std::to_string(std::uintmax_t(reinterpret_cast<std::uintptr_t>(this) & 0xffffff)));
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+        const std::filesystem::path file = dir / "mfx_stripes.png";
+        Image tex;
+        tex.width = 4;
+        tex.height = 1;
+        tex.rgba.assign(16, 255);
+        for (std::size_t i = 2; i < 4; ++i)
+            for (std::size_t c = 0; c < 3; ++c) tex.rgba[i * 4 + c] = 0;
+        const Result<void> saved = save_png(tex, file.string());
+        REQUIRE_MESSAGE(saved.ok(), "the stripe texture could not be written");
+        cam = make(w, "cam", {0, 0, 10});
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60.0f;
+        c.clearColor = Color{0, 0, 0, 1};
+        w.settings().skyColor = w.settings().horizonColor = Color{0, 0, 0, 1};
+        quad = make(w, "stripes", {0, 0, 0});
+        w.get<Transform>(quad)->scale = {14.0f, 8.0f, 1.0f};
+        auto& m = w.add<MeshRenderer>(quad);
+        m.mesh = "quad";
+        m.texture = file.string();
+        m.color = Color::white();
+        m.unlit = true;
+        m.uvScale = {kTiles, 1.0f};
+        state(f);
+    }
+    void state(float f) {
+        w.get<Transform>(quad)->position.x = -3.0f + 0.15f * f;
+        Transform* t = w.get<Transform>(cam);
+        t->position.x = 0.1f * f;                               // a pan: 0.8 render pixels a frame
+        t->rotation = {1.5f * std::sin(0.2f * f), 0.0f, 0.0f};  // a pitch: up to 0.45 render pixels a frame
+    }
+};
+
+// The mean absolute difference of two grey planes of kOutW x kOutH over the pixels at least `border` away from the edges.
+double plane_error(const std::vector<float>& a, const std::vector<float>& b, int border = 8) {
+    REQUIRE(a.size() == b.size());
+    double sum = 0;
+    int n = 0;
+    for (int y = border; y < kOutH - border; ++y)
+        for (int x = border; x < kOutW - border; ++x) {
+            sum += std::fabs(double(a[std::size_t(y) * kOutW + std::size_t(x)]) -
+                             double(b[std::size_t(y) * kOutW + std::size_t(x)]));
+            ++n;
+        }
+    return n > 0 ? sum / n : 0.0;
+}
+
+}  // namespace
+
+TEST_CASE("metalfx renderer: a stripe texture that moves under a panning, pitching camera follows the motion handed to "
+          "MetalFX, "
+          "against the opposite sign and none") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!mfx_here("stripes")) return;
+    const int frames = 30;
+    std::vector<float> truth;
+    {
+        Own big(g, kOutW * 4, kOutH * 4);
+        REQUIRE_MESSAGE(big.ok, big.error);
+        StripeScene s{static_cast<float>(frames)};
+        truth = reference_plane(big.draw(s.w), 4);
+    }
+    double err[3] = {1, 1, 1};
+    double oneFrame = 1;
+    for (int run = 0; run < 3; ++run) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        StripeScene s;
+        own.upscale(0.5f);
+        RendererTestAccess::mfx_signs(own.r, 1.0f, run == 0 ? 1.0f : run == 1 ? -1.0f : 0.0f);
+        Image img;
+        for (int f = 1; f <= frames; ++f) {
+            s.state(float(f));
+            own.frame(s.w);
+            if (f == 1) {
+                CHECK(RendererTestAccess::mfx_reset(own.r));  // the first frame starts the history
+            } else {
+                CHECK_FALSE(RendererTestAccess::mfx_reset(own.r));  // a camera that pans and pitches keeps it
+            }
+        }
+        img = own.capture();
+        CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::MetalFx));
+        CHECK(RendererTestAccess::mfx_encoded(own.r) == frames);
+        CHECK_FALSE(RendererTestAccess::mfx_failed(own.r));
+        err[run] = plane_error(linear_plane(img), truth);
+        if (run == 0) {
+            Own one(g);
+            REQUIRE_MESSAGE(one.ok, one.error);
+            StripeScene s1{static_cast<float>(frames)};
+            one.upscale(0.5f, UpscalerMode::Stretch);
+            const Image oi = one.draw(s1.w, 1);
+            oneFrame = plane_error(linear_plane(oi), truth);
+        }
+    }
+    MESSAGE("mean error against the supersampled picture after "
+            << frames << " frames: motion as handed to MetalFX " << round4(err[0]) << ", opposite sign "
+            << round4(err[1]) << ", no motion " << round4(err[2]) << " (stretch of one frame " << round4(oneFrame)
+            << ")");
+    CHECK(err[0] < 0.8 * err[1]);
+    CHECK(err[0] < 0.8 * err[2]);
+    CHECK(err[0] < oneFrame);  // and it beats one frame stretched
+}
+
+TEST_CASE("metalfx renderer: the preparation pass writes the 0..1 depth and the UV motion of a camera that pans (any "
+          "Metal GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!metal_here("preparation values")) return;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    RendererTestAccess::mfx_force_support(own.r, true, true);
+    RendererTestAccess::mfx_prep_only(own.r, true);
+    own.upscale(0.5f);
+    // The camera moves right and up by (0.1, 0.05) a frame, towards a surface 8.5 away (the front face of the cube, 1.5 in front of the middle).
+    const float cx = 0.1f, cy = 0.05f;
+    for (int f = 1; f <= 4; ++f) {
+        Transform* t = s.w.get<Transform>(s.cam);
+        t->position.x = cx * float(f);
+        t->position.y = cy * float(f);
+        own.frame(s.w);
+    }
+    CHECK_FALSE(RendererTestAccess::mfx_failed(own.r));
+    CHECK(RendererTestAccess::upscale_impl(own.r) ==
+          int(UpscaleImpl::Temporal));  // the frame went on to the temporal upscaler
+    CHECK(RendererTestAccess::mfx_images(own.r) == 2);
+    float v[3] = {0, 0, 0};
+    std::string error;
+    REQUIRE_MESSAGE(RendererTestAccess::mfx_read_prep(own.r, kOutW / 4, kOutH / 4, v, &error),
+                    error);  // the middle of the 160 x 90 picture
+    const float depth = 8.5f;
+    const float halfH = depth * std::tan(30.0f * 3.14159265f / 180.0f), halfW = halfH * float(kOutW) / float(kOutH);
+    // A surface that was where the camera was less far to the right is to the right of where it is now (x grows); up is y down in the image.
+    const float wantX = 0.5f * cx / halfW, wantY = -0.5f * cy / halfH;
+    MESSAGE("depth " << round4(v[0]) << " (expected " << round4(depth / (depth + 1.0f)) << "), motion " << round4(v[1])
+                     << ", " << round4(v[2]) << " (expected " << round4(wantX) << ", " << round4(wantY) << ")");
+    CHECK(v[0] == doctest::Approx(depth / (depth + 1.0f)).epsilon(0.01));
+    CHECK(v[1] == doctest::Approx(wantX).epsilon(0.1));
+    CHECK(v[2] == doctest::Approx(wantY).epsilon(0.1));
+    // A corner of the picture, where nothing is drawn: the sky, 1 in the depth, and the motion of the camera at the far plane (about none).
+    REQUIRE_MESSAGE(RendererTestAccess::mfx_read_prep(own.r, 2, 2, v, &error), error);
+    CHECK(v[0] == doctest::Approx(1.0f).epsilon(0.001));
+    CHECK(std::fabs(v[1]) < 0.01f);
+    CHECK(std::fabs(v[2]) < 0.01f);
+}
+
+TEST_CASE("metalfx renderer: a MetalFX the GPU lacks, made to look present, falls to the temporal upscaler with one "
+          "warning and clean "
+          "images (any Metal GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!metal_here("forced fallback")) return;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    clear_recent_logs();
+    RendererTestAccess::mfx_force_support(own.r, true, true);
+    RendererTestAccess::mfx_prep_only(own.r, true);
+    own.upscale(0.5f);
+    own.frame(s.w, 3);
+    CHECK(own.r.upscaler_caps().metalfx);
+    CHECK(own.r.effective_upscaler_mode() == UpscalerMode::MetalFx);
+    CHECK(RendererTestAccess::mfx_images(own.r) ==
+          2);  // the preparation images of the frames that went to the temporal upscaler
+    CHECK_FALSE(RendererTestAccess::mfx_last_wrote(own.r));
+    CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
+    CHECK(warnings_with("MetalFX") == 0);
+
+    // The scaler cannot be made: one warning, the temporal upscaler from then on, the caps say so and the images are gone.
+    RendererTestAccess::mfx_prep_only(own.r, false);
+    RendererTestAccess::mfx_force_create_failure(own.r, true);
+    own.frame(s.w, 5);
+    CHECK(RendererTestAccess::mfx_failed(own.r));
+    CHECK(RendererTestAccess::mfx_encoded(own.r) == 0);
+    CHECK_FALSE(RendererTestAccess::mfx_last_wrote(own.r));
+    CHECK(RendererTestAccess::mfx_images(own.r) == 0);
+    CHECK(own.r.upscaler_caps().metalfx == false);
+    CHECK(own.r.effective_upscaler_mode() == UpscalerMode::Temporal);
+    CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Temporal));
+    CHECK(RendererTestAccess::upscale_used_history(own.r));
+    CHECK(warnings_with("MetalFX failed") == 1);  // once, not a line a frame
+    const std::vector<float> lit = linear_plane(own.capture());
+    CHECK(*std::max_element(lit.begin(), lit.end()) > 0.9f);  // still drawing
+}
+
+TEST_CASE("metalfx renderer: leaving the metalfx mode gives the preparation images back, and a spatial-only GPU never "
+          "makes them (any Metal "
+          "GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!metal_here("leaving the mode")) return;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    RendererTestAccess::mfx_force_support(own.r, true, true);
+    RendererTestAccess::mfx_prep_only(own.r, true);
+    own.upscale(0.5f);
+    own.frame(s.w, 3);
+    CHECK(RendererTestAccess::mfx_images(own.r) == 2);
+    own.upscale(0.5f, UpscalerMode::Temporal);
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::mfx_images(own.r) == 0);
+    CHECK_FALSE(
+        RendererTestAccess::mfx_failed(own.r));  // leaving it is not a failure: coming back draws the images again
+    own.upscale(0.5f);
+    own.frame(s.w, 2);
+    CHECK(RendererTestAccess::mfx_images(own.r) == 2);
+
+    Own spatialOnly(g);
+    REQUIRE_MESSAGE(spatialOnly.ok, spatialOnly.error);
+    RendererTestAccess::mfx_force_support(spatialOnly.r, true, false);
+    RendererTestAccess::mfx_prep_only(spatialOnly.r, true);
+    spatialOnly.upscale(0.5f);
+    spatialOnly.frame(s.w, 3);
+    CHECK(spatialOnly.r.upscaler_caps().metalfx);
+    CHECK_FALSE(spatialOnly.r.upscaler_caps().metalfxTemporal);
+    CHECK(RendererTestAccess::mfx_images(spatialOnly.r) == 0);
+    CHECK(RendererTestAccess::upscale_phases(spatialOnly.r) ==
+          0);  // no jitter: the spatial scaler takes the frame as it is
+}
+
+TEST_CASE("metalfx renderer: frames queued without waiting for the GPU give the same picture every time") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!mfx_here("determinism")) return;
+    // MetalFX was once encoded behind the passes that wrote its inputs without waiting for them: the same frames, queued one after the other
+    // (the picture is read at the end only), came out different from run to run. Frame 1 starts the history; frames 2 and later use it.
+    for (int frames : {2, 6}) {
+        std::uint64_t first = 0;
+        for (int rep = 0; rep < 4; ++rep) {
+            Own own(g);
+            REQUIRE_MESSAGE(own.ok, own.error);
+            StripeScene s;
+            own.upscale(0.5f);
+            for (int f = 1; f <= frames; ++f) {
+                s.state(float(f));
+                own.frame(s.w);
+            }
+            const Image img = own.capture();
+            std::uint64_t h = 1469598103934665603ull;
+            for (std::uint8_t b : img.rgba) h = (h ^ b) * 1099511628211ull;
+            if (rep == 0) first = h;
+            CHECK_MESSAGE(h == first, "frames " << frames << ", repetition " << rep << " differs from the first");
+        }
+    }
 }

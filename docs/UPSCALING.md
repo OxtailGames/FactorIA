@@ -53,7 +53,7 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
   (for antialiasing at the full size turn `temporalAAEnabled` on). `sharpness` is the output sharpen. A change of the output size, the
   render size or the quality starts the history again, like a cut, a floating-origin shift and the first frame.
 - **The camera's TemporalAA.** While the upscaler draws, the camera's own render-size `TemporalAA` pass is skipped (the upscaler does
-  that job in one pass). Its fields (`temporalAAFeedback`, `Sharpen`, `VarianceGamma`, `ReactiveScale`) still tune the upscaler; without the
+  that job in one pass). Its fields (`temporalAAFeedback`, `Sharpen`, `VarianceGamma`, `ReactiveScale`, `MipBias`) still tune the upscaler; without the
   effect on the camera the defaults apply.
 - **One camera.** The frame needs exactly one camera that covers the whole window (the jitter of a camera would show in the rectangle of
   the next one). With a split screen or an overlay camera the frame is drawn with the spatial upscaler (`effectiveMode` says `spatial`; it is `temporal` again on the first frame with one camera). Cameras that draw into a texture are not
@@ -70,10 +70,8 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
 - **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
   (resolve and sharpen) in the `upscale` pass; the render-size frame plus a depth prepass for the reprojection. Off (`stretch`) costs nothing:
   no pass, no image, no jitter, the same pixels.
-- **Not done yet: texture LOD bias.** The textures are sampled with the mip level of the render size, not biased by `log2(render / output)`
-  as the best upscalers do (sokol's samplers have no bias; it needs a uniform and a change at every `texture()` of the mesh, terrain, foliage and
-  material shaders). The accumulated frames and the sharpen recover most of the detail; very fine textures look a little softer than at
-  the full size.
+- **Texture detail.** The scene's textures are read with a negative mip bias while the frames accumulate, so they keep the detail of
+  the output size (see "Texture mip bias" below).
 
 ## The render scale
 
@@ -142,9 +140,15 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
   The motion image is in UV units as MetalFX reads it: from the pixel to where it was (previous minus current position), scaled by the
   render size. `metalfx_tests` checks that convention with a moving pattern: that sign is clearly better than the opposite one or none.
-  **Open:** in the renderer's own scenes `metalfx_renderer_tests` could not make the output depend on the sign of the motion image (a
-  square that moves leaves the same few pixels of ghost with either sign, or none), although the image has the right values and the
-  history does not reset; the tests there check what holds (no trail, the history resets and converges, the fallbacks) and not the sign.
+  The sign is proven in both places it matters: `metalfx_tests` (the wrapper, with a pattern that moves in x and one that moves in y: the
+  motion image's y runs down like the picture's) and `metalfx_renderer_tests` (a high-frequency stripe texture that moves under a camera that
+  pans and pitches: the motion the renderer hands over gives clearly less error than the opposite sign or none (the test asks for under 0.8 times
+  each), and beats one frame stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. `Scaler::encode`
+  splits the sokol frame and orders its own command buffer against the passes before and after it on the GPU, with shared events (the
+  CPU has no wait of its own: taking sokol's buffer of the later passes may take sokol's frame semaphore a little earlier in the frame); before
+  this the same frames, queued without a wait, gave a different picture from run to run (see
+  docs/design/ARCHITECTURE_RENDERING_POST.md, "Proof of the motion (P5c)", for what was measured; repository only, not in the binary). A MetalFX command buffer that finishes with an error is reported once
+  and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
 - **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,
   through it. At `native` quality the stage is off and MetalFX has nothing to do, like the other modes.
@@ -166,7 +170,7 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
 `PostProcess.temporalAAEnabled` switches the `TemporalAA` effect on (off by default; with it off there is no pass, no image, no jitter
 and the picture is bit for bit the one without the effect). `temporalAAFeedback` (0.5..0.98, 0.9: the share kept from the frames
 before), `temporalAASharpen` (0..1, 0.25), `temporalAAVarianceGamma` (0.5..2, 1: how far the history may stray from the neighbours
-before it is clipped) and `temporalAAReactiveScale` (0..4, 1) tune it. Like every effect it is on a camera's own PostProcess or
+before it is clipped), `temporalAAReactiveScale` (0..4, 1) and `temporalAAMipBias` (-2..0, -0.5: the texture detail, "Texture mip bias" below) tune it. Like every effect it is on a camera's own PostProcess or
 a volume.
 
 What it does: every frame the camera is shaken by a sub-pixel amount (a Halton sequence of 8 positions, by the engine's frame count,
@@ -209,6 +213,39 @@ that are not a frame of the running game (thumbnails, `capture_world`) are drawn
 screenshot of the running game is the antialiased frame it shows. The editor viewport draws like the
 game (it is the same renderer) unless the editor's view bypasses the post stack, and then it has neither the pass nor the jitter. A custom
 post pass cannot be placed `before` or `after` `temporalAA`; `before:depthOfField` runs after it.
+
+## Texture mip bias
+
+A temporal pass accumulates jittered frames, so the picture it resolves holds more detail than one frame: a texture read at the mip level
+a smaller picture picks looks softer than the accumulated picture can show. The engine reads the scene's textures at a finer level while
+the frames accumulate (what FSR 2, DLSS and XeSS ask of a game, and MetalFX too):
+
+```
+bias = log2(render width / output width) + offset      (never above 0, never below -4)
+```
+
+- **Which cameras.** The camera drawn for the temporal upscaler (`mode` `temporal`, `metalfx` and `auto` when they draw it: one jittered
+  full-window camera) takes `log2(render / output)` (0 at native quality, -1 at half the size, -1.58 at a third) plus the offset. A camera
+  with `temporalAAEnabled` and no upscaler (render scale 1) takes the offset alone. Every other frame has bias 0: `stretch`, `spatial`,
+  pixel art, a frame of several cameras (the upscaler draws it `spatial`, so it adds no ratio; a camera of that frame whose own stack has
+  `temporalAAEnabled` still takes the offset, as the temporal antialiasing alone does), cameras that draw into a texture, probe captures,
+  shadow maps and a camera with no temporal effect read the textures as they always did, bit for bit.
+- **The offset** is `PostProcess.temporalAAMipBias` (-2..0, default -0.5) of the camera's stack when its `TemporalAA` is on (the upscaler
+  uses the same stack for its other fields); a camera without the effect uses the default. -0.5 is a conservative choice (FSR 2 asks -1):
+  the accumulated picture gains the detail and the shimmer of fine textures stays low. 0 gives the pure resolution ratio at upscaling
+  and no bias at scale 1; -2 is the sharpest the field allows. The offset never makes the bias positive, so a texture is never blurred.
+- **Dynamic resolution.** The bias is computed from the render size of each frame, so it follows `window.renderScale`, the quality and the
+  dynamic resolution steps: a step from 0.75 to 0.5 moves the bias from -0.41 to -1 (plus the offset) on the next frame.
+- **What reads it.** The textures of `MeshRenderer` (base colour, normal, metallic-roughness, occlusion and emissive maps), the albedo and
+  normal layers of `Terrain` (the derivatives are scaled by 2^bias) and the impostor atlases (the level moves by the bias), the `texture`,
+  `texture.normal` and `triplanar` nodes of the material graph, and `fa_base_sample()` of a full shader. A snippet of your own adds it with
+  `texture(sampler2D(t, t_smp), uv, fa_mip_bias)` (a `float`, in the fragment stage of mesh materials and full shaders; `0` and no
+  `fa_mip_bias` in sprite, sky and post materials). Sprites, tiles, text, the UI, the shadow maps and the post passes never take a bias
+  (pixel art and the HUD stay as drawn); the splat control maps of a terrain are data and are read as they are.
+- **The depth prepass.** The prepass draws with the same fragment block as the colour pass, so a material with alpha test (`alphaMode`
+  `clip`, a cut-out leaf) reads the same bias in both: the holes the prepass cuts are the holes the colour pass draws.
+- **Cost.** One float in the fragment uniform block that already existed (`fa_env_horizon.w`), `texture` with a bias instead of without:
+  no extra pass, image or bandwidth.
 
 ## Dynamic resolution
 

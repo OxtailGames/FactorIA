@@ -717,6 +717,7 @@
     "PostProcess.temporalAAEnabled": "unreleased",
     "PostProcess.temporalAAFeedback": "unreleased",
     "PostProcess.temporalAAReactiveScale": "unreleased",
+    "PostProcess.temporalAAMipBias": "unreleased",
     "PostProcess.temporalAASharpen": "unreleased",
     "PostProcess.temporalAAVarianceGamma": "unreleased",
     "PostProcess.tonemapEnabled": "0.31.0",

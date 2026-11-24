@@ -8,8 +8,10 @@
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 
 namespace fa {
@@ -123,6 +125,24 @@ int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     return on ? kJitterPhasesDefault : 0;
 }
 
+// The texture LOD bias of a camera drawn with `phases` jitter phases (M76-P4b, docs/UPSCALING.md "Texture mip bias"). The temporal upscaler
+// (temporalPhases) draws at the render size and accumulates into the output size, so the textures are read as finely as the output would:
+// log2(render width / output width) plus the offset (the stack's temporalAAMipBias when it has the effect on, else its default). The
+// temporal antialiasing alone, a picture accumulated at its own size, takes the offset. Never above 0 (no blur), never below -4. A frame that
+// is not jittered, and a jitter a test forced, have none: the picture is the one of a renderer without the feature.
+float Renderer::Impl::mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const {
+    if (phases <= 0) return 0.0f;
+    const bool upscaler = temporalPhases > 0 && mainFrameCamera;
+    if (!upscaler && jitterForce > 0) return 0.0f;
+    static const PostProcess kDefaults;
+    const PostProcess& f = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) ? ci.postStack->fx : kDefaults;
+    const float rawOffset = f.temporalAAMipBias;
+    const double offset = std::isfinite(rawOffset) ? std::clamp(double(rawOffset), -2.0, 0.0) : -0.5;
+    double bias = offset;
+    if (upscaler && physW > 0 && targetW > 0) bias += std::log2(std::min(1.0, double(physW) / double(targetW)));
+    return float(std::clamp(bias, -4.0, 0.0));
+}
+
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget,
                                         bool blended) {
     CameraTarget target;
@@ -162,6 +182,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
         const float wPx = viewSize ? viewSize->x : float(physW) * ci.viewport.w;
         const float hPx = viewSize ? viewSize->y : float(physH) * ci.viewport.h;
         ci.apply_jitter(jitter_offset_pixels(postSerial, phases), wPx, hPx);
+        ci.mipBias = mip_bias(ci, viewSize == nullptr, phases);
     }
     // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
     // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
@@ -1205,6 +1226,12 @@ std::vector<Vec2> RendererTestAccess::last_jitter(Renderer& r) {
         for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.jitterPx);
     return out;
 }
+std::vector<float> RendererTestAccess::last_mip_bias(Renderer& r) {
+    std::vector<float> out;
+    if (r.impl_)
+        for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.mipBias);
+    return out;
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
@@ -1244,6 +1271,54 @@ void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSi
     if (!r.impl_) return;
     r.impl_->mfxJitterSign = jitterSign;
     r.impl_->mfxMotionSign = motionSign;
+}
+void RendererTestAccess::mfx_force_support(Renderer& r, bool spatial, bool temporal) {
+    if (!r.impl_) return;
+    r.impl_->mfxSupport = render::metalfx::Support{};
+    r.impl_->mfxSupport.spatial = spatial;
+    r.impl_->mfxSupport.temporal = temporal;
+    r.impl_->mfxSupportKnown = true;
+}
+void RendererTestAccess::mfx_prep_only(Renderer& r, bool only) {
+    if (r.impl_) r.impl_->mfxPrepOnly = only;
+}
+int RendererTestAccess::mfx_images(Renderer& r) {
+    return r.impl_ ? int(r.impl_->mfxDepth.color.id != 0) + int(r.impl_->mfxMotion.color.id != 0) : 0;
+}
+bool RendererTestAccess::mfx_last_wrote(Renderer& r) { return r.impl_ && r.impl_->mfxLastWrote; }
+bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error) {
+    if (!r.impl_ || !r.impl_->mfxDepth.valid() || !r.impl_->mfxMotion.valid()) {
+        if (error) *error = "the MetalFX preparation images are not alive";
+        return false;
+    }
+    Renderer::Impl& im = *r.impl_;
+    if (!im.gpu.committed()) {  // the frame's work must be submitted before a read-back waits for it
+        sg_commit();
+        im.gpu.note_commit();
+    }
+    std::vector<std::uint8_t> depth, motion;
+    if (!render::readback_storage_image(im.mfxDepth.color, SG_PIXELFORMAT_R32F, x, y, 1, 1, depth, error) ||
+        !render::readback_storage_image(im.mfxMotion.color, SG_PIXELFORMAT_RG16F, x, y, 1, 1, motion, error))
+        return false;
+    if (depth.size() < 4 || motion.size() < 4) {
+        if (error) *error = "the read-back of the MetalFX preparation images came back short";
+        return false;
+    }
+    std::memcpy(&out[0], depth.data(), 4);
+    auto half_to_float =
+        [](std::uint16_t h) {  // IEEE half -> float (the values here are normal numbers, zero or small)
+            const int sign = (h >> 15) & 1, exp = (h >> 10) & 0x1F, man = h & 0x3FF;
+            float v = exp == 0    ? std::ldexp(float(man), -24)
+                      : exp == 31 ? std::numeric_limits<float>::infinity()
+                                  : std::ldexp(float(man | 0x400), exp - 25);
+            return sign ? -v : v;
+        };
+    for (int i = 0; i < 2; ++i) {
+        std::uint16_t h;
+        std::memcpy(&h, &motion[std::size_t(i) * 2], 2);
+        out[1 + i] = half_to_float(h);
+    }
+    return true;
 }
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
