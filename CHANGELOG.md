@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ### Rendering
 
+- MetalFX (`render.upscaler` mode `metalfx`, Apple GPUs): the reactive mask of the temporal upscaler (`ParticleEmitter.reactive`, `Sprite.reactive`,
+  every additive item) is now handed to MetalFX's temporal scaler too (macOS 14.4 / iOS 17.4 or later), so a bright additive particle or sprite no
+  longer blends with the history behind it; an older OS draws as before. The tests also cover a MetalFX command buffer that fails (the queue does not
+  stall, the renderer falls back with one warning) on any Metal GPU.
+
 - `window.renderScale` now goes from 0.33 to 1 (it was 0.5 to 1) and the game is drawn smaller but the HUD and the UI (screen-space
   Text, Sprite, Shape2D, UI widgets) are drawn after the scale-up at the full window size, so their text stays sharp. Only when the post
   stack would not change them anyway: a bloom with `bloomScreenSpace` true (the default) and no final pass makes the HUD glow, so
