@@ -509,7 +509,7 @@ TEST_CASE("gdeflate: test vectors decoded by DirectStorage's codec, and its stre
 #endif
 
 TEST_CASE("gdeflate: decode speed against lz4 and zstd (prints MB/s, checks nothing about them)") {
-    const Bytes in = text_bytes(8u << 20, 77);
+    const Bytes in = text_bytes(2u << 20, 77);  // 8 blocks: enough for a rate, little time in a Debug suite
     for (Codec c : {Codec::Lz4, Codec::Zstd, Codec::GDeflate}) {
         Bytes out(in.size());
         // Blocks of 256 KiB, as the pack stores them.

@@ -236,6 +236,51 @@ TEST_CASE("directstorage: a texture region goes to DirectStorage only when every
     CHECK(plan_direct_texture_rows({}, 256, 4).empty());
 }
 
+TEST_CASE("directstorage: the block limit of a read into a GPU resource holds for DirectStorage reads only") {
+    // 600 MiB of a file: 2400 blocks, more than one DirectStorage submission holds.
+    const std::uint64_t size = std::uint64_t(600) << 20;
+    const auto blocks = blocks_of(std::size_t(size / B));
+    const auto r = plan_direct_requests(blocks, B, size, 0, size);
+    REQUIRE(r.size() == 2400);
+    CHECK_FALSE(direct_gpu_read_fits(r.size(), true));  // DirectStorage would take it: split it
+    CHECK(direct_gpu_read_fits(r.size(), false));       // the CPU fallback (lz4, a pack in memory) reads it whole
+    CHECK(direct_gpu_read_fits(kDirectGpuReadRequests, true));
+    CHECK_FALSE(direct_gpu_read_fits(kDirectGpuReadRequests + 1, true));
+}
+
+TEST_CASE("directstorage: a texture request's box is whole 4x4 blocks of a compressed mip's physical size") {
+    SUBCASE("a 2x2 mip of BC1: one block row of one 8-byte block, the box 0..4 x 0..4") {
+        const std::vector<DirectBlock> blocks{{16, 8, true}};
+        const auto r = plan_direct_requests(blocks, B, 8, 0, 8);
+        const auto spans = plan_direct_texture_rows(r, 8, 1);
+        REQUIRE(spans.size() == 1);
+        const DirectTextureBox box = direct_texture_box(0, 0, 2, 2, spans[0], true);
+        CHECK(box.left == 0);
+        CHECK(box.top == 0);
+        CHECK(box.right == 4);
+        CHECK(box.bottom == 4);
+    }
+    SUBCASE("a region that reaches the edge of a 12x6 mip at (4, 4): the box ends at 12 x 8") {
+        const DirectTextureBox box = direct_texture_box(4, 4, 8, 2, DirectRowSpan{0, 1}, true);
+        CHECK(box.left == 4);
+        CHECK(box.right == 12);
+        CHECK(box.top == 4);
+        CHECK(box.bottom == 8);
+    }
+    SUBCASE("block rows split over requests: each box starts on its own block row") {
+        const DirectTextureBox second = direct_texture_box(0, 8, 64, 2050, DirectRowSpan{256, 257}, true);
+        CHECK(second.top == 8 + 256 * 4);
+        CHECK(second.bottom == 8 + 2052);  // the last block row, rounded up to whole blocks
+    }
+    SUBCASE("an uncompressed format: the texels as they are") {
+        const DirectTextureBox box = direct_texture_box(3, 5, 7, 9, DirectRowSpan{2, 4}, false);
+        CHECK(box.left == 3);
+        CHECK(box.right == 10);
+        CHECK(box.top == 7);
+        CHECK(box.bottom == 11);
+    }
+}
+
 TEST_CASE("directstorage: a pack tells where a range's blocks lie and checks their stored bytes") {
     struct Scratch {
         stdfs::path dir = fs::make_temp_dir("fa_test_dstorage_layout").value();

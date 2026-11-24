@@ -105,4 +105,18 @@ std::vector<DirectRowSpan> plan_direct_texture_rows(std::span<const DirectReques
     return out;
 }
 
+DirectTextureBox direct_texture_box(std::uint32_t x, std::uint32_t y, std::uint32_t width, std::uint32_t height,
+                                    DirectRowSpan span, bool compressed) {
+    const std::uint64_t texelRows = compressed ? 4 : 1;
+    auto whole = [&](std::uint64_t v) { return compressed ? (v + 3) / 4 * 4 : v; };
+    auto u32 = [](std::uint64_t v) { return v > 0xffffffffull ? 0xffffffffu : std::uint32_t(v); };
+    const std::uint64_t right = whole(std::uint64_t(x) + width), bottom = whole(std::uint64_t(y) + height);
+    DirectTextureBox b;
+    b.left = x;
+    b.right = u32(right);
+    b.top = u32(y + span.firstRow * texelRows);
+    b.bottom = u32(std::min(bottom, y + (std::uint64_t(span.firstRow) + span.rowCount) * texelRows));
+    return b;
+}
+
 }  // namespace fa::detail
