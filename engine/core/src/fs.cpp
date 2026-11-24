@@ -20,6 +20,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 #ifdef _WIN32
 #include <process.h>
@@ -446,6 +447,27 @@ Result<stdfs::path> make_temp_dir(std::string_view prefix) {
 #endif
     }
     return fail("every name tried was taken");
+}
+
+Result<stdfs::path> make_temp_dir_until_exit(std::string_view prefix) {
+    // Removed in the destructor of this static, at the end of the process (failures are ignored: a file still open on
+    // Windows cannot be deleted, and a destructor never throws).
+    struct Registry {
+        std::mutex mutex;
+        std::vector<stdfs::path> dirs;
+        ~Registry() {
+            for (auto it = dirs.rbegin(); it != dirs.rend(); ++it) {
+                std::error_code ec;
+                stdfs::remove_all(*it, ec);
+            }
+        }
+    };
+    static Registry registry;
+    auto made = make_temp_dir(prefix);
+    if (!made.ok()) return made;
+    std::lock_guard<std::mutex> lock(registry.mutex);
+    registry.dirs.push_back(*made);
+    return made;
 }
 
 const stdfs::path& user_dir() {

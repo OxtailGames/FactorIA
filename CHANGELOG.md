@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ## Unreleased
 
+- The test suites no longer leave temporary project folders behind in the temp folder (the render tests' project folder, the menu kit,
+  tool catalog, menu screenshot and layout check tests, the windowed runtime tests, the editor autotest's MCP config copy):
+  `fs::make_temp_dir_until_exit` makes a scratch folder that is removed when the program ends.
+
 ### Rendering
 
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded

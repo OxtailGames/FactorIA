@@ -78,6 +78,11 @@ Result<std::filesystem::path> temp_base();
 // exist yet is made. The error says why (full or read-only temp folder, a file system that ignores modes) and how to fix it.
 Result<std::filesystem::path> make_temp_dir(std::string_view prefix);
 
+// make_temp_dir, and the folder with everything in it is removed when the process ends (static destruction), for test
+// programs and tools whose scratch folders would otherwise pile up in the temp folder. A failure to remove it (a file
+// still open on Windows) is ignored.
+Result<std::filesystem::path> make_temp_dir_until_exit(std::string_view prefix);
+
 // Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE
 // path read_bytes, read_text, exists, is_directory, file_size, modified_time and list are given is answered by the pack
 // alone: a file that is not in it is "not found" (with a "did you mean" from the pack's index), whatever lies in the

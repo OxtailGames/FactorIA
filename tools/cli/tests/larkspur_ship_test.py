@@ -37,7 +37,10 @@ def main():
     tmp = tempfile.mkdtemp(prefix="fa_larkspur_ship_")
     try:
         exports = os.path.join(tmp, "export")
-        p = subprocess.run([FACTORIA, "export", os.path.abspath(GAME), "--out", exports, "--player", PLAYER], capture_output=True, text=True)
+        # Exported from a copy: the export compiles the shaders into the project's .factoria/shader-cache, and the source tree stays clean.
+        game_copy = os.path.join(tmp, "game")
+        shutil.copytree(os.path.abspath(GAME), game_copy, ignore=shutil.ignore_patterns(".factoria"))
+        p = subprocess.run([FACTORIA, "export", game_copy, "--out", exports, "--player", PLAYER], capture_output=True, text=True)
         if not check(p.returncode == 0, "factoria export larkspur-lodge", p.stdout + p.stderr):
             return
         root = os.path.join(exports, "larkspur-lodge-" + HOST)
