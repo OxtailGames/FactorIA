@@ -214,8 +214,9 @@ frame of a build without the feature, bit for bit. One setting block, three plac
 - the command `render.dynamic_resolution` (no argument reads; any key changes those and keeps the rest; a wrong value fails with
   `invalid_argument` and changes nothing);
 - scripts: `window.dynamicResolution` reads `{enabled, targetMs, minScale, maxScale}` plus the read-only `effectiveTargetMs`, `scale`
-  (the factor in force, 1 while off), `frameMs` (the smoothed frame time the controller sees, 0 until one was measured) and `source`;
-  writing it takes any of the four keys (a read can be written back).
+  (the factor in force, 1 while off), `frameMs` (the smoothed frame time the controller sees, 0 until one was measured), `source`,
+  `refreshHz` and `refreshSource` (the display's refresh rate, below); writing it takes any of the four keys (a read can be written
+  back). The command returns the same keys.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -236,8 +237,25 @@ reads as 1. `game.render_stats` and `window.upscaler` report `dynamicScale` (the
 mean of the frames the renderer timed since the last tick (a result arrives a few frames late). Elsewhere (Metal, GLES3, WebGL2) and
 whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window that renders only
 on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
-`source` `"injected"`). "One refresh of the display" is 16.7 ms (60 Hz): the platform layer has no refresh-rate query on every
-platform yet, so the controller does not follow a 120 Hz or 144 Hz display by itself; set `targetMs` for those.
+`source` `"injected"`).
+
+**The display's refresh rate.** A `targetMs` of 0 holds one refresh of the display the window is on: `1000 / refreshHz` ms, 8.3 ms
+on a 120 Hz display, 6.9 ms on a 144 Hz one. `refreshHz` (rounded to 0.1 Hz, reported while the controller is off too) and
+`refreshSource` say which rate is followed and where it comes from:
+
+| `refreshSource` | Where | The rate |
+|---|---|---|
+| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's current display mode (a 59 is read as 59.94), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
+| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them |
+| `"default"` | no window (headless, tests, `graphics=false`), the editor, and an estimate that cannot be made | 60 Hz |
+
+The estimate is made only while the display paces the frames: with vsync off (`display.vsync`, `window.vsync`), a `window.frameCap`
+or a window that renders on demand the time between frames is the game's, not the display's, so the rate stays the default 60 Hz
+until they pace it again (the estimate then starts over). A game that cannot keep up with the display during the first second
+measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display); set `targetMs` where that matters. The platform is
+asked again every 2 s of frames, so a window dragged to another monitor follows that one's rate (an estimate starts over when the
+display's size changes). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
+holds, never the simulation.
 
 **How it moves** (`render::DynamicResolutionController`, deterministic: the same numbers give the same scales on every machine):
 

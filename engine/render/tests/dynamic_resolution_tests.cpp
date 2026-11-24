@@ -109,6 +109,82 @@ TEST_CASE("dynamic resolution: the target follows the display when it is unset")
     CHECK(dynamic_target_ms(s, 120.0) == doctest::Approx(33.3));
 }
 
+namespace {
+
+// Feeds `n` intervals made by `make(i)` and returns the call that finished the estimate (-1: none did).
+int feed(RefreshRateEstimator& e, int n, const std::function<double(int)>& make) {
+    for (int i = 0; i < n; ++i)
+        if (e.add(make(i))) return i;
+    return -1;
+}
+
+}  // namespace
+
+TEST_CASE("refresh rate estimate: the median of the presented frames, after the first ones, without the hitches") {
+    SUBCASE("a steady 144 Hz display, behind a slow start") {
+        RefreshRateEstimator e;
+        const int last =
+            feed(e, 400, [](int i) { return i < RefreshRateEstimator::kSkipFrames ? 40.0 : 1000.0 / 144.0; });
+        CHECK(last == RefreshRateEstimator::kSkipFrames + RefreshRateEstimator::kSamples - 1);
+        REQUIRE(e.done());
+        CHECK(e.hz() == doctest::Approx(144.0));
+        CHECK_FALSE(e.add(5.0));  // done: later frames change nothing
+        CHECK(e.hz() == doctest::Approx(144.0));
+    }
+    SUBCASE("noise around 120 Hz and hitches over 50 ms are left out") {
+        RefreshRateEstimator e;
+        // +-0.4 ms of noise (a fixed pattern, no rng), a 200 ms load every 7th frame and a 30 ms double frame every 13th.
+        const int last = feed(e, 400, [](int i) {
+            if (i % 7 == 3) return 200.0;
+            if (i % 13 == 5) return 30.0;
+            return 1000.0 / 120.0 + 0.4 * double((i * 37) % 9 - 4) / 4.0;
+        });
+        REQUIRE(last > 0);
+        CHECK(e.samples() == RefreshRateEstimator::kSamples);
+        CHECK(e.hz() == doctest::Approx(120.0).epsilon(0.02));
+        // The target it gives: one 120 Hz refresh.
+        DynamicResolutionSettings s = on();
+        s.targetMs = 0.0;
+        CHECK(dynamic_target_ms(s, e.hz()) == doctest::Approx(1000.0 / 120.0).epsilon(0.02));
+    }
+    SUBCASE("59.94 Hz is not rounded") {
+        RefreshRateEstimator e;
+        feed(e, 200, [](int) { return 1001.0 / 60.0; });
+        CHECK(e.hz() == doctest::Approx(59.94).epsilon(0.0005));
+    }
+    SUBCASE("a game slower than 20 fps gives up after kMaxFrames, with no rate: the default holds") {
+        RefreshRateEstimator e;
+        const int last = feed(e, 1000, [](int) { return 70.0; });
+        CHECK(last == RefreshRateEstimator::kMaxFrames - 1);
+        CHECK(e.done());
+        CHECK(e.hz() == 0.0);
+        DynamicResolutionSettings s = on();
+        s.targetMs = 0.0;
+        CHECK(dynamic_target_ms(s, e.hz()) == doctest::Approx(1000.0 / kDynamicDefaultRefreshHz));
+    }
+    SUBCASE("nonsense intervals are ignored and reset() starts over") {
+        RefreshRateEstimator e;
+        feed(e, 30, [](int i) { return i % 2 ? -1.0 : 0.0; });
+        CHECK(e.samples() == 0);
+        CHECK_FALSE(e.done());
+        feed(e, 200, [](int) { return 1000.0 / 75.0; });
+        CHECK(e.hz() == doctest::Approx(75.0));
+        e.reset();
+        CHECK_FALSE(e.done());
+        CHECK(e.hz() == 0.0);
+        CHECK(e.samples() == 0);
+        feed(e, 200, [](int) { return 1000.0 / 240.0; });
+        CHECK(e.hz() == doctest::Approx(240.0));
+    }
+    SUBCASE("the same intervals give the same rate") {
+        RefreshRateEstimator a, b;
+        auto jitter = [](int i) { return 16.0 + double((i * 7919) % 101) / 100.0; };
+        feed(a, 300, jitter);
+        feed(b, 300, jitter);
+        CHECK(a.hz() == b.hz());
+    }
+}
+
 TEST_CASE("dynamic resolution: off is a factor of 1 and never changes") {
     DynamicResolutionController c;
     CHECK(c.scale() == 1.0f);

@@ -190,6 +190,27 @@ bool mobile_native_event(const void* nativeEvent) {
 // The keys and what the input method composed and typed, in the order they came (ime_android.cpp).
 void mobile_poll(Input& input) { ime_android_poll(input); }
 
+// activity.getWindowManager().getDefaultDisplay().getRefreshRate(): the display the activity's window is on (API 1; the
+// call still works where getDefaultDisplay is deprecated, API 30). The local frame frees every reference made here.
+double mobile_display_refresh_hz() {
+    JNIEnv* env = android_thread_env();
+    const ANativeActivity* act = android_activity();
+    if (!env || !act || !act->clazz || env->PushLocalFrame(16) != JNI_OK) return 0.0;
+    double hz = 0.0;
+    if (jobject wm = call_object(env, act->clazz, "getWindowManager", "()Landroid/view/WindowManager;")) {
+        if (jobject display = call_object(env, wm, "getDefaultDisplay", "()Landroid/view/Display;")) {
+            jclass cls = env->GetObjectClass(display);
+            jmethodID id = cls ? env->GetMethodID(cls, "getRefreshRate", "()F") : nullptr;
+            if (!android_clear_exception(env) && id) {
+                const jfloat rate = env->CallFloatMethod(display, id);
+                if (!android_clear_exception(env)) hz = double(rate);
+            }
+        }
+    }
+    env->PopLocalFrame(nullptr);
+    return hz;
+}
+
 EdgeInsets mobile_safe_insets() {
     JNIEnv* env = android_thread_env();
     const ANativeActivity* act = android_activity();
