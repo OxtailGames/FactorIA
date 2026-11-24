@@ -29,15 +29,47 @@ end, a destroyed handle) is reported the same way and records nothing. `make_sha
 every failing call (`gpu d3d12: make_shader '<label>': ...`) and return a handle whose state is `Failed`; a
 `CommandList` method reports `gpu d3d12: CommandList::<method> in list '<label>': ...` and records nothing.
 
-**Frames, fences, deferred destruction.** One direct queue and one fence. `submit(list)` closes the list and executes
-it, then signals the fence; `commit()` signals the frame's fence value, and once more frames than `framesInFlight`
-were committed it waits (up to 120 s, then an error) for the oldest one, whose descriptor segment and ring room the
-new frame reuses. `destroy_*` frees the handle at once and keeps the D3D12 object (and its descriptors) in a deferred
-list tagged with the current frame; it is released once that frame's fence passed (`counters().pendingReleases`).
+**Frames, fences, deferred destruction.** Three queues, each with its own 64-bit fence (see "Queues" below).
+`submit(list)` closes the list and executes it on its queue, then signals that queue's fence; `commit()` signals the
+graphics fence and records the frame's value of every queue's fence, and once more frames than `framesInFlight` were
+committed it waits (up to 120 s, then an error) for the oldest one on every queue, whose descriptor segment and ring
+room the new frame reuses. `destroy_*` frees the handle at once and keeps the D3D12 object (and its descriptors) in a
+deferred list tagged with the current frame; it is released once every queue passed that frame's value
+(`counters().pendingReleases`).
 `execute` keeps every resource a submitted list used alive until that frame is done, so a resource destroyed while
 the GPU still reads it lives on. `wait_idle()` drains the queue and releases everything pending. A list must be
 submitted in the frame `begin_commands` gave it (its uniforms and descriptors sit in that frame's ring room and
 descriptor segment): one submitted after a `commit()` is dropped with an error.
+
+**Queues (M77-P10b).** A direct queue (Graphics), a COMPUTE queue (Compute) and a COPY queue (Transfer, the copy
+engine), each with its own fence, command allocators and lists of its type; `D3d12Options::asyncQueues = false`, or a
+GPU that cannot make one, leaves it out: Transfer lists then run on the compute queue (or the direct one), Compute
+lists on the direct one, and `CommandList::queue()` says which. `features().asyncCompute` is true when the compute queue exists.
+`submit_token(list, handoffs)` returns `{queue, fence value}`; a dropped list still signals, so its token can be
+waited for. `wait_list` records the token in the list (any thread) and its submit makes the queue `Wait` on the other
+queue's fence before the list and its fix-up list; `wait_queue` waits at once. Waiting for a token no `submit_token`
+returned is reported and ignored. Handoffs are resolved at submit, on the render thread: every resource remembers its
+owner queue (new ones: Graphics) and the token of its last handoff. A handoff of a texture moves it to COMMON at the end
+of the producer's list (buffers are COMMON between lists anyway); the consumer's fix-up list moves it on from there,
+on the consumer's queue type. A list that uses a resource its queue does not own is dropped with an error naming the
+resource, the queues and the `QueueHandoff` that fixes it; one that uses a handed-over resource without waiting for
+its token is reported and the wait is added. The device's own lists (uploads, readbacks: direct) may touch what
+another queue owns: their queue waits for that queue first, leaves its textures in COMMON, and that queue waits for
+them in turn. A COPY list sets no descriptor heap and its resources decay to COMMON after it ran; a Compute list reads
+bound textures as NON_PIXEL_SHADER_RESOURCE only, and a Transfer list records no pass.
+
+**Threads (M77-P10b).** `features().multiThreadRecording` is true: `begin_commands`, every list call and `wait_list`
+may run on any thread, each list with its own allocator. The resource pools share one lock; the CPU descriptor heaps,
+the upload ring, the shader-visible heaps, the timers and the lists each have their own, so different lists record at
+the same time. The descriptor copies of `set_bindings` and the attachment lookups of `begin_pass` run under the
+resource lock, so a `destroy_*` on the render thread never removes a record one of them is reading. Lock order: queue, then timers; resources, then the
+heaps and the bindless slots (always last).
+
+**Bindless (M77-P10b).** `features().bindless` is true when the device made a bindless table. Every live texture view
+gets a slot of it when it is made (a copy of its SRV, `bindless_index(view)`), `kNoBindlessIndex` once the table is
+full or for any other view. The slot goes back with the view's descriptors once the frames that may read it are done,
+after a null SRV is written into it. The root signatures are version 1.0 (volatile descriptors), so a slot is written
+while other lists run.
 
 **Descriptors.** Four CPU heaps (views, colour attachments, depth attachments, samplers) with LIFO free lists; a full
 heap fails the view or sampler (state `Failed`) with an error that names the `D3d12Options` field to raise. The
@@ -95,13 +127,16 @@ decoded on the CPU and uploaded, with one warning per reason. ARCHITECTURE_FILES
 `d3d12_pack_reads_tests.cpp` tests both paths on WARP.
 
 **GPU timers.** Timestamp queries on the direct queue (`GetTimestampFrequency`; `timer_supported` is false with the
-reason when the queue cannot give one or the query heaps cannot be made). Like GpuTimer on D3D11 and GL: a ring of 6
+reason when the queue cannot give one or the query heaps cannot be made). Scopes of a compute list are timed with the
+compute queue's own frequency (when it has one; the frame's resolve waits for the compute fence value they end at);
+scopes of a copy list are ignored. Like GpuTimer on D3D11 and GL: a ring of 6
 timed frames, each with its own query heap and READBACK buffer (a full ring skips the frame), query 0 and 1 the
 frame's start and end, two per scope after them, at most 64 scopes per frame. `timer_begin_frame` and
 `timer_end_frame` record their timestamps on the internal list; the end also resolves the frame's queries into its
 buffer and executes it, and its fence value says when `timer_poll` can read it (in order, never waiting). Scopes do
 not nest (a begin ends the one still open, submit ends one left open) and do nothing outside a timed frame; a scope
-whose list was not submitted before `timer_end_frame` is not reported. `timer_last_scopes` is the newest resolved
+whose list was not submitted before `timer_end_frame` is not reported. A slot is not taken again while a list that
+holds one of its scopes is open, nor before every queue finished writing its queries. `timer_last_scopes` is the newest resolved
 frame's scopes in the order they ran; `timer_forget` drops what is in flight.
 
 **Shaders.** `make_shader` takes shader model 5.x DXBC (`bytecode`, which must start with `DXBC`; DXIL is not taken)
@@ -129,8 +164,9 @@ D3D12 would refuse or misdraw first: a vertex attribute without an HLSL semantic
 sample count other than 1, 2, 4 or 8, a compute pipeline with a render shader or the reverse, a failed shader. PSOs
 are cached in memory by a key text of the bytecode's SHA-256, the root signature's key and every field
 (`counters().psos`, `psoCacheHits`, `psoCacheMisses`): equal descs share one PSO, which lives as long as the device.
-On resource binding tier 1 a shader with more writable views (storage buffers and images, all stages) than the tier
-binds (8 at feature level 11.0, 64 above) fails with the count and the limit. `storage_image_loadable` asks the
+On resource binding tier 1 a shader with more writable views (storage buffers and images, all stages; a view that
+several stages see counts once) than the tier binds (8 at feature level 11.0, 64 above) fails with the count and the
+limit. `storage_image_loadable` asks the
 format's `UAV_TYPED_LOAD` support (and `TypedUAVLoadAdditionalFormats` for all but R32F) and says which one is missing.
 
 **Pipeline cache on disk (M77-P7b).** With `D3d12Options::pipelineCacheFile` set (the engine's file is
@@ -172,7 +208,12 @@ pass; a uniform-colour fullscreen triangle into RGBA8 and RGBA16F; the engine's 
 viewport; an MSAA 4x resolve (the texels on the triangle's edge are partly covered); a compute pass writing a storage
 image and a storage buffer, whose second dispatch reads the first's writes. GPU timers: timed frames with two scopes
 resolving to non-negative times in order, a scope outside a timed frame, an unsubmitted scope, `timer_forget` and a
-full ring, a dropped frame's slot, a scope whose slot was reused. Asynchronous reads: a buffer, a 33x3 region of a 37x5 RGBA8 image (rows that are not 256-byte multiples),
+full ring, a dropped frame's slot, a list open over the whole ring that keeps its slot. Queues: lists of each queue,
+tokens and a made-up one, a device without the side queues; a buffer from graphics to compute and back (and the errors
+of a missing handoff and a missing wait); a texture written by compute and sampled by graphics, three frames over; two
+threads recording on the graphics and compute queues while the render thread destroys other resources; bindless slots
+of live views, read by a shader, and a freed slot reused; a timed scope on a copy list ignored, graphics and compute
+scopes measured. Asynchronous reads: a buffer, a 33x3 region of a 37x5 RGBA8 image (rows that are not 256-byte multiples),
 bad requests, a read that outlives `destroy_buffer`, stale and released tickets, 32 reads in flight and the 33rd
 refused, a slot buffer that grows. The pipeline cache file: a second device loads every PSO from it; a damaged
 file, another GPU's, another driver's, a cut one and one that is not a cache are each thrown away with one warning; a

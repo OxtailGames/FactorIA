@@ -8,6 +8,13 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
+  `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
+  a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is
+  dropped with an error that names the handoff to add). `features()` now says `asyncCompute`, `multiThreadRecording` (lists record on any
+  thread) and `bindless` (every live texture view has a slot of the bindless table, `bindless_index`). Compute lists' timed scopes are
+  measured, copy lists' are ignored, and a list kept open no longer lets the timer ring reuse its slot. On binding tier 1 a writable view
+  that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The
