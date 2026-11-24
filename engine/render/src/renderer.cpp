@@ -269,6 +269,20 @@ gpu::Backend device_backend_of(GpuBackend b) {
     return gpu::built_sokol_backend();
 }
 
+GpuBackend public_backend_of(gpu::Backend b) {
+    switch (b) {
+        case gpu::Backend::Gl: return GpuBackend::Gl;
+        case gpu::Backend::Gles3: return GpuBackend::Gles3;
+        case gpu::Backend::WebGl2: return GpuBackend::WebGl2;
+        case gpu::Backend::D3d11: return GpuBackend::D3d11;
+        case gpu::Backend::Metal: return GpuBackend::Metal;
+        case gpu::Backend::D3d12: return GpuBackend::D3d12;
+        case gpu::Backend::Vulkan: return GpuBackend::Vulkan;
+        case gpu::Backend::Recording: return GpuBackend::Recording;
+    }
+    return GpuBackend::Default;
+}
+
 // The backends that run on the sokol context (one per binary).
 bool is_sokol_backend(gpu::Backend b) {
     return b == gpu::Backend::Gl || b == gpu::Backend::Gles3 || b == gpu::Backend::WebGl2 || b == gpu::Backend::D3d11 ||
@@ -276,6 +290,46 @@ bool is_sokol_backend(gpu::Backend b) {
 }
 
 }  // namespace
+
+const char* gpu_backend_name(GpuBackend backend) {
+    switch (backend) {
+        case GpuBackend::Default: return "auto";
+        case GpuBackend::Gl: return "gl";
+        case GpuBackend::Gles3: return "gles3";
+        case GpuBackend::WebGl2: return "webgl2";
+        case GpuBackend::D3d11: return "d3d11";
+        case GpuBackend::Metal: return "metal";
+        case GpuBackend::D3d12: return "d3d12";
+        case GpuBackend::Vulkan: return "vulkan";
+        case GpuBackend::Recording: return "recording";
+    }
+    return "auto";
+}
+
+std::optional<GpuBackend> parse_gpu_backend_name(std::string_view name) {
+    if (name == "auto") return GpuBackend::Default;
+    for (GpuBackend b : {GpuBackend::Gl, GpuBackend::Gles3, GpuBackend::WebGl2, GpuBackend::D3d11, GpuBackend::Metal,
+                         GpuBackend::D3d12, GpuBackend::Vulkan})
+        if (name == gpu_backend_name(b)) return b;
+    return std::nullopt;
+}
+
+std::vector<std::string> gpu_backend_names() {
+    std::vector<std::string> out;
+    for (GpuBackend b : {GpuBackend::Gl, GpuBackend::Gles3, GpuBackend::WebGl2, GpuBackend::D3d11, GpuBackend::Metal,
+                         GpuBackend::D3d12, GpuBackend::Vulkan})
+        out.emplace_back(gpu_backend_name(b));
+    return out;
+}
+
+bool gpu_backend_available(GpuBackend backend) {
+    return backend == GpuBackend::Default || gpu::device_backend_compiled(device_backend_of(backend));
+}
+
+GpuBackend Renderer::device_backend() const {
+    if (!impl_ || !impl_->gpu.has_device()) return GpuBackend::Default;
+    return public_backend_of(impl_->gpu.device().backend());
+}
 
 Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
 Renderer::~Renderer() { shutdown(); }
@@ -461,7 +515,7 @@ Json Renderer::startup_report() const {
     // The cache of the device the renderer draws with (D3D12 keeps stages of its own), not of the sokol backend.
     const gpu::Backend backend =
         impl_ && impl_->gpu.has_device() ? impl_->gpu.device().backend() : gpu::built_sokol_backend();
-    Json j = shader_build_stats().to_json(backend_name());
+    Json j = shader_build_stats().to_json(gpu::backend_name(backend));
     j["cache"] = shader_cache_mode(backend);
     if (impl_) {
         j["pipelinesWarmed"] = int(impl_->warmPipelines);
