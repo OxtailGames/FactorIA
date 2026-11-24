@@ -10,10 +10,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "gpu/d3d12_device.h"
 #include "gpu/sg_bridge.h"
 #include "shaders/blit.glsl.h"
@@ -1749,6 +1751,374 @@ TEST_CASE("d3d12: async read tickets are generation-checked, and every slot can 
     CHECK(out == big);
     step = "the debug layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+// ---- the PSO cache on disk (M77-P7b) -------------------------------------------------------------------------------
+
+namespace {
+
+using fa::gpu::d3d12::PipelineCacheFile;
+
+// A folder of its own for a case's cache file, removed at the end. The accent: the path never goes through the ANSI
+// code page.
+struct CacheDir {
+    std::filesystem::path path;
+    explicit CacheDir(const char* name) {
+        path = std::filesystem::temp_directory_path() / std::filesystem::path(u8"fa-d3d12-pso-caché");
+        path += std::filesystem::path(std::string("-") + name + "-" + std::to_string(GetCurrentProcessId()));
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        std::filesystem::create_directories(path, ec);
+    }
+    ~CacheDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+    CacheDir(const CacheDir&) = delete;
+    CacheDir& operator=(const CacheDir&) = delete;
+    std::filesystem::path file() const { return path / "d3d12-pipelines.bin"; }
+};
+
+// A WARP device that caches its PSOs in `file`, or null (with a MESSAGE) when it has no pipeline library.
+std::unique_ptr<D3d12Device> make_cached_warp(const std::filesystem::path& file) {
+    D3d12Options o;
+    o.pipelineCacheFile = file;
+    auto dev = make_warp(o);
+    if (dev && !dev->counters().pipelineLibrary) {
+        MESSAGE("d3d12: skipped, this device has no pipeline library: " << all_errors(*dev));
+        return nullptr;
+    }
+    return dev;
+}
+
+// Three PSOs: the fill shader into RGBA8 and into RGBA16F, and the compute shader. Returns the RGBA8 one.
+Pipeline make_cache_pipelines(D3d12Device& dev) {
+    const Shader fill = dev.make_shader(fill_shader_desc());
+    const Pipeline rgba8 = dev.make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+    const Pipeline rgba16 = dev.make_pipeline(render_desc(fill, PixelFormat::Rgba16F));
+    ShaderDesc sd;
+    sd.computeFunc.source = kComputeCs;
+    sd.uniformBlocks[0].stage = ShaderStage::Compute;
+    sd.uniformBlocks[0].size = 16;
+    sd.views[0].storageImage.stage = ShaderStage::Compute;
+    sd.views[0].storageImage.imageType = ImageType::Tex2d;
+    sd.views[0].storageImage.accessFormat = PixelFormat::Rgba8;
+    sd.views[1].storageBuffer.stage = ShaderStage::Compute;
+    sd.views[1].storageBuffer.hlslRegisterU = 1;
+    sd.label = "compute";
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev.make_shader(sd);
+    pd.label = "compute";
+    const Pipeline compute = dev.make_pipeline(pd);
+    CHECK_MESSAGE(dev.state(rgba8) == ResourceState::Valid, all_errors(dev));
+    CHECK_MESSAGE(dev.state(rgba16) == ResourceState::Valid, all_errors(dev));
+    CHECK_MESSAGE(dev.state(compute) == ResourceState::Valid, all_errors(dev));
+    return rgba8;
+}
+
+// The fill pipeline draws (64, 128, 191, 255) over a 4x4 RGBA8 target.
+void check_fill_draws(D3d12Device& dev, Pipeline pip) {
+    const Target t = make_target(dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    const Vec4 depth{0.0f, 0.0f, 0.0f, 0.0f};
+    const Vec4 colour{0.25f, 0.5f, 0.75f, 1.0f};
+    CommandList& list = dev.begin_commands("cached");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(pip);
+    list.set_uniforms(0, bytes_of(depth));
+    list.set_uniforms(1, bytes_of(colour));
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(dev, list);
+    const std::string bad = first_mismatch(read_rgba8(dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{64, 128, 191, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+}
+
+// The device's warnings about its pipeline cache file.
+std::vector<std::string> cache_warnings(D3d12Device& dev) {
+    std::vector<std::string> out;
+    for (const std::string& w : dev.warnings())
+        if (contains(w, "pipeline cache")) out.push_back(w);
+    return out;
+}
+
+std::vector<std::uint8_t> file_bytes(const std::filesystem::path& file) {
+    auto r = fa::fs::read_bytes(fa::fs::path_to_utf8(file));
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    return r.value();
+}
+
+void put_file(const std::filesystem::path& file, const std::vector<std::uint8_t>& bytes) {
+    auto r = fa::fs::write_bytes(fa::fs::path_to_utf8(file), bytes.data(), bytes.size());
+    REQUIRE_MESSAGE(r, r.error().to_string());
+}
+
+}  // namespace
+
+TEST_CASE("d3d12: a second device loads its PSOs from the pipeline cache file the first one wrote") {
+    const CacheDir dir("hits");
+    const fa::gpu::D3d12PipelineCacheTotals before = fa::gpu::d3d12_pipeline_cache_totals();
+    {
+        auto dev = make_cached_warp(dir.file());
+        if (!dev) return;
+        CHECK(dev->pipeline_cache_file() == dir.file());
+        make_cache_pipelines(*dev);
+        d3d12::D3d12Counters c = dev->counters();
+        CHECK(c.psoLibraryMisses == 3);  // compiled and stored
+        CHECK(c.psoLibraryHits == 0);
+        CHECK(c.pipelineCacheDiscarded == 0);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        REQUIRE(std::filesystem::exists(dir.file()));
+        CHECK(std::filesystem::file_size(dir.file()) > PipelineCacheFile::kHeaderBytes);
+        saved = dev->save_pipeline_cache();  // nothing new: the file is not written again
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    auto dev = make_cached_warp(dir.file());
+    REQUIRE(dev);
+    const Pipeline pip = make_cache_pipelines(*dev);
+    const d3d12::D3d12Counters c = dev->counters();
+    CHECK(c.psoLibraryHits == 3);  // loaded from the library, none compiled
+    CHECK(c.psoLibraryMisses == 0);
+    CHECK(c.pipelineCacheDiscarded == 0);
+    check_fill_draws(*dev, pip);
+    CHECK(cache_warnings(*dev).empty());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    const fa::gpu::D3d12PipelineCacheTotals after = fa::gpu::d3d12_pipeline_cache_totals();
+    CHECK(after.libraryHits >= before.libraryHits + 3);
+    CHECK(after.libraryMisses >= before.libraryMisses + 3);
+    CHECK(after.filesLoaded >= before.filesLoaded + 1);
+    CHECK(after.filesStored >= before.filesStored + 1);
+}
+
+TEST_CASE(
+    "d3d12: a damaged or foreign pipeline cache file is thrown away with one warning, and pipelines still build") {
+    const CacheDir dir("discard");
+    std::vector<std::uint8_t> good;
+    {
+        auto dev = make_cached_warp(dir.file());
+        if (!dev) return;
+        make_cache_pipelines(*dev);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        good = file_bytes(dir.file());
+    }
+    REQUIRE(good.size() > PipelineCacheFile::kHeaderBytes);
+    struct Variant {
+        const char* name;
+        const char* why;  // in the warning
+        std::vector<std::uint8_t> bytes;
+    };
+    std::vector<Variant> variants;
+    variants.push_back({"a flipped payload byte", "checksum does not match", good});
+    variants.back().bytes.back() = std::uint8_t(good.back() ^ 0x5au);
+    variants.push_back({"another GPU's vendor id", "made on another GPU", good});
+    variants.back().bytes[PipelineCacheFile::kVendorAt] = std::uint8_t(good[PipelineCacheFile::kVendorAt] ^ 1u);
+    variants.push_back({"another driver version", "made by driver", good});
+    variants.back().bytes[PipelineCacheFile::kDriverAt] = std::uint8_t(good[PipelineCacheFile::kDriverAt] ^ 1u);
+    variants.push_back({"not a cache file", "not a FactorIA pipeline cache", pattern(4096, 7)});
+    variants.push_back(
+        {"a cut header", "fewer than its header", std::vector<std::uint8_t>(good.begin(), good.begin() + 40)});
+    for (const Variant& v : variants) {
+        INFO("file: " << v.name);
+        put_file(dir.file(), v.bytes);
+        auto dev = make_cached_warp(dir.file());
+        REQUIRE(dev);
+        const std::vector<std::string> warned = cache_warnings(*dev);
+        REQUIRE(warned.size() == 1);
+        CHECK(contains(warned[0], "was thrown away"));
+        CHECK(contains(warned[0], v.why));
+        CHECK(contains(warned[0], "deleting the file clears the cache"));
+        CHECK(dev->counters().pipelineCacheDiscarded == 1);
+        const Pipeline pip = make_cache_pipelines(*dev);  // compiled again
+        CHECK(dev->counters().psoLibraryMisses == 3);
+        check_fill_draws(*dev, pip);
+        auto saved = dev->save_pipeline_cache();  // the file is written anew
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        CHECK(cache_warnings(*dev).size() == 1);  // once, not per pipeline
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    auto dev = make_cached_warp(dir.file());  // the rewritten file is good again
+    REQUIRE(dev);
+    make_cache_pipelines(*dev);
+    CHECK(dev->counters().pipelineCacheDiscarded == 0);
+    CHECK(dev->counters().psoLibraryHits == 3);
+    CHECK(cache_warnings(*dev).empty());
+
+    // A reader holds the file (Windows replaces no open file): the write fails, warns and keeps the old file.
+    const std::vector<std::uint8_t> old = file_bytes(dir.file());
+    const Shader fill = dev->make_shader(fill_shader_desc());
+    const Pipeline extra = dev->make_pipeline(render_desc(fill, PixelFormat::R32F));  // something new to store
+    REQUIRE_MESSAGE(dev->state(extra) == ResourceState::Valid, all_errors(*dev));
+    {
+        fa::fs::ReadStream reader(dir.file(), std::ios::binary);
+        REQUIRE(reader.is_open());
+        auto saved = dev->save_pipeline_cache();
+        CHECK_FALSE(saved);
+        if (!saved) CHECK(contains(saved.error().message, "the old file was kept"));
+        const std::vector<std::string> warned = cache_warnings(*dev);
+        REQUIRE(warned.size() == 1);
+        CHECK(contains(warned[0], "the old file was kept"));
+    }
+    CHECK(file_bytes(dir.file()) == old);
+    auto saved = dev->save_pipeline_cache();  // the reader is gone: the PSO is still to store
+    REQUIRE_MESSAGE(saved, saved.error().to_string());
+    CHECK(file_bytes(dir.file()) != old);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: storage_image_loadable answers from the device's typed UAV load support, with a why") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string why;
+    CHECK_MESSAGE(dev->storage_image_loadable(PixelFormat::R32F, &why), why);  // every D3D12 GPU loads r32f
+    why.clear();
+    const bool rgba8 = dev->storage_image_loadable(PixelFormat::Rgba8, &why);
+    if (dev->warp()) CHECK_MESSAGE(rgba8, why);  // WARP has TypedUAVLoadAdditionalFormats
+    if (!rgba8) CHECK((contains(why, "TypedUAVLoadAdditionalFormats") || contains(why, "UAV_TYPED_LOAD")));
+    why.clear();
+    CHECK_FALSE(dev->storage_image_loadable(PixelFormat::Rg16F, &why));
+    CHECK(contains(why, "rgba8, rgba16f, r32f or rgba32f"));
+    CHECK_FALSE(dev->storage_image_loadable(PixelFormat::Rg16F, nullptr));  // no why wanted
+}
+
+TEST_CASE("d3d12: binding an image the pass draws into for reading is an error; after end_pass it is a texture") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const sg_shader_desc* blitDesc = blit_blit_keep_shader_desc(SG_BACKEND_D3D11);
+    REQUIRE_MESSAGE(blitDesc, "the blit shader header has no D3D11 (HLSL) variant: regenerate it with D3D11 in");
+    const Shader shader = dev->make_shader(from_sg(*blitDesc));
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    const Pipeline blit = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(blit) == ResourceState::Valid, all_errors(*dev));
+    const Buffer tri = make_vertex_buffer(*dev, {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f});
+    const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+    const Target a = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    const Target b = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    ViewDesc vd;
+    vd.texture.image = a.image;
+    const View aTexture = dev->make_view(vd);
+    REQUIRE_MESSAGE(dev->state(aTexture) == ResourceState::Valid, all_errors(*dev));
+    const Color red{1.0f, 0.0f, 0.0f, 1.0f};
+    CommandList& first = dev->begin_commands("fill-a");
+    first.begin_pass(color_pass(a, PixelFormat::Rgba8, red));
+    first.end_pass();
+    submit_and_finish(*dev, first);
+    dev->clear_messages();
+
+    const std::array<float, 8> vsParams{};
+    const std::array<float, 8> fsParams{};
+    Bindings bind;
+    bind.vertexBuffers[0] = tri;
+    bind.views[0] = aTexture;
+    bind.samplers[0] = nearest;
+    CommandList& list = dev->begin_commands("feedback");
+    list.begin_pass(color_pass(a, PixelFormat::Rgba8, red));
+    list.set_pipeline(blit);
+    list.set_bindings(bind);
+    const std::string e = last_error(*dev);
+    CHECK_MESSAGE(contains(e, "view slot 0"), e);
+    CHECK_MESSAGE(contains(e, "of an image the pass draws into as its colour attachment (PassDesc::color)"), e);
+    CHECK_MESSAGE(contains(e, "end_pass() before reading what a pass drew"), e);
+    list.end_pass();
+    const std::size_t before = dev->errors().size();
+    list.begin_pass(color_pass(b, PixelFormat::Rgba8, Color{}));  // a is a texture again
+    list.set_pipeline(blit);
+    list.set_bindings(bind);
+    list.set_uniforms(0, Range{vsParams.data(), sizeof vsParams});
+    list.set_uniforms(1, Range{fsParams.data(), sizeof fsParams});
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    CHECK_MESSAGE(dev->errors().size() == before, all_errors(*dev));
+    const std::string bad = first_mismatch(read_rgba8(*dev, b.image, 4, 4), 4, 4, 0,
+                                           [](int, int) { return std::array<int, 4>{255, 0, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("d3d12: a dropped timed frame gives its timer slot back") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("d3d12: skipped, this queue cannot time: " << why);
+        return;
+    }
+    dev->timer_begin_frame();
+    dev->timer_end_frame();
+    CHECK(dev->timer_slots_busy() == 1);
+    dev->drop_next_timed_frame();
+    dev->timer_begin_frame();
+    CHECK(dev->timer_slots_busy() == 2);  // open
+    dev->timer_end_frame();
+    CHECK(dev->timer_slots_busy() == 1);  // dropped: its slot is free again
+    for (int i = 0; i < 5; ++i) {
+        dev->timer_begin_frame();
+        dev->timer_end_frame();
+    }
+    CHECK(dev->timer_slots_busy() == 6);  // the whole ring, none lost to the dropped frame
+    dev->timer_begin_frame();             // a full ring: not timed
+    dev->timer_end_frame();
+    CHECK(dev->timer_slots_busy() == 6);
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    std::vector<double> frames;
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 6);
+    CHECK(dev->timer_slots_busy() == 0);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a scope whose timer slot was reused before it ended is not reported") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("d3d12: skipped, this queue cannot time: " << why);
+        return;
+    }
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    std::vector<double> frames;
+    dev->timer_begin_frame();
+    CommandList& stale = dev->begin_commands("stale");
+    stale.begin_timed_scope("stale");
+    dev->timer_end_frame();
+    for (int i = 0; i < 7; ++i) {  // more frames than the ring has slots: the stale scope's slot is taken again
+        dev->timer_begin_frame();
+        dev->timer_end_frame();
+        auto r = dev->wait_idle();
+        REQUIRE_MESSAGE(r, r.error().to_string());
+        dev->timer_poll(frames);
+    }
+    stale.end_timed_scope();
+    stale.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    stale.end_pass();
+    dev->submit(stale);
+    dev->timer_begin_frame();
+    CommandList& fresh = dev->begin_commands("fresh");
+    fresh.begin_timed_scope("fresh");
+    fresh.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    fresh.end_pass();
+    fresh.end_timed_scope();
+    dev->submit(fresh);
+    dev->timer_end_frame();
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    frames.clear();
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 1);
+    const std::vector<Device::ScopeTime> scopes = dev->timer_last_scopes();
+    REQUIRE(scopes.size() == 1);
+    CHECK(scopes[0].name == "fresh");
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
 #endif

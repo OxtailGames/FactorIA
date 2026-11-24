@@ -75,6 +75,7 @@ Result<void> D3d12CommandList::open(const char* label) {
     resolveSrc_.reset();
     resolveDst_.reset();
     reset_bind_state();
+    passAttachments_.clear();
     return {};
 }
 
@@ -137,6 +138,12 @@ void D3d12CommandList::close_scope() {
     scopeOpen_ = false;
     if (scopes_.empty() || !list_) return;
     const ScopeRef& ref = scopes_.back();
+    {
+        // A list kept open over kTimerSlots timed frames: the slot holds another frame now, whose queries this end
+        // would overwrite. Stale: not recorded (execute does not report it either).
+        std::lock_guard<std::mutex> lock(device_.timerMutex_);
+        if (ref.slot < 0 || device_.timerSlots_[std::size_t(ref.slot)].serial != ref.serial) return;
+    }
     list_->EndQuery(ref.heap, D3D12_QUERY_TYPE_TIMESTAMP, 3 + 2 * ref.scope);
 }
 
@@ -182,6 +189,7 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     passWidth_ = passHeight_ = 0;
     resolveSrc_.reset();
     resolveDst_.reset();
+    passAttachments_.clear();
     reset_bind_state();
     const std::string passName = std::string("pass '") + (pass.label && *pass.label ? pass.label : "(no label)") + "'";
     if (pass.swapchain) {
@@ -319,6 +327,12 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
         resolveDstSub_ = resolve.t->subresource(resolve.mip, resolve.layer, 0);
         resolveFormat_ = format_info(color.format).rtv;
     }
+    if (color.bound)
+        passAttachments_.push_back({color.t, color.mip, color.layer, "colour attachment (PassDesc::color)"});
+    if (color1.bound)
+        passAttachments_.push_back({color1.t, color1.mip, color1.layer, "colour attachment 1 (PassDesc::color1)"});
+    if (depth.bound)
+        passAttachments_.push_back({depth.t, depth.mip, depth.layer, "depth attachment (PassDesc::depth)"});
     passFailed_ = false;
     empty_ = false;
 }
@@ -357,6 +371,7 @@ void D3d12CommandList::end_pass() {
     resolveSrc_.reset();
     resolveDst_.reset();
     reset_bind_state();
+    passAttachments_.clear();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -530,6 +545,19 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
                 out.mipCount = std::uint32_t(r->mipCount);
                 out.slice = std::uint32_t(r->slice);
                 out.sliceCount = std::uint32_t(r->sliceCount);
+                // An attachment of the open pass is written by its draws: it cannot be read (or written) through a view
+                // too (D3D12 would need it in two states at once; the debug layer calls the draw invalid).
+                for (const PassAttachment& a : passAttachments_) {
+                    if (a.tracked != out.t || a.mip < out.mip || a.mip - out.mip >= out.mipCount) continue;
+                    if (out.t->layers > 1 && (a.layer < out.slice || a.layer - out.slice >= out.sliceCount)) continue;
+                    bad(what + " (" + view_type_name(r->type) + " view " + std::to_string(v.id) + ") reads mip " +
+                        std::to_string(a.mip) + (out.t->layers > 1 ? ", layer " + std::to_string(a.layer) : "") +
+                        " of an image the pass draws into as its " + a.role +
+                        " (hint: end_pass() before reading what a pass drew, or draw into another image; a view of "
+                        "other "
+                        "mips or layers of the same image may be bound)");
+                    break;
+                }
             }
         }
         for (int i = 0; i < kMaxSamplers && error.empty(); ++i) {
