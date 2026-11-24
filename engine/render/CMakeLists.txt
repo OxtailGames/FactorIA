@@ -69,6 +69,16 @@ if(TARGET fa_test_render)
     add_test(NAME render_gpu_interface_core
         COMMAND fa_test_render --fa-files=gpu_interface_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # The engine's own D3D12 backend (src/gpu/d3d12_*): on Windows its cases run on WARP with the debug layer (and say
+    # so and pass when this Windows has neither); elsewhere one case checks the factory's error.
+    add_test(NAME render_d3d12_device
+        COMMAND fa_test_render --fa-files=d3d12_device_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()
+# The D3D12 backend (src/gpu/d3d12_*_win32.cpp) links the D3D12 runtime and DXGI; fa_platform links dxgi and dxguid
+# already (D3D11), named again here because this module calls them itself.
+if(FA_PLATFORM STREQUAL "windows")
+    target_link_libraries(fa_render PRIVATE d3d12 dxgi dxguid)
 endif()
 if(TARGET fa_test_render)
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly

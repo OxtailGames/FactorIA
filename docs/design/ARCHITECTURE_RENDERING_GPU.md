@@ -14,7 +14,7 @@ renderer (Renderer, Gpu, the passes)          today: sg_* calls; after M77-P2..P
 gpu::Device + gpu::CommandList (device.h)     the interface: resources, capabilities, the frame, timers, readbacks
         |
 SokolDevice (sokol_device.h/.cpp)             GL, GLES3, WebGL2, D3D11, Metal through sokol_gfx (stays)
-D3D12 device (M77.2), Vulkan device (M77.3)   the engine's own backends (not built yet)
+D3d12Device (d3d12_device.h, M77-P7a core)    the engine's own backends ("D3D12 backend" below; Vulkan: M77.3)
 RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and records the stream (tests)
 ```
 
@@ -89,7 +89,7 @@ uniforms and `dispatch`; outside a pass the copies. Writes, debug groups and tim
   asynchronous reads, so neither touches a context that is already closed.
 
 **Uploads inside a pass.** `write_buffer` and `write_image` may be recorded inside a pass: sokol copies at once (GL,
-D3D11) or into a per-frame transient slot (Metal). The explicit backends (D3D12, Vulkan, not built yet) cannot copy
+D3D11) or into a per-frame transient slot (Metal). The explicit backends (D3D12 from M77-P7c, Vulkan) cannot copy
 into a resource a pass is using: they will stage such a write in a host-visible ring buffer of the frame and copy it
 before the pass (or read the ring directly), so a write inside a pass costs them a ring allocation. Keep uploads
 before the pass where the code allows it.
@@ -384,3 +384,69 @@ Still on sokol after P5c: `Gpu::begin_pass`, the window pass of `Renderer::begin
 
 A test of the converted code makes a `RecordingDevice` and asserts on `errors()` (empty) and on `stream_text()`; a
 test that needs pixels keeps the GPU fixture (`fa::test::gfx()`) and reads through the `SokolDevice`.
+
+## D3D12 backend
+
+The engine's own Direct3D 12 device (M77-P7a: the core; pipelines, passes and draws are M77-P7c). Its code is
+`engine/render/src/gpu/d3d12_device.h` and `d3d12_*_win32.cpp` (the `_win32` suffix keeps it out of every other
+build); `d3d12_device.cpp` is the factory of the other platforms, which returns a teaching error ("runs on Windows
+only", hint `make_device(built_sokol_backend())`). `fa_render` links `d3d12`, `dxgi` and `dxguid` on Windows.
+`make_device(Backend::D3d12)` still answers "not built yet" until the renderer can run on it; tests and tools make it
+with `make_d3d12_device(D3d12Options)`.
+
+**Options and start-up.** `D3d12Options` picks WARP or the first hardware adapter (high-performance preference), the
+debug layer (and GPU-based validation, which needs it), the frames in flight (1 to 3), the upload ring's size and the
+descriptor counts. Contradictions are errors before any D3D12 call. Without the "Graphics Tools" feature the debug
+layer is missing: the device is made without it, warns, and `debug_layer_active()` is false. A device needs feature
+level 11.0 and resource binding tier 2.
+
+**Errors.** Every failed HRESULT becomes a message with its hex value and name (`hr_text`) and, after a device
+removal, `GetDeviceRemovedReason`. With the debug layer, the InfoQueue keeps ERROR, CORRUPTION and WARNING messages;
+the device moves them into `errors()` / `warnings()` (prefixed `gpu d3d12 debug layer:`) and the log after each
+commit and whenever `errors()` or `warnings()` is read. A misuse the backend catches itself (a write past a buffer's
+end, a destroyed handle) is reported the same way and records nothing.
+
+**Frames, fences, deferred destruction.** One direct queue and one fence. `submit(list)` closes the list and executes
+it, then signals the fence; `commit()` signals the frame's fence value, and once more frames than `framesInFlight`
+were committed it waits (up to 120 s, then an error) for the oldest one, whose descriptor segment and ring room the
+new frame reuses. `destroy_*` frees the handle at once and keeps the D3D12 object (and its descriptors) in a deferred
+list tagged with the current frame; it is released once that frame's fence passed (`counters().pendingReleases`).
+`wait_idle()` drains the queue and releases everything pending.
+
+**Descriptors.** Four CPU heaps (views, colour attachments, depth attachments, samplers) with LIFO free lists; a full
+heap fails the view or sampler (state `Failed`) with an error that names the `D3d12Options` field to raise. The
+shader-visible CBV/SRV/UAV heap keeps `[0, bindlessDescriptors)` for M77-P7c's bindless tables and then one segment of
+`frameViewDescriptors` per frame in flight; the sampler heap has the segments only (D3D12 allows 2048 samplers in
+all). M77-P7c copies a frame's bindings into its segment, which is reset when the frame's slot comes round again.
+
+**Uploads.** `write_buffer`, `write_image` and the initial data of `make_buffer` / `make_image` copy through one
+persistently mapped upload ring shared by the frames in flight (rounded up to whole 64 KiB). An upload that does not
+fit (bigger than the ring, or the frames in flight hold it all) takes a buffer of its own, released with its frame
+(`counters().dedicatedUploads`, `uploadRingWraps`). Initial data is recorded into an internal "prelude" list that
+runs before the next submitted list, commit, readback or `wait_idle`.
+
+**Barriers.** Each resource keeps one state per subresource (mip x layer x plane). A list tracks, per resource it
+touches, the state it needs first and the state it leaves; its transitions are batched and flushed before each copy.
+Lists may be recorded on several threads and submitted in any order, so the state a list needs first is not known
+while it records: at submit a small fix-up list moves every subresource from the state the queue left it in to the
+one the list starts with, executed just before it. Buffers start in COMMON (D3D12 promotes them implicitly).
+
+**Copies.** `copy_buffer_to_image` copies straight from the buffer when its offset is 512-byte aligned and its row
+pitch 256-byte aligned; otherwise it repacks the rows into a scratch buffer on the GPU first
+(`features().copyBufferToImageRelaxedBytesPerRow`). Zero `bytesPerRow` / `bytesPerSlice` mean a whole mip's pitch and
+zero sizes the rest of the mip, as in sokol. `push_debug_group` / `pop_debug_group` are PIX events.
+
+**Readbacks.** `read_buffer`, `read_image_rgba8` (BGRA is swizzled to RGBA), `read_image_rgba16f`,
+`read_storage_image` and, for tests, `read_image_region(image, mip, layer, x, y, w, h)` copy into a READBACK buffer on
+an internal list, wait for it and unpack the rows. They block.
+
+**Not yet (M77-P7c).** `make_shader`, `make_pipeline`, `begin_pass` and everything inside a pass, `dispatch`, the GPU
+timers and the asynchronous buffer reads report "not built yet (M77-P7c)" and record nothing (a `CommandList` method
+reports once per device, `make_shader` / `make_pipeline` on every call).
+
+**Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
+WARP device with the debug layer and ends by checking that the layer reported no error (buffer and image round trips
+with mips, RGBA8 and RGBA16F, both `copy_buffer_to_image` paths, deferred destruction, the ring's wrap and the
+dedicated uploads, descriptor exhaustion and reuse, the "not yet" errors); a Windows without WARP says so with a
+MESSAGE and passes. Elsewhere one case checks the factory's error. `D3d12Device::counters()`, `view_heap()` and
+`read_image_region` exist for these tests.
