@@ -129,9 +129,8 @@ public:
     // The march: draws the whole of `dst` (the march image). `prepass`: the camera's prepass; `shadowTex`, `lightTex`: the shadow atlas and the light
     // data texture (any image where there is no shadow: they are not read); `shadows`: the block of the mesh shaders, of which only the filter mode
     // is changed (one tap).
-    void march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::bridged::View prepass,
-               gpu::bridged::View shadowTex, gpu::bridged::View lightTex, const mesh_fa_shadows_t& shadows,
-               int* drawCalls);
+    void march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::View prepass, gpu::View shadowTex,
+               gpu::View lightTex, const mesh_fa_shadows_t& shadows, int* drawCalls);
 
     // Declares the pass that blends the march image `vol` over the camera's rectangle `rect` of the picture (`game`, drawn into `dst`). Returns 1
     // when the pass was declared (0: nothing to draw).
