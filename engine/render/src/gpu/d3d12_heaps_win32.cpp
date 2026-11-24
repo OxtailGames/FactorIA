@@ -185,7 +185,10 @@ bool UploadRing::alloc(std::size_t size, std::size_t align, UploadAlloc& out) {
     const std::uint64_t ring = size_;
     const std::uint64_t pos = head_ % ring;
     std::uint64_t start = head_ + ((align - pos % align) % align);  // aligned position (ring and align are powers of 2)
-    if (start % ring + size > ring || start % ring < pos) {
+    // An aligned start exactly at the ring's end (at 0) is already the beginning: only the alignment padding is
+    // skipped, which is not a wrap (counting it made wraps() count an upload that ended the ring exactly).
+    const std::uint64_t at = start % ring;
+    if (at != 0 && at + size > ring) {
         // No room before the end: the rest of the ring is skipped and the allocation starts at its beginning.
         start = head_ + (ring - pos);
         if (start + size - tail_ > ring) return false;
