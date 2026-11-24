@@ -495,6 +495,7 @@ void WaterFx::release() {
     copyShader_ = {};
     fxShader_ = {};
     state_ = 0;
+    device_ = nullptr;
 }
 
 }  // namespace fa::render

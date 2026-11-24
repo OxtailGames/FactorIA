@@ -313,6 +313,7 @@ void SceneFx::release() {
     failed_.clear();
     probed_.clear();
     warnedTargets_ = false;
+    device_ = nullptr;
 }
 
 // The pass callbacks capture uniform blocks by value, which are alignas(16): MSVC warns (C4324, an error under /WX) that each closure is

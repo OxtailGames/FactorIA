@@ -22,8 +22,8 @@ bool usable(gpu::Device& device, gpu::PixelFormat f) {
     const gpu::PixelFormatCaps c = device.pixel_format_caps(f);
     return c.sample && c.filter && c.render;
 }
-bool valid(gpu::Device& device, gpu::Image i) { return i.id && device.state(i) == gpu::ResourceState::Valid; }
-bool valid(gpu::Device& device, gpu::View v) { return v.id && device.state(v) == gpu::ResourceState::Valid; }
+bool image_ok(gpu::Device& device, gpu::Image i) { return i.id && device.state(i) == gpu::ResourceState::Valid; }
+bool view_ok(gpu::Device& device, gpu::View v) { return v.id && device.state(v) == gpu::ResourceState::Valid; }
 
 gpu::View texture_view(gpu::Device& device, gpu::Image image, const char* label) {
     gpu::ViewDesc v{};
@@ -61,9 +61,9 @@ struct Upload {
         d.data.mipLevels[0] = {data, bytes};
         d.label = label;
         image = device.make_image(d);
-        if (!valid(device, image)) return false;
+        if (!image_ok(device, image)) return false;
         view = texture_view(device, image, label);
-        return valid(device, view);
+        return view_ok(device, view);
     }
     ~Upload() {
         if (view.id) device.destroy_view(view);
@@ -149,7 +149,7 @@ bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label, int height) {
     d.pixelFormat = format_;
     d.label = label;
     a.image = device.make_image(d);
-    if (!valid(device, a.image)) {
+    if (!image_ok(device, a.image)) {
         destroy_atlas(a);
         return false;
     }
@@ -157,7 +157,7 @@ bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label, int height) {
     a.att = attachment_view(device, a.image, 0, label);
     a.size = size;
     a.height = height;
-    if (!valid(device, a.tex) || !valid(device, a.att)) {
+    if (!view_ok(device, a.tex) || !view_ok(device, a.att)) {
         destroy_atlas(a);
         return false;
     }
@@ -218,10 +218,10 @@ bool ProbeGpu::prepare_scratch(int slot, int resolution) {
         d.label = "probe-scratch";
         s.image[i] = device.make_image(d);  // the GL cube fixes are the device's (native_finish_image)
         s.tex[i] = texture_view(device, s.image[i], "probe-scratch");
-        ok = valid(device, s.image[i]) && valid(device, s.tex[i]);
+        ok = image_ok(device, s.image[i]) && view_ok(device, s.tex[i]);
         for (int f = 0; ok && f < 6; ++f) {
             s.att[i][f] = attachment_view(device, s.image[i], f, "probe-scratch");
-            ok = valid(device, s.att[i][f]);
+            ok = view_ok(device, s.att[i][f]);
         }
     }
     if (!ok) {
@@ -421,8 +421,8 @@ bool ProbeGpu::read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, in
     d.pixelFormat = format_;
     d.label = "probe-read";
     scratch = device.make_image(d);
-    gpu::View att = valid(device, scratch) ? attachment_view(device, scratch, 0, "probe-read") : gpu::View{};
-    if (!valid(device, att)) {
+    gpu::View att = image_ok(device, scratch) ? attachment_view(device, scratch, 0, "probe-read") : gpu::View{};
+    if (!view_ok(device, att)) {
         if (att.id) device.destroy_view(att);
         if (scratch.id) device.destroy_image(scratch);
         scratch = {};
