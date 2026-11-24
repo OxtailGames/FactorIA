@@ -463,8 +463,9 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   writes RGB). Not done: a mip bias for the textures (sokol samplers have none; it would need a per-frame uniform and a change at
   every `texture()` of `mesh_common.glsl`, terrain, foliage and the custom materials).
 - **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter, plus `spatialTarget` for the spatial
-  mode with a sharpen over a resize) while the stage applies; freed by `set_upscale_stage(false)`, by the first frame that finds the
-  stage inactive (`render_world`: the render scale went back to 1, the window shrank to the render size) and by `destroy_targets`. The
+  mode with a sharpen over a resize) while the stage applies; freed by `set_upscale_stage(false)`, by the 60th frame in a row that finds the
+  stage inactive (`render_world`: the render scale went back to 1, the window shrank to the render size; a dynamic resolution that crosses
+  the boundary every few frames keeps the images, `Impl::kOutputIdleFrames`) and by `destroy_targets`. The
   pipelines for the output formats are created the first time the stage draws, so the first frame after turning it on can hitch once.
   If the output image cannot be created the stage is skipped for that frame (error logged): the picture is shown at the render
   resolution and the HUD stays in it, drawn as it is without the stage.

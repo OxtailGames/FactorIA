@@ -36,6 +36,14 @@ struct Own {
     ~Own() { r.shutdown(); }
     Own(const Own&) = delete;
     Own& operator=(const Own&) = delete;
+    void frames(World& w, int n) {
+        for (int i = 0; i < n; ++i) {
+            r.begin_frame();
+            r.render_world(w, 1.0f / 60.0f);
+            r.end_frame();
+            g.gpu.end_frame();
+        }
+    }
     Image draw(World& w) {
         r.begin_frame();
         r.render_world(w, 1.0f / 60.0f);
@@ -524,12 +532,40 @@ TEST_CASE("upscale stage: the images at the output size are made for the items, 
         p.colorFilterMode = ColorFilter::Greyscale;
         (void)own.draw(w);
         CHECK(RendererTestAccess::output_targets(own.r).out);
-        // Back to the whole picture: nothing of the stage is kept.
+        // Back to the whole picture: nothing of the stage is kept (after the idle frames: see the case of the hysteresis below).
         own.r.set_render_scale(1.0f);
-        (void)own.draw(w);
+        own.frames(w, RendererTestAccess::output_idle_frames());
         const auto off = RendererTestAccess::output_targets(own.r);
         CHECK_FALSE(off.out);
         CHECK_FALSE(off.filter);
         CHECK_FALSE(off.spatial);
     }
+}
+
+TEST_CASE("upscale stage: a frame without the stage keeps the output images, the idle frames in a row free them") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    const int idle = RendererTestAccess::output_idle_frames();
+    own.r.set_render_scale(0.5f, 0.5f);
+    own.r.set_upscale_stage(true);
+    own.frames(w, 2);
+    REQUIRE(RendererTestAccess::output_targets(own.r).out);
+    // A scale that crosses 1 for one frame (a dynamic resolution at its ceiling) keeps the image, and the count starts again.
+    for (int round = 0; round < 3; ++round) {
+        own.r.set_render_scale(1.0f, 0.5f);  // a dynamic step: only the render size moves
+        own.frames(w, idle - 1);
+        CHECK(RendererTestAccess::output_targets(own.r).out);
+        own.r.set_render_scale(0.5f, 0.5f);
+        own.frames(w, 1);
+        CHECK(RendererTestAccess::output_targets(own.r).out);
+    }
+    own.r.set_render_scale(1.0f, 0.5f);  // a dynamic step: only the render size moves
+    own.frames(w, idle - 1);
+    CHECK(RendererTestAccess::output_targets(own.r).out);
+    own.frames(w, 1);
+    CHECK_FALSE(RendererTestAccess::output_targets(own.r).out);
 }
