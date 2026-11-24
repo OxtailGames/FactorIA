@@ -2,8 +2,8 @@
 // quad_motion_pass / fill_quad_motion, shaders/quad_motion.glsl, quadlist.cpp). The velocity image and the mask are read back through
 // RendererTestAccess (force_velocity: every camera asks for the velocity; the mask is drawn when the temporal antialiasing is on and a
 // blended quad is reactive). The contract:
-//   - a cutout (coverage >= one half) sprite writes its translation: uvPrev - uvCurr from the unjittered matrices; what no quad drew keeps the
-//     sentinel, and a camera that pans over a still sprite gives it the camera's motion;
+//   - a cutout (coverage >= one half) sprite writes its translation, rotation and scale: uvPrev - uvCurr from the unjittered matrices; what no
+//     quad drew keeps the sentinel, and a camera that pans over a still sprite gives it the camera's motion;
 //   - a blended or additive quad never overwrites a velocity: it is marked in the reactive mask instead (R8, the MAX of the values);
 //   - the mask makes the temporal resolve trust the pixels the particle covers now: a bright particle that moves over a busy background has
 //     its leading edge at once, not at a tenth of its brightness per frame;
@@ -554,4 +554,201 @@ TEST_CASE(
     CHECK(jitteredFrames >= 8);
     CHECK(covered > 12 * 1500);
     CHECK(mismatch == 0);
+}
+
+namespace {
+
+// The vector the velocity image holds at the pixel whose centre is the world point (x, y) of a 2D scene seen by a camera at the origin, for a
+// point that was at `before` on the frame before (uv units: the picture is 1 wide and 1 tall; +y of the world is up, of the picture down).
+Vec2 expected_velocity(Vec2 now, Vec2 before) {
+    return {(before.x - now.x) / float(kW), -(before.y - now.y) / float(kH)};
+}
+
+// The pixel's centre in the world, for the pixel px_x(x) / px_y(y).
+Vec2 pixel_centre(int px, int py) { return {float(px - kW / 2) + 0.5f, float(kH / 2 - py) - 0.5f}; }
+
+}  // namespace
+
+TEST_CASE("quad motion: a sprite that turns about its centre has tangential vectors at its corners, with the sign of "
+          "the turn") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    for (const float step : {4.0f, -4.0f}) {
+        INFO("degrees per frame: " << step);
+        Own o(g);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        World w;
+        add_camera2d(w, true);
+        const Entity spin = add_sprite(w, "spin", {0, 0, 0}, 80, Color{1, 1, 1, 1});
+        for (int f = 1; f <= 6; ++f) {
+            w.get<Transform>(spin)->rotation.z = step * float(f);
+            o.frame(w);
+        }
+        const Plane v = read_velocity(o);
+        const float a = step * 3.14159265f / 180.0f;  // the turn between the two last frames
+        float biggest = 0.0f;
+        // The four corners of the middle of the sprite (inside it whatever its angle is: 40 px from the centre to a side) and the centre.
+        for (const Vec2 q : {Vec2{22, 22}, Vec2{-22, 22}, Vec2{-22, -22}, Vec2{22, -22}}) {
+            const int x = px_x(q.x), y = px_y(q.y);
+            REQUIRE_FALSE(v.none(x, y));
+            const Vec2 now = pixel_centre(x, y);
+            // The point of the sprite that is at `now` was at now turned back by `a` about the centre.
+            const Vec2 before = {now.x * std::cos(-a) - now.y * std::sin(-a),
+                                 now.x * std::sin(-a) + now.y * std::cos(-a)};
+            const Vec2 want = expected_velocity(now, before);
+            CHECK(v.r(x, y) == doctest::Approx(want.x).scale(1.0).epsilon(0.05));
+            CHECK(v.g(x, y) == doctest::Approx(want.y).scale(1.0).epsilon(0.05));
+            // Tangential: its sign is the sign of the turn (counter-clockwise: the corner it comes from is clockwise of it).
+            CHECK(v.r(x, y) * want.x > 0.0f);
+            CHECK(v.g(x, y) * want.y > 0.0f);
+            biggest = std::max(biggest, std::fabs(want.x));
+        }
+        CHECK(biggest > 0.004f);  // 1.5 px of 320 or more: far above the half-float noise
+        // The centre does not move.
+        REQUIRE_FALSE(v.none(px_x(0), px_y(0)));
+        CHECK(std::fabs(v.r(px_x(0), px_y(0))) < 1.5e-3f);
+        CHECK(std::fabs(v.g(px_x(0), px_y(0))) < 1.5e-3f);
+    }
+}
+
+TEST_CASE(
+    "quad motion: a sprite that grows has vectors that point to the centre, bigger the farther the pixel is from it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    add_camera2d(w, true);
+    const Entity grow = add_sprite(w, "grow", {0, 0, 0}, 60, Color{1, 1, 1, 1});
+    float scale = 1.0f, last = 1.0f;
+    for (int f = 1; f <= 6; ++f) {
+        last = scale;
+        scale = 1.0f + 0.1f * float(f);
+        w.get<Transform>(grow)->scale = {scale, scale, 1};
+        o.frame(w);
+    }
+    const Plane v = read_velocity(o);
+    float near_x = 0.0f, far_x = 0.0f;
+    for (const float d : {12.0f, 40.0f}) {  // pixels on the right of the centre, inside the sprite (it is 96 wide now)
+        const int x = px_x(d), y = px_y(0.5f);
+        REQUIRE_FALSE(v.none(x, y));
+        const Vec2 now = pixel_centre(x, y);
+        const Vec2 want = expected_velocity(now, {now.x * last / scale, now.y * last / scale});
+        CHECK(want.x < 0.0f);  // it was nearer to the centre: uvPrev - uvCurr points the way of the centre, to the left
+        CHECK(v.r(x, y) == doctest::Approx(want.x).scale(1.0).epsilon(0.05));
+        (d < 20.0f ? near_x : far_x) = v.r(x, y);
+    }
+    CHECK(far_x < near_x);  // both negative: the farther one moved more
+    CHECK(near_x < 0.0f);
+}
+
+TEST_CASE("quad motion: an Additive sprite with reactive 0 opts out of the mask and writes no vector, by default it is "
+          "reactive 1") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    add_camera2d(w, true);
+    // An opaque sprite far from the two: with only Additive items nothing writes a vector and the frame has no velocity image at all.
+    add_sprite(w, "anchor", {0, 60, 0}, 20, Color{0.2f, 0.2f, 0.2f, 1});
+    add_sprite(w, "by_blend", {-60, 0, 0}, 20, Color{1, 0.5f, 0.2f, 1}, BlendMode::Additive);
+    const Entity opt_out = add_sprite(w, "opt_out", {60, 0, 0}, 20, Color{1, 0.5f, 0.2f, 1}, BlendMode::Additive);
+    CHECK(w.get<Sprite>(opt_out)->reactive == -1.0f);
+    w.get<Sprite>(opt_out)->reactive = 0.0f;
+    o.frame(w, 3);
+    const Plane m = read_reactive(o);
+    CHECK(m.r(px_x(-60), px_y(0)) > 0.99f);
+    CHECK(m.r(px_x(60), px_y(0)) < 0.01f);
+    const Plane v = read_velocity(o);
+    CHECK(v.none(px_x(60), px_y(0)));  // an Additive item never overwrites a vector
+}
+
+TEST_CASE("quad motion: a sprite with a material of its own: reactive ones write the mask over their quad, the others "
+          "no vector") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    add_camera2d(w, true);
+    auto with_material = [&](const char* name, Vec3 pos, BlendMode blend) {
+        const Entity e = add_sprite(w, name, pos, 20, Color{1, 1, 1, 1}, blend);
+        auto* s = w.get<Sprite>(e);
+        s->material = "materials/sprite_tint.material.json";
+        s->materialParams = Json::object();
+        s->materialParams["tint"] = Json::array({1.0, 1.0, 1.0, 1.0});
+        return e;
+    };
+    with_material("glow", {-60, 0, 0}, BlendMode::Additive);  // reactive by its blend
+    const Entity flash = with_material("flash", {0, 0, 0}, BlendMode::Alpha);
+    w.get<Sprite>(flash)->reactive = 0.6f;
+    with_material("plain", {60, 0, 0}, BlendMode::Alpha);  // a cutout with a material: no vector, no mask
+    add_sprite(w, "anchor", {0, -60, 0}, 20,
+               Color{0.2f, 0.2f, 0.2f, 1});  // writes a vector: the frame has a velocity image to read
+    float x = 0;
+    for (int f = 1; f <= 5; ++f) {
+        x = float(f);
+        move_x(w, flash, x);
+        o.frame(w);
+    }
+    CHECK(o.has("quad-reactive"));
+    const Plane m = read_reactive(o);
+    CHECK(m.r(px_x(-60), px_y(0)) > 0.99f);  // the additive sprite with a material has its mask (it lost it before)
+    CHECK(m.r(px_x(x), px_y(0)) == doctest::Approx(0.6f).scale(1.0).epsilon(0.03));
+    CHECK(m.r(px_x(60), px_y(0)) < 0.01f);
+    CHECK(m.r(px_x(0), px_y(60)) < 0.01f);
+    const Plane v = read_velocity(o);
+    CHECK(
+        v.none(px_x(60),
+               px_y(0)));  // the material's discard and vertex() are not followed: the camera's motion, not a footprint
+    CHECK(v.none(px_x(-60), px_y(0)));
+}
+
+TEST_CASE("quad motion: a capture of a camera with the temporal antialiasing on draws the same picture as with it off "
+          "(and needs no velocity for it)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g, false);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    Entity cam = make(w, "cam", {0, 0, 10});
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    c.clearColor = Color{0, 0, 0, 1};
+    camera_post(w, cam).temporalAAEnabled = true;
+    Entity cube = make(w, "cube", {0, 0, 0});
+    w.get<Transform>(cube)->scale = {3, 3, 3};
+    auto& mr = w.add<MeshRenderer>(cube);
+    mr.mesh = "cube";
+    mr.unlit = true;
+    add_sprite(w, "s", {-2, 1, 0}, 1.5f, Color{1, 0.4f, 0.1f, 1});
+    o.frame(w, 3);
+    CHECK(o.has("prepass"));  // the game's own frames: the resolve reads the velocity the prepass writes
+    // A capture has no history to resolve, so nothing reads a velocity and plan_job takes the request back (no prepass, no per-instance
+    // previous model, no quad-velocity pass). The passes of a capture are in a graph of its own that nobody can read, so what this checks is the
+    // picture: the camera with the effect on gives the one it gives with the effect off, bit for bit, for a mesh and a sprite.
+    auto shot_with = [&](bool taa) {
+        camera_post(w, cam).temporalAAEnabled = taa;
+        Renderer::CameraCapture spec;
+        spec.camera = cam;
+        spec.width = kW;
+        spec.height = kH;
+        Image shot;
+        std::string err;
+        REQUIRE_MESSAGE(o.r.capture_camera(w, spec, shot, &err), err);
+        return shot;
+    };
+    const Image off = shot_with(false);
+    const Image on = shot_with(true);
+    REQUIRE(on.width == off.width);
+    REQUIRE(on.height == off.height);
+    CHECK(on.rgba == off.rgba);
 }

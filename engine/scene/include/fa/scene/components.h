@@ -203,7 +203,7 @@ struct Sprite {
     std::int32_t instances =
         0;  // 0 = the sprite's one quad; N > 0 = N quads in ONE draw, placed by the material's vertex() from its compute buffers
     float reactive =
-        0.0f;  // 0..1 (M76): trusted over the history of the temporal antialiasing / upscaler (reactive mask); 0 = by blend
+        -1.0f;  // -1 = by blend (Additive 1, others 0); 0..1 (M76): trusted over the history of the temporal antialiasing / upscaler
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).

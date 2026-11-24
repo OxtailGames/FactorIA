@@ -62,9 +62,9 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
   does: bloom, depth of field, motion blur and the other effects work on the jittered render-size image, and the resolve smooths what they
   leave. That is the price of one seam for every upscaler; thin bright details can shimmer through a strong bloom.
 - **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
-  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation since the
-  frame before) and a particle is marked in the reactive mask, so neither trails much; a sprite that turns or changes size between frames is
-  followed at its centre only. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
+  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation, rotation and scale since the
+  frame before, per corner) and a particle is marked in the reactive mask, so neither trails much; a change of the sprite's `size` or `region`
+  is not followed. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
   as with the stretch stage (docs/RENDERING.md). The output's alpha is 1.
 - **Pixel art.** `PixelPerfect` draws as `stretch` (hard pixels, no blend, no jitter).
 - **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
@@ -213,9 +213,10 @@ where a blended or additive particle is now, scaled by `temporalAAReactiveScale`
 leaves behind on pixels it has left is limited by the neighbourhood clamp, not removed by the mask. Where a particle is drawn over a flat
 colour that trail is a few percent of the particle's brightness; over a busy background lower `temporalAAFeedback` if it shows.
 
-Limitations of the motion vectors it reads: the quads write a translation (a sprite that turns or changes size between two frames is
-followed at its centre, not its corners; a `Shape2D` counts as its whole box; instanced sprites and quads with a screen effect write none),
-particles write none (they are in the reactive mask), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
+Limitations of the motion vectors it reads: the quads write the movement of their matrix (translation, rotation and scale, per corner; a
+change of `size`, `region` or of the vertices themselves is not followed; a `Shape2D` counts as its whole box; instanced sprites, quads with a
+screen effect and batches with a clip rectangle or a material of their own write none; a material batch still writes the reactive mask),
+particles write none (they are in the reactive mask), a teleporting sprite gets a long vector that the resolve rejects, and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
 than 4 extra `vec4`s; with one, 3 or more) or draws from storage buffers. Everything else, skinned meshes of up to 64 joints and a material's
 `vertex()` included, has a vector. A custom `vertex()` is run twice and only `fa_time.x` differs in the second run, so motion that depends on the
 instance data, a material parameter or the distance to the camera is not seen. A GPU with no RG16F render target has no vectors at all: one
@@ -487,4 +488,4 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing); the reactive mask needs macOS 14.4 / iOS 17.4, an older OS draws without it |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 
-How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_POST.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).
+How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).
