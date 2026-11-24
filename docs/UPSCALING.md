@@ -144,7 +144,7 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   phases) and MetalFX gets the picture at the render size, a depth image, a motion image and the jitter, and keeps its own history at the
   window's size. A small pass at the render size prepares the two images: the depth of the camera's prepass squashed to 0..1 (1 for the sky
   and for pixels no mesh wrote), and the motion in UV units as the velocity image holds it. Where no object wrote a velocity (the sentinel
-  `1024`: particles, sprites, skins of more than 32 joints, the sky) MetalFX does **not** get the sentinel: the pass reprojects the camera's own
+  `1024`: particles, instanced or material-batch quads, the sky) MetalFX does **not** get the sentinel: the pass reprojects the camera's own
   movement from the depth, as the temporal upscaler does, so those pixels move with the camera. The history resets on the events of the
   temporal upscaler: a camera cut, another scene, a floating-origin shift, a change of the render size or the quality, a frame MetalFX did not
   draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
@@ -453,8 +453,8 @@ upscaler is not put back by itself: applying the preset again does.
   tests) answers the times too, for tools that tune the thresholds.
 - Saving for tools: `project.graphics` (CLI, MCP) reads, and with `preset`, `upscaler` {mode, quality, sharpness} or
   `dynamicResolution` writes, the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of `factoria.json`,
-  the same code the editor's View > Graphics window saves with: the keys given replace the file's, a value at its default removes
-  its key, the rest of the file stays, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
+  the same code the editor's View > Graphics window saves with: only the keys given are written (a number the call does not name stays as the file spells it, `16.67` is not rounded to the
+  editor's `16.7`), a value at its default removes its key, the rest of the file stays byte for byte, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
   written. `graphics.preset` and `render.upscaler` change only the running game. Example: `factoria call project.graphics
   '{"preset":"medium"}'`.
 - Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
