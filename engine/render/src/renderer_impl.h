@@ -764,7 +764,7 @@ struct Renderer::Impl {
     int final_h() const { return final_target().h > 0 ? final_target().h : physH; }
     gpu::Image final_image() const { return final_target().texture_image(); }
     gpu::View final_view() const { return final_target().texView; }
-    // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
+    // The picture the editor viewport shows (Renderer::game_target_texture): the finished game image in a gamma scene; in a linear one,
     // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
     // (an empty handle until the first one exists). The final pass's picture is shown as it is, except when it went above paper white
     // (an HDR output; the editor's window never switches, but a viewport that can show extended values would show them brighter

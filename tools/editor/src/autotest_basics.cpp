@@ -390,8 +390,8 @@ void Editor::at_section_D(AtScript& at) {
 void Editor::at_section_E(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
     // ------------------------------------------------------------------------- E. Ctrl+V into the AI Assistant input
-    // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); sokol_imgui then presses
-    // Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
+    // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); the editor's ImGui backend
+    // then presses Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
     static const char* kPasted = "A 3D tower game.\nThree levels.";
     click("ai:input");
     step(4, [this] {

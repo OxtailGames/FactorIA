@@ -2223,7 +2223,8 @@ void Editor::at_section_M5(AtScript& at) {
 #endif
             });
         };
-        // Ctrl+C and Ctrl+X arrive as key events; sokol_app turns Ctrl+V into CLIPBOARD_PASTED, which sokol_imgui presses for ImGui.
+        // Ctrl+C and Ctrl+X arrive as key events; sokol_app turns Ctrl+V into CLIPBOARD_PASTED, which imgui_backend.cpp
+        // presses for ImGui.
         auto chord = [this, &step, hold_ctrl](int keyCode) {
             hold_ctrl(true);
             step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, keyCode); });

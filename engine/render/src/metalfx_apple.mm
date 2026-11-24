@@ -1,7 +1,7 @@
-// MetalFX (metalfx.h) on the Metal backend: MTLFXSpatialScaler and MTLFXTemporalScaler over sokol images.
+// MetalFX (metalfx.h) on the Metal backend: MTLFXSpatialScaler and MTLFXTemporalScaler over gpu::Image textures.
 // The framework is loaded at run time and its classes are looked up by name, so nothing links against it: the player starts on an OS
 // without MetalFX (the Metal device is asked, the answer is "not here" with the reason) and an SDK without its headers builds the
-// "unavailable" answer. Frame order: see metalfx.h; the cost is the sg_commit() in Scaler::encode.
+// "unavailable" answer. Frame order: see metalfx.h; the cost is the split commit in Scaler::encode.
 #include "metalfx.h"
 
 #if defined(SOKOL_METAL)
@@ -25,35 +25,31 @@
 #include <memory>
 #include <mutex>
 
-// engine/platform/src/sokol_impl_apple.m: sokol's command buffer for the passes recorded from now on (it makes one when there is none yet).
-// sokol hands out only the encoder of a pass, and the event waits below belong to a command buffer.
-extern "C" const void* fa_sg_mtl_command_buffer(void);
-
 namespace fa::render::metalfx {
 
 namespace {
 
 struct FormatInfo {
-    sg_pixel_format sg;
+    gpu::PixelFormat gpu;
     MTLPixelFormat mtl;
     const char* name;
 };
 // The formats a MetalFX image can have here (the rest of sokol's list is not something a scene, a depth or a motion image is).
 constexpr FormatInfo kFormats[] = {
-    {SG_PIXELFORMAT_RGBA8, MTLPixelFormatRGBA8Unorm, "rgba8"},
-    {SG_PIXELFORMAT_BGRA8, MTLPixelFormatBGRA8Unorm, "bgra8"},
-    {SG_PIXELFORMAT_RGBA16F, MTLPixelFormatRGBA16Float, "rgba16f"},
-    {SG_PIXELFORMAT_RG16F, MTLPixelFormatRG16Float, "rg16f"},
-    {SG_PIXELFORMAT_RG32F, MTLPixelFormatRG32Float, "rg32f"},
-    {SG_PIXELFORMAT_R32F, MTLPixelFormatR32Float, "r32f"},
-    {SG_PIXELFORMAT_R16F, MTLPixelFormatR16Float, "r16f"},
-    {SG_PIXELFORMAT_RGB10A2, MTLPixelFormatRGB10A2Unorm, "rgb10a2"},
-    {SG_PIXELFORMAT_DEPTH, MTLPixelFormatDepth32Float, "depth32f"},
+    {gpu::PixelFormat::Rgba8, MTLPixelFormatRGBA8Unorm, "rgba8"},
+    {gpu::PixelFormat::Bgra8, MTLPixelFormatBGRA8Unorm, "bgra8"},
+    {gpu::PixelFormat::Rgba16F, MTLPixelFormatRGBA16Float, "rgba16f"},
+    {gpu::PixelFormat::Rg16F, MTLPixelFormatRG16Float, "rg16f"},
+    {gpu::PixelFormat::Rg32F, MTLPixelFormatRG32Float, "rg32f"},
+    {gpu::PixelFormat::R32F, MTLPixelFormatR32Float, "r32f"},
+    {gpu::PixelFormat::R16F, MTLPixelFormatR16Float, "r16f"},
+    {gpu::PixelFormat::Rgb10A2, MTLPixelFormatRGB10A2Unorm, "rgb10a2"},
+    {gpu::PixelFormat::Depth, MTLPixelFormatDepth32Float, "depth32f"},
 };
 
-const FormatInfo* format_info(sg_pixel_format f) {
+const FormatInfo* format_info(gpu::PixelFormat f) {
     for (const FormatInfo& i : kFormats)
-        if (i.sg == f) return &i;
+        if (i.gpu == f) return &i;
     return nullptr;
 }
 
@@ -73,7 +69,7 @@ std::string formats_list() {
 }
 
 // The reactive mask's image: R8 (what the renderer's mask is, Gpu::reactive_format()).
-[[maybe_unused]] const FormatInfo kReactiveFormat = {SG_PIXELFORMAT_R8, MTLPixelFormatR8Unorm, "r8"};
+[[maybe_unused]] const FormatInfo kReactiveFormat = {gpu::PixelFormat::R8, MTLPixelFormatR8Unorm, "r8"};
 
 [[maybe_unused]] std::string os_version() {
     NSString* v = [[NSProcessInfo processInfo] operatingSystemVersionString];
@@ -88,12 +84,12 @@ std::string formats_list() {
     return NSClassFromString(@"MTLFXSpatialScalerDescriptor") != nil;
 }
 
-[[maybe_unused]] id<MTLDevice> metal_device() { return (__bridge id<MTLDevice>)sg_mtl_device(); }
+[[maybe_unused]] id<MTLDevice> metal_device(const gpu::Device& device) { return (__bridge id<MTLDevice>)device.native().device; }
 
-[[maybe_unused]] id<MTLTexture> texture_of(sg_image image) {
-    if (image.id == SG_INVALID_ID || sg_query_image_state(image) != SG_RESOURCESTATE_VALID) return nil;
-    const sg_mtl_image_info info = sg_mtl_query_image_info(image);
-    return (__bridge id<MTLTexture>)info.tex[info.active_slot];
+// The MTLTexture of `image` (the slot of the frame in flight the device is drawing with); nil when the image is not valid.
+[[maybe_unused]] id<MTLTexture> texture_of(const gpu::Device& device, gpu::Image image) {
+    if (!image.valid() || device.state(image) != gpu::ResourceState::Valid) return nil;
+    return (__bridge id<MTLTexture>)device.native_image(image).texture;
 }
 
 // "" when MetalFX can be used for `kind` on `device`; else why not and what to do. `spatialOk` and `temporalOk` say what the device can do
@@ -184,7 +180,7 @@ struct Scaler::Impl {
     id temporal = nil;
 };
 
-Support support() { return support_of(metal_device()); }
+Support support(const void* metalDevice) { return support_of((__bridge id<MTLDevice>)metalDevice); }
 
 Support support_default_device() {
     Support s;
@@ -249,9 +245,10 @@ bool Scaler::command_failed(std::string* why) const {
     return true;
 }
 
-bool Scaler::configure(const Desc& desc, std::string* error) {
+bool Scaler::configure(gpu::Device& gpuDevice, const Desc& desc, std::string* error) {
     if (impl_->valid && impl_->desc == desc) return true;
     release();
+    id<MTLDevice> mtlDevice = on_metal(gpuDevice) ? metal_device(gpuDevice) : nil;
     auto fail = [&](std::string message) {
         if (error) *error = std::move(message);
         return false;
@@ -279,10 +276,10 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
     bool spatialOk = false, temporalOk = false;
     std::string why;
     const bool empty = impl_->hooks.emptyBuffers;  // tests: no MetalFX scaler, only the events and the command buffers around it
-    if (empty && metal_device() == nil) return fail("metalfx: the test hook needs the Metal device");
+    if (empty && mtlDevice == nil) return fail("metalfx: the test hook needs the Metal device");
     if (!empty) {
         @autoreleasepool {
-            why = unavailable(desc.kind, metal_device(), &spatialOk, &temporalOk);
+            why = unavailable(desc.kind, mtlDevice, &spatialOk, &temporalOk);
         }
         if (!why.empty()) return fail("metalfx: " + why);
     }
@@ -294,7 +291,7 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
         if (@available(macOS 14.4, iOS 17.4, *)) reactiveOn = desc.kind == Kind::Temporal && desc.reactiveMask;
     } else if (@available(macOS 13.0, iOS 16.0, *)) {
         @autoreleasepool {
-            id<MTLDevice> device = metal_device();
+            id<MTLDevice> device = mtlDevice;
             if (desc.kind == Kind::Spatial) {
                 MTLFXSpatialScalerDescriptor* d = [[NSClassFromString(@"MTLFXSpatialScalerDescriptor") alloc] init];
                 d.colorTextureFormat = color->mtl;
@@ -358,14 +355,14 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
 namespace {
 
 // The texture of `image`, checked against what the scaler asked for. nil with `error` when it does not fit.
-id<MTLTexture> checked_texture(sg_image image, const char* what, int w, int h, const FormatInfo* format, MTLTextureUsage usage,
+id<MTLTexture> checked_texture(const gpu::Device& device, gpu::Image image, const char* what, int w, int h, const FormatInfo* format, MTLTextureUsage usage,
                                const char* usageHint, std::string* error) {
-    id<MTLTexture> tex = texture_of(image);
+    id<MTLTexture> tex = texture_of(device, image);
     auto fail = [&](std::string message) -> id<MTLTexture> {
         if (error) *error = "metalfx: Frame." + std::string(what) + " " + message;
         return nil;
     };
-    if (tex == nil) return fail("is not a valid image: make it before the frame and pass the sokol image");
+    if (tex == nil) return fail("is not a valid image: make it before the frame and pass its gpu::Image");
     if (int(tex.width) != w || int(tex.height) != h)
         return fail(std::format("is {} but the scaler was configured for {}: configure again after a resize",
                                 size_text(int(tex.width), int(tex.height)), size_text(w, h)));
@@ -382,7 +379,7 @@ id<MTLTexture> checked_texture(sg_image image, const char* what, int w, int h, c
 }  // namespace
 #endif
 
-bool Scaler::encode(const Frame& frame, std::string* error) {
+bool Scaler::encode(gpu::Device& gpuDevice, const Frame& frame, std::string* error) {
     Impl& im = *impl_;
     if (!im.valid) {
         if (error) *error = "metalfx: encode() before configure() succeeded: configure the scaler first";
@@ -394,13 +391,13 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         const FormatInfo* color = format_info(d.colorFormat);
         const FormatInfo* output = format_info(d.outputFormat);
         id<MTLTexture> colorTex = nil, outputTex = nil, depthTex = nil, motionTex = nil, reactiveTex = nil;
-        // Everything is checked before the sokol frame is committed: a refused frame does no work at all.
+        // Everything is checked before the frame is committed: a refused frame does no work at all.
         @autoreleasepool {
             if (d.kind == Kind::Spatial) {
                 id<MTLFXSpatialScaler> s = im.spatial;
-                colorTex = checked_texture(frame.color, "color", d.inputWidth, d.inputHeight, color, [s colorTextureUsage],
+                colorTex = checked_texture(gpuDevice, frame.color, "color", d.inputWidth, d.inputHeight, color, [s colorTextureUsage],
                                            "cannot be sampled", error);
-                outputTex = colorTex ? checked_texture(frame.output, "output", d.outputWidth, d.outputHeight, output,
+                outputTex = colorTex ? checked_texture(gpuDevice, frame.output, "output", d.outputWidth, d.outputHeight, output,
                                                        [s outputTextureUsage],
                                                        "cannot be written by MetalFX: make the image with usage.color_attachment "
                                                        "and usage.storage_image (and a texture view of it for the passes that "
@@ -410,16 +407,16 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 if (!colorTex || !outputTex) return false;
             } else {
                 id<MTLFXTemporalScaler> t = im.temporal;
-                colorTex = checked_texture(frame.color, "color", d.inputWidth, d.inputHeight, color, [t colorTextureUsage],
+                colorTex = checked_texture(gpuDevice, frame.color, "color", d.inputWidth, d.inputHeight, color, [t colorTextureUsage],
                                            "cannot be sampled", error);
                 if (colorTex)
-                    depthTex = checked_texture(frame.depth, "depth", d.inputWidth, d.inputHeight, format_info(d.depthFormat),
+                    depthTex = checked_texture(gpuDevice, frame.depth, "depth", d.inputWidth, d.inputHeight, format_info(d.depthFormat),
                                                [t depthTextureUsage], "cannot be sampled", error);
                 if (depthTex)
-                    motionTex = checked_texture(frame.motion, "motion", d.inputWidth, d.inputHeight, format_info(d.motionFormat),
+                    motionTex = checked_texture(gpuDevice, frame.motion, "motion", d.inputWidth, d.inputHeight, format_info(d.motionFormat),
                                                 [t motionTextureUsage], "cannot be sampled", error);
                 if (motionTex)
-                    outputTex = checked_texture(frame.output, "output", d.outputWidth, d.outputHeight, output,
+                    outputTex = checked_texture(gpuDevice, frame.output, "output", d.outputWidth, d.outputHeight, output,
                                                 [t outputTextureUsage],
                                                 "cannot be written by MetalFX: make the image with usage.color_attachment "
                                                 "and usage.storage_image (and a texture view of it for the passes that read "
@@ -428,8 +425,8 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 if (!colorTex || !depthTex || !motionTex || !outputTex) return false;
                 // The reactive mask goes to MetalFX only when the frame has one and the scaler takes one; a scaler without the input
                 // ignores it (an older OS), and a frame without one hands none.
-                if (im.reactiveOn && frame.reactive.id != SG_INVALID_ID) {
-                    reactiveTex = checked_texture(frame.reactive, "reactive", d.inputWidth, d.inputHeight, &kReactiveFormat,
+                if (im.reactiveOn && frame.reactive.valid()) {
+                    reactiveTex = checked_texture(gpuDevice, frame.reactive, "reactive", d.inputWidth, d.inputHeight, &kReactiveFormat,
                                                   MTLTextureUsageShaderRead, "cannot be sampled", error);
                     if (!reactiveTex) return false;
                 }
@@ -444,21 +441,26 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         // sokol's buffer of the later passes here, which sokol would otherwise take at their first pass, made them hash alike. Why
         // that one does it was not isolated (a CPU wait for either side, or a 30 ms sleep, also made them alike; draining the GPU at
         // the start of each frame did not), so the test, not this comment, is what keeps it true.
-        if (im.event == nil) im.event = [metal_device() newSharedEvent];
+        gpu::MetalNative* metal = gpuDevice.native_metal();
+        if (metal == nullptr) {
+            if (error) *error = "metalfx: the device is not a Metal device (no command buffer to order the upscale in)";
+            return false;
+        }
+        if (im.event == nil) im.event = [metal_device(gpuDevice) newSharedEvent];
         id<MTLSharedEvent> event = im.event;
         const uint64_t afterPasses = ++im.eventValue;
         const uint64_t afterScaler = ++im.eventValue;
-        id<MTLCommandBuffer> before = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
+        id<MTLCommandBuffer> before = (__bridge id<MTLCommandBuffer>)metal->current_command_buffer();
         if (before == nil) {
-            if (error) *error = "metalfx: sokol has no Metal command buffer to order the upscale in (the graphics device was probably lost): restart the game, or set render.upscaler to temporal";
+            if (error) *error = "metalfx: the device has no Metal command buffer to order the upscale in (the graphics device was probably lost): restart the game, or set render.upscaler to temporal";
             return false;
         }
         [before encodeSignalEvent:event value:afterPasses];
         // A buffer that fails does not signal: the handler does it for the buffers that wait, so a failed frame cannot stall the queue.
         [before addCompletedHandler:^(id<MTLCommandBuffer>) { signal_at_least(event, afterPasses); }];
-        sg_commit();
+        metal->split_commit();
         @autoreleasepool {
-            id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
+            id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)gpuDevice.native().commandQueue;
             id<MTLCommandBuffer> cmd = [queue commandBuffer];
             if (cmd == nil) {
                 if (error) *error = "metalfx: Metal gave no command buffer (the device was lost?)";
@@ -532,7 +534,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
             [cmd commit];
         }
         // The sokol buffer of the passes after this call: it starts when MetalFX has written its output.
-        id<MTLCommandBuffer> after = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
+        id<MTLCommandBuffer> after = (__bridge id<MTLCommandBuffer>)metal->current_command_buffer();
         if (after != nil) {
             [after encodeWaitForEvent:event value:afterScaler];
             // sokol's buffers hold their resources unretained: this keeps the event alive until the buffer that waits for it has run.

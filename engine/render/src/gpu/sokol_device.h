@@ -79,6 +79,7 @@ public:
     NativeDevice native() const override;
     NativeImage native_image(Image image) const override;
     NativeBuffer native_buffer(Buffer buffer) const override;
+    MetalNative* native_metal() override;
 
     Buffer make_buffer(const BufferDesc& desc) override;
     Image make_image(const ImageDesc& desc) override;
@@ -131,6 +132,7 @@ public:
 
 private:
     friend class SokolCommandList;
+    friend class SokolMetalNative;
     explicit SokolDevice(bool ownsContext);
     // FA_ASSERTs (in every build) that the caller is the thread that made the device: the sokol context is
     // single-threaded. Every entry that reaches the context calls it; the cached queries (backend, info, features,
@@ -150,6 +152,7 @@ private:
     Limits limits_{};
     std::thread::id thread_{};
     SokolCommandList list_{*this};
+    std::unique_ptr<MetalNative> metal_;  // Metal only (made by create)
     bool listOpen_ = false;
     std::uint64_t frames_ = 0;
     mutable std::unique_ptr<render::GpuTimer> timer_;  // made on first use
