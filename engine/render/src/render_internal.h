@@ -1882,6 +1882,10 @@ public:
     // Outside a pass (warm-up, a getter called before the pass begins) nothing is checked.
     // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear,
     // which runs before any Gpu exists, begins its pass the same way.
+    // TRANSITIONAL (M77): these record on the list of Gpu::active() and keep the pass state (inPass_, passFormat_) in
+    // statics, which does not hold for D3D12/Vulkan (a list per pass or thread, one device per Gpu). New and converted
+    // code begins its passes on its own list (`ctx.commands().begin_pass(...)`, `gpu.commands()`); P4 moves the pass
+    // state into a per-list object and removes these.
     static void begin_pass(const PassDesc& pass);
     static void end_pass();
     static bool in_pass() { return inPass_; }
