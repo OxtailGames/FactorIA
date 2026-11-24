@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 
 #include "fa/core/build_info.h"
 #include "fa/core/pack.h"
@@ -117,7 +118,11 @@ struct FakeShdc {
                         const std::string file = "out/" + slang + "_" + program + "_" + stage + ".src";
                         yaml += std::string("        ") + stage + "_func:\n          path: " + file +
                                 "\n          entry_point: main\n";
-                        testing::write_all(work / file, "// " + slang + " " + program + " " + stage + "\n");
+                        // spirv_vk: the 20 bytes of an empty SPIR-V module (magic, version 1.0, generator, bound, schema)
+                        testing::write_all(work / file, slang == kShaderDialectVulkan
+                                                            ? std::string("\x03\x02\x23\x07\x00\x00\x01\x00", 8) +
+                                                                  std::string(12, '\0')
+                                                            : "// " + slang + " " + program + " " + stage + "\n");
                     }
                 }
             }
@@ -374,5 +379,120 @@ TEST_CASE("real sokol-shdc: a compute material exported for windows and linux sh
         const std::string dialect = std::string(platform) == "windows" ? "hlsl5" : "glsl430";
         CHECK(has(shader_files(r->packed), "move.material.json." + dialect + ".shader"));
         for (const std::string& w : r->warnings) CHECK(w.find("move.material.json") == std::string::npos);
+    }
+}
+
+// spirv_vk (M77.4): shipped only where the target can run Vulkan and the export asks for it.
+TEST_CASE("export shaders: spirv_vk joins the twins of windows, linux and android when the export asks for it, and no "
+          "other") {
+    for (const char* platform : {"windows", "linux", "android", "macos", "ios", "web"}) {
+        INFO(platform);
+        if (std::string(platform) == "ios")
+            continue;  // needs an Xcode project: shaders_test.cpp checks its dialect list
+        Fixture f;
+        ExportOptions o = f.options(platform);
+        o.vulkan = true;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        bool anyVulkan = false;
+        for (const std::string& n : shader_files(files_below(f.tmp.sub("out"))))
+            if (n == "gem.material.json.spirv_vk.shader") anyVulkan = true;
+        CHECK(anyVulkan == shader_platform_has_vulkan(platform));
+    }
+    // Without the option (the default) no platform gets it.
+    Fixture g;
+    REQUIRE(export_project(g.options("linux")).ok());
+    CHECK(shader_files(files_below(g.tmp.sub("out/shader-test-linux/game"))) == twins_of("glsl430"));
+}
+
+TEST_CASE("export shaders: the spirv_vk twin of a folder export is base64 SPIR-V with its marker") {
+    Fixture f;
+    ExportOptions o = f.options("linux");
+    o.vulkan = true;
+    REQUIRE(export_project(o).ok());
+    const stdfs::path game = f.tmp.sub("out/shader-test-linux/game");
+    CHECK(shader_files(files_below(game)) ==
+          std::vector<std::string>{"gem.material.json.glsl430.shader", "gem.material.json.spirv_vk.shader"});
+    auto twin = parse_json(testing::read_all(game / "materials/gem.material.json.spirv_vk.shader"));
+    REQUIRE(twin.ok());
+    CHECK((*twin)["slang"] == "spirv_vk");
+    CHECK((*twin)["binary"] == "base64");
+    const auto bytes = base64_decode((*twin)["programs"]["mesh"]["vs"].get<std::string>());
+    REQUIRE(bytes.size() == 20);
+    CHECK(bytes[0] == 0x03);
+    CHECK(bytes[3] == 0x07);
+    // the other dialects carry no marker
+    auto gl = parse_json(testing::read_all(game / "materials/gem.material.json.glsl430.shader"));
+    REQUIRE(gl.ok());
+    CHECK_FALSE(gl->contains("binary"));
+}
+
+TEST_CASE("real sokol-shdc: the spirv_vk twin is SPIR-V with the descriptor numbers of the reflection and survives the "
+          "cache") {
+    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria "
+                                         "setup shaders`): skipped here, runs in CI");
+    Fixture f;
+    f.setup = SetupContext{};
+    add_compute_material(f);
+    testing::write_all(stdfs::path(f.proj) / "materials/tex.material.json", R"({
+  "format": "factoria.material/1", "shader": "shaders/tex.surface.glsl",
+  "params": { "tint": { "type": "color", "default": [1, 1, 1, 1], "doc": "Tint." } },
+  "textures": { "albedoMap": { "sampler": "linearRepeat", "doc": "Albedo." } }
+})");
+    testing::write_all(stdfs::path(f.proj) / "shaders/tex.surface.glsl",
+                       "void surface(in SurfaceInput i, inout Surface s) { s.albedo = texture(sampler2D(albedoMap, "
+                       "albedoMap_smp), i.uv).rgb * tint.rgb; }\n");
+    ShaderCompileOptions options;
+    options.setup = f.setup;
+    options.dialects = {"spirv_vk", "glsl430"};
+    for (const char* material :
+         {"materials/gem.material.json", "materials/tex.material.json", "materials/move.material.json"}) {
+        INFO(material);
+        auto first = compile_material(f.proj, material, options);
+        REQUIRE_MESSAGE(first.ok(), (first.ok() ? "" : first.error().to_string()));
+        REQUIRE_MESSAGE(first->ok, "the material does not compile");
+        REQUIRE(first->twins.count("spirv_vk") == 1);
+        const Json& twin = first->twins.at("spirv_vk");
+        CHECK(twin["binary"] == "base64");
+        std::size_t stages = 0;
+        for (const auto& [name, program] : twin["programs"].items()) {
+            for (const char* stage : {"vs", "fs", "cs"}) {
+                if (!program.contains(stage)) continue;
+                ++stages;
+                const auto bytes = base64_decode(program[stage].get<std::string>());
+                REQUIRE(bytes.size() >= 20);
+                CHECK(bytes.size() % 4 == 0);
+                const std::uint32_t magic =
+                    bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (std::uint32_t(bytes[3]) << 24);
+                const std::uint32_t version =
+                    bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (std::uint32_t(bytes[7]) << 24);
+                CHECK(magic == 0x07230203u);
+                CHECK(version >= 0x00010000u);  // SPIR-V 1.0 or newer: 0x00MMmm00
+            }
+        }
+        CHECK(stages >= 1);
+        // glsl430 stays text and has no marker
+        CHECK_FALSE(first->twins.at("glsl430").contains("binary"));
+        // The descriptor numbers are integers, never "0;" as sokol-shdc spells them.
+        std::size_t numbers = 0;
+        std::function<void(const Json&)> walk = [&](const Json& j) {
+            if (j.is_object()) {
+                for (const auto& [key, value] : j.items()) {
+                    if (key.rfind("spirv_set", 0) == 0) {
+                        ++numbers;
+                        CHECK_MESSAGE(value.is_number_integer(), key);
+                    } else
+                        walk(value);
+                }
+            } else if (j.is_array())
+                for (const Json& v : j) walk(v);
+        };
+        walk(twin["programs"]);
+        CHECK(numbers >= 1);
+        // The cache serves the twin back unchanged.
+        auto second = compile_material(f.proj, material, options);
+        REQUIRE(second.ok());
+        CHECK(second->cacheHits == 2);
+        CHECK(second->twins.at("spirv_vk") == twin);
     }
 }

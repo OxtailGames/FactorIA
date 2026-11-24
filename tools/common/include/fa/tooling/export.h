@@ -77,6 +77,9 @@ struct ExportOptions {
                              // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
                              // ONE archive, game.pak, with the scripts as bytecode (export.scriptBytecode). ios: only
                              // changes the build commands of the script
+    bool vulkan = false;  // windows, linux, android: custom materials also ship their spirv_vk twin (SPIR-V, shaders.h
+                          // kShaderDialectVulkan) next to the platform's own. Nothing in the player reads it before the
+                          // Vulkan backend (M77), so it is off; the other platforms ship no SPIR-V either way
     bool allowDebugKey =
         false;  // android release without a keystore: sign with the debug key (fine to try on a device,
                 // Google Play rejects it) instead of failing

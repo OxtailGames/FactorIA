@@ -1,4 +1,4 @@
-// shdc-slang: glsl430:metal_macos:metal_ios:metal_sim:hlsl5
+// shdc-slang: glsl430:metal_macos:metal_ios:metal_sim:hlsl5:spirv_vk
 // The base level of the Hi-Z pyramid (M75.2, engine/render/src/hiz.h, renderer_hiz.cpp): one thread per cell of a cells-across x cells-down
 // grid reads the pixels of the depth and normal prepass image under its cell and writes (nearest, farthest) view depth into a storage
 // buffer, row 0 = the top of the picture. A pixel that shows no mesh (a = 0) counts as "no depth" (3e38) in both, so a cell that is not
