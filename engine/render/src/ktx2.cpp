@@ -18,7 +18,7 @@ namespace fa::render {
 namespace {
 
 struct TranscodeTarget {
-    gpu::PixelFormat gpu;
+    gpu::PixelFormat format;
     basist::transcoder_texture_format basis;
     const char* name;  // what FA_TEXTURE_FORMAT calls it
 };
@@ -90,7 +90,7 @@ const TranscodeTarget* pick_target(gpu::Device& device) {
     const std::string only = forced ? to_lower(forced) : std::string();
     for (const TranscodeTarget& t : kTargets) {
         if (!only.empty() && only != t.name) continue;
-        const gpu::PixelFormatCaps info = device.pixel_format_caps(t.gpu);
+        const gpu::PixelFormatCaps info = device.pixel_format_caps(t.format);
         if (info.sample && info.filter) return &t;
     }
     return nullptr;
@@ -167,7 +167,7 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     const TranscodeTarget* target = nullptr;
     if (blockAligned)
         for (const TranscodeTarget& t : kTargets)
-            if (t.gpu == format) target = &t;
+            if (t.format == format) target = &t;
     TranscodedTexture out;
     out.width = int(ktx.get_width());
     out.height = int(ktx.get_height());

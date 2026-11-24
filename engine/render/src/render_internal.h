@@ -868,9 +868,8 @@ inline const char* missing_channel(const MaterialAsset& m, const SubMesh& part) 
     return nullptr;
 }
 
-// The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
-std::string backend_dialect(sg_backend backend);
-// The same for the device the renderer runs on (Device::info(): the backend and, on Metal, its platform).
+// The shader dialect of the device the renderer runs on ("hlsl5", "glsl430"...; Device::info(): the backend and, on
+// Metal, its platform); "" for an unsupported one.
 std::string backend_dialect(const gpu::DeviceInfo& info);
 
 // The gpu::ShaderDesc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
