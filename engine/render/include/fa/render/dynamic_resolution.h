@@ -30,9 +30,9 @@ inline constexpr double kDynamicDefaultRefreshHz = 60.0;
 
 struct DynamicResolutionSettings {
     bool enabled = false;
-    double targetMs = 0.0;   // the frame time to hold; 0 = one display refresh (see dynamic_target_ms)
-    float minScale = 0.5f;   // 0.25..1: the smallest share of the base render scale the controller may use
-    float maxScale = 1.0f;   // minScale..1: the largest (and where it starts)
+    double targetMs = 0.0;  // the frame time to hold; 0 = one display refresh (see dynamic_target_ms)
+    float minScale = 0.5f;  // 0.25..1: the smallest share of the base render scale the controller may use
+    float maxScale = 1.0f;  // minScale..1: the largest (and where it starts)
     bool operator==(const DynamicResolutionSettings&) const = default;
 };
 
@@ -49,10 +49,11 @@ double dynamic_target_ms(const DynamicResolutionSettings& s, double refreshHz);
 
 // What the controller reports (read-only: render stats, window.upscaler, window.dynamicResolution).
 struct DynamicResolutionState {
-    float scale = 1.0f;       // the factor in force (1 while off)
-    double frameMs = 0.0;     // the smoothed measured frame time, ms (0 until one was measured)
-    double targetMs = 0.0;    // the frame time held, ms (0 while off)
-    const char* source = "none";  // what is measured: "gpu" (timer queries), "interval" (the time between frames), "injected" (a test), "none"
+    float scale = 1.0f;     // the factor in force (1 while off)
+    double frameMs = 0.0;   // the smoothed measured frame time, ms (0 until one was measured)
+    double targetMs = 0.0;  // the frame time held, ms (0 while off)
+    const char* source =
+        "none";  // what is measured: "gpu" (timer queries), "interval" (the time between frames), "injected" (a test), "none"
 };
 
 // The controller. Every call of update() is one frame: the measured time and the time that passed. It never reads a clock, so the same
@@ -75,7 +76,7 @@ public:
     static constexpr int kSteps = kDynamicResolutionSteps;
 
     void configure(const DynamicResolutionSettings& s);  // a change of the range starts again at the largest scale
-    void reset();                                         // starts again at the largest scale with nothing measured
+    void reset();                                        // starts again at the largest scale with nothing measured
 
     // One frame. `sampleMs` is the measured frame time (< 0: none this frame), `elapsedMs` the time since the last call (smoothing and holds
     // count it), `targetMs` the frame time to hold, `exact` true when sampleMs is a GPU time. Returns true when the scale changed.
@@ -84,7 +85,9 @@ public:
     float scale() const;
     int step() const { return step_; }
     double smoothedMs() const { return ema_; }
-    int changes() const { return changes_; }  // how many times the scale changed since reset(): tests and a doc claim count it
+    int changes() const {
+        return changes_;
+    }  // how many times the scale changed since reset(): tests and a doc claim count it
     const DynamicResolutionSettings& settings() const { return s_; }
 
 private:
@@ -99,7 +102,8 @@ private:
     double quiet_ = 0.0;         // seconds spent inside the band since the last change (the wait of the next try up)
     double probeWait_ = 3.0;     // seconds of quiet before the next try up
     bool lastWasProbe_ = false;  // the last change was a try up
-    int probeCeiling_ = kSteps + 1;  // a try up never reaches this step (the one a failed try went over), for a minute or more
+    int probeCeiling_ =
+        kSteps + 1;  // a try up never reaches this step (the one a failed try went over), for a minute or more
     double ceilingAge_ = 0.0;
     double ceilingLife_ = 60.0;
     int changes_ = 0;
