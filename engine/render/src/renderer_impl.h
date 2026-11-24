@@ -961,7 +961,7 @@ struct Renderer::Impl {
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
                                      bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
-    void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
+    void bind_textures(DrawContext& ctx, gpu::Bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
     void light_plan(DrawContext& ctx);
     // The 2D GI field of a 2D camera job (GlobalIllumination2D, gi2d.h): its slot, size and gather; nothing when the scene has none or the GPU cannot.
@@ -1045,6 +1045,18 @@ template <class T>
 void apply_uniforms(int slot, const T& u) {
     sg_range r{&u, sizeof(T)};
     sg_apply_uniforms(slot, &r);
+}
+
+// The same on a command list (converted code: gpu.commands(), PassContext::commands()).
+template <class T>
+void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
+    list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
+}
+
+// Begins `pass`, a render::PassDesc still made of sokol handles (pass_into, the Target fields), on `list`.
+inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) {
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(pass, swapchain));
 }
 
 }  // namespace fa
