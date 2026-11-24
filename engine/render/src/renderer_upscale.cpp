@@ -68,6 +68,7 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
         caps.metalfxTemporal = ms.temporal;
     } else {
         caps.metalfx = false;
+        caps.metalfxTemporal = false;  // no MetalFX at all, so no temporal one either (the default says true)
     }
     // An explicit "metalfx" the GPU cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
     if (upscaler.mode == render::UpscalerMode::MetalFx && !caps.metalfx && !mfxWarnedUnavailable && !mfxFailed &&
