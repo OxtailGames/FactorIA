@@ -2065,13 +2065,6 @@ private:
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
 };
 
-// sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
-sg_image make_image(const sg_image_desc& desc);
-// The same for a cube image (SG_IMAGETYPE_CUBE): the OpenGL ES fix goes through the cube target.
-sg_image make_cube_image(const sg_image_desc& desc);
-// The same for an array image (SG_IMAGETYPE_ARRAY: the layers of a Terrain), through the array target.
-sg_image make_array_image(const sg_image_desc& desc);
-
 // One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
 // MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game
 // target, the CameraView and render-target images, the 2D light buffer, the colour-filter image, the RGBA8 readback
@@ -2160,60 +2153,17 @@ private:
     std::unique_ptr<State> s_;
 };
 
-// GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
-bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
-// GPU->CPU readback of `bytes` bytes of a storage buffer from `offset` (Compute::read). Waits for the GPU: the work
-// recorded so far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the
-// backend has no storage buffers.
-bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
-                     std::string* error);
-// GPU->CPU readback of the rectangle (x, y, width, height) of a storage image (Compute::read_image): the pixels as the
-// GPU holds them, `width * height * bytes_per_pixel` bytes, the rectangle's first row first (rows count from the row an
-// imageStore at y = 0 writes), tightly packed (RGBA16F as halves). Only the rectangle is copied (a blit, a staging copy
-// or glReadPixels of its size), so a small read of a large image never holds the whole image. Waits for the GPU: the
-// work recorded so far must have been committed (sg_commit) by the caller. `format` is the image's own (RGBA8, RGBA16F,
-// R32F, RGBA32F). False + `error` on a backend without storage images, or when the rectangle is outside the image.
-bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
-                            std::vector<std::uint8_t>& out, std::string* error);
-// Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F,
-// RGBA32F) on this GPU, the question behind `"access": "readWrite"`. sokol's `read` flag does not answer it: on
-// Direct3D 11 it means a typed UAV exists, not a typed load (D3D11.0 hardware loads only R32_FLOAT/UINT/SINT), and on
-// Metal the read-write texture tier decides (Tier 1: the 32-bit single-channel formats only). OpenGL 4.3 loads every
-// format its shader declares with a layout qualifier. False + `why` (a sentence about this GPU) when it cannot.
-bool storage_image_loadable(sg_pixel_format format, std::string* why);
-// The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
-bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
+// A Device readback's Result as the bool + error sentence of the renderer's own read functions (capture, the HDR and
+// probe reads): true, or false with the error's message in `error` (when given).
+inline bool result_ok(const Result<void>& r, std::string* error) {
+    if (r.ok()) return true;
+    if (error) *error = r.error().message;
+    return false;
+}
 
-// GPU->CPU readback of the start of a storage buffer WITHOUT waiting (the Hi-Z culling, renderer_hiz.cpp): a small ring of staging
-// buffers. request() queues a copy of the first `bytes` bytes of `buffer` behind the work submitted so far and returns the slot it
-// uses; poll() hands the bytes over once the GPU has finished the copy, and never blocks unless `wait` is set (a headless frame
-// waits so its result does not depend on the GPU's speed). The work that wrote the buffer must have been committed (sg_commit)
-// before request(): on Metal the copy is a blit on the queue after sokol's command buffer. Needs the GPU's storage buffers (no
-// GLES3): `supported()` says so. Not thread safe: the render thread only.
-// What a request costs the frame: GL a glFlush (the fence must be submitted to be signalled), D3D11 a Flush of the immediate context
-// (the staging copy and its event query must be submitted), Metal one more command buffer committed behind sokol's. They are per request,
-// so a frame with several cameras that use the depth pyramid flushes once per camera: the price of reading each camera's cells without
-// waiting, bounded by the 8 cameras per frame that keep a pyramid (hiz.h).
-class AsyncBufferRead {
-public:
-    static constexpr int kSlots = 4;
-    AsyncBufferRead();
-    ~AsyncBufferRead();
-    AsyncBufferRead(const AsyncBufferRead&) = delete;
-    AsyncBufferRead& operator=(const AsyncBufferRead&) = delete;
-    static bool supported();
-    // The slot, or -1: every slot is still in flight (error stays empty: ask again later), or the copy failed (error says why).
-    int request(sg_buffer buffer, std::size_t bytes, std::string* error);
-    // True when the slot's copy has finished: `out` holds its bytes and the slot is free again. False: not done yet (or the slot is
-    // unused); with `wait` it returns after the GPU finished (bounded: a GPU that does not answer in seconds gives up, false).
-    bool poll(int slot, std::vector<std::uint8_t>& out, bool wait);
-    // Frees a slot without reading it (the copy may still be running; its staging buffer is reused only when it is done).
-    void release(int slot);
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
+// What `device`'s graphics API says about the adapter (gpu_info.cpp: the D3D11 device, the GL strings, the Metal
+// device, through Device::native()). `backend` is left empty: Renderer::gpu_info() fills it.
+GpuInfo query_gpu_info(gpu::Device& device);
 
 // Debug draw storage.
 struct DebugLine {

@@ -1,4 +1,4 @@
-// make_device(): the factory of the GPU interface (gpu/device.h).
+// make_device(): the factory of the GPU interface (gpu/device.h), and the defaults of Device's non-pure virtuals.
 #include "gpu/device.h"
 
 #include <memory>
@@ -8,6 +8,14 @@
 #include "gpu/sokol_device.h"
 
 namespace fa::gpu {
+
+bool Device::storage_image_loadable(PixelFormat format, std::string* why) const {
+    if (why)
+        *why = std::string("Device::storage_image_loadable is not implemented on the ") + backend_name(backend()) +
+               " device yet (M77-P5d2 moved the question behind the device; each backend answers it for its GPU), so " +
+               pixel_format_name(format) + " storage images are write-only there: use \"access\": \"write\"";
+    return false;
+}
 
 Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init) {
     if (backend == Backend::Recording) return std::unique_ptr<Device>(std::make_unique<RecordingDevice>(init));

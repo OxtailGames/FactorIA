@@ -39,6 +39,7 @@
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/gpu_info.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/ui_painter.h"
 #include "fa/render/upscaler.h"
@@ -389,6 +390,10 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The GPU this renderer draws on, as its device's graphics API describes it (the adapter's name, vendor, memory;
+    // fa/render/gpu_info.h), with `backend` = backend_name(). Before init() or after shutdown(): backend "none" and
+    // nothing else. Call it on the thread that draws (OpenGL answers for the context current there).
+    render::GpuInfo gpu_info();
     // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says
     // whether this backend can). Usable once init() succeeded; its buffers end with shutdown().
     Compute& compute() { return *compute_; }

@@ -313,7 +313,7 @@ std::string usable_image_formats(gpu::Device& device, bool readWrite) {
          {gpu::PixelFormat::Rgba8, gpu::PixelFormat::Rgba16F, gpu::PixelFormat::R32F, gpu::PixelFormat::Rgba32F}) {
         const gpu::PixelFormatCaps pf = device.pixel_format_caps(f);
         if (pf.write && (pf.read || !readWrite) && pf.render &&
-            (!readWrite || render::storage_image_loadable(gpu::to_sg(f), nullptr)))
+            (!readWrite || device.storage_image_loadable(f, nullptr)))
             ok.push_back(image_format_name(f));
     }
     return ok.empty() ? std::string("none") : join(ok, ", ");
@@ -999,7 +999,7 @@ Result<int> Compute::create_image(const std::string& material, const std::string
             loadable = false;
             limit = "this GPU cannot read an image in a shader (simulated by a test)";
         } else {
-            loadable = render::storage_image_loadable(gpu::to_sg(def->format), &limit);
+            loadable = s.gpu->device().storage_image_loadable(def->format, &limit);
         }
         if (!loadable)
             return make_error(

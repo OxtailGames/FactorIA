@@ -3949,8 +3949,8 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 
 // The test copy of the velocity image (RendererTestAccess::read_velocity): the vectors as floats in an RGBA16F image of the camera's size.
 // prepass_view.glsl mode 4, which only this pass uses (no game draws it). On GL the pass flips like the debug view does (vu.flip = 1 there:
-// the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); readback_rgba16f turns the rows over on
-// GL as readback_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
+// the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); read_image_rgba16f turns the rows over on
+// GL as read_image_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
 // those two, as the GL backend is not run by this host's tests.)
 constexpr float kPrepassViewRaw = 4.0f;
 void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label) {
@@ -3994,7 +3994,7 @@ bool Renderer::Impl::read_reactive(std::vector<float>& out, int& w, int& h, std:
     }
     w = reactiveProbe.w;
     h = reactiveProbe.h;
-    return render::readback_rgba16f(gpu::to_sg(reactiveProbe.color), w, h, out, error);
+    return render::result_ok(gpu.device().read_image_rgba16f(reactiveProbe.color, w, h, out), error);
 }
 
 bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
@@ -4006,7 +4006,7 @@ bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std:
     }
     w = velocityProbe.w;
     h = velocityProbe.h;
-    return render::readback_rgba16f(gpu::to_sg(velocityProbe.color), w, h, out, error);
+    return render::result_ok(gpu.device().read_image_rgba16f(velocityProbe.color, w, h, out), error);
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,

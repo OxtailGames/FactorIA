@@ -611,12 +611,10 @@ TEST_CASE(
         const std::uint32_t id = o.r.game_target_texture().image;
         REQUIRE(id != 0);
         CHECK(o.r.game_target_texture().view != 0);
-        sg_image image{};
-        image.id = id;
         std::vector<std::uint8_t> px;
-        std::string err;
         const int tw = o.r.target_width(), th = o.r.target_height();
-        REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+        const auto read = RendererTestAccess::gpu(o.r)->device().read_image_rgba8(gpu::Image{id}, tw, th, px);
+        REQUIRE_MESSAGE(read.ok(), (read.ok() ? std::string() : read.error().to_string()));
         return int(px[(std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4]);
     };
     auto shot_byte = [](const Image& img) { return int(std::lround(img.pixel(160, 90).r * 255.0f)); };
