@@ -11,9 +11,15 @@
 #if __has_include(<MetalFX/MetalFX.h>)
 #import <MetalFX/MetalFX.h>
 #define FA_HAVE_METALFX_SDK 1
+// The reactive mask input came with the macOS 14.4 / iOS 17.4 SDK (Xcode 15.3): an older SDK builds the scaler without it.
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140400) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 170400)
+#define FA_HAVE_METALFX_REACTIVE 1
+#endif
 #endif
 #include <TargetConditionals.h>
 
+#include <algorithm>
 #include <atomic>
 #include <format>
 #include <memory>
@@ -65,6 +71,9 @@ std::string formats_list() {
     }
     return s;
 }
+
+// The reactive mask's image: R8 (what the renderer's mask is, Gpu::reactive_format()).
+[[maybe_unused]] const FormatInfo kReactiveFormat = {SG_PIXELFORMAT_R8, MTLPixelFormatR8Unorm, "r8"};
 
 [[maybe_unused]] std::string os_version() {
     NSString* v = [[NSProcessInfo processInfo] operatingSystemVersionString];
@@ -125,6 +134,13 @@ std::string unavailable(Kind kind, id<MTLDevice> device, bool* spatialOk, bool* 
 #endif
 }
 
+#if defined(FA_HAVE_METALFX_SDK)
+// The value of `event` is at least `value` (the GPU may have signalled it already, and may be about to signal more: never lower it).
+void signal_at_least(id<MTLSharedEvent> event, uint64_t value) {
+    if (event.signaledValue < value) event.signaledValue = value;
+}
+#endif
+
 std::string size_text(int w, int h) { return std::format("{}x{}", w, h); }
 
 // What `device` can do, with the reason of what it cannot (a spatial scaler without a temporal one says so).
@@ -157,6 +173,9 @@ struct Scaler::Impl {
     bool valid = false;
     int generation = 0;
     int encoded = 0;
+    bool reactiveOn = false;  // the scaler was made with a reactive mask input
+    int reactiveEncoded = 0;
+    Scaler::TestHooks hooks;  // not reset by release()
     // The order between the passes that draw the inputs, MetalFX and the passes that read its output (Scaler::encode). Values only grow.
     id<MTLSharedEvent> event = nil;
     uint64_t eventValue = 0;
@@ -192,6 +211,8 @@ void Scaler::release() {
     impl_->temporal = nil;
     impl_->valid = false;
     impl_->encoded = 0;
+    impl_->reactiveOn = false;
+    impl_->reactiveEncoded = 0;
     impl_->desc = Desc{};
 }
 
@@ -199,6 +220,23 @@ bool Scaler::valid() const { return impl_->valid; }
 const Desc& Scaler::desc() const { return impl_->desc; }
 int Scaler::generation() const { return impl_->generation; }
 int Scaler::encoded() const { return impl_->encoded; }
+bool Scaler::reactive_mask() const { return impl_->reactiveOn; }
+int Scaler::reactive_encoded() const { return impl_->reactiveEncoded; }
+void Scaler::set_test_hooks(const TestHooks& hooks) { impl_->hooks = hooks; }
+
+bool Scaler::test_wait_signalled(int timeoutMs) {
+#if defined(FA_HAVE_METALFX_SDK)
+    if (impl_->event == nil || impl_->eventValue == 0) return false;
+    id<MTLSharedEvent> event = impl_->event;
+    const uint64_t value = impl_->eventValue;
+    if ([event waitUntilSignaledValue:value timeoutMS:uint64_t(std::max(timeoutMs, 0))]) return true;
+    signal_at_least(event, value);  // let the queue go on: the caller reports the failure
+    return false;
+#else
+    (void)timeoutMs;
+    return false;
+#endif
+}
 
 bool Scaler::command_failed(std::string* why) const {
     if (!impl_->status) return false;
@@ -240,14 +278,21 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
     }
     bool spatialOk = false, temporalOk = false;
     std::string why;
-    @autoreleasepool {
-        why = unavailable(desc.kind, metal_device(), &spatialOk, &temporalOk);
+    const bool empty = impl_->hooks.emptyBuffers;  // tests: no MetalFX scaler, only the events and the command buffers around it
+    if (empty && metal_device() == nil) return fail("metalfx: the test hook needs the Metal device");
+    if (!empty) {
+        @autoreleasepool {
+            why = unavailable(desc.kind, metal_device(), &spatialOk, &temporalOk);
+        }
+        if (!why.empty()) return fail("metalfx: " + why);
     }
-    if (!why.empty()) return fail("metalfx: " + why);
 #if defined(FA_HAVE_METALFX_SDK)
     bool made = false;
-    std::string refusal;
-    if (@available(macOS 13.0, iOS 16.0, *)) {
+    bool reactiveOn = false;
+    if (empty) {
+        made = true;
+        if (@available(macOS 14.4, iOS 17.4, *)) reactiveOn = desc.kind == Kind::Temporal && desc.reactiveMask;
+    } else if (@available(macOS 13.0, iOS 16.0, *)) {
         @autoreleasepool {
             id<MTLDevice> device = metal_device();
             if (desc.kind == Kind::Spatial) {
@@ -277,6 +322,16 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
                 // The scaler is ready for the first frame it is asked to draw (else MetalFX finishes its set-up on another thread
                 // and the first frames are unscaled): the cost is a hitch when it is made, at start and at a resize.
                 d.requiresSynchronousInitialization = YES;
+#if FA_HAVE_METALFX_REACTIVE
+                if (desc.reactiveMask) {
+                    // macOS 14.4 and iOS 17.4 have the mask input; an older OS makes the scaler without it (reactive_mask() says so).
+                    if (@available(macOS 14.4, iOS 17.4, *)) {
+                        d.reactiveMaskTextureEnabled = YES;
+                        d.reactiveMaskTextureFormat = kReactiveFormat.mtl;
+                        reactiveOn = true;
+                    }
+                }
+#endif
                 impl_->temporal = [d newTemporalScalerWithDevice:device];
                 made = impl_->temporal != nil;
             }
@@ -292,6 +347,7 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
     impl_->valid = true;
     impl_->generation += 1;
     impl_->encoded = 0;
+    impl_->reactiveOn = reactiveOn;
     return true;
 #else
     return fail("metalfx: this build has no MetalFX SDK");
@@ -323,11 +379,6 @@ id<MTLTexture> checked_texture(sg_image image, const char* what, int w, int h, c
     return tex;
 }
 
-// The value of `event` is at least `value` (the GPU may have signalled it already, and may be about to signal more: never lower it).
-void signal_at_least(id<MTLSharedEvent> event, uint64_t value) {
-    if (event.signaledValue < value) event.signaledValue = value;
-}
-
 }  // namespace
 #endif
 
@@ -342,7 +393,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         const Desc& d = im.desc;
         const FormatInfo* color = format_info(d.colorFormat);
         const FormatInfo* output = format_info(d.outputFormat);
-        id<MTLTexture> colorTex = nil, outputTex = nil, depthTex = nil, motionTex = nil;
+        id<MTLTexture> colorTex = nil, outputTex = nil, depthTex = nil, motionTex = nil, reactiveTex = nil;
         // Everything is checked before the sokol frame is committed: a refused frame does no work at all.
         @autoreleasepool {
             if (d.kind == Kind::Spatial) {
@@ -375,6 +426,13 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                                                 "it)",
                                                 error);
                 if (!colorTex || !depthTex || !motionTex || !outputTex) return false;
+                // The reactive mask goes to MetalFX only when the frame has one and the scaler takes one; a scaler without the input
+                // ignores it (an older OS), and a frame without one hands none.
+                if (im.reactiveOn && frame.reactive.id != SG_INVALID_ID) {
+                    reactiveTex = checked_texture(frame.reactive, "reactive", d.inputWidth, d.inputHeight, &kReactiveFormat,
+                                                  MTLTextureUsageShaderRead, "cannot be sampled", error);
+                    if (!reactiveTex) return false;
+                }
             }
         }
         // The split: the sokol passes so far (they wrote `color`, `depth` and `motion`) are submitted; the buffer made below goes on
@@ -434,7 +492,18 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 t.preExposure = frame.preExposure;
                 t.depthReversed = d.depthReversed ? YES : NO;
                 t.reset = (frame.reset || im.encoded == 0) ? YES : NO;
+#if FA_HAVE_METALFX_REACTIVE
+                if (im.reactiveOn) {
+                    if (@available(macOS 14.4, iOS 17.4, *)) {
+                        t.reactiveMaskTexture = reactiveTex;  // nil: no mask in this frame
+                    }
+                    if (reactiveTex != nil) im.reactiveEncoded += 1;
+                }
                 [t encodeToCommandBuffer:cmd];
+                if (im.reactiveOn) {
+                    if (@available(macOS 14.4, iOS 17.4, *)) t.reactiveMaskTexture = nil;
+                }
+#endif
                 t.colorTexture = nil;
                 t.depthTexture = nil;
                 t.motionTexture = nil;
@@ -442,19 +511,24 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
             }
             if (!im.status) im.status = std::make_shared<CommandStatus>();
             std::shared_ptr<CommandStatus> status = im.status;
+            const bool forcedFailure = im.hooks.failBuffers;  // tests: the buffer ends as a failed one does
             [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) {
                 signal_at_least(event, afterScaler);  // a failed buffer does not signal: the later passes must not wait for ever
                 // Another thread (Metal's completion queue). The block captures the shared status, not the scaler, which may be gone by
                 // now. The first error is kept and flagged; Scaler::command_failed hands it to the renderer, which gives MetalFX up with
                 // its one warning (every later buffer of a failed scaler would fail the same way, so the later ones say nothing). A scaler
                 // that fails leaves its output as it was.
-                if (done.status != MTLCommandBufferStatusError) return;
+                if (done.status != MTLCommandBufferStatusError && !forcedFailure) return;
                 std::lock_guard<std::mutex> lock(status->mutex);
                 if (status->failed.load(std::memory_order_relaxed)) return;
-                status->why = done.error ? std::string([[done.error localizedDescription] UTF8String]) : std::string("unknown error");
+                status->why = forcedFailure ? std::string("the command buffer was made to fail (test hook)")
+                              : done.error  ? std::string([[done.error localizedDescription] UTF8String])
+                                            : std::string("unknown error");
                 status->failed.store(true, std::memory_order_release);  // after `why`: command_failed reads it when it sees the flag
             }];
-            [cmd encodeSignalEvent:event value:afterScaler];
+            // A failed buffer does not signal, and the handler above does it for it; the test hook leaves the signal out so that only the
+            // handler can release the passes that wait.
+            if (!forcedFailure) [cmd encodeSignalEvent:event value:afterScaler];
             [cmd commit];
         }
         // The sokol buffer of the passes after this call: it starts when MetalFX has written its output.

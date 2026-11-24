@@ -160,6 +160,17 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   docs/design/ARCHITECTURE_RENDERING_POST.md, "Proof of the motion (P5c)", for what was measured; repository only, not in the binary). A MetalFX command buffer that finishes with an error is reported once
   and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
+- **Reactive mask.** The reactive mask of the temporal upscaler (R8: `ParticleEmitter.reactive`, `Sprite.reactive`, every additive item,
+  see "Temporal antialiasing" below) is handed to MetalFX too, as the mask input of its temporal scaler (macOS 14.4 and iOS 17.4 or later):
+  where the mask is 1 MetalFX ignores its history, so a bright additive particle or sprite has its leading edge at once instead of blended
+  with the picture that was there. A frame hands the mask only when it has one (an item asked for it) and it is the render picture's size;
+  the scaler is made with the input from the start, so the first particle of a game does not make it again, and a frame without a mask draws as
+  before. MetalFX takes the mask as it is: `temporalAAReactiveScale` (a setting of the engine's own resolve) does not apply to it. On an OS
+  older than macOS 14.4 / iOS 17.4 the input does not exist: the scaler is made without it and the mask is not handed over, so those frames
+  draw as they did before the mask was handed over (a bright particle can leave a short trail). `metalfx_tests` shows that a mask of 1 makes
+  the scaler follow a frame that jumped (0.23 mean error against 0.71 with no mask, on a stripe pattern) and that a frame without a mask is
+  the same as a scaler made without the input; `metalfx_renderer_tests` shows it in a frame (a moving additive sprite over moving stripes:
+  0.02 against 0.11 mean error inside the sprite without the mask).
 - **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,
   through it. At `native` quality the stage is off and MetalFX has nothing to do, like the other modes.
 - **Where it runs in the frame.** MetalFX encodes into its own command buffer, so the frame is split there: the passes drawn so far (the
@@ -173,7 +184,10 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   draw) for the rest of the run, with one warning, and `effectiveMode` says it.
 - **The tests.** The tests that need MetalFX (`metalfx_tests`, `metalfx_renderer_tests`) run on a Mac or an iPhone build with a real GPU.
   A machine without it, such as the macOS VM of CI, which has a paravirtual GPU with no MetalFX, skips them with an explicit message in the
-  test output (a `MESSAGE` that names the reason), never silently.
+  test output (a `MESSAGE` that names the reason), never silently. The tests marked "any Metal GPU" make a scaler that draws nothing (test
+  hooks of the wrapper), so they also run there: which frames hand the reactive mask over, and what happens when a MetalFX command buffer
+  fails (the handler of its completion raises the event the later passes wait for, so the queue does not stall; the renderer then falls back
+  with one warning).
 
 ## Temporal antialiasing
 
@@ -481,7 +495,7 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `temporalUpscaler` | every GPU backend | nothing (RGBA16F history where the GPU can, else RGBA8, as the temporal antialiasing) |
 | `spatialUpscaler` | every GPU backend | nothing |
 | `dynamicResolution` | every GPU backend | nothing (the GPU time needs timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) |
-| `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing) |
+| `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing); the reactive mask needs macOS 14.4 / iOS 17.4, an older OS draws without it |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 
 How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).
