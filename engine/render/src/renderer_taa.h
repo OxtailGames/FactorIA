@@ -121,7 +121,7 @@ public:
 
     // The resolve pass of `in`, drawn into the whole of `into` (the history image of the frame, `outW` x `outH`): the entry the temporal upscaler
     // shares. False (nothing drawn) when the target is gone or the program is not ready.
-    bool resolve(Gpu& gpu, const PassDesc& into, const TaaResolveInput& in);
+    bool resolve(gpu::CommandList& list, Gpu& gpu, const PassDesc& into, const TaaResolveInput& in);
 
     // The temporal upscaler (M76-P4): resolves `in` (the jittered picture at the render resolution, inW x inH; the history is at outW x outH)
     // with the history kept under kUpscaleCamKey and draws the sharpened result into the whole of `out`. The fields of `in` that the plan
@@ -138,6 +138,8 @@ public:
     // The same for the temporal upscaler (M76-P4): a history of the output size that was refused stops the upscaler only, not the
     // cameras that antialias themselves (they have their own, smaller, histories and their own flag).
     bool upscale_unavailable() const { return state_ < 0 || upscaleRefused_; }
+    bool ready(gpu::Device& device);
+    // The same on Gpu::active_device(). TRANSITIONAL (M77-P4a/P5): renderer.cpp asks before it jitters a camera.
     bool ready();
 
     // Makes (or keeps) the upscaler's history for an output of outW x outH now, before the frame is jittered for it: false when the budget or
@@ -169,13 +171,13 @@ public:
     void forget_targets(bool keepUpscale = false);
 
     enum class Prog { Resolve, Out, Count };
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
     struct Slot {
         Target img[2];
@@ -190,7 +192,9 @@ private:
         std::uint64_t configKey = 0;  // the temporal upscaler's render size and quality of the frame in img[last]
         bool usedHistory = false;     // the last resolve blended with the history
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    gpu::Device* device_ =
+        nullptr;  // the device of the first ready(): the shaders, pipelines and histories are made and destroyed on it
+    gpu::Shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;                // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool refused_ = false;         // a camera's history was refused (budget or GPU)
@@ -205,7 +209,8 @@ private:
     sg_pixel_format pick_format();
     std::shared_ptr<Slot> slot_for(std::uint64_t camKey, int w, int h, sg_pixel_format format, const std::string& job);
     void destroy(Slot& s);
-    bool output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen, const int* part);
+    bool output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen,
+                const int* part);
 };
 
 }  // namespace fa::render

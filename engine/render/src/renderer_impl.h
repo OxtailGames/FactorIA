@@ -262,8 +262,8 @@ struct Renderer::Impl {
     bool decide_hud_at_output(World& world);  // renderer_draw.cpp
     void free_output_targets();
     void run_upscale(Target& out, const PassContext& c);
-    void stretch_upscale(const render::UpscaleInput& in, Target& out);
-    void spatial_upscale(const render::UpscaleInput& in, Target& out);
+    void stretch_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
+    void spatial_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     bool ensure_spatial_target(sg_pixel_format colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
