@@ -3545,7 +3545,7 @@ static const uint8_t sun_shafts_fs_add_source_wgsl[657] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t sun_shafts_vs_bytecode_spirv_vk[1480] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x35,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -3771,7 +3771,7 @@ static const uint8_t sun_shafts_vs_bytecode_spirv_vk[1480] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t sun_shafts_fs_rays_bytecode_spirv_vk[8268] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x63,0x01,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -4312,7 +4312,7 @@ static const uint8_t sun_shafts_fs_rays_bytecode_spirv_vk[8268] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t sun_shafts_fs_add_bytecode_spirv_vk[1164] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x2c,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -4647,7 +4647,7 @@ static inline const sg_shader_desc* sun_shafts_add_shader_desc(sg_backend backen
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -4683,7 +4683,7 @@ static inline const sg_shader_desc* sun_shafts_add_shader_desc(sg_backend backen
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
 static inline const sg_shader_desc* sun_shafts_rays_shader_desc(sg_backend backend) {
@@ -5019,7 +5019,7 @@ static inline const sg_shader_desc* sun_shafts_rays_shader_desc(sg_backend backe
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -5066,6 +5066,6 @@ static inline const sg_shader_desc* sun_shafts_rays_shader_desc(sg_backend backe
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
