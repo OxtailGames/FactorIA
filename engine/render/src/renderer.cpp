@@ -1183,6 +1183,7 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
     jitterPx = it->second.jitterPx;
     return true;
 }
+bool RendererTestAccess::last_job_needs_velocity(Renderer& r) { return r.impl_ && r.impl_->lastJobNeedsVelocity; }
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
@@ -1331,6 +1332,7 @@ void RendererTestAccess::taa_set_budget(Renderer& r, std::uint64_t bytes) {
 void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
     if (r.impl_) r.impl_->taa.force_rgba8(force);
 }
+int RendererTestAccess::output_idle_frames() { return Renderer::Impl::kOutputIdleFrames; }
 render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
     render::OutputTargetsInfo o;
     if (!r.impl_) return o;
@@ -1565,10 +1567,15 @@ void Renderer::Impl::render(World& world, float dt) {
     // (bloomScreenSpace): the effects that put them over the bloom or over the final pass leave them alone, but the scene-colour effects
     // are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
     hudAtOutput = decide_hud_at_output(world);
-    // A stage that is off keeps no output image: the pictures of a game that has the player's render scale back at 1 (or a window that
-    // grew to the render size) are freed here, once, instead of staying with the targets.
-    if (!upscale_active() && (outTarget.color.id || outFilterTarget.color.id || spatialTarget.color.id))
+    // A stage that is off keeps no output image for long: the pictures of a game that has the player's render scale back at 1 (or a window
+    // that grew to the render size) are freed here, once, after kOutputIdleFrames frames in a row without the stage. A dynamic resolution
+    // or a spatial/temporal switch that oscillates around the boundary reuses them instead of making them again every few frames.
+    if (upscale_active() || !(outTarget.color.id || outFilterTarget.color.id || spatialTarget.color.id)) {
+        outputIdleFrames = 0;
+    } else if (++outputIdleFrames >= kOutputIdleFrames) {
         free_output_targets();
+        outputIdleFrames = 0;
+    }
 
     std::vector<Frame> frames(specs.size());
     std::vector<Frame> targetFrames;        // one per Camera.renderTarget, in targetCams order

@@ -281,7 +281,14 @@ void Renderer::Impl::destroy_targets() {
     finalEncoded = false;
     destroy_target(filterTarget);
     destroy_target(hudTarget);
-    free_output_targets();
+    // The output-size images do not depend on the render size: a dynamic step keeps them (render_world frees them after
+    // kOutputIdleFrames frames without the stage); the MetalFX images are made for the input size, so they go.
+    if (scaleStepOnly) {
+        free_mfx_images();
+        mfxScaler.release();
+    } else {
+        free_output_targets();
+    }
     for (Target& t : ldrMid) destroy_target(t);
     if (!scaleStepOnly) {
         for (auto& [key, slot] : autoExposures)

@@ -153,8 +153,8 @@ struct PostPlan {
     bool needsDepth = false, needsNormals = false;
     // M76: this camera asks for the velocity image (VelocityRef). The prepass then writes the motion vectors into a second attachment (the
     // frame does it when the GPU can make the image: `velocity` below is valid for the passes after the prepass, invalid otherwise).
-    // Whoever needs it calls request_velocity(): make_post_plan does for an effect that reads it (post_effect_needs_velocity), the
-    // renderer for the debug view "motionVectors" and the test hook; a later effect or upscaler that is drawn adds itself to that table.
+    // Whoever needs it calls request_velocity(): make_post_plan sets needsVelocity (without pinning it) for an effect that reads it
+    // (post_effect_needs_velocity), the renderer calls it for the debug view "motionVectors" and the test hook; a later effect or upscaler that is drawn adds itself to that table.
     // The velocity image needs the prepass but not the depth or normals it holds: a consumer that reads them asks for those itself.
     bool needsVelocity = false;
     // Set by request_velocity(): something other than the temporal antialiasing wants it (the object motion blur, the debug view, the test
