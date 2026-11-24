@@ -1,5 +1,5 @@
 // The Vulkan backend's resources: formats, buffers, images, views, samplers, their states and native objects
-// (docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend").
+// (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
 #include "gpu/vulkan_device.h"
 
 #if defined(FA_VULKAN_BACKEND)
