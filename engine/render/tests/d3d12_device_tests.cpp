@@ -17,7 +17,7 @@
 
 #include "fa/core/fs.h"
 #include "gpu/d3d12_device.h"
-#include "gpu/sg_bridge.h"
+#include "gpu/sokol_device.h"
 #include "shaders/blit.glsl.h"
 
 using namespace fa::gpu;

@@ -1,7 +1,7 @@
 // Renderer: present() and the captures of the finished frame.
 #include "renderer_impl.h"
 
-#include "gpu/sg_bridge.h"
+#include "gpu/sokol_context.h"
 
 namespace fa {
 
@@ -71,10 +71,10 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
     if (!initialized()) return;
     Impl& im = *impl_;
-    const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
+    const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
     im.scaleMode = mode;
     Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
-    PassDesc pass = gpu::swapchain_pass(sc);
+    PassDesc pass = PassDesc::for_swapchain(sc, im.gpu.device().environment_defaults());
     pass.label = "present";
     pass.colorLoad = gpu::LoadAction::Clear;  // the letterbox bars
     pass.clearColor = {0, 0, 0, 1};

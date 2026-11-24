@@ -7,6 +7,7 @@
 
 #include "fullscreen_gpu.h"
 #include "postprocess_resolve.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/ssao.glsl.h"
 
 namespace fa::render {

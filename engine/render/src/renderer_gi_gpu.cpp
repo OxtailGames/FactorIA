@@ -9,6 +9,7 @@
 #include "renderer_env.h"
 #include "renderer_probes.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/probe.glsl.h"
 
 namespace fa::render {
@@ -165,8 +166,7 @@ gpu::View ProbeGpu::dist_view(int index) const {
     return dist_[std::size_t(index)].tex;
 }
 
-void ProbeGpu::gi_dist(Gpu& gpu, int index, gpu::bridged::View front, gpu::bridged::View back, float maxDistance,
-                       int* drawCalls) {
+void ProbeGpu::gi_dist(Gpu& gpu, int index, gpu::View front, gpu::View back, float maxDistance, int* drawCalls) {
     if (index < 0 || std::size_t(index) >= dist_.size() || !dist_[std::size_t(index)].att.id) return;
     const DistImage& di = dist_[std::size_t(index)];
     gpu::PassDesc pd;
@@ -194,8 +194,8 @@ void ProbeGpu::gi_dist(Gpu& gpu, int index, gpu::bridged::View front, gpu::bridg
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, gpu::bridged::View picture, gpu::bridged::View dist,
-                       float maxDistance, int* drawCalls) {
+void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, gpu::View picture, gpu::View dist, float maxDistance,
+                       int* drawCalls) {
     Scratch& s = scratch_[slot];
     const ProbeFace c = probe_face(face);
     gpu::PassDesc pd;

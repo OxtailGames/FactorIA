@@ -10,6 +10,7 @@
 #include "mesh_batch.h"
 #include "postprocess.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/volumetric.glsl.h"
 
@@ -357,9 +358,8 @@ bool VolumetricFx::can_draw(TransientTargets& targets, gpu::Device& device, cons
     return true;
 }
 
-void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::bridged::View prepass,
-                         gpu::bridged::View shadowTex, gpu::bridged::View lightTex, const mesh_fa_shadows_t& shadows,
-                         int* drawCalls) {
+void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::View prepass, gpu::View shadowTex,
+                         gpu::View lightTex, const mesh_fa_shadows_t& shadows, int* drawCalls) {
     if (!dst.colorAtt.id || !prepass.id || !shadowTex.id || !lightTex.id || !ready(gpu, Prog::March)) return;
     PassDesc pd = pass_into(dst, "vol-march");
     pd.colorLoad = gpu::LoadAction::DontCare;

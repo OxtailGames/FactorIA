@@ -8,6 +8,7 @@
 #include <thread>
 #include <utility>
 
+#include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 #include "gpu/sokol_native.h"
 #include "render_internal.h"
@@ -981,44 +982,92 @@ ResourceTotals from_sg(const sg_total_resource_stats& t) {
     return o;
 }
 
-PassDesc swapchain_pass(const Swapchain& sc) {
-    EnvironmentDefaults d{};
-    if (sg_isvalid()) d = from_sg(sg_query_desc().environment.defaults);
-    return PassDesc::for_swapchain(sc, d);
+sg_desc sokol_setup_desc(const DeviceInit& init) {
+    sg_desc sd{};
+    sd.environment = to_sg(init.environment);
+    sd.logger.func = fa_sokol_log_func;
+    sd.buffer_pool_size = init.bufferPoolSize;
+    sd.image_pool_size = init.imagePoolSize;
+    sd.view_pool_size = init.viewPoolSize;
+    sd.sampler_pool_size = init.samplerPoolSize;
+    sd.shader_pool_size = init.shaderPoolSize;
+    sd.pipeline_pool_size = init.pipelinePoolSize;
+    sd.uniform_buffer_size = init.uniformBufferSize;
+    return sd;
 }
 
-ShaderDesc generated_shader_desc(GeneratedShader fn) {
-    FA_ASSERT(fn, "gpu::generated_shader_desc: no desc function");
-    const sg_shader_desc* d = fn(sg_query_backend());
-    FA_ASSERT(d, "gpu::generated_shader_desc: the generated header has no desc for this backend");
-    return from_sg(*d);
+NativeDevice sokol_native_device() {
+    NativeDevice n;
+    if (!sg_isvalid()) return n;
+    switch (backend_from_sg(sg_query_backend())) {
+        case Backend::Metal:
+            n.device = sg_mtl_device();
+            n.commandQueue = sg_mtl_command_queue();
+            break;
+        case Backend::D3d11:
+            n.device = sg_d3d11_device();
+            n.context = sg_d3d11_device_context();
+            break;
+        default: break;  // GL has no device object (its context is current on this thread)
+    }
+    return n;
 }
-
-void begin_context_pass(const PassDesc& pass) {
-    const sg_pass p = to_sg(pass);
-    sg_begin_pass(&p);
-}
-
-void begin_context_compute_pass(const char* label) {
-    sg_pass p{};
-    p.compute = true;
-    p.label = label_or_null(label);
-    sg_begin_pass(&p);
-}
-
-void end_context_pass() { sg_end_pass(); }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // SokolCommandList: every call runs at once.
 // ---------------------------------------------------------------------------------------------------------------------
+namespace {
+
+#ifndef NDEBUG
+// Debug builds: whether the attachment `view` has the format and sample count PassDesc::format says (an unset view
+// passes; so does a view whose image is gone, which sokol's own validation reports).
+bool attachment_matches(View view, PixelFormat format, int samples, bool checkSamples) {
+    if (!view.id) return true;
+    const sg_image img = sg_query_view_image(to_sg(view));
+    if (!img.id || sg_query_image_state(img) != SG_RESOURCESTATE_VALID) return true;
+    if (from_sg(sg_query_image_pixelformat(img)) != format) return false;
+    return !checkSamples || sg_query_image_sample_count(img) == samples;
+}
+
+// The TargetFormat a live render pipeline was made for (sokol resolved its Default formats at creation).
+TargetFormat pipeline_format(sg_pipeline pip, int* colorCount) {
+    const sg_pipeline_desc d = sg_query_pipeline_desc(pip);
+    TargetFormat f;
+    *colorCount = d.color_count;
+    f.color = d.color_count > 0 ? from_sg(d.colors[0].pixel_format) : PixelFormat::None;
+    f.color1 = d.color_count > 1 ? from_sg(d.colors[1].pixel_format) : PixelFormat::None;
+    f.depth = from_sg(d.depth.pixel_format);
+    f.samples = d.sample_count;
+    return f;
+}
+#endif
+
+}  // namespace
+
 void SokolCommandList::begin_pass(const PassDesc& pass) {
     device_.check_thread("CommandList::begin_pass");
+#ifndef NDEBUG
+    // PassDesc::format is the key of the pass's pipelines: it must say what the attachments are (RecordingDevice
+    // reports the same mismatch in errors()).
+    if (!pass.swapchain) {
+        const TargetFormat& f = pass.format;
+        FA_ASSERT(attachment_matches(pass.color, f.color, f.samples, true) &&
+                      attachment_matches(pass.color1, f.color1, f.samples, true) &&
+                      attachment_matches(pass.depth, f.depth, f.samples, true),
+                  "CommandList::begin_pass: PassDesc::format does not match the attachments' formats and sample "
+                  "count (fill it from the attachments: render::make_pass_desc does)");
+    }
+#endif
+    passFormat_ = pass.format;
+    ownPass_ = true;
     const sg_pass p = to_sg(pass);
     sg_begin_pass(&p);
 }
 
 void SokolCommandList::begin_compute_pass(const char* label) {
     device_.check_thread("CommandList::begin_compute_pass");
+    passFormat_ = {};
+    ownPass_ = false;
     sg_pass p{};
     p.compute = true;
     p.label = label_or_null(label);
@@ -1027,6 +1076,8 @@ void SokolCommandList::begin_compute_pass(const char* label) {
 
 void SokolCommandList::end_pass() {
     device_.check_thread("CommandList::end_pass");
+    passFormat_ = {};
+    ownPass_ = false;
     sg_end_pass();
 }
 
@@ -1037,6 +1088,28 @@ PassState SokolCommandList::pass_state() const {
 
 void SokolCommandList::set_pipeline(Pipeline pipeline) {
     device_.check_thread("CommandList::set_pipeline");
+#ifndef NDEBUG
+    // A pipeline applied in a render pass must have the pass's colour formats, depth format and sample count. GL and
+    // D3D11 validation reject a mismatch; Metal accepts it and draws wrong, so check here, where every draw passes.
+    if (ownPass_ && sg_query_pass_state() == SG_PASSSTATE_RENDER &&
+        sg_query_pipeline_state(to_sg(pipeline)) == SG_RESOURCESTATE_VALID) {
+        int colors = 0;
+        const TargetFormat got = pipeline_format(to_sg(pipeline), &colors);
+        const TargetFormat& f = passFormat_;
+        const int passColors = int(f.color != PixelFormat::None) + int(f.color1 != PixelFormat::None);
+        if (colors != passColors || !(got == f))
+            FA_ERROR("render",
+                     "CommandList::set_pipeline: pipeline '{}' is color={} color1={} depth={} samples={}; the pass is "
+                     "color={} color1={} depth={} samples={}",
+                     sg_query_pipeline_desc(to_sg(pipeline)).label ? sg_query_pipeline_desc(to_sg(pipeline)).label : "",
+                     pixel_format_name(got.color), pixel_format_name(got.color1), pixel_format_name(got.depth),
+                     got.samples, pixel_format_name(f.color), pixel_format_name(f.color1), pixel_format_name(f.depth),
+                     f.samples);
+        FA_ASSERT(colors == passColors && got == f,
+                  "CommandList::set_pipeline: the pipeline was made for another target format than the open pass "
+                  "(PassDesc::format; Gpu::find_or_make keys pipelines by it)");
+    }
+#endif
     sg_apply_pipeline(to_sg(pipeline));
 }
 
@@ -1154,16 +1227,7 @@ void SokolCommandList::end_timed_scope() {
 Result<std::unique_ptr<SokolDevice>> SokolDevice::create(const DeviceInit& init) {
     bool owns = false;
     if (!sg_isvalid()) {
-        sg_desc sd{};
-        sd.environment = to_sg(init.environment);
-        sd.logger.func = fa_sokol_log_func;
-        sd.buffer_pool_size = init.bufferPoolSize;
-        sd.image_pool_size = init.imagePoolSize;
-        sd.view_pool_size = init.viewPoolSize;
-        sd.sampler_pool_size = init.samplerPoolSize;
-        sd.shader_pool_size = init.shaderPoolSize;
-        sd.pipeline_pool_size = init.pipelinePoolSize;
-        sd.uniform_buffer_size = init.uniformBufferSize;
+        const sg_desc sd = sokol_setup_desc(init);
         sg_setup(&sd);
         if (!sg_isvalid())
             return make_error(std::string("gpu: sg_setup failed for the ") + backend_name(built_sokol_backend()) +
@@ -1229,19 +1293,7 @@ EnvironmentDefaults SokolDevice::environment_defaults() const {
 
 NativeDevice SokolDevice::native() const {
     check_thread("Device::native");
-    NativeDevice n;
-    switch (info_.backend) {
-        case Backend::Metal:
-            n.device = sg_mtl_device();
-            n.commandQueue = sg_mtl_command_queue();
-            break;
-        case Backend::D3d11:
-            n.device = sg_d3d11_device();
-            n.context = sg_d3d11_device_context();
-            break;
-        default: break;  // GL has no device object (its context is current on this thread)
-    }
-    return n;
+    return sokol_native_device();
 }
 
 #if defined(SOKOL_METAL)

@@ -7,6 +7,7 @@
 
 #include "postprocess.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/subsurface.glsl.h"
 
 namespace fa::render {

@@ -130,7 +130,7 @@ struct DeviceInit {
     // The window's environment: the default formats and the native device. Read by a SokolDevice that opens its own
     // sokol context, and by RecordingDevice for what Default formats mean.
     Environment environment{};
-    // The pool sizes of a context the device opens (the renderer's values, make_sg_desc in renderer.cpp).
+    // The pool sizes of a context the device opens (the renderer's values; sokol_setup_desc in gpu/sokol_device.cpp).
     int bufferPoolSize = 2048;
     int imagePoolSize = 1024;
     int viewPoolSize = 4096;

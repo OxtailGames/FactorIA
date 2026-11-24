@@ -121,11 +121,11 @@ public:
 
     // The view of the prefiltered cube (mips 0..kEnvLevels-1 the reflection, mip kEnvShMip the SH) and its sampler. The meshes do not sample
     // it any more (M73-P3c): it is the source of the sky's entry of the probe atlas (ProbeGpu::write_sky).
-    gpu::bridged::View prefiltered_view() const { return preTex_; }
+    gpu::View prefiltered_view() const { return preTex_; }
     // The image id of the prefiltered cube: what the frame graph's resource for the environment imports
     // (frame_graph.h).
     std::uint64_t image_id() const { return pre_.id; }
-    gpu::bridged::Sampler sampler() const { return sampler_; }
+    gpu::Sampler sampler() const { return sampler_; }
     // The pixel format of the cubes (RGBA16F or RGBA8).
     // With RGBA8 the SH texels hold clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255 (0 is the exact byte 128; fa_atlas.y = 1).
     gpu::PixelFormat format() const { return format_; }
