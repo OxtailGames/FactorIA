@@ -75,7 +75,7 @@ both off there is no pass and no prepass for them: the picture is the one withou
   before, no target, a destroyed target or one behind the camera use `depthOfFieldFocusDistance` at once.
 - **`motionBlur`, `motionBlurMode`.** A pixel's velocity is the screen distance between its point now and in the frame before; the
   picture is smeared along it over `motionBlurIntensity` of it (the shutter, 0 to 1). `motionBlurMode` chooses where the velocity comes from:
-  - **`"object"` (the default).** The velocity image of the depth prepass (RG16F, `uvPrev - uvCurr`, unjittered; the pass that writes it is described in the repository's docs/design/ARCHITECTURE_RENDERING_POST.md
+  - **`"object"` (the default).** The velocity image of the depth prepass (RG16F, `uvPrev - uvCurr`, unjittered; the pass that writes it is described in the repository's docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md
     (repository only, not in the binary)), so **an object that moves on its own blurs along its own way** and a
     still one next to it stays sharp. The vector is cut to `motionBlurMaxRadius` design pixels (1 to 64, default 24, times the render
     scale; the longest streak is twice that, centred on the pixel). A pixel nobody wrote a velocity for (the sky, anything the prepass

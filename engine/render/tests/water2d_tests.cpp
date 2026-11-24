@@ -23,31 +23,6 @@ using namespace fa::render;
 
 namespace {
 
-// The fixture materials are copied into the test project; every twin gets this build's engine version.
-void install_materials() {
-    namespace sfs = std::filesystem;
-    const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
-    for (const auto& e : sfs::recursive_directory_iterator(src)) {
-        if (!e.is_regular_file()) continue;
-        std::ifstream in(e.path(), std::ios::binary);
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (e.path().extension() == ".shader") {
-            Json twin = Json::parse(bytes);
-            twin["engine"] = FA_ENGINE_VERSION;
-            bytes = twin.dump();
-        }
-        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
-    }
-}
-
-struct MaterialScope {
-    MaterialScope() {
-        gfx().renderer.clear_asset_cache();
-        install_materials();
-    }
-    ~MaterialScope() { gfx().renderer.clear_asset_cache(); }
-};
-
 struct ProblemLog {
     struct Lines {
         std::mutex mu;

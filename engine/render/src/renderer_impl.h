@@ -286,10 +286,10 @@ struct Renderer::Impl {
         std::uint64_t frame = 0;
     };
     std::unordered_map<std::uint64_t, PrevPalette> prevPalettes;  // by Entity::bits()
-    // The origin of the 2D items that move (M76-P1d, QuadItem::motionKey) in the world, of the last frame they were drawn (`cur`) and the one
+    // The matrix of the 2D items that move (M76-P1d, QuadItem::motionKey) in the world, of the last frame they were drawn (`cur`) and the one
     // before (`prev`), with the postSerial of that frame; same keys and life as prevModels. origin_shifted moves both.
     struct PrevQuadOrigin {
-        Vec3 prev, cur;
+        Mat4 prev, cur;
         std::uint64_t frame = 0;
     };
     std::unordered_map<std::uint64_t, PrevQuadOrigin> prevQuadOrigins;  // by Entity::bits()

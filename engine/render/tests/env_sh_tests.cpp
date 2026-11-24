@@ -33,34 +33,6 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 
-// The fixture materials of tests/data/materials are copied into the test project (as the other material tests do).
-void install_materials() {
-    namespace sfs = std::filesystem;
-    const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
-    for (const auto& e : sfs::recursive_directory_iterator(src)) {
-        if (!e.is_regular_file()) continue;
-        std::ifstream in(e.path(), std::ios::binary);
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (e.path().extension() == ".shader") {
-            Json twin = Json::parse(bytes);
-            twin["engine"] = FA_ENGINE_VERSION;
-            bytes = twin.dump();
-        }
-        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
-    }
-}
-
-struct MaterialScope {
-    MaterialScope() {
-        gfx().renderer.clear_asset_cache();
-        install_materials();
-    }
-    ~MaterialScope() {
-        gfx().renderer.set_shader_compiler({});
-        gfx().renderer.clear_asset_cache();
-    }
-};
-
 // A renderer of its own (an Environment of its own), sharing the GPU of the fixture.
 struct OwnRenderer {
     Gfx& g;
