@@ -554,7 +554,7 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         return false;
     }
     if (!gpu.committed()) {  // as read_floats: the work of the frame is submitted before a read-back waits for it
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
     gpu::Image scratch{};
@@ -562,7 +562,7 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         if (error) *error = "the image for the read-back could not be created";
         return false;
     }
-    sg_commit();
+    gpu.commit_frame();
     gpu.note_commit();
     return ProbeGpu::read_region_end(gpu.device(), scratch, w, h, ps.gpu.rgba8(), out, error);
 }
@@ -637,7 +637,7 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     gpu::Image pageImage{}, shImage{};
     bool ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, 0, pw, ph, pageImage, &calls);
     if (ok) ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, lay.shY, kProbeShCoefficients, 1, shImage, &calls);
-    sg_commit();  // the read-back waits for the GPU, and on Metal the work is only submitted by sg_commit
+    gpu.commit_frame();  // the read-back waits for the GPU, and on Metal the work is only submitted by the commit
     gpu.note_commit();
     std::vector<float> pagePx, shPx;
     std::string readError;
