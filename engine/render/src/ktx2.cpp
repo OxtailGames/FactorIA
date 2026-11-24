@@ -115,7 +115,7 @@ const char* texture_format_name(gpu::PixelFormat format) {
 
 gpu::PixelFormat ktx2_target_format(gpu::Device& device) {
     const TranscodeTarget* t = pick_target(device);
-    return t ? t->gpu : gpu::PixelFormat::Rgba8;
+    return t ? t->format : gpu::PixelFormat::Rgba8;
 }
 
 Result<TranscodedTexture> transcode_ktx2(gpu::Device& device, const std::uint8_t* data, std::size_t size,
@@ -171,7 +171,7 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     TranscodedTexture out;
     out.width = int(ktx.get_width());
     out.height = int(ktx.get_height());
-    out.format = target ? target->gpu : gpu::PixelFormat::Rgba8;
+    out.format = target ? target->format : gpu::PixelFormat::Rgba8;
     for (std::uint32_t level = 0; level < ktx.get_levels(); ++level) {
         basist::ktx2_image_level_info info{};
         if (!ktx.get_image_level_info(info, level, 0, 0))
