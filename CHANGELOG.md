@@ -44,6 +44,16 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 ### Temporal antialiasing and open upscalers: the shared API (M76)
 
+- Texture mip bias for the temporal passes: while the temporal upscaler (`temporal`, `metalfx`) or the temporal antialiasing accumulates
+  jittered frames, the scene's textures are read at the level of `log2(render width / output width)` plus an offset, so they keep the detail
+  of the output size (what FSR 2, DLSS and XeSS ask of a game). New field `PostProcess.temporalAAMipBias` (-2..0, default -0.5; at scale 1
+  with the antialiasing alone it is the whole bias; 0 gives the pure resolution ratio). It reaches meshes, terrain layers, impostors,
+  the material graph's `texture`, `texture.normal` and `triplanar` nodes and `fa_base_sample()` of full shaders; custom shaders read
+  `fa_mip_bias` (a `float`, mesh and full shaders only). Sprites, tiles, text, the UI, the shadow maps and the post passes take none, and
+  every frame without a jittered camera is the same picture bit for bit as before. The default -0.5 applies to every camera that has
+  `temporalAAEnabled` on (also at render scale 1, where it used to read the textures at their plain level), and to the temporal upscaler's
+  camera whether or not its stack has the effect; set `temporalAAMipBias` to 0 to keep the previous level at scale 1. The bias follows the dynamic resolution step by step.
+  docs/UPSCALING.md, "Texture mip bias".
 - New effect `PostEffect::TemporalAA` (`PostProcess.temporalAAEnabled`, `temporalAAFeedback`, `temporalAASharpen`,
   `temporalAAVarianceGamma`, `temporalAAReactiveScale`), between the exposure and the depth of field. It is drawn now (see
   "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
@@ -162,8 +172,12 @@ its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engi
   foliage, terrain, 2D lighting, realtime GI) and the upscaler; nothing is written into the scene or the project, so `custom` and
   `ultra` give the game's own look back bit for bit. Knobs a backend cannot draw are capped, and the answer lists each with its reason.
   The per-preset table is in docs/UPSCALING.md, "Graphics presets".
-- `graphics.detect` reads the GPU (backend, adapter, vendor, memory) and runs a bounded benchmark (a fixed scene, about a second at
-  most, never on a software renderer), and suggests a preset with the reason. It changes nothing.
+- `graphics.detect` reads the GPU (backend, adapter, vendor, memory) and runs a benchmark (a fixed scene: a few hundred milliseconds
+  on a good GPU, seconds on a slow one; the timed pictures stop after four seconds; never on a software renderer or on the web), and
+  suggests a preset with the reason. It changes nothing, draws in the colour space the game's targets are in, and `game.graphics.detect()`
+  leaves out the machine-dependent times (`benchmarkMs`, `benchmark.frameMs`, `benchmark.totalMs`) that the command gives to tools.
+- New command `project.graphics` (CLI, MCP) reads and writes `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution`
+  in `factoria.json`, with the checks of the project loader and the editor's Graphics window (which now shares its code).
 - New script API `game.graphics` (`preset(name?)`, `detect()`) with typings, and the project key `"render": {"graphicsPreset"}` with
   validation and a "did you mean".
 

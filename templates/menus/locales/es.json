@@ -100,7 +100,7 @@
       "modeLabel": "Escalado: {mode}",
       "modeDrawn": "{mode}, dibujado como {drawn}",
       "unsup": {
-        "spatial": "necesita un renderizador gráfico",
+        "spatial": "necesita una ventana con GPU",
         "temporal": "no disponible en esta GPU o versión",
         "metalfx": "solo GPU de Apple"
       },

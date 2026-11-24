@@ -100,7 +100,7 @@
       "modeLabel": "Upscaling: {mode}",
       "modeDrawn": "{mode}, drawn as {drawn}",
       "unsup": {
-        "spatial": "needs a graphics renderer",
+        "spatial": "needs a window with a GPU",
         "temporal": "not available on this GPU or version",
         "metalfx": "Apple GPUs only"
       },
