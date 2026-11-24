@@ -71,12 +71,15 @@ fi
 
 mkdir -p "$OUT"
 compiled=0
-for input in "$SRC"/*.glsl; do
+# The engine's shaders, then the test shaders of engine/render/tests/shaders (each next to its header; the Vulkan
+# backend's tests draw with them, so they are made for spirv_vk only).
+for input in "$SRC"/*.glsl "$ROOT"/engine/render/tests/shaders/*.glsl; do
     [ -f "$input" ] || continue
     name="$(basename "$input" .glsl)"
     if [ "$#" -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
     grep -q '^@program' "$input" || continue  # a template, compiled through the files that include it
     output="$OUT/$name.glsl.h"
+    case "$input" in "$ROOT"/engine/render/tests/*) output="${input}.h" ;; esac
     echo "shdc: ${input#"$ROOT"/} -> ${output#"$ROOT"/}"
     # A file that needs preprocessor flags from the command line (terrain.glsl: FA_HAS_VERTEX, FA_INST_2, as a custom material's top
     # file gets them) names them in a comment: `// shdc-defines: A:B`.
@@ -87,6 +90,13 @@ for input in "$SRC"/*.glsl; do
     # `// shdc-slang: glsl430:metal_macos`. The others have no code in its header, so the web and Android players do not grow.
     slang="$(sed -n 's|^// shdc-slang: *||p' "$input" | head -n 1 | tr -d '\r')"
     "$SHDC" --input "$input" --output "$output" --slang "${slang:-$SLANG}" --format sokol --ifdef --no-log-cmdline ${extra[@]+"${extra[@]}"}
+    # sokol-shdc keeps each dialect behind its sokol backend's macro. The SPIR-V is also what the engine's own Vulkan
+    # backend (engine/render/src/gpu/vulkan_*) reads while sokol runs another backend, so its guard opens to
+    # FA_SHADERS_SPIRV too: a translation unit that needs the SPIR-V defines it before including the header, and every
+    # other one (every GL, Metal or D3D11 player) carries none of it (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
+    sed -e 's|^\( *\)#if defined(SOKOL_VULKAN)$|\1#if defined(SOKOL_VULKAN) \|\| defined(FA_SHADERS_SPIRV)|' \
+        -e 's|^\( *\)#endif /\* SOKOL_VULKAN \*/$|\1#endif /* SOKOL_VULKAN \|\| FA_SHADERS_SPIRV */|' "$output" >"$output.tmp"
+    mv "$output.tmp" "$output"
     compiled=$((compiled + 1))
 done
 [ "$compiled" -gt 0 ] || { echo "no shader matches: $*" >&2; exit 1; }

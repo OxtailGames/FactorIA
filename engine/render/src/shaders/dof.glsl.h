@@ -6977,7 +6977,7 @@ static const uint8_t dof_fs_copy_source_wgsl[474] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t dof_vs_bytecode_spirv_vk[1476] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x35,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -7177,7 +7177,7 @@ static const uint8_t dof_vs_bytecode_spirv_vk[1476] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t dof_fs_down_bytecode_spirv_vk[7536] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x45,0x01,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -7765,7 +7765,7 @@ static const uint8_t dof_fs_down_bytecode_spirv_vk[7536] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t dof_fs_gather_bytecode_spirv_vk[8616] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x6f,0x01,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -8377,7 +8377,7 @@ static const uint8_t dof_fs_gather_bytecode_spirv_vk[8616] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t dof_fs_composite_bytecode_spirv_vk[4928] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0xcf,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -8705,7 +8705,7 @@ static const uint8_t dof_fs_composite_bytecode_spirv_vk[4928] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t dof_fs_copy_bytecode_spirv_vk[708] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x1a,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -9143,7 +9143,7 @@ static inline const sg_shader_desc* dof_composite_shader_desc(sg_backend backend
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -9198,7 +9198,7 @@ static inline const sg_shader_desc* dof_composite_shader_desc(sg_backend backend
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
 static inline const sg_shader_desc* dof_copy_shader_desc(sg_backend backend) {
@@ -9427,7 +9427,7 @@ static inline const sg_shader_desc* dof_copy_shader_desc(sg_backend backend) {
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -9459,7 +9459,7 @@ static inline const sg_shader_desc* dof_copy_shader_desc(sg_backend backend) {
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
 static inline const sg_shader_desc* dof_down_shader_desc(sg_backend backend) {
@@ -9795,7 +9795,7 @@ static inline const sg_shader_desc* dof_down_shader_desc(sg_backend backend) {
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -9842,7 +9842,7 @@ static inline const sg_shader_desc* dof_down_shader_desc(sg_backend backend) {
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
 static inline const sg_shader_desc* dof_gather_shader_desc(sg_backend backend) {
@@ -10103,7 +10103,7 @@ static inline const sg_shader_desc* dof_gather_shader_desc(sg_backend backend) {
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -10139,6 +10139,6 @@ static inline const sg_shader_desc* dof_gather_shader_desc(sg_backend backend) {
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
