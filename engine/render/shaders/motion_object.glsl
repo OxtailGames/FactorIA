@@ -85,7 +85,8 @@ void main() {
     }
     float len = length(v_px);
     if (len > b.y) v_px *= b.y / len;
-    frag_color = vec4(v_px, d, 0.0);
+    // V is RGBA16F: a depth past 65504 would become +inf and the weights of the gather inf - inf = NaN, so the far plane is cut to the sky's 60000.
+    frag_color = vec4(v_px, min(d, 60000.0), 0.0);
 }
 @end
 

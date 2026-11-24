@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -782,6 +783,55 @@ TEST_CASE("per-object motion blur: a moving cube blurs along its motion over a b
     CHECK(max_diff(object, again) == 0);
 }
 
+TEST_CASE("per-object motion blur: an object farther than 65504 m (past the range of the half floats of the depth) "
+          "gives no NaN") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // A big cube 100 km away, its front face 80 km: the view depth does not fit in an RGBA16F channel (the V image of the blur), so the
+    // filter cuts it. A depth that became +inf would make inf - inf in the weights and a black (NaN) picture where the cube is.
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Bar b;
+    b.w.get<Camera>(b.cam)->farPlane = 1.0e6f;
+    b.w.get<Transform>(b.cube)->position = {0, 0, -100000.0f};
+    b.w.get<Transform>(b.cube)->scale = {40000.0f, 40000.0f, 40000.0f};
+    b.blur(MotionBlurMode::Object);
+    b.move_to(-2500.0f);
+    own.draw(b.w);
+    b.move_to(2500.0f);
+    const Image img = own.draw(b.w);
+    CHECK(has_pass(own.order(), "motion-blur"));
+    int first, last;
+    extent(img, 90, 0.5f, first, last);
+    REQUIRE(first > 0);
+    CHECK(last - first > 30);
+    // The middle of the cube keeps its light (a NaN would draw it black or as a wrong colour) and its edge is the soft one of a blur.
+    for (int x = first + 20; x < last - 20; ++x) CHECK(img.pixel(x, 90).r > 0.9f);
+    CHECK(soft_pixels(img, 90, 0, 320) >= 4);
+    // No pixel is lit that the streak cannot reach.
+    int bad = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x)
+            if ((x < first - 30 || x > last + 30) && img.pixel(x, y).r > 0.01f) ++bad;
+    CHECK(bad == 0);
+}
+
+TEST_CASE("the pipeline cache tells the prepass with and without the velocity image apart") {
+    // The two differ only in the format of the second colour attachment: a key that ignored it would hand a pass with one attachment the
+    // pipeline made for two (a sokol validation error and an abort).
+    render::PipelineKey one{0xC00u, 0u, render::TargetFormat{SG_PIXELFORMAT_RGBA32F, SG_PIXELFORMAT_DEPTH, 1}};
+    render::PipelineKey two = one;
+    two.format.color1 = SG_PIXELFORMAT_RG16F;
+    CHECK_FALSE(one == two);
+    CHECK((one < two) != (two < one));
+    std::map<render::PipelineKey, int> cache;
+    cache[one] = 1;
+    cache[two] = 2;
+    CHECK(cache.size() == 2);
+    CHECK(cache[one] == 1);
+    CHECK(cache[two] == 2);
+}
+
 TEST_CASE("per-object motion blur: the longest streak is the radius, the speed past it is cut") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -893,21 +943,6 @@ TEST_CASE("per-object motion blur: where no object wrote a velocity (the sky) th
     run(false, MotionBlurMode::Object, sharp);
     run(true, MotionBlurMode::Camera, camera);
     run(true, MotionBlurMode::Object, object);
-    // The row through the middle of the disc: the sun is a sharp-edged step; blurred, the step is spread over the streak.
-    auto edge_width = [](const Image& img) {
-        int n = 0;
-        for (int y : {55, 60, 65})
-            for (int x = 0; x < img.width; ++x) {
-                const float v = img.pixel(x, y).r;
-                const float lo = img.pixel(0, y).r, hi = img.pixel(img.width - 1, y).r;
-                (void)lo;
-                (void)hi;
-                if (v > 0.1f && v < 0.9f) ++n;
-            }
-        return n;
-    };
-    INFO("sun edge pixels: sharp " << edge_width(sharp) << ", camera " << edge_width(camera) << ", object "
-                                   << edge_width(object));
     CHECK(mean_abs_diff(sharp, camera) > 0.3);  // the camera's turn blurs the sun
     CHECK(mean_abs_diff(sharp, object) > 0.3);  // and so does the sentinel's fall back to the depth
     CHECK(mean_abs_diff(camera, object) < 0.6 * mean_abs_diff(sharp, camera) + 0.5);
