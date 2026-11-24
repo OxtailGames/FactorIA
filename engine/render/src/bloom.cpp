@@ -5,6 +5,7 @@
 
 #include "fa/core/log.h"
 
+#include "gpu/sokol_shaders.h"
 #include "shaders/bloom.glsl.h"
 
 namespace fa::render {

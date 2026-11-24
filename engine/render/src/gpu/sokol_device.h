@@ -1,5 +1,7 @@
-// Private to fa_render: the GPU interface on sokol_gfx (GL, GLES3, WebGL2, D3D11, Metal). The conversions between
-// this interface's types and sokol's are in gpu/sg_bridge.h (transitional, M77-P2..P5).
+// Private to fa_render: the GPU interface on sokol_gfx (GL, GLES3, WebGL2, D3D11, Metal), and the conversions between
+// this interface's types and sokol's. Only the sokol backend's files include it (sokol_device.cpp, sokol_context.cpp,
+// sokol_native.h's readbacks, gpu_timer.cpp, device.cpp's factory) and the tests that compare the two sides: the
+// renderer reaches sokol through gpu::Device (docs/design/ARCHITECTURE_RENDERING_GPU.md, "P5d3").
 #pragma once
 
 #include <array>
@@ -10,7 +12,6 @@
 #include <thread>
 
 #include "gpu/device.h"
-#include "gpu/sg_bridge.h"
 #include "sokol_gfx.h"
 
 namespace fa::render {
@@ -18,6 +19,74 @@ class GpuTimer;
 }  // namespace fa::render
 
 namespace fa::gpu {
+
+// ---- conversions ---------------------------------------------------------------------------------------------------
+// Every enum of gpu/types.h has sokol's values, so an enum converts with a static_cast (sokol_device.cpp asserts each
+// value) and a handle by its id: gpu::Image{img.id} and sg_image{h.id} name the same image. The descs are converted
+// field by field (sokol_device.cpp).
+inline sg_buffer to_sg(Buffer h) { return sg_buffer{h.id}; }
+inline sg_image to_sg(Image h) { return sg_image{h.id}; }
+inline sg_view to_sg(View h) { return sg_view{h.id}; }
+inline sg_sampler to_sg(Sampler h) { return sg_sampler{h.id}; }
+inline sg_shader to_sg(Shader h) { return sg_shader{h.id}; }
+inline sg_pipeline to_sg(Pipeline h) { return sg_pipeline{h.id}; }
+inline Buffer from_sg(sg_buffer h) { return Buffer{h.id}; }
+inline Image from_sg(sg_image h) { return Image{h.id}; }
+inline View from_sg(sg_view h) { return View{h.id}; }
+inline Sampler from_sg(sg_sampler h) { return Sampler{h.id}; }
+inline Shader from_sg(sg_shader h) { return Shader{h.id}; }
+inline Pipeline from_sg(sg_pipeline h) { return Pipeline{h.id}; }
+
+inline sg_pixel_format to_sg(PixelFormat f) { return static_cast<sg_pixel_format>(f); }
+inline PixelFormat from_sg(sg_pixel_format f) { return static_cast<PixelFormat>(f); }
+inline sg_resource_state to_sg(ResourceState s) { return static_cast<sg_resource_state>(s); }
+inline ResourceState from_sg(sg_resource_state s) { return static_cast<ResourceState>(s); }
+inline sg_load_action to_sg(LoadAction a) { return static_cast<sg_load_action>(a); }
+inline LoadAction from_sg(sg_load_action a) { return static_cast<LoadAction>(a); }
+inline sg_store_action to_sg(StoreAction a) { return static_cast<sg_store_action>(a); }
+inline StoreAction from_sg(sg_store_action a) { return static_cast<StoreAction>(a); }
+inline sg_pass_state to_sg(PassState s) { return static_cast<sg_pass_state>(s); }
+inline PassState from_sg(sg_pass_state s) { return static_cast<PassState>(s); }
+inline sg_color to_sg(const Color& c) { return sg_color{c.r, c.g, c.b, c.a}; }
+inline Color from_sg(const sg_color& c) { return Color{c.r, c.g, c.b, c.a}; }
+inline sg_range to_sg(Range r) { return sg_range{r.ptr, r.size}; }
+inline Range from_sg(sg_range r) { return Range{r.ptr, r.size}; }
+
+// The engine Backend of a sokol backend (GLES3 is WebGl2 in an Emscripten build; DUMMY, which the engine never builds,
+// is Recording: no GPU either way), and the Metal platform.
+Backend backend_from_sg(sg_backend b);
+MetalTarget metal_target_from_sg(sg_backend b);
+
+sg_buffer_desc to_sg(const BufferDesc& d);
+sg_image_desc to_sg(const ImageDesc& d);
+sg_view_desc to_sg(const ViewDesc& d);
+sg_sampler_desc to_sg(const SamplerDesc& d);
+sg_shader_function to_sg(const ShaderFunction& f);
+sg_shader_desc to_sg(const ShaderDesc& d);
+sg_pipeline_desc to_sg(const PipelineDesc& d);
+sg_bindings to_sg(const Bindings& b);
+sg_swapchain to_sg(const Swapchain& s);
+sg_environment to_sg(const Environment& e);
+// The sokol pass of a PassDesc.
+sg_pass to_sg(const PassDesc& p);
+// The generated shader headers return sokol descs: this is how they reach Device::make_shader (gpu/sokol_shaders.h).
+// The strings and bytecode stay the header's (static data).
+ShaderFunction from_sg(const sg_shader_function& s);
+ShaderDesc from_sg(const sg_shader_desc& d);
+PipelineDesc from_sg(const sg_pipeline_desc& d);
+VertexLayout from_sg(const sg_vertex_layout_state& l);
+Swapchain from_sg(const sg_swapchain& s);
+EnvironmentDefaults from_sg(const sg_environment_defaults& d);
+PixelFormatCaps from_sg(const sg_pixelformat_info& i);
+Features from_sg(const sg_features& f);
+Limits from_sg(const sg_limits& l);
+ResourceTotals from_sg(const sg_total_resource_stats& t);
+
+// The sokol setup of a context opened from `init`: its environment, pool sizes, uniform buffer size and the engine's
+// logger. SokolDevice::create and gpu::open_context (gpu/sokol_context.h) open the context with it.
+sg_desc sokol_setup_desc(const DeviceInit& init);
+// The native objects of the open sokol context (SokolDevice::native and gpu::context_native).
+NativeDevice sokol_native_device();
 
 class AsyncBufferRead;  // gpu/sokol_native.h
 class SokolDevice;
@@ -50,6 +119,11 @@ public:
 
 private:
     SokolDevice& device_;
+    // The format of the render pass this list began: a debug build asserts in set_pipeline that the pipeline was made
+    // for it (GL and D3D11 validation reject a mismatch; Metal accepts it and draws wrong). A pass begun outside the
+    // list (gpu::begin_context_pass, the window pass the UI painter draws in) is not checked: ownPass_ is false.
+    TargetFormat passFormat_{};
+    bool ownPass_ = false;
 };
 
 // The Device of the sokol backends. It adopts the sokol context that is open when it is made (the renderer's: it is

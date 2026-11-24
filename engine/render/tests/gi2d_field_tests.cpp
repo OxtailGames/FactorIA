@@ -56,10 +56,11 @@ struct Own {
     // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks them is a bug to see, not a
     // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say so.
     bool gi_ready() {
-        const bool floatOk = Gi2dSystem::float_targets_ok(renderer_gpu(r)->device());
-        const sg_backend api = sg_query_backend();
-        if (api == SG_BACKEND_GLCORE || api == SG_BACKEND_D3D11 || api == SG_BACKEND_METAL_MACOS ||
-            api == SG_BACKEND_METAL_IOS) {
+        REQUIRE(renderer_gpu(r)->has_device());
+        const gpu::Device& dev = renderer_gpu(r)->device();
+        const bool floatOk = Gi2dSystem::float_targets_ok(dev);
+        const gpu::Backend api = dev.backend();
+        if (api == gpu::Backend::Gl || api == gpu::Backend::D3d11 || api == gpu::Backend::Metal) {
             INFO("this backend must have RGBA16F render targets that blend and filter");
             REQUIRE(floatOk);
         }

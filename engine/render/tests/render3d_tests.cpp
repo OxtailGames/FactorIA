@@ -16,6 +16,7 @@
 
 #include "fa/scene/animation.h"
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "mesh_batch.h"
 #include "gpu/recording_device.h"
 #include "render_internal.h"  // material_shader_desc

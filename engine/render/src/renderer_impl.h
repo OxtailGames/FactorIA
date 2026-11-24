@@ -24,7 +24,6 @@
 #include "fa/core/asset_manifest.h"
 #include "fa/core/log.h"
 #include "fa/core/profiler.h"
-#include "fa/platform/sokol_logging.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
@@ -48,6 +47,7 @@
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
+#include "gpu/sokol_shaders.h"  // before the generated shader headers
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
@@ -1042,19 +1042,13 @@ inline Viewport compute_viewport(ScaleMode mode, int fbW, int fbH, int tw, int t
     }
 }
 
-template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
-}
-
-// The same on a command list (converted code: gpu.commands(), PassContext::commands()).
+// Sets the uniform block `slot` of the pipeline set last on `list` to `u`.
 template <class T>
 void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
     list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
-// Begins `pass`, a render::PassDesc still made of sokol handles (pass_into, the Target fields), on `list`.
+// Begins `pass` (pass_into, the Target fields) on `list`.
 inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) { list.begin_pass(pass); }
 
 }  // namespace fa
