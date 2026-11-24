@@ -80,7 +80,8 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
     p.needsDepth = post_mask_needs_depth(read);
     p.needsNormals = post_mask_needs_normals(read);
     if (post_mask_needs_velocity(read)) {
-        p.request_velocity();
+        p.needsVelocity =
+            true;  // not request_velocity(): only the effects ask here, and a frame that does not draw them takes it back
         p.request_reactive();  // only the temporal antialiasing reads the velocity here, and it reads the mask too
     }
     if (!cam.postStack) {

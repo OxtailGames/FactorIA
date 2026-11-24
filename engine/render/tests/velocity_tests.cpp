@@ -191,30 +191,6 @@ void install_file_from_repo(const char* repoRelative, const char* projectPath) {
     REQUIRE(!text.empty());
     REQUIRE(fs::write_text(projectPath, text).ok());
 }
-// The fixtures' materials with their committed shader twins, made current for this engine version.
-struct MaterialScope {
-    MaterialScope() {
-        namespace sfs = std::filesystem;
-        gfx().renderer.clear_asset_cache();
-        const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
-        for (const auto& e : sfs::recursive_directory_iterator(src)) {
-            if (!e.is_regular_file()) continue;
-            std::ifstream in(e.path(), std::ios::binary);
-            std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (e.path().extension() == ".shader") {
-                Json twin = Json::parse(bytes);
-                twin["engine"] = FA_ENGINE_VERSION;
-                bytes = twin.dump();
-            }
-            REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
-        }
-    }
-    ~MaterialScope() {
-        gfx().renderer.set_shader_compiler({});
-        gfx().renderer.clear_asset_cache();
-    }
-};
-
 // The column of the tests (a skinned mesh 0.5 wide and 2 tall, assets/rig.gltf) with the clip `clip`; the caller poses it.
 Entity add_rig(World& w, const char* clip, Vec3 pos = {0, 0, 0}) {
     Entity rig = make(w, "rig", pos);

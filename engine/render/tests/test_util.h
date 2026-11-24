@@ -11,8 +11,10 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/engine_version.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
+#include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/app.h"
 #include "fa/render/renderer.h"
@@ -204,5 +206,37 @@ inline PostProcess& set_color_filter(World& w, Entity cam, ColorFilter f) {
     p.colorFilterMode = f;
     return p;
 }
+
+// The fixture materials of tests/data/materials are copied into the test project; every twin (*.shader) gets this build's engine version
+// (its "template" stays, so a template change without regenerating the twins fails loudly).
+inline void install_materials() {
+    namespace sfs = std::filesystem;
+    const sfs::path src = fs::path_from_utf8(FA_RENDER_DATA_DIR) / "materials";
+    for (const auto& e : sfs::recursive_directory_iterator(src)) {
+        if (!e.is_regular_file()) continue;
+        std::ifstream in(e.path(), std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (e.path().extension() == ".shader") {
+            Json twin = Json::parse(bytes);
+            twin["engine"] = FA_ENGINE_VERSION;
+            bytes = twin.dump();
+        }
+        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
+    }
+}
+
+// A test starts with an empty asset cache and the fixture materials installed, and leaves no shader compiler behind.
+struct MaterialScope {
+    MaterialScope() {
+        gfx().renderer.clear_asset_cache();
+        install_materials();
+    }
+    ~MaterialScope() {
+        gfx().renderer.set_shader_compiler({});
+        gfx().renderer.clear_asset_cache();
+    }
+    MaterialScope(const MaterialScope&) = delete;
+    MaterialScope& operator=(const MaterialScope&) = delete;
+};
 
 }  // namespace fa::test

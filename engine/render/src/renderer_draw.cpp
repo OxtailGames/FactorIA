@@ -832,6 +832,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 pp.readMask &= ~drop;
                 pp.needsDepth = post_mask_needs_depth(pp.readMask);
                 pp.needsNormals = post_mask_needs_normals(pp.readMask);
+                // Nor the velocity (and so no prepass, no quad-velocity pass, no per-vertex motion) when only that effect asked for it.
+                if (!pp.velocityPinned && !post_mask_needs_velocity(pp.readMask)) pp.needsVelocity = false;
             }
         }
         // The program is made only for a frame that runs it (a conversion or a colour filter): a game without a stack never compiles it.
@@ -1996,12 +1998,16 @@ void Renderer::Impl::fill_prev_models(DrawContext& ctx) {
     }
 }
 
-// The motion of the 2D items of the world for the velocity image (M76-P1d): how far each moved since the frame before, what the quad motion
-// passes subtract from the vertices to know where they were. From the origin each item says it has (QuadItem::origin, set by
-// QuadList::set_motion_source) and what the renderer keeps of it in `prevQuadOrigins`, with the rules of fill_prev_models: nothing for an
+// The motion of the 2D items of the world for the velocity image (M76-P1d): how far each vertex moved since the frame before, what the quad
+// motion passes subtract from the vertices to know where they were. From the matrix each item says it was placed with (QuadItem::xform, set
+// by QuadList::set_motion_source) and what the renderer keeps of it in `prevQuadOrigins`, with the rules of fill_prev_models: nothing for an
 // owner that is new or was not drawn in the frame before, after a cut (PostPlan::prevValid false), or in a frame that is not one of the
-// game's. Items with no owner (a Tilemap, text) do not move by themselves. Every camera of the frame sees the same history (the first one
-// to ask moves it on). Reads: ctx.fr.world, ctx.postPlan.prevValid, postSerial, framePost. Writes: QuadItem::motion, prevQuadOrigins.
+// game's. A vertex `p` of the item was at `Mprev * Mnow^-1 * p`: with R the rotation and scale between the two frames that is
+// `R * (p - o) + oPrev` (o, oPrev: the origin now and before), so its motion is `(oNow - oPrev) + (I - R) * (p - o)` (QuadItem::motion and
+// ::turn; `turned` false when R is the identity, as for every item that only translates). A matrix that cannot be inverted (a scale of 0 on
+// either frame) counts as a translation. Items with no owner (text) do not move by themselves. Every camera of the frame sees the same
+// history (the first one to ask moves it on). Reads: ctx.fr.world, ctx.postPlan.prevValid, postSerial, framePost. Writes: QuadItem::motion,
+// ::turn, ::turned, prevQuadOrigins.
 void Renderer::Impl::fill_quad_motion(DrawContext& ctx) {
     const bool kept = framePost;
     if (kept && prevQuadsPruned != postSerial) {  // an owner not drawn in the frame before is forgotten
@@ -2011,17 +2017,53 @@ void Renderer::Impl::fill_quad_motion(DrawContext& ctx) {
     const bool useHistory = kept && ctx.postPlan.prevValid;
     for (QuadItem& it : ctx.fr.world.items) {
         it.motion = Vec3{};
+        it.turned = false;
         if (!kept || it.motionKey == 0) continue;
         auto [entry, fresh] = prevQuadOrigins.try_emplace(it.motionKey);
         PrevQuadOrigin& q = entry->second;
         if (fresh || q.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
-            q.prev = q.cur = it.origin;
-        } else if (q.frame + 1 == postSerial) {  // the first time this frame: last frame's origin is the previous one
+            q.prev = q.cur = it.xform;
+        } else if (q.frame + 1 == postSerial) {  // the first time this frame: last frame's matrix is the previous one
             q.prev = q.cur;
-            q.cur = it.origin;
+            q.cur = it.xform;
         }  // q.frame == postSerial: another item or camera of this frame, same history
         q.frame = postSerial;
-        if (useHistory) it.motion = q.cur - q.prev;
+        if (!useHistory) continue;
+        it.motion = q.cur.translation() - q.prev.translation();
+        // R = Lprev * Lcur^-1 on the 3x3 parts; skipped (a translation) when the two have the same 3x3 or Lcur has no inverse.
+        float lc[9], lp[9];
+        float diff = 0.0f;
+        for (int c = 0; c < 3; ++c)
+            for (int r = 0; r < 3; ++r) {
+                lc[c * 3 + r] = q.cur.at(c, r);
+                lp[c * 3 + r] = q.prev.at(c, r);
+                diff = std::max(diff, std::fabs(lc[c * 3 + r] - lp[c * 3 + r]));
+            }
+        if (diff <= 1.0e-6f) continue;
+        // inverse of lc by cofactors (column-major: lc[c * 3 + r])
+        auto m = [&](int r, int c) { return lc[c * 3 + r]; };
+        const float c00 = m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1), c01 = m(1, 2) * m(2, 0) - m(1, 0) * m(2, 2),
+                    c02 = m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0);
+        const float det = m(0, 0) * c00 + m(0, 1) * c01 + m(0, 2) * c02;
+        if (!(std::fabs(det) > 1.0e-12f)) continue;
+        const float id = 1.0f / det;
+        float inv[3][3];  // [row][col]
+        inv[0][0] = c00 * id;
+        inv[0][1] = (m(0, 2) * m(2, 1) - m(0, 1) * m(2, 2)) * id;
+        inv[0][2] = (m(0, 1) * m(1, 2) - m(0, 2) * m(1, 1)) * id;
+        inv[1][0] = c01 * id;
+        inv[1][1] = (m(0, 0) * m(2, 2) - m(0, 2) * m(2, 0)) * id;
+        inv[1][2] = (m(0, 2) * m(1, 0) - m(0, 0) * m(1, 2)) * id;
+        inv[2][0] = c02 * id;
+        inv[2][1] = (m(0, 1) * m(2, 0) - m(0, 0) * m(2, 1)) * id;
+        inv[2][2] = (m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0)) * id;
+        for (int c = 0; c < 3; ++c)
+            for (int r = 0; r < 3; ++r) {
+                float rot = 0.0f;  // (Lprev * inv)(r, c)
+                for (int k = 0; k < 3; ++k) rot += lp[k * 3 + r] * inv[k][c];
+                it.turn[c * 3 + r] = (r == c ? 1.0f : 0.0f) - rot;
+            }
+        it.turned = true;
     }
 }
 
@@ -3482,10 +3524,11 @@ void Renderer::Impl::plan_quad_motion(DrawContext& ctx) {
         return;
     bool anyVel = false, anyReact = false;
     for (const QuadItem& it : fr.world.items) {
-        if (it.effect || it.instances > 0 || it.quadCount == 0) continue;
+        if (it.effect || it.instances > 0 || it.quadCount == 0 || it.clip.w > 0) continue;
         if (it.reactive_value() > 0.0f)
             anyReact = true;
-        else if (it.blend == BlendMode::Alpha)
+        else if (it.blend == BlendMode::Alpha &&
+                 !it.use)  // an item with a material of its own writes no velocity (see quad_motion_pass)
             anyVel = true;
     }
     const bool ownVel = anyVel && !ctx.doPrepass && ctx.collectPrev && pp.needsVelocity;
@@ -3547,9 +3590,12 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
     const sg_view preView = depth && depth->texView.id ? depth->texView : assets->white()->view;
     for (const QuadBatch& qb : ctx.gWorld.batches) {
         if (qb.effect || qb.instances > 0 || qb.quadCount == 0) continue;
-        // A scissor (a clipped item) and a material (its `discard`, its vertex()) change which pixels the quads cover: this pass applies
-        // neither, so such a batch writes nothing here (the camera's motion, no mask) rather than a footprint that is not the colour's.
-        if (qb.clip.w > 0 || qb.use) continue;
+        // A scissor (a clipped item: only the screen-space quads of a ScrollList have one, and they are not in the world's list) and a
+        // material (its `discard`, its vertex()) change which pixels the quads cover, and this pass applies neither. The velocity then writes
+        // nothing for such a batch (the camera's motion): a vector over a footprint that is not the colour's would overwrite the surface behind.
+        // The mask does write it, over the footprint the quad has with the built-in coverage (its shape, the texture's alpha times the tint's):
+        // a mask that is larger than what the material shows only costs a little history there, one that is missing leaves a trail.
+        if (qb.clip.w > 0 || (qb.use && !reactive)) continue;
         if (reactive ? !qb.reactive : qb.blend != BlendMode::Alpha) continue;
         sg_apply_pipeline(pip);
         apply_uniforms(UB_quad_motion_quad_motion_vs_params, vu);

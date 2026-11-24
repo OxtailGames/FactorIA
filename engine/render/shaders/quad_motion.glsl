@@ -7,10 +7,10 @@
 //   quad_react  the reactive mask: the vertex's reactive value (0..1) times the quad's coverage, written with the MAX blend, so
 //               overlapping particles do not add up past 1. The same depth test.
 // The vertices are the engine's Vertex2D (position is in the world, pre-transformed; quad_common.glsl documents the modes); vertex buffer 1
-// carries, per vertex, motion.xyz = how far the quad's item moved in the world since the frame before (the item's origin now minus its
-// origin on the frame before; 0 for what has no history) and motion.w = the reactive value. The previous position of a vertex is then
-// `position - motion.xyz` through the previous frame's view-projection: a translation only (a rotation or a scale change of the item between
-// two frames is not part of it). The quad is rasterised with the matrix the colour is drawn with (the jitter of the temporal antialiasing
+// carries, per vertex, motion.xyz = how far that vertex moved in the world since the frame before (the CPU works it out from the item's
+// matrix now and on the frame before, so a sprite that turns or grows has the vector of each of its corners; 0 for what has no history) and
+// motion.w = the reactive value. The previous position of a vertex is then `position - motion.xyz` through the previous frame's
+// view-projection. What the matrix does not say is not followed: a size, a region or a vertex offset that changes. The quad is rasterised with the matrix the colour is drawn with (the jitter of the temporal antialiasing
 // included), so its coverage and depth test hit the colour's pixels, and the vectors come from the matrices without the jitter.
 // Coverage per mode, as quad_common.glsl draws it: 0, 5, 6 = the texture's alpha times the tint's; 1, 2, 3 = circle, ring, soft dot;
 // 4 = the glyph; 7 = a Shape2D, whose whole box counts (its rounded corners and soft edge are not followed). The +8, +16 and +32 flags
