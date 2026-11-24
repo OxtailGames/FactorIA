@@ -115,8 +115,8 @@ constexpr int kMaxInstanceVec4 = 3;  // fa/tooling/shaders.h kMaterialMaxInstanc
 constexpr int kExtraAttrBase = 9, kExtraAttrBaseSkinned = 11;
 // M76 motion vectors: vertex buffer 6 holds the previous model matrix of every instance of a prepass draw as the three rows of an affine
 // matrix (48 bytes, the instance matrix without its constant last row), per instance, read by attributes 3 after the extras
-// (mesh_common.glsl, fa_prev_r0..2). The prepass programs that have them: the engine's and every material's non-skinned ones, unless the
-// material draws from storage buffers or declares so many extras that 3 more would pass the 16 attributes of SG_MAX_VERTEX_ATTRIBUTES.
+// (mesh_common.glsl, fa_prev_r0..2). The prepass programs that have them: the engine's and every material's, unless the material draws
+// from storage buffers or declares so many extras that 3 more would pass the 16 attributes of SG_MAX_VERTEX_ATTRIBUTES (prepass_prev_attr).
 constexpr int kPrevModelBuffer = 6;
 constexpr int kPrevModelBytes = 48;
 struct PrevModelRows {
@@ -139,17 +139,26 @@ struct MeshExtras {
     int count() const { return instanceVec4 + (uv1 ? 1 : 0) + (color1 ? 1 : 0); }
 };
 // The location of the previous model's first attribute in a prepass program (vertex buffer kPrevModelBuffer), or -1 when the program has
-// none: a skinned one (M76-P1b keeps the previous palette), one drawn from storage buffers, one with more than 4 extra attributes. The
-// same rule as `FA_PREV_BASE` in mesh_common.glsl prepass_vs; `custom` is false for the engine's own programs (no extras).
+// none: one drawn from storage buffers, or one with so many extra attributes that 3 more would pass the 16 attributes of
+// SG_MAX_VERTEX_ATTRIBUTES (more than 4 extras, a skinned program: more than 2). The same rule as `FA_PREV_BASE` in mesh_common.glsl
+// prepass_vs and prepass_vs_skin; `custom` is false for the engine's own programs (no extras).
 inline int prepass_prev_attr(bool skinned, bool custom, const MeshExtras& e) {
-    if (skinned || (custom && e.bufferInst)) return -1;
-    const int n = custom ? e.count() : 0;
-    return n <= 4 ? kExtraAttrBase + n : -1;
+    if (custom && e.bufferInst) return -1;
+    const int first = (skinned ? kExtraAttrBaseSkinned : kExtraAttrBase) + (custom ? e.count() : 0);
+    return first + 3 <= 16 ? first : -1;
 }
+// The previous joint palette of a skinned draw of the prepass with motion vectors (M76-P1c) is read from an RGBA32F image by the vertex stage
+// (shaders/mesh_common.glsl, block fa_prev_palette: view 29, sampler 11, texelFetch), so a skin of any joint count up to kMaxSkinJoints has
+// vectors and no uniform is used. The image is a stream of texels in rows of kPrevPaletteWidth: a joint is 3 texels, a palette is
+// kPrevPaletteTexels (the 64 joints, the unused ones the identity, so a joint index the weights ignore still reads a matrix) and each
+// skinned draw of the frame has its own. At most kPrevPaletteMaxRows rows (16 MiB): 5461 skinned draws a camera and frame; the rest write the
+// sentinel (a warning, once). The image is uploaded before the first pass of the frame (Impl::upload_prev_palettes).
+constexpr int kPrevPaletteWidth = 1024, kPrevPaletteMaxRows = 1024;
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
 // that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
 constexpr int kMaxSkinJoints = 64;
+constexpr int kPrevPaletteTexels = 3 * kMaxSkinJoints;  // one previous palette in the image of the motion vectors
 struct SkinVertex {
     std::uint8_t joints[4];
     float weights[4];

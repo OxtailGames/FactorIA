@@ -3,6 +3,7 @@
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
 #include "scene2d.h"
+#include "quality.h"
 #include "render_features.h"
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
@@ -146,6 +147,9 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && world.any<PostProcess>()) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci));
+        if (qualityOn)
+            apply_quality_limits(
+                *stack, quality);  // the graphics preset: what the cameras may draw (the components are untouched)
         for (const Error& err : stack->customErrors)
             if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
@@ -360,6 +364,21 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
                     if (animated) gpu->shadow_pipeline(true);
                 });
             }
+            // The prepass with the velocity image (M76): its pipelines have two colour attachments, so they are not the ones of a camera
+            // that only reads the depth. Only where a PostProcess asks for temporal antialiasing, the effect that reads it; the engine's
+            // programs of a mesh drawn as it is (one sided and double sided, skinned where an entity has an Animator).
+            bool temporal = false;
+            world.each<PostProcess>([&](Entity, PostProcess& p) { temporal = temporal || p.temporalAAEnabled; });
+            if (temporal) {
+                im.warmGroups.push_back([gpu, animated] {
+                    if (!gpu->velocity_ready()) return;
+                    const TargetFormat f = gpu->prepass_target_format(true);
+                    for (const bool doubleSided : {false, true}) {
+                        gpu->prepass_pipeline(f, doubleSided, false, {}, {});
+                        if (animated) gpu->prepass_pipeline(f, doubleSided, true, {}, {});
+                    }
+                });
+            }
         }
     }
     if (im.warmNext >= im.warmGroups.size()) return 0;
@@ -484,6 +503,8 @@ void Renderer::shutdown() {
         im.impostors.destroy();
         im.foliage.destroy();
         im.assets.reset();
+        destroy_target(
+            im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
@@ -521,6 +542,16 @@ void Renderer::set_upscale_stage(bool on) {
 bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
 const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+void Renderer::set_quality(const render::QualityLimits& limits) {
+    impl_->quality = limits;
+    impl_->qualityOn = limits != render::QualityLimits{};
+}
+const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
+render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
+    render::FeatureEnv env;  // headless (no GPU) until the renderer has one
+    if (initialized()) env = render::feature_env_from_sokol();
+    return render::resolve_quality(preset, env);
+}
 render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
 render::UpscalerMode Renderer::effective_upscaler_mode() const {
     return impl_ ? impl_->effective_upscaler_mode() : render::UpscalerMode::Stretch;
@@ -1079,6 +1110,9 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
     if (!on) render::destroy_target(r.impl_->velocityProbe);
+}
+void RendererTestAccess::force_no_velocity_target(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->noVelocityTarget = on;
 }
 bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
     if (!r.initialized()) {

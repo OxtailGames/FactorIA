@@ -137,7 +137,26 @@ void Engine::Impl::apply_project_settings() {
     // survives an unrelated reload). Always valid: load_project checked it.
     if (!appliedProjectUpscaler || *appliedProjectUpscaler != project.upscaler) {
         appliedProjectUpscaler = project.upscaler;
-        self->set_upscaler(render::upscaler_to_json(project.upscaler));
+        if (graphicsPreset == render::GraphicsPreset::Custom)
+            self->set_upscaler(render::upscaler_to_json(project.upscaler));
+        else {
+            upscalerBeforePreset =
+                project.upscaler;  // a preset is on: it keeps its own upscaler, `custom` gets this one back
+            if (!render::graphics_preset_table(graphicsPreset)
+                     .upscaler) {  // ultra: no upscaler of its own, the game's is on
+                applyingPreset = true;
+                self->set_upscaler(render::upscaler_to_json(project.upscaler), "factoria.json");
+                applyingPreset = false;
+            }
+        }
+    }
+    // The graphics preset of factoria.json ("render.graphicsPreset"), applied when it changes (a player's choice survives an unrelated
+    // reload). After the upscaler: a preset writes it. Always valid: load_project checked it.
+    if (!appliedProjectPreset || *appliedProjectPreset != project.graphicsPreset) {
+        appliedProjectPreset = project.graphicsPreset;
+        std::string ignored;
+        Json args = Json::object({{"name", std::string(render::graphics_preset_name(project.graphicsPreset))}});
+        if (project.graphicsPreset != graphicsPreset) self->graphics_preset(args, &ignored);
     }
     apply_render_scale();  // the display's scale mode may have changed too (pixel art keeps the plain scaling); no renderer yet at the start
     // The mirror option of factoria.json, applied when it changes (a script's ui.mirrorRtl survives an unrelated reload).
@@ -1003,8 +1022,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
-            I.apply_render_scale();    // the project's quality draws below the window's size from the first frame
-            I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
+            I.apply_render_scale();      // the project's quality draws below the window's size from the first frame
+            I.apply_graphics_quality();  // and so did the project's graphics preset
+            I.apply_fallback_fonts();    // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
@@ -1712,7 +1732,15 @@ std::string Engine::set_render_scale(double scale) {
 }
 
 std::string Engine::set_upscaler(const Json& value, const std::string& where) {
+    // While a preset is on, a change of the game is a change of the game's own setting: what `custom` goes back to is the setting from before
+    // the preset with the keys of `value` over it (a partial change keeps the project's mode and quality), not the preset's value.
+    std::optional<render::UpscalerSettings> own;
+    if (!impl_->applyingPreset && impl_->upscalerBeforePreset) {
+        auto r = render::parse_upscaler_settings(value, where, *impl_->upscalerBeforePreset);
+        if (r.ok()) own = r.value();
+    }
     std::string err = ScriptHost::set_upscaler(value, where);
+    if (err.empty() && own) impl_->upscalerBeforePreset = *own;
     if (err.empty() && impl_->renderer) {
         impl_->renderer->set_upscaler(upscaler());
         impl_->apply_render_scale();  // the quality and the mode decide the render scale and the stage
@@ -1726,7 +1754,13 @@ render::UpscalerMode Engine::effective_upscaler_mode() const {
 }
 
 render::UpscalerCaps Engine::upscaler_caps() const {
-    render::UpscalerCaps caps;  // no renderer: what a GPU would draw, so only the scale mode matters
+    // No renderer: what a GPU would draw for a game with one full-window camera and a history that fits (the milestone rule: a
+    // headless run and a test report what a player would see). MetalFX is not built, so `metalfx` stays false.
+    render::UpscalerCaps caps;
+    caps.spatial = true;
+    caps.temporal = true;
+    caps.multiCamera = false;
+    caps.metalfx = false;
     caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
     return caps;
 }

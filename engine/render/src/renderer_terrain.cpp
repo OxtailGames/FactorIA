@@ -1236,7 +1236,7 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
         j.entry = en;
         j.model = model;
         j.grid = terrain_grid_of(t, en->heights->samples);
-        j.ranges = TerrainLodRanges::make(j.grid, en->bounds.levels(), t.lodQuality);
+        j.ranges = TerrainLodRanges::make(j.grid, en->bounds.levels(), t.lodQuality * v.lodQuality);
         j.camLocal = model.inverse().transform_point(v.camera);
         j.cull = !t.castShadows;
         const std::vector<TerrainLayerInfo> layers = terrain_layers(t);

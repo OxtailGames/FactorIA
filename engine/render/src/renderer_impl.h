@@ -229,7 +229,27 @@ struct Renderer::Impl {
     };
     std::unordered_map<std::uint64_t, PrevModel> prevModels;  // by Entity::bits()
     std::uint64_t prevModelsPruned = ~std::uint64_t(0);       // the postSerial prevModels was last swept in
+    // The joint palettes of a skinned entity (M76-P1b), one per skin of its Animator, of the last frame it was drawn (`cur`) and the one
+    // before (`prev`), at most kMaxSkinJoints joints each. Same keys and life as prevModels.
+    // A palette is in model space, so an origin shift (renderer_origin.cpp) leaves it as it is.
+    struct PrevPalette {
+        std::vector<std::vector<Mat4>> prev, cur;
+        std::uint64_t frame = 0;
+    };
+    std::unordered_map<std::uint64_t, PrevPalette> prevPalettes;  // by Entity::bits()
+    // The game time (World::time, seconds) of the last frame that kept the histories (`clockCur`, the postSerial `clockFrame`) and of the one
+    // before (`clockPrev`): what a material's vertex() sees as fa_time.x in the second run of the motion vectors.
+    float clockPrev = 0.0f, clockCur = 0.0f;
+    std::uint64_t clockFrame = ~std::uint64_t(0);
+    bool warnedNoVelocity = false;  // one warning for a GPU with no RG16F render target
+    bool warnedPrevPalette =
+        false;  // one warning for skinned draws that got no previous palette (upload_prev_palettes)
+    // Tests (RendererTestAccess::force_no_velocity_target): behave as a GPU that cannot render to RG16F.
+    bool noVelocityTarget = false;
     void fill_prev_models(DrawContext& ctx);
+    void keep_prev_palette(const MeshItem& mi);
+    const std::vector<Mat4>& prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const;
+    void upload_prev_palettes(DrawContext& ctx);
     // Tests (renderer_test_access.h): called once per frame when everything is gathered and the passes are about to
     // run, so a test can change the world's resources (destroy a compute buffer) between the gather and the draw.
     std::function<void()> beforeFrameGraph;
@@ -256,6 +276,8 @@ struct Renderer::Impl {
     int jitterForce = 0;
     UpscalerSettings
         upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
+    QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
+    bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera

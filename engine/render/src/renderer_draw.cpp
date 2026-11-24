@@ -145,8 +145,19 @@ struct Renderer::Impl::DrawContext {
     // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
     // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
     bool collectPrev = false, doVelocity = false;
-    std::vector<PrevModelRows> prevMats;
+    std::vector<PrevModelRows>
+        prevRows;  // fill_prev_models: the previous model of every opaque item (MeshItem::prevIdx)
+    std::vector<PrevModelRows> prevMats;  // build_batches: the same, one per drawn instance, in the order of mainMats
     sg_buffer prevInst{};
+    // upload_prev_palettes (M76-P1c): the previous joint palettes of the skinned draws of the prepass in one RGBA32F image (`prevPalView`, empty = none);
+    // `prevPalBase` has the first texel of the palette of (batch.rep, skin), key `prev_palette_key`. `prevPalTexels` is the CPU copy (capacity kept).
+    sg_view prevPalView{};
+    std::unordered_map<std::uint64_t, int> prevPalBase;
+    std::vector<float> prevPalTexels;
+    // fill_prev_models: whether the entities' histories count this frame (false after a cut: no motion of their own), and the game time of
+    // the frame before in seconds, what a material's vertex() reads as fa_time.x in the prepass's second run (the time now after a cut).
+    bool prevHistory = false;
+    float prevTime = 0.0f;
     // M75.2b: the camera is culled with its depth pyramid (gather_meshes): plan_prepass draws the prepass for it and build_graph reduces it.
     HizCamera* hiz = nullptr;
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
@@ -323,6 +334,11 @@ mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
             for (int c = 0; c < 4; ++c) u.fa_joint_rows[j * 3 + r][c] = m.at(c, r);
     }
     return u;
+}
+
+// The key of the previous palette of skin `skin` of the item at `item` (an index into DrawContext::opaque) in DrawContext::prevPalBase.
+std::uint64_t prev_palette_key(std::size_t item, int skin) {
+    return (std::uint64_t(item) << 8) | std::uint64_t(std::uint8_t(skin));
 }
 
 using MaterialInputs = Renderer::Impl::MaterialInputs;
@@ -883,7 +899,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The volumetric fog (renderer_volumetric.h): planned here, from the lights and the shadows of this job, so that it asks for the prepass it marches
     // to. It replaces the analytic fog of its camera (below), so a camera that cannot draw it keeps that.
     if (draws && !fr.cam.studio) {
-        const SceneSettings& vss = world.settings();
+        SceneSettings vss = world.settings();
+        if (qualityOn) {  // the graphics preset: no fog, or at most its quality
+            if (!quality.volumetricFog) vss.volumetricFog = false;
+            vss.volumetricQuality = std::min(vss.volumetricQuality, quality.volumetricQuality);
+        }
         ctx.postPlan.vol = make_vol_plan(vss, fr.cam, ctx.lights, fr.linear, ctx.camPx.w, ctx.camPx.h, ctx.doShadows,
                                          ctx.doShadows && ctx.cascades > 0 && ctx.haveShadowCaster);
         // An absolute height like the fog's (its +-10000 range is on the authored value); subtracted in double (M75.4b).
@@ -917,8 +937,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     }
     if (draws && upscaleTaa.on && !plan.view) {
         ctx.postPlan.needsDepth = true;  // the temporal upscaler reprojects its history with the depth
-        ctx.postPlan
-            .request_velocity();  // and with the motion of the objects (M76-P1a), where the GPU can make the image
+        // and with the motion of the objects (M76-P1a), where the GPU can make the image
+        ctx.postPlan.request_velocity();
     }
     plan_prepass(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
@@ -1106,7 +1126,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             const SceneLodGroup& sg = groups[g];
             groupPick[g].level = -1;
             if (sg.children <= 0 || !(sg.radius > 0.0f)) continue;
-            const float distance = length(sg.origin - fr.cam.position);
+            float distance = length(sg.origin - fr.cam.position);
+            if (qualityOn)
+                distance *= std::max(quality.lodDistanceScale, 1.0f);  // the graphics preset: levels switch sooner
             const float value =
                 sg.group->mode == LodMode::ScreenSize ? lod_screen_size(2.0f * sg.radius, distance, lodView) : distance;
             // Past hlodThreshold the group is its proxy mesh (M75 P1d): one more level, past every child.
@@ -1172,12 +1194,13 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         }
         if (!sm->hasLods) continue;
         float screen = 0.0f;
+        const float lodDist = qualityOn ? mi.dist * std::max(quality.lodDistanceScale, 1.0f) : mi.dist;
         if (mr.lodMode ==
             LodMode::ScreenSize) {  // the box of the nearest level, so the size does not change with the level
             const float scale = std::max({length(Vec3{mi.model.at(0, 0), mi.model.at(0, 1), mi.model.at(0, 2)}),
                                           length(Vec3{mi.model.at(1, 0), mi.model.at(1, 1), mi.model.at(1, 2)}),
                                           length(Vec3{mi.model.at(2, 0), mi.model.at(2, 1), mi.model.at(2, 2)})});
-            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, mi.dist, lodView);
+            screen = lod_screen_size(length(sm->bmax - sm->bmin) * scale, lodDist, lodView);
         }
         // The impostor (M75-P1c) is one more level, past the last one: the sentinel level of LodFades, so its cross-fade with the last level is the
         // ordinary one. An atlas that cannot be used (a warning was given) leaves the last level drawn.
@@ -1192,9 +1215,9 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
             }
             return lod_level_of(mr, dist, scr);
         };
-        const int target = level_at(mi.dist, screen);
+        const int target = level_at(lodDist, screen);
         // The hysteresis: the pick again with the metric pushed farther (the distance up, the screen size down).
-        const int farTarget = level_at(mi.dist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
+        const int farTarget = level_at(lodDist * (1.0f + kLodHysteresis), screen * (1.0f - kLodHysteresis));
         const LodPick pick = lod_pick(LodKind::Mesh, mi.entity.bits(), target,
                                       canFade && groupFade == 0.0f ? mr.lodCrossFade : 0.0f, farTarget);
         // Puts the level `level` of the entity into `item` (the nearest level is what the scene gathered).
@@ -1270,6 +1293,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         tv.camera = fr.cam.position;
         tv.linear = fr.linear;
         tv.serial = frameSerial;
+        if (qualityOn) tv.lodQuality = quality.terrainLodQuality;
         tv.gpu = &gpu;
         tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
         terrains.gather(tv, ctx.terrainDraws, meshes);
@@ -1307,6 +1331,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         fv.time = fr.time;
         fv.serial = frameSerial;
         fv.occlusion = occluded ? &occlusion : nullptr;
+        if (qualityOn) {
+            fv.density = quality.foliageDensity;
+            fv.distance = quality.foliageDistance;
+        }
         const FoliageRenderer::Counts fc = foliage.gather(fv, meshes, meshBlended);
         stats.foliageInstancesCulled += fc.culled;
     }
@@ -1360,8 +1388,12 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     lightDirForShadow = d;
                     shadowLight = 0;
                     ld.rank = 0;
+                    // A preset without soft shadows draws a PCSS sun with the plain PCF filter (the limit of the local lights too).
+                    const ShadowFilter sunFilter =
+                        (qualityOn && !quality.softShadows && l.shadowFilter == ShadowFilter::Pcss) ? ShadowFilter::Pcf
+                                                                                                    : l.shadowFilter;
                     ctx.sun = {l.shadowResolution, l.shadowBias,     l.shadowNormalBias,
-                               l.shadowSoftness,   l.shadowDistance, l.shadowFilter};
+                               l.shadowSoftness,   l.shadowDistance, sunFilter};
                 }
                 if (!l.ies.empty() && !warnedDirectionalIes) {
                     warnedDirectionalIes = true;
@@ -1429,15 +1461,20 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
                     ld.ext[1] = Vec4{ay, 0.0f};
                 }
                 if (pend.area || !pend.cookie.empty() || !pend.ies.empty()) pendingAtlas.push_back(std::move(pend));
-                if (l.castShadows) {
+                // The graphics preset (quality.localShadows): the point, spot and area lights cast no shadow when it is off.
+                if (l.castShadows && !(qualityOn && !quality.localShadows && l.type != LightType::Directional)) {
                     ld.shadow.casts = true;
-                    ld.shadow.resolution = l.shadowResolution;
+                    ld.shadow.resolution = qualityOn && l.shadowResolution > 0
+                                               ? std::min(l.shadowResolution, quality.shadowTileSize)
+                                               : l.shadowResolution;
                     ld.shadow.bias = l.shadowBias;
                     ld.shadow.normalBias = l.shadowNormalBias;
                     ld.shadow.softness = l.shadowSoftness;
                     ld.shadow.distance = l.shadowDistance > 0.0f ? l.shadowDistance : world.settings().shadowDistance;
                     ld.shadow.filter =
-                        l.shadowFilter == ShadowFilter::Hard ? 1 : (l.shadowFilter == ShadowFilter::Pcss ? 2 : 0);
+                        l.shadowFilter == ShadowFilter::Hard
+                            ? 1
+                            : (l.shadowFilter == ShadowFilter::Pcss && !(qualityOn && !quality.softShadows) ? 2 : 0);
                     ld.shadow.spotAngle = l.type == LightType::Spot ? l.spotAngle : 0.0f;
                     // An area light's PCSS light size: the emitter's mean full size (a rectangle's width and height, a disc's
                     // diameter, a tube's length and thickness); the penumbra then follows the emitter, scaled by shadowSoftness.
@@ -1469,7 +1506,8 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             ld.baked = l.mode == LightMode::Baked;
             ld.volumetric = std::isfinite(l.volumetric) ? std::clamp(l.volumetric, 0.0f, 10.0f) : 0.0f;
             // Light.contactShadowLength counts only with the scene's master switch; plan_job drops it again when the frame has no prepass.
-            if (world.settings().contactShadows && std::isfinite(l.contactShadowLength))
+            if (world.settings().contactShadows && !(qualityOn && !quality.contactShadows) &&
+                std::isfinite(l.contactShadowLength))
                 ld.contactLength = std::clamp(l.contactShadowLength, 0.0f, 10.0f);
             lights.push_back(ld);
         });
@@ -1663,10 +1701,12 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
     const SceneSettings& settings = ctx.world.settings();
     // The sun's tiles: texels per side of a cascade's map: the light's shadowResolution, else 2048 for one cascade and 1024 for several
     // (the atlas stays 2048 x 2048 for four).
-    const int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
-    const int tile = ctx.sun.resolution > 0
-                         ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
-                         : (want == 1 ? 2048 : 1024);
+    int want = haveSun ? std::clamp(int(settings.shadowCascades), 1, render::kMaxShadowCascades) : 0;
+    if (qualityOn)
+        want = std::min(want, std::max(quality.shadowCascades, 0));  // the graphics preset's cap on the cascades
+    int tile = ctx.sun.resolution > 0 ? std::clamp(render::pow2_floor(std::max(ctx.sun.resolution, 128)), 128, 4096)
+                                      : (want == 1 ? 2048 : 1024);
+    if (qualityOn) tile = std::max(128, std::min(tile, render::pow2_floor(std::max(quality.shadowTileSize, 128))));
     std::vector<render::ShadowTileRequest> requests;
     for (int c = 0; c < want; ++c) requests.push_back({tile, 128, c});
     // The point and spot lights that want a shadow: only those a caster can reach (the casters' box meets the light's sphere) and that
@@ -1705,8 +1745,9 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
         ctx.localInputs.push_back(in);
     }
     if (want == 0 && ctx.localInputs.empty()) return;
-    const int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
-                                  std::max(64, sg_query_limits().max_image_size_2d));
+    int atlasMax = std::min(std::clamp(int(settings.shadowAtlasSize), 512, 8192),
+                            std::max(64, sg_query_limits().max_image_size_2d));
+    if (qualityOn) atlasMax = std::max(64, std::min(atlasMax, quality.shadowAtlasSize));
     ctx.localPlan = render::plan_local_shadows(atlasMax, requests, ctx.localInputs, fr.cam.position);
     ctx.atlas = ctx.localPlan.atlas;
     if (!ctx.localPlan.lost.empty() && !warnedShadowBudget) {
@@ -1817,8 +1858,19 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     }
     ctx.shadowRuns.clear();
     // M76: the previous model of every drawn instance, for the motion vectors of a camera that asks for them (a GI capture face never does).
-    ctx.collectPrev = !ctx.plan.gi && ctx.fr.wantWorld &&
-                      (ctx.postPlan.needsVelocity || debugView == DebugView::MotionVectors || forceVelocity);
+    const bool askVelocity = !ctx.plan.gi && ctx.fr.wantWorld &&
+                             (ctx.postPlan.needsVelocity || debugView == DebugView::MotionVectors || forceVelocity);
+    // A GPU that cannot render to the velocity format (RG16F) gets no attachment, no history and no work of its own: the temporal passes
+    // read the camera alone, as they do for a draw the velocity cannot describe.
+    ctx.collectPrev = askVelocity && gpu.velocity_ready() && !noVelocityTarget;
+    if (askVelocity && !ctx.collectPrev && !warnedNoVelocity && gpu.prepass_ready()) {
+        warnedNoVelocity = true;
+        FA_WARN("render", "The motion vectors need a render target of the format RG16F and this GPU cannot make one: "
+                          "temporal antialiasing, the "
+                          "upscalers and the other effects that read them reproject with the camera alone, so a moving "
+                          "object smears. Hint: "
+                          "nothing to fix in the project; update the graphics driver.");
+    }
     ctx.prevMats.clear();
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
@@ -1864,7 +1916,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
     }
     if (ctx.collectPrev) fill_prev_models(ctx);
     build_batches(opaque, true, opaqueBatches, mainMats, shadowMats, &ctx.shadowRuns,
-                  ctx.collectPrev ? &ctx.prevMats : nullptr);
+                  ctx.collectPrev ? &ctx.prevMats : nullptr, &ctx.prevRows);
     build_batches(blended, false, blendedBatches, mainMats, shadowMats, &ctx.shadowRuns);
     ctx.mainExtraData.clear();
     ctx.shadowExtraData.clear();
@@ -1876,34 +1928,155 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
 }
 
 // ---- the previous model matrices (M76 motion vectors) ----
-// Gives every visible opaque item the model matrix its entity had the game frame before (MeshItem::prevModel), from what the renderer keeps
-// in `prevModels`; the item's own model (no motion of its own) when the entity is new, was not drawn in the frame before, the camera was cut
+// Gives every visible opaque item the model matrix its entity had the game frame before (ctx.prevRows[item.prevIdx]), from what the renderer
+// keeps in `prevModels`; the item's own model (no motion of its own) when the entity is new, was not drawn in the frame before, the camera was cut
 // (PostPlan::prevValid false) or the frame is not one of the game's (capture_world). Terrain nodes, impostor cards and foliage instances keep
-// their model: a node or a card is not an entity of its own and the instances of a foliage share one, and they are static. Every camera of
-// the frame sees the same previous matrix (the first one to ask moves the history on). Reads: ctx.opaque, ctx.postPlan.prevValid, postSerial,
-// framePost. Writes: item prevModel / hasPrev, prevModels.
+// their model: a node or a card is not an entity of its own and the instances of a foliage share one, and they are static. A skinned item also
+// has its joint palette kept (`prevPalettes`, same rules). Every camera of the frame sees the same previous matrix (the first one to ask moves
+// the history on). Reads: ctx.opaque, ctx.postPlan.prevValid, ctx.fr.time, postSerial, framePost. Writes: ctx.prevRows, ctx.prevHistory,
+// ctx.prevTime, item prevIdx, prevModels, prevPalettes, the game clock of the history.
 void Renderer::Impl::fill_prev_models(DrawContext& ctx) {
     const bool kept = framePost;
     if (kept && prevModelsPruned != postSerial) {  // an entity not drawn in the frame before is forgotten
         prevModelsPruned = postSerial;
         std::erase_if(prevModels, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
+        std::erase_if(prevPalettes, [&](const auto& kv) { return kv.second.frame + 1 < postSerial; });
     }
     const bool useHistory = kept && ctx.postPlan.prevValid;
-    for (MeshItem& mi : ctx.opaque) {
-        mi.prevModel = mi.model;
-        mi.hasPrev = true;
-        if (!kept || !mi.visible || mi.foliage || mi.terrain || mi.impostor || mi.entity.is_null()) continue;
-        auto [it, fresh] = prevModels.try_emplace(mi.entity.bits());
-        PrevModel& e = it->second;
-        if (fresh || e.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
-            e.prev = e.cur = mi.model;
-        } else if (e.frame + 1 == postSerial) {  // the first time this frame: last frame's model is the previous one
-            e.prev = e.cur;
-            e.cur = mi.model;
-        }  // e.frame == postSerial: another item or camera of this frame, same history
-        e.frame = postSerial;
-        if (useHistory) mi.prevModel = e.prev;
+    const float now = ctx.fr.time;
+    if (kept &&
+        clockFrame !=
+            postSerial) {  // the game time of the frame before, as the models: the first camera of the frame moves it on
+        clockPrev = clockFrame + 1 == postSerial ? clockCur : now;
+        clockCur = now;
+        clockFrame = postSerial;
     }
+    ctx.prevHistory = useHistory;
+    ctx.prevTime = useHistory ? clockPrev : now;
+    ctx.prevRows.clear();
+    ctx.prevRows.reserve(ctx.opaque.size());
+    for (MeshItem& mi : ctx.opaque) {
+        Mat4 prev = mi.model;
+        if (kept && mi.visible && !mi.foliage && !mi.terrain && !mi.impostor && !mi.entity.is_null()) {
+            auto [it, fresh] = prevModels.try_emplace(mi.entity.bits());
+            PrevModel& e = it->second;
+            if (fresh || e.frame + 1 < postSerial) {  // new, or not drawn in the frame before: no motion of its own
+                e.prev = e.cur = mi.model;
+            } else if (e.frame + 1 ==
+                       postSerial) {  // the first time this frame: last frame's model is the previous one
+                e.prev = e.cur;
+                e.cur = mi.model;
+            }  // e.frame == postSerial: another item or camera of this frame, same history
+            e.frame = postSerial;
+            if (useHistory) prev = e.prev;
+            if (mi.anim) keep_prev_palette(mi);
+        }
+        mi.prevIdx = std::uint32_t(ctx.prevRows.size());
+        ctx.prevRows.push_back(prev_model_rows(prev));
+    }
+}
+
+// The joint palettes of a skinned item for the motion vectors: the current frame's and the one before, one per skin of its Animator (at most
+// kMaxSkinJoints joints each, as the palette the draw uploads). Same life rules as prevModels. The vectors keep their capacity from frame to
+// frame: the palette of the frame before is the one the frame before last wrote over.
+void Renderer::Impl::keep_prev_palette(const MeshItem& mi) {
+    auto [it, fresh] = prevPalettes.try_emplace(mi.entity.bits());
+    PrevPalette& p = it->second;
+    auto snapshot = [&](std::vector<std::vector<Mat4>>& out) {
+        out.resize(std::max<std::size_t>(1, mi.anim->skinPalettes.size()));
+        for (std::size_t skin = 0; skin < out.size(); ++skin) {
+            const std::vector<Mat4>& pal = palette_of(*mi.anim, int(skin));
+            out[skin].assign(pal.begin(),
+                             pal.begin() + std::ptrdiff_t(std::min<std::size_t>(pal.size(), kMaxSkinJoints)));
+        }
+    };
+    if (fresh || p.frame + 1 < postSerial) {
+        snapshot(p.cur);
+        p.prev = p.cur;
+    } else if (p.frame + 1 == postSerial) {
+        std::swap(p.prev, p.cur);
+        snapshot(p.cur);
+    }
+    p.frame = postSerial;
+}
+
+// The palette of skin `skin` as it was the frame before for a draw of `mi` (the current one when there is no history, after a cut or when the
+// skin changed size). Only the first kMaxSkinJoints joints count, as in the palette the draw uploads.
+const std::vector<Mat4>& Renderer::Impl::prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const {
+    const std::vector<Mat4>& cur = palette_of(*mi.anim, skin);
+    if (!ctx.prevHistory) return cur;
+    const auto it = prevPalettes.find(mi.entity.bits());
+    if (it == prevPalettes.end() || std::size_t(skin) >= it->second.prev.size()) return cur;
+    const std::vector<Mat4>& prev = it->second.prev[std::size_t(skin)];
+    return prev.size() == std::min<std::size_t>(cur.size(), kMaxSkinJoints) ? prev : cur;
+}
+
+// The previous joint palettes of the skinned draws the prepass makes with motion vectors, in one RGBA32F image (kPrevPaletteWidth texels a row;
+// a palette is kPrevPaletteTexels texels from `ctx.prevPalBase`; joints past the skin's are the identity). Done before the first pass of the
+// frame, next to the instance buffers: an image cannot be written inside a pass. A GPU that cannot sample RGBA32F, and the draws past
+// kPrevPaletteMaxRows rows, get no palette and their fragments write the sentinel (one warning). Reads: ctx.collectPrev, ctx.opaque,
+// ctx.opaqueBatches, the histories. Writes: ctx.prevPalView, ctx.prevPalBase, ctx.prevPalTexels, warnedPrevPalette.
+void Renderer::Impl::upload_prev_palettes(DrawContext& ctx) {
+    static_assert(kPrevPaletteWidth == kLightTextureWidth,
+                  "the palette image is written through the light image's pool");
+    ctx.prevPalView = {};
+    ctx.prevPalBase.clear();
+    if (!ctx.collectPrev || !ctx.prevInst.id) return;
+    const bool canSample = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F).sample;
+    const std::size_t maxTexels = std::size_t(kPrevPaletteWidth) * std::size_t(kPrevPaletteMaxRows);
+    std::vector<float>& texels = ctx.prevPalTexels;
+    texels.clear();
+    bool clipped = false;
+    for (std::size_t bi = 0; bi < ctx.opaqueBatches.size(); ++bi) {
+        const MeshBatch& batch = ctx.opaqueBatches[bi];
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        if (batch.mainCount == 0 || !mi.anim) continue;
+        for (const SubMesh& part : mi.mesh->parts) {
+            if (!part.skinVb.id) continue;
+            const std::uint64_t key = prev_palette_key(batch.rep, part.skin);
+            if (ctx.prevPalBase.count(key)) continue;
+            const std::size_t first = texels.size() / 4;
+            if (!canSample || first + std::size_t(kPrevPaletteTexels) > maxTexels) {
+                clipped = true;
+                continue;
+            }
+            const std::vector<Mat4>& pal = prev_palette(ctx, mi, part.skin);
+            texels.resize(texels.size() + std::size_t(kPrevPaletteTexels) * 4);
+            float* out = texels.data() + first * 4;
+            for (int j = 0; j < kMaxSkinJoints; ++j) {
+                const Mat4 m = std::size_t(j) < pal.size() ? pal[std::size_t(j)] : Mat4::identity();
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 4; ++c) *out++ = m.at(c, r);
+            }
+            ctx.prevPalBase[key] = int(first);
+        }
+    }
+    if (clipped && !warnedPrevPalette) {
+        warnedPrevPalette = true;
+        if (canSample)
+            FA_WARN("render",
+                    "More than {} skinned draws in one camera's frame: the motion vectors of the ones past that count "
+                    "carry the "
+                    "camera's motion only (temporal antialiasing and the upscalers reproject them from the depth, so a "
+                    "moving "
+                    "character smears). Hint: draw fewer skinned meshes per camera, or share a skin between instances.",
+                    kPrevPaletteMaxRows * kPrevPaletteWidth / kPrevPaletteTexels);
+        else
+            FA_WARN("render", "This GPU cannot sample 32-bit float textures in the vertex stage, which the motion "
+                              "vectors of skinned meshes "
+                              "need: they carry the camera's motion only (temporal antialiasing and the upscalers "
+                              "reproject them from the "
+                              "depth, so a moving character smears). Hint: nothing to fix in the project; update the "
+                              "graphics driver.");
+    }
+    if (texels.empty()) return;
+    // Whole rows, rounded up to 16 of them so that the pooled image is not made again for every skinned draw that comes or goes.
+    const int rows =
+        std::min(kPrevPaletteMaxRows,
+                 int(((texels.size() / 4 + std::size_t(kPrevPaletteWidth) - 1) / std::size_t(kPrevPaletteWidth) + 15) /
+                     16 * 16));
+    texels.resize(std::size_t(rows) * std::size_t(kPrevPaletteWidth) * 4, 0.0f);
+    ctx.prevPalView = gpu.write_light_image(rows, texels.data()).view;
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -1975,6 +2148,7 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     };
     ctx.mainInst = upload(ctx.mainMats.data(), ctx.mainMats.size() * kMeshInstanceBytes);
     ctx.prevInst = upload(ctx.prevMats.data(), ctx.prevMats.size() * kPrevModelBytes);
+    upload_prev_palettes(ctx);
     ctx.shadowInst = upload(ctx.shadowMats.data(), ctx.shadowMats.size() * kMeshInstanceBytes);
     ctx.mainExtra = upload(ctx.mainExtraData.data(), ctx.mainExtraData.size() * sizeof(float));
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
@@ -2890,6 +3064,7 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
+    if (qualityOn) lightScale = std::max(0.25f, std::min(lightScale, quality.lightScale));  // the graphics preset's cap
     if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
         if (points == 0) {
             litMode = 2;
@@ -2927,8 +3102,13 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     ctx.gi2d = Gi2dJobPlan{};
     if (ctx.plan.view || !fr.wantWorld || fr.cam.perspective || ctx.camPx.w <= 0 || ctx.camPx.h <= 0) return;
-    const Gi2dSettings s = gi2d_settings(ctx.world);
+    Gi2dSettings s = gi2d_settings(ctx.world);
     gi2d.lastSettings = s;
+    if (qualityOn) {  // the graphics preset's caps (the report above keeps what the scene asks for)
+        if (!quality.gi2d) s.on = false;
+        s.quality = std::min(s.quality, quality.gi2dQuality);
+        s.resolutionScale = std::max(0.1f, std::min(s.resolutionScale, quality.gi2dResolutionScale));
+    }
     if (!s.on) return;
     if (framePost)
         gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)
@@ -3171,8 +3351,12 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         ctx.camPx.h < 1)
         return false;
     // A face of a realtime GI capture always has it: the distance of what the probe sees is made from it (renderer_gi.cpp).
-    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || pp.needsVelocity ||
-          (debugView != DebugView::None && debugView != DebugView::Cascades && debugView != DebugView::Occlusion)))
+    // The velocity alone (or its debug view) is worth a prepass only where collectPrev says the GPU can make the image.
+    const bool debugPass = debugView != DebugView::None && debugView != DebugView::Cascades &&
+                           debugView != DebugView::Occlusion &&
+                           (debugView != DebugView::MotionVectors || ctx.collectPrev);
+    if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || (pp.needsVelocity && ctx.collectPrev) ||
+          debugPass))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -3202,7 +3386,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     ctx.doPrepass = true;
     // M76: the motion vectors go into a second attachment of the same pass when the camera asks and the GPU can make the image. A GPU that
     // cannot (or refuses the image) leaves the velocity out: PostPlan::velocity stays invalid and whoever asked reads the camera alone.
-    if (pp.needsVelocity && !ctx.plan.gi && ctx.collectPrev && gpu.velocity_ready()) {
+    if (pp.needsVelocity && !ctx.plan.gi && ctx.collectPrev) {
         TransientDesc vd = d;
         vd.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
         vd.label = "velocity";
@@ -3315,10 +3499,14 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
              ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
     // The two view-projections of the motion vectors, both without the jitter (it is not part of a motion): this frame's and the previous
     // one's (the same one when the camera was cut, so a cut has no motion of the objects either).
+    // Without the image the block stays zero (the programs that declare it read fa_vel_on.x = 0 and skip the work).
     mesh_fa_vel_params_t velU{};
-    copy_mat(velU.fa_vel_vp, ctx.fr.cam.viewProj);
-    copy_mat(velU.fa_vel_prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : ctx.fr.cam.viewProj);
-    velU.fa_vel_on[0] = vel ? 1.0f : 0.0f;
+    if (vel) {
+        copy_mat(velU.fa_vel_vp, ctx.fr.cam.viewProj);
+        copy_mat(velU.fa_vel_prev_vp, ctx.postPlan.prevValid ? ctx.postPlan.prevViewProj : ctx.fr.cam.viewProj);
+        velU.fa_vel_on[0] = 1.0f;
+        velU.fa_vel_on[1] = ctx.prevTime;
+    }
     for (const MeshBatch& batch : batches) {
         if (batch.mainCount == 0) continue;
         const MeshItem& mi = items[batch.rep];
@@ -3361,10 +3549,28 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
+            // The previous palettes of the skinned programs (vertex stage). The slot is declared by every skinned prepass program, so a
+            // pass without velocity binds the white image (never read: fa_vel_on.x is 0).
+            if (skinned) {
+                if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = vel && ctx.prevPalView.id ? ctx.prevPalView : ctx.white->view;
+                if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
+                    b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
+            }
             if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
             sg_apply_bindings(&b);
             if (mbu.active) apply_mesh_base_model(*prog, mi.model);
             apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
+            // A skinned draw reads the previous palette from the image of upload_prev_palettes (fa_vel_on.z = 1, the first texel in .w) when the
+            // program has the previous model and the palette got a place in the image; otherwise its fragments write the sentinel.
+            int palBase = -1;
+            if (skinned && vel &&
+                prepass_prev_attr(true, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                const auto at = ctx.prevPalBase.find(prev_palette_key(batch.rep, part.skin));
+                if (at != ctx.prevPalBase.end()) palBase = at->second;
+            }
+            velU.fa_vel_on[2] = palBase >= 0 ? 1.0f : 0.0f;
+            velU.fa_vel_on[3] = palBase >= 0 ? float(palBase) : 0.0f;
             if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(UB_mesh_fa_vel_params, velU);
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
@@ -3475,6 +3681,11 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 }
 
 // The test copy of the velocity image (RendererTestAccess::read_velocity): the vectors as floats in an RGBA16F image of the camera's size.
+// prepass_view.glsl mode 4, which only this pass uses (no game draws it). On GL the pass flips like the debug view does (vu.flip = 1 there:
+// the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); readback_rgba16f turns the rows over on
+// GL as readback_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
+// those two, as the GL backend is not run by this host's tests.)
+constexpr float kPrepassViewRaw = 4.0f;
 void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity) {
     const int w = ctx.camPx.w, h = ctx.camPx.h;
     if (!velocity.texView.id || w < 1 || h < 1) return;
@@ -3502,7 +3713,7 @@ void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocit
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = 4.0f;
+    fu.mode[0] = kPrepassViewRaw;
     apply_uniforms(UB_prepass_view_prepass_view_fs_params, fu);
     sg_draw(0, 3, 1);
     gpu.end_pass();
