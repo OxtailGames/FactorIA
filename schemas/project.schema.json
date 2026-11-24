@@ -237,7 +237,7 @@
               "minimum": 0,
               "maximum": 100,
               "default": 0,
-              "description": "The frame time to hold, in ms: 33.3 for 30 fps, 16.7 for 60 fps. 0 or null (default) follows the display's refresh rate (60 Hz where the platform cannot tell). 0, or 4 to 100."
+              "description": "The frame time to hold, in ms: 33.3 for 30 fps, 16.7 for 60 fps. 0 or null (default) follows the refresh rate of the display the window is on (the OS's, else one estimated from the frame times, else 60 Hz: docs/UPSCALING.md, \"The display's refresh rate\"). 0, or 4 to 100."
             },
             "minScale": {
               "type": "number",
