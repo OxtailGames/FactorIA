@@ -2,6 +2,8 @@
 // and constants of gpu/types.h are sokol's (asserted below), the descs are converted field by field.
 #include "gpu/sokol_device.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <utility>
@@ -333,26 +335,6 @@ sg_image_view_desc to_sg(const ViewDesc::ImageView& v) {
     return d;
 }
 
-sg_shader_function to_sg(const ShaderFunction& f) {
-    sg_shader_function s{};
-    s.source = f.source;
-    s.bytecode = to_sg(f.bytecode);
-    s.entry = f.entry;
-    s.d3d11_target = f.d3d11Target;
-    s.d3d11_filepath = f.d3d11Filepath;
-    return s;
-}
-
-ShaderFunction from_sg(const sg_shader_function& s) {
-    ShaderFunction f;
-    f.source = s.source;
-    f.bytecode = from_sg(s.bytecode);
-    f.entry = s.entry;
-    f.d3d11Target = s.d3d11_target;
-    f.d3d11Filepath = s.d3d11_filepath;
-    return f;
-}
-
 sg_blend_state to_sg(const BlendState& b) {
     sg_blend_state s{};
     s.enabled = b.enabled;
@@ -414,6 +396,26 @@ sg_image_extent to_sg(const ImageExtent& e) {
 }
 
 }  // namespace
+
+sg_shader_function to_sg(const ShaderFunction& f) {
+    sg_shader_function s{};
+    s.source = f.source;
+    s.bytecode = to_sg(f.bytecode);
+    s.entry = f.entry;
+    s.d3d11_target = f.d3d11Target;
+    s.d3d11_filepath = f.d3d11Filepath;
+    return s;
+}
+
+ShaderFunction from_sg(const sg_shader_function& s) {
+    ShaderFunction f;
+    f.source = s.source;
+    f.bytecode = from_sg(s.bytecode);
+    f.entry = s.entry;
+    f.d3d11Target = s.d3d11_target;
+    f.d3d11Filepath = s.d3d11_filepath;
+    return f;
+}
 
 Backend backend_from_sg(sg_backend b) {
     switch (b) {
@@ -743,20 +745,26 @@ sg_pipeline_desc to_sg(const PipelineDesc& d) {
     return s;
 }
 
+VertexLayout from_sg(const sg_vertex_layout_state& s) {
+    VertexLayout l;
+    for (int i = 0; i < kMaxVertexBuffers; ++i) {
+        l.buffers[i].stride = s.buffers[i].stride;
+        l.buffers[i].stepFunc = cast<VertexStep>(s.buffers[i].step_func);
+        l.buffers[i].stepRate = s.buffers[i].step_rate;
+    }
+    for (int i = 0; i < kMaxVertexAttributes; ++i) {
+        l.attrs[i].bufferIndex = s.attrs[i].buffer_index;
+        l.attrs[i].offset = s.attrs[i].offset;
+        l.attrs[i].format = cast<VertexFormat>(s.attrs[i].format);
+    }
+    return l;
+}
+
 PipelineDesc from_sg(const sg_pipeline_desc& s) {
     PipelineDesc d;
     d.compute = s.compute;
     d.shader = from_sg(s.shader);
-    for (int i = 0; i < kMaxVertexBuffers; ++i) {
-        d.layout.buffers[i].stride = s.layout.buffers[i].stride;
-        d.layout.buffers[i].stepFunc = cast<VertexStep>(s.layout.buffers[i].step_func);
-        d.layout.buffers[i].stepRate = s.layout.buffers[i].step_rate;
-    }
-    for (int i = 0; i < kMaxVertexAttributes; ++i) {
-        d.layout.attrs[i].bufferIndex = s.layout.attrs[i].buffer_index;
-        d.layout.attrs[i].offset = s.layout.attrs[i].offset;
-        d.layout.attrs[i].format = cast<VertexFormat>(s.layout.attrs[i].format);
-    }
+    d.layout = from_sg(s.layout);
     d.depth.pixelFormat = from_sg(s.depth.pixel_format);
     d.depth.compare = cast<CompareFunc>(s.depth.compare);
     d.depth.writeEnabled = s.depth.write_enabled;
@@ -1014,6 +1022,27 @@ PassDesc from_render(const render::PassDesc& p, Swapchain& swapchain) {
     return o;
 }
 
+ShaderDesc generated_shader_desc(GeneratedShader fn) {
+    FA_ASSERT(fn, "gpu::generated_shader_desc: no desc function");
+    const sg_shader_desc* d = fn(sg_query_backend());
+    FA_ASSERT(d, "gpu::generated_shader_desc: the generated header has no desc for this backend");
+    return from_sg(*d);
+}
+
+void begin_context_pass(const PassDesc& pass) {
+    const sg_pass p = to_sg(pass);
+    sg_begin_pass(&p);
+}
+
+void begin_context_compute_pass(const char* label) {
+    sg_pass p{};
+    p.compute = true;
+    p.label = label_or_null(label);
+    sg_begin_pass(&p);
+}
+
+void end_context_pass() { sg_end_pass(); }
+
 // ---------------------------------------------------------------------------------------------------------------------
 // SokolCommandList: every call runs at once.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1031,41 +1060,65 @@ void SokolCommandList::begin_compute_pass(const char* label) {
     sg_begin_pass(&p);
 }
 
-void SokolCommandList::end_pass() { sg_end_pass(); }
-PassState SokolCommandList::pass_state() const { return from_sg(sg_query_pass_state()); }
-void SokolCommandList::set_pipeline(Pipeline pipeline) { sg_apply_pipeline(to_sg(pipeline)); }
+void SokolCommandList::end_pass() {
+    device_.check_thread("CommandList::end_pass");
+    sg_end_pass();
+}
+
+PassState SokolCommandList::pass_state() const {
+    device_.check_thread("CommandList::pass_state");
+    return from_sg(sg_query_pass_state());
+}
+
+void SokolCommandList::set_pipeline(Pipeline pipeline) {
+    device_.check_thread("CommandList::set_pipeline");
+    sg_apply_pipeline(to_sg(pipeline));
+}
 
 void SokolCommandList::set_bindings(const Bindings& bindings) {
+    device_.check_thread("CommandList::set_bindings");
     const sg_bindings b = to_sg(bindings);
     sg_apply_bindings(&b);
 }
 
 void SokolCommandList::set_uniforms(int slot, Range data) {
+    device_.check_thread("CommandList::set_uniforms");
     const sg_range r = to_sg(data);
     sg_apply_uniforms(slot, &r);
 }
 
 void SokolCommandList::set_viewport(int x, int y, int width, int height, bool originTopLeft) {
+    device_.check_thread("CommandList::set_viewport");
     sg_apply_viewport(x, y, width, height, originTopLeft);
 }
 
 void SokolCommandList::set_viewport_f(float x, float y, float width, float height, bool originTopLeft) {
+    device_.check_thread("CommandList::set_viewport_f");
     sg_apply_viewportf(x, y, width, height, originTopLeft);
 }
 
 void SokolCommandList::set_scissor(int x, int y, int width, int height, bool originTopLeft) {
+    device_.check_thread("CommandList::set_scissor");
     sg_apply_scissor_rect(x, y, width, height, originTopLeft);
 }
 
-void SokolCommandList::draw(int base, int count, int instances) { sg_draw(base, count, instances); }
+void SokolCommandList::draw(int base, int count, int instances) {
+    device_.check_thread("CommandList::draw");
+    sg_draw(base, count, instances);
+}
 
 void SokolCommandList::draw_ex(int base, int count, int instances, int baseVertex, int baseInstance) {
+    device_.check_thread("CommandList::draw_ex");
     sg_draw_ex(base, count, instances, baseVertex, baseInstance);
 }
 
-void SokolCommandList::dispatch(int x, int y, int z) { sg_dispatch(x, y, z); }
+void SokolCommandList::dispatch(int x, int y, int z) {
+    device_.check_thread("CommandList::dispatch");
+    sg_dispatch(x, y, z);
+}
 
 void SokolCommandList::write_buffer(const BufferWrite& write) {
+    device_.check_thread("CommandList::write_buffer");
     sg_write_buffer_desc d{};
     d.src.data = to_sg(write.data);
     d.src.offset = write.srcOffset;
@@ -1076,6 +1129,7 @@ void SokolCommandList::write_buffer(const BufferWrite& write) {
 }
 
 void SokolCommandList::write_image(const ImageWrite& write) {
+    device_.check_thread("CommandList::write_image");
     sg_write_image_desc d{};
     d.src.data = to_sg(write.data);
     d.src.offset = write.srcOffset;
@@ -1087,6 +1141,7 @@ void SokolCommandList::write_image(const ImageWrite& write) {
 }
 
 void SokolCommandList::copy_buffer_to_buffer(const BufferCopy& copy) {
+    device_.check_thread("CommandList::copy_buffer_to_buffer");
     sg_copy_buffer_to_buffer_desc d{};
     d.src.buffer = to_sg(copy.src);
     d.src.offset = copy.srcOffset;
@@ -1097,6 +1152,7 @@ void SokolCommandList::copy_buffer_to_buffer(const BufferCopy& copy) {
 }
 
 void SokolCommandList::copy_buffer_to_image(const BufferImageCopy& copy) {
+    device_.check_thread("CommandList::copy_buffer_to_image");
     sg_copy_buffer_to_image_desc d{};
     d.src.buffer = to_sg(copy.src);
     d.src.offset = copy.srcOffset;
@@ -1107,10 +1163,25 @@ void SokolCommandList::copy_buffer_to_image(const BufferImageCopy& copy) {
     sg_copy_buffer_to_image(&d);
 }
 
-void SokolCommandList::push_debug_group(const char* name) { sg_push_debug_group(name ? name : ""); }
-void SokolCommandList::pop_debug_group() { sg_pop_debug_group(); }
-void SokolCommandList::begin_timed_scope(const char* name) { device_.timer().begin_pass(name ? name : ""); }
-void SokolCommandList::end_timed_scope() { device_.timer().end_pass(); }
+void SokolCommandList::push_debug_group(const char* name) {
+    device_.check_thread("CommandList::push_debug_group");
+    sg_push_debug_group(name ? name : "");
+}
+
+void SokolCommandList::pop_debug_group() {
+    device_.check_thread("CommandList::pop_debug_group");
+    sg_pop_debug_group();
+}
+
+void SokolCommandList::begin_timed_scope(const char* name) {
+    device_.check_thread("CommandList::begin_timed_scope");
+    device_.timer().begin_pass(name ? name : "");
+}
+
+void SokolCommandList::end_timed_scope() {
+    device_.check_thread("CommandList::end_timed_scope");
+    device_.timer().end_pass();
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // SokolDevice
@@ -1150,11 +1221,17 @@ SokolDevice::SokolDevice(bool ownsContext) : ownsContext_(ownsContext), thread_(
 }
 
 SokolDevice::~SokolDevice() {
+    if (!sg_isvalid()) {
+        // The renderer closed the context first: the timer's queries and the reads' staging buffers died with it, and
+        // their destructors would call the native API on a context that is gone. Leak the two small objects instead.
+        (void)timer_.release();
+        (void)asyncRead_.release();
+        return;
+    }
     // The timer and the asynchronous reads hold native queries and staging buffers of this context: release them
     // while it is open.
     timer_.reset();
     asyncRead_.reset();
-    if (!sg_isvalid()) return;  // the renderer closed the context first: nothing of it is left to release
     if (listening_) sg_remove_commit_listener(sg_commit_listener{&SokolDevice::count_commit, this});
     if (ownsContext_) sg_shutdown();
 }
@@ -1162,9 +1239,11 @@ SokolDevice::~SokolDevice() {
 void SokolDevice::count_commit(void* self) { ++static_cast<SokolDevice*>(self)->frames_; }
 
 void SokolDevice::check_thread(const char* what) const {
-    (void)what;
-    FA_ASSERT(std::this_thread::get_id() == thread_,
-              "gpu::SokolDevice is single-threaded: call it from the thread that made it (the render thread)");
+    // One thread-id compare per call (no lock, no allocation unless it fails).
+    if (std::this_thread::get_id() == thread_) return;
+    const std::string msg = std::string("gpu::SokolDevice is single-threaded: ") + (what ? what : "a call") +
+                            " ran on another thread than the one that made the device (the render thread)";
+    ::fa::detail::assert_fail("std::this_thread::get_id() == thread_", msg.c_str(), __FILE__, __LINE__);
 }
 
 render::GpuTimer& SokolDevice::timer() const {
@@ -1173,13 +1252,18 @@ render::GpuTimer& SokolDevice::timer() const {
 }
 
 PixelFormatCaps SokolDevice::pixel_format_caps(PixelFormat format) const {
+    check_thread("Device::pixel_format_caps");
     if (format == PixelFormat::Default || format == PixelFormat::Count) return {};
     return from_sg(sg_query_pixelformat(to_sg(format)));
 }
 
-EnvironmentDefaults SokolDevice::environment_defaults() const { return from_sg(sg_query_desc().environment.defaults); }
+EnvironmentDefaults SokolDevice::environment_defaults() const {
+    check_thread("Device::environment_defaults");
+    return from_sg(sg_query_desc().environment.defaults);
+}
 
 NativeDevice SokolDevice::native() const {
+    check_thread("Device::native");
     NativeDevice n;
     switch (info_.backend) {
         case Backend::Metal:
@@ -1196,6 +1280,7 @@ NativeDevice SokolDevice::native() const {
 }
 
 NativeImage SokolDevice::native_image(Image image) const {
+    check_thread("Device::native_image");
     NativeImage n;
     if (state(image) != ResourceState::Valid) return n;
     switch (info_.backend) {
@@ -1224,6 +1309,7 @@ NativeImage SokolDevice::native_image(Image image) const {
 }
 
 NativeBuffer SokolDevice::native_buffer(Buffer buffer) const {
+    check_thread("Device::native_buffer");
     NativeBuffer n;
     if (state(buffer) != ResourceState::Valid) return n;
     switch (info_.backend) {
@@ -1246,47 +1332,109 @@ NativeBuffer SokolDevice::native_buffer(Buffer buffer) const {
 }
 
 Buffer SokolDevice::make_buffer(const BufferDesc& desc) {
+    check_thread("Device::make_buffer");
     const sg_buffer_desc d = to_sg(desc);
     return from_sg(sg_make_buffer(&d));
 }
 
 Image SokolDevice::make_image(const ImageDesc& desc) {
+    check_thread("Device::make_image");
     const sg_image_desc d = to_sg(desc);
-    return from_sg(sg_make_image(&d));
+    // Through the renderer's image functions: they add the per-backend fixes (image_gl.cpp: the last mip level on
+    // OpenGL ES) on the image's own GL target.
+    switch (desc.type) {
+        case ImageType::Cube: return from_sg(render::make_cube_image(d));
+        case ImageType::Array: return from_sg(render::make_array_image(d));
+        case ImageType::Tex3d: return from_sg(sg_make_image(&d));
+        case ImageType::Default:
+        case ImageType::Tex2d: break;
+    }
+    return from_sg(render::make_image(d));
 }
 
 View SokolDevice::make_view(const ViewDesc& desc) {
+    check_thread("Device::make_view");
     const sg_view_desc d = to_sg(desc);
     return from_sg(sg_make_view(&d));
 }
 
 Sampler SokolDevice::make_sampler(const SamplerDesc& desc) {
+    check_thread("Device::make_sampler");
     const sg_sampler_desc d = to_sg(desc);
     return from_sg(sg_make_sampler(&d));
 }
 
 Shader SokolDevice::make_shader(const ShaderDesc& desc) {
+    check_thread("Device::make_shader");
     const sg_shader_desc d = to_sg(desc);
     return from_sg(sg_make_shader(&d));
 }
 
 Pipeline SokolDevice::make_pipeline(const PipelineDesc& desc) {
+    check_thread("Device::make_pipeline");
     const sg_pipeline_desc d = to_sg(desc);
     return from_sg(sg_make_pipeline(&d));
 }
 
-void SokolDevice::destroy_buffer(Buffer buffer) { sg_destroy_buffer(to_sg(buffer)); }
-void SokolDevice::destroy_image(Image image) { sg_destroy_image(to_sg(image)); }
-void SokolDevice::destroy_view(View view) { sg_destroy_view(to_sg(view)); }
-void SokolDevice::destroy_sampler(Sampler sampler) { sg_destroy_sampler(to_sg(sampler)); }
-void SokolDevice::destroy_shader(Shader shader) { sg_destroy_shader(to_sg(shader)); }
-void SokolDevice::destroy_pipeline(Pipeline pipeline) { sg_destroy_pipeline(to_sg(pipeline)); }
-ResourceState SokolDevice::state(Buffer buffer) const { return from_sg(sg_query_buffer_state(to_sg(buffer))); }
-ResourceState SokolDevice::state(Image image) const { return from_sg(sg_query_image_state(to_sg(image))); }
-ResourceState SokolDevice::state(View view) const { return from_sg(sg_query_view_state(to_sg(view))); }
-ResourceState SokolDevice::state(Sampler sampler) const { return from_sg(sg_query_sampler_state(to_sg(sampler))); }
-ResourceState SokolDevice::state(Shader shader) const { return from_sg(sg_query_shader_state(to_sg(shader))); }
-ResourceState SokolDevice::state(Pipeline pipeline) const { return from_sg(sg_query_pipeline_state(to_sg(pipeline))); }
+void SokolDevice::destroy_buffer(Buffer buffer) {
+    check_thread("Device::destroy_buffer");
+    sg_destroy_buffer(to_sg(buffer));
+}
+
+void SokolDevice::destroy_image(Image image) {
+    check_thread("Device::destroy_image");
+    sg_destroy_image(to_sg(image));
+}
+
+void SokolDevice::destroy_view(View view) {
+    check_thread("Device::destroy_view");
+    sg_destroy_view(to_sg(view));
+}
+
+void SokolDevice::destroy_sampler(Sampler sampler) {
+    check_thread("Device::destroy_sampler");
+    sg_destroy_sampler(to_sg(sampler));
+}
+
+void SokolDevice::destroy_shader(Shader shader) {
+    check_thread("Device::destroy_shader");
+    sg_destroy_shader(to_sg(shader));
+}
+
+void SokolDevice::destroy_pipeline(Pipeline pipeline) {
+    check_thread("Device::destroy_pipeline");
+    sg_destroy_pipeline(to_sg(pipeline));
+}
+
+ResourceState SokolDevice::state(Buffer buffer) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_buffer_state(to_sg(buffer)));
+}
+
+ResourceState SokolDevice::state(Image image) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_image_state(to_sg(image)));
+}
+
+ResourceState SokolDevice::state(View view) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_view_state(to_sg(view)));
+}
+
+ResourceState SokolDevice::state(Sampler sampler) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_sampler_state(to_sg(sampler)));
+}
+
+ResourceState SokolDevice::state(Shader shader) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_shader_state(to_sg(shader)));
+}
+
+ResourceState SokolDevice::state(Pipeline pipeline) const {
+    check_thread("Device::state");
+    return from_sg(sg_query_pipeline_state(to_sg(pipeline)));
+}
 
 CommandList& SokolDevice::begin_commands(const char* label) {
     (void)label;
@@ -1298,6 +1446,7 @@ CommandList& SokolDevice::begin_commands(const char* label) {
 }
 
 void SokolDevice::submit(CommandList& list) {
+    check_thread("Device::submit");
     FA_ASSERT(&list == &list_, "gpu::SokolDevice::submit: the list is not this device's");
     FA_ASSERT(listOpen_, "gpu::SokolDevice::submit: the list was already submitted (begin_commands() first)");
     listOpen_ = false;
@@ -1310,25 +1459,35 @@ void SokolDevice::commit() {
 }
 
 bool SokolDevice::add_commit_listener(void (*func)(void* user), void* user) {
+    check_thread("Device::add_commit_listener");
     return sg_add_commit_listener(sg_commit_listener{func, user});
 }
 
 bool SokolDevice::remove_commit_listener(void (*func)(void* user), void* user) {
+    check_thread("Device::remove_commit_listener");
     return sg_remove_commit_listener(sg_commit_listener{func, user});
 }
 
-void SokolDevice::reset_state_cache() { sg_reset_state_cache(); }
+void SokolDevice::reset_state_cache() {
+    check_thread("Device::reset_state_cache");
+    sg_reset_state_cache();
+}
 
 void SokolDevice::enable_stats(bool on) {
+    check_thread("Device::enable_stats");
     if (on)
         sg_enable_stats();
     else
         sg_disable_stats();
 }
 
-bool SokolDevice::stats_enabled() const { return sg_stats_enabled(); }
+bool SokolDevice::stats_enabled() const {
+    check_thread("Device::stats_enabled");
+    return sg_stats_enabled();
+}
 
 TotalStats SokolDevice::total_stats() const {
+    check_thread("Device::total_stats");
     const sg_total_stats t = sg_query_stats().total;
     TotalStats o;
     o.buffers = from_sg(t.buffers);
@@ -1341,16 +1500,29 @@ TotalStats SokolDevice::total_stats() const {
 }
 
 bool SokolDevice::timer_supported(std::string* why) const {
+    check_thread("Device::timer_supported");
     const bool ok = timer().supported();
     if (!ok && why) *why = timer().reason();
     return ok;
 }
 
-void SokolDevice::timer_begin_frame() { timer().begin(); }
-void SokolDevice::timer_end_frame() { timer().end(); }
-void SokolDevice::timer_poll(std::vector<double>& frameMs) { timer().poll(frameMs); }
+void SokolDevice::timer_begin_frame() {
+    check_thread("Device::timer_begin_frame");
+    timer().begin();
+}
+
+void SokolDevice::timer_end_frame() {
+    check_thread("Device::timer_end_frame");
+    timer().end();
+}
+
+void SokolDevice::timer_poll(std::vector<double>& frameMs) {
+    check_thread("Device::timer_poll");
+    timer().poll(frameMs);
+}
 
 std::vector<Device::ScopeTime> SokolDevice::timer_last_scopes() const {
+    check_thread("Device::timer_last_scopes");
     std::vector<ScopeTime> out;
     if (!timer_) return out;
     for (const render::GpuTimer::PassTime& p : timer_->last_passes()) out.push_back(ScopeTime{p.name, p.ms});
@@ -1358,10 +1530,12 @@ std::vector<Device::ScopeTime> SokolDevice::timer_last_scopes() const {
 }
 
 void SokolDevice::timer_forget() {
+    check_thread("Device::timer_forget");
     if (timer_) timer_->forget();
 }
 
 Result<void> SokolDevice::read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) {
+    check_thread("Device::read_image_rgba8");
     std::string err;
     if (render::readback_rgba8(to_sg(image), width, height, out, &err)) return {};
     return make_error("gpu: read_image_rgba8: " + err,
@@ -1370,6 +1544,7 @@ Result<void> SokolDevice::read_image_rgba8(Image image, int width, int height, s
 }
 
 Result<void> SokolDevice::read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) {
+    check_thread("Device::read_image_rgba16f");
     std::string err;
     if (render::readback_rgba16f(to_sg(image), width, height, out, &err)) return {};
     return make_error("gpu: read_image_rgba16f: " + err,
@@ -1379,6 +1554,7 @@ Result<void> SokolDevice::read_image_rgba16f(Image image, int width, int height,
 
 Result<void> SokolDevice::read_storage_image(Image image, PixelFormat format, int x, int y, int width, int height,
                                              std::vector<std::uint8_t>& out) {
+    check_thread("Device::read_storage_image");
     std::string err;
     if (render::readback_storage_image(to_sg(image), to_sg(format), x, y, width, height, out, &err)) return {};
     return make_error("gpu: read_storage_image: " + err,
@@ -1388,6 +1564,7 @@ Result<void> SokolDevice::read_storage_image(Image image, PixelFormat format, in
 
 Result<void> SokolDevice::read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                                       std::vector<std::uint8_t>& out) {
+    check_thread("Device::read_buffer");
     std::string err;
     if (render::readback_buffer(to_sg(buffer), offset, bytes, out, &err)) return {};
     return make_error("gpu: read_buffer: " + err,
@@ -1397,24 +1574,49 @@ Result<void> SokolDevice::read_buffer(Buffer buffer, std::size_t offset, std::si
 
 bool SokolDevice::async_read_supported() const { return render::AsyncBufferRead::supported(); }
 
-Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t bytes) {
+Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) {
+    check_thread("Device::request_buffer_read");
+    if (bytes == 0 || offset > SIZE_MAX - bytes)
+        return make_error("gpu: request_buffer_read: offset " + std::to_string(offset) + " + bytes " +
+                              std::to_string(bytes) + " is empty or overflows",
+                          "ask for at least one byte inside the buffer");
     if (!asyncRead_) asyncRead_ = std::make_unique<render::AsyncBufferRead>();
     std::string err;
-    const int slot = asyncRead_->request(to_sg(buffer), bytes, &err);
-    if (slot >= 0) return ReadTicket{slot};
+    // AsyncBufferRead copies from the buffer's start: copy offset + bytes and drop the first offset bytes at poll.
+    const int slot = asyncRead_->request(to_sg(buffer), offset + bytes, &err);
+    static_assert(render::AsyncBufferRead::kSlots == 4, "SokolDevice::reads_ has one entry per slot");
+    if (slot >= 0 && slot < render::AsyncBufferRead::kSlots) {
+        if (++readGeneration_ == 0) ++readGeneration_;  // 0 is "no ticket"
+        reads_[std::size_t(slot)] = PendingRead{offset, readGeneration_};
+        return ReadTicket{slot, readGeneration_};
+    }
     if (err.empty()) return ReadTicket{};  // every slot is in flight: ask again next frame
     return make_error("gpu: request_buffer_read: " + err,
                       "the buffer must be a storage buffer of this device and the work that wrote it committed "
                       "(Device::commit); async_read_supported() says whether the backend can");
 }
 
+bool SokolDevice::read_ticket_current(ReadTicket ticket) const {
+    return asyncRead_ && ticket.valid() && ticket.slot < render::AsyncBufferRead::kSlots &&
+           reads_[std::size_t(ticket.slot)].generation == ticket.generation;
+}
+
 bool SokolDevice::poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) {
-    if (!asyncRead_ || !ticket.valid()) return false;
-    return asyncRead_->poll(ticket.slot, out, wait);
+    check_thread("Device::poll_buffer_read");
+    if (!read_ticket_current(ticket)) return false;  // never issued, already read or released: stale
+    PendingRead& r = reads_[std::size_t(ticket.slot)];
+    if (!asyncRead_->poll(ticket.slot, out, wait)) return false;
+    const std::size_t skip = std::min(r.offset, out.size());
+    out.erase(out.begin(), out.begin() + std::ptrdiff_t(skip));
+    r = PendingRead{};
+    return true;
 }
 
 void SokolDevice::release_buffer_read(ReadTicket ticket) {
-    if (asyncRead_ && ticket.valid()) asyncRead_->release(ticket.slot);
+    check_thread("Device::release_buffer_read");
+    if (!read_ticket_current(ticket)) return;
+    asyncRead_->release(ticket.slot);
+    reads_[std::size_t(ticket.slot)] = PendingRead{};
 }
 
 }  // namespace fa::gpu

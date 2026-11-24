@@ -92,14 +92,18 @@ TEST_CASE("pass desc: a swapchain with unset formats takes the environment's def
 TEST_CASE("target: make_target makes the images and views of one description and destroy_target frees them") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    render::Gpu gpu;
+    std::string error;
+    REQUIRE_MESSAGE(gpu.init(1, &error), error);
+    fa::gpu::Device& device = gpu.device();
     render::TargetDesc d;
     d.label = "unit";
     d.width = 32;
     d.height = 16;
     d.colorFormat = SG_PIXELFORMAT_RGBA8;
     d.depthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
-    render::Target t = render::make_target(d);
-    CHECK(t.valid());
+    render::Target t = render::make_target(device, d);
+    CHECK(t.valid(device));
     CHECK(t.color.id != 0);
     CHECK(t.resolve.id == 0);  // not multisampled
     CHECK(t.depth.id != 0);
@@ -116,34 +120,45 @@ TEST_CASE("target: make_target makes the images and views of one description and
     render::destroy_target(t);
     CHECK(t.color.id == 0);
     CHECK(t.texView.id == 0);
-    CHECK(!t.valid());
-    render::destroy_target(t);  // twice is harmless
+    CHECK(!t.valid(device));
+    gpu.shutdown();
+    render::destroy_target(t);  // twice is harmless, and an empty target needs no device
 }
 
 TEST_CASE("target: a target without a texture view is a draw-and-read-back image") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    render::Gpu gpu;
+    std::string error;
+    REQUIRE_MESSAGE(gpu.init(1, &error), error);
+    fa::gpu::Device& device = gpu.device();
     render::TargetDesc d;
     d.label = "unit-readback";
     d.width = 8;
     d.height = 8;
     d.colorFormat = SG_PIXELFORMAT_RGBA8;
     d.texture = false;
-    render::Target t = render::make_target(d);
-    CHECK(t.valid());
+    render::Target t = render::make_target(device, d);
+    CHECK(t.valid(device));
     CHECK(t.texView.id == 0);
     CHECK(t.depth.id == 0);
-    render::destroy_target(t);
+    render::destroy_target(device, t);
+    gpu.shutdown();
 }
 
 TEST_CASE("target: a multisampled target resolves into a single-sample image the texture view samples") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    render::Gpu gpu;
+    std::string error;
+    REQUIRE_MESSAGE(gpu.init(1, &error), error);
+    fa::gpu::Device& device = gpu.device();
     const sg_pixelformat_info info = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
     const sg_pixelformat_info depthInfo = sg_query_pixelformat(SG_PIXELFORMAT_DEPTH_STENCIL);
     if (!info.render || !info.msaa || !depthInfo.msaa) {  // e.g. Mesa llvmpipe, D3D11 WARP
         MESSAGE("this GPU cannot multisample RGBA8 and depth-stencil: the resolve case is skipped");
         CHECK(sg_query_pixelformat(SG_PIXELFORMAT_RGBA8).render);
+        gpu.shutdown();
         return;
     }
     render::TargetDesc d;
@@ -154,8 +169,8 @@ TEST_CASE("target: a multisampled target resolves into a single-sample image the
     d.samples = 4;
     d.resolveAsColor = true;
     d.depthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
-    render::Target t = render::make_target(d);
-    REQUIRE(t.valid());
+    render::Target t = render::make_target(device, d);
+    REQUIRE(t.valid(device));
     CHECK(t.resolve.id != 0);
     CHECK(t.resolveAtt.id != 0);
     CHECK(t.resolveColorAtt.id != 0);
@@ -163,7 +178,8 @@ TEST_CASE("target: a multisampled target resolves into a single-sample image the
     const render::PassDesc p = render::pass_into(t, "unit-msaa");
     CHECK(p.resolve.id == t.resolveAtt.id);
     CHECK(p.format.samples == 4);
-    render::destroy_target(t);
+    render::destroy_target(device, t);
+    gpu.shutdown();
 }
 
 TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
@@ -198,4 +214,38 @@ TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
     sg_commit();
     render::destroy_target(t);
     gpu.shutdown();
+}
+
+TEST_CASE("gpu: active() is the Gpu initialised last of those alive, and the free target helpers use its device") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    std::string error;
+    render::Gpu* const before = render::Gpu::active();  // a renderer another test left alive, or none
+    render::Gpu first;
+    REQUIRE_MESSAGE(first.init(1, &error), error);
+    CHECK(render::Gpu::active() == &first);
+    {
+        render::Gpu second;
+        REQUIRE_MESSAGE(second.init(1, &error), error);
+        CHECK(render::Gpu::active() == &second);
+        CHECK(&render::Gpu::active_device() == &second.device());
+        second.shutdown();
+        CHECK(render::Gpu::active() == &first);  // the one before is active again, not none
+        REQUIRE_MESSAGE(second.init(1, &error), error);
+        CHECK(render::Gpu::active() == &second);
+        second.shutdown();
+    }
+    CHECK(render::Gpu::active() == &first);
+    render::TargetDesc d;
+    d.label = "unit-active";
+    d.width = d.height = 4;
+    d.colorFormat = SG_PIXELFORMAT_RGBA8;
+    render::Target t = render::make_target(d);
+    CHECK(t.valid());
+    CHECK(t.valid(first.device()));
+    CHECK(first.device().state(fa::gpu::from_sg(t.color)) == fa::gpu::ResourceState::Valid);
+    render::destroy_target(t);
+    CHECK(t.color.id == 0);
+    first.shutdown();
+    CHECK(render::Gpu::active() == before);
 }

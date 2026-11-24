@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <climits>
 #include <initializer_list>
 #include <string>
 #include <thread>
@@ -13,6 +14,7 @@
 #include "gpu/recording_device.h"
 #include "gpu/sokol_device.h"
 #include "gpu_types.h"
+#include "render_features.h"
 #include "shaders/blit.glsl.h"
 #include "test_util.h"
 
@@ -680,6 +682,81 @@ TEST_CASE("RecordingDevice: misuses inside a list name the list, the command and
     }
 }
 
+TEST_CASE("RecordingDevice: a rectangle near INT_MAX does not wrap around into one that fits") {
+    RecordingDevice dev;
+    ImageDesc d;
+    d.width = d.height = 64;
+    d.usage.writeTransient = true;
+    d.pixelFormat = PixelFormat::Rgba8;
+    d.label = "video";
+    const Image img = dev.make_image(d);
+    REQUIRE(dev.state(img) == ResourceState::Valid);
+    const std::uint8_t px[4] = {};
+    CommandList& cl = dev.begin_commands("upload");
+    ImageWrite w;
+    w.data = Range{px, sizeof(px)};
+    w.dst.image = img;
+    w.dst.x = INT_MAX - 1;  // x + width wraps to a negative int in 32 bits, which is "inside" 64
+    w.size.width = 8;
+    w.size.height = 1;
+    cl.write_image(w);
+    w.dst.x = 0;
+    w.dst.y = 0;
+    w.size.width = 64;
+    w.size.height = 64;
+    cl.write_image(w);  // the whole image: fine
+    dev.submit(cl);
+    const auto e = dev.take_errors();
+    CHECK(e.size() == 1);
+    CHECK(has_error(e, {"command #0 (write_image)", "outside image 'video'"}));
+}
+
+TEST_CASE("pixel formats: one table row per format answers the kind, the size and the name") {
+    CHECK(pixel_format_integer(PixelFormat::R8Ui));
+    CHECK(pixel_format_integer(PixelFormat::Rgba32Si));
+    CHECK_FALSE(pixel_format_integer(PixelFormat::Rgba16F));
+    CHECK_FALSE(pixel_format_integer(PixelFormat::Bc6hRgbUf));  // compressed, not an integer format
+    CHECK(pixel_format_signed_normalized(PixelFormat::Rgba16Sn));
+    CHECK_FALSE(pixel_format_signed_normalized(PixelFormat::Bc4RSn));  // its name ends in SN; its kind is compressed
+    CHECK_FALSE(pixel_format_signed_normalized(PixelFormat::Rgba8));
+    CHECK(pixel_format_compressed(PixelFormat::Bc1Rgba));
+    CHECK(pixel_format_compressed(PixelFormat::Astc4x4Srgba));
+    CHECK_FALSE(pixel_format_compressed(PixelFormat::DepthStencil));
+    CHECK(pixel_format_depth(PixelFormat::DepthStencil));
+    CHECK(pixel_format_bytes(PixelFormat::Rgba16F) == 8);
+    CHECK(pixel_format_bytes(PixelFormat::Rgba32F) == 16);
+    CHECK(pixel_format_bytes(PixelFormat::Bc7Rgba) == 0);
+    CHECK(std::string(pixel_format_name(PixelFormat::Rg11B10F)) == "RG11B10F");
+    CHECK(std::string(pixel_format_name(PixelFormat::Count)) == "?");
+    CHECK_FALSE(pixel_format_integer(PixelFormat::Count));  // past the table: the None row
+    // Every uncompressed colour format is exactly one of: integer, signed normalized, or neither (filterable).
+    int integer = 0, snorm = 0;
+    for (std::uint32_t i = 0; i < std::uint32_t(PixelFormat::Count); ++i) {
+        const auto f = PixelFormat(i);
+        CHECK_FALSE((pixel_format_integer(f) && pixel_format_signed_normalized(f)));
+        integer += pixel_format_integer(f);
+        snorm += pixel_format_signed_normalized(f);
+    }
+    CHECK(integer == 18);  // R8, R16, RG8, R32, RG16, RGBA8, RG32, RGBA16, RGBA32: UI and SI each
+    CHECK(snorm == 6);     // R8, R16, RG8, RG16, RGBA8, RGBA16
+}
+
+TEST_CASE("features: feature_env_from_device reads the device's formats, features and limits") {
+    RecordingDevice dev;
+    const fa::render::FeatureEnv env = fa::render::feature_env_from_device(dev);
+    CHECK(env.backend == fa::render::FeatureBackend::Headless);  // Recording draws nothing
+    CHECK(env.maxTextureSize == dev.limits().maxImageSize2d);
+    CHECK(env.compute == dev.features().compute);
+    CHECK(env.halfTargets ==
+          (dev.pixel_format_caps(PixelFormat::Rgba16F).render && dev.pixel_format_caps(PixelFormat::Rgba16F).blend &&
+           dev.pixel_format_caps(PixelFormat::Rgba16F).filter));
+    CHECK_FALSE(env.metalfx);
+    CHECK(fa::render::feature_backend_of(Backend::Gl) == fa::render::FeatureBackend::Gl);
+    CHECK(fa::render::feature_backend_of(Backend::WebGl2) == fa::render::FeatureBackend::WebGl2);
+    CHECK(fa::render::feature_backend_of(Backend::Metal) == fa::render::FeatureBackend::Metal);
+    CHECK(fa::render::feature_backend_of(Backend::Vulkan) == fa::render::FeatureBackend::Headless);
+}
+
 TEST_CASE("RecordingDevice: lists record on several threads and join the stream at submit") {
     RecordingDevice dev;
     Scene s(dev);
@@ -716,7 +793,7 @@ TEST_CASE("RecordingDevice: readbacks and timers say there is no GPU") {
     REQUIRE(!r);
     CHECK(contains(r.error().message, "no buffer (id 0)"));
     CHECK(contains(r.error().hint, "SokolDevice"));
-    CHECK(!dev.request_buffer_read(Buffer{}, 4));
+    CHECK(!dev.request_buffer_read(Buffer{}, 0, 4));
     std::string why;
     CHECK(!dev.timer_supported(&why));
     CHECK(contains(why, "no GPU"));
@@ -837,4 +914,59 @@ TEST_CASE("SokolDevice: a buffer, an image, a pipeline and a cleared pass on the
     CHECK(dev.state(target) == ResourceState::Invalid);
     CHECK(dev.total_stats().images.alive + 1 == before.images.alive);
     dev.reset_state_cache();  // the renderer's next frame starts from a clean sokol state
+}
+
+TEST_CASE("SokolDevice: a read ticket names one read: offset, a stale ticket, a reused slot") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the async read case is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    if (!dev.async_read_supported() || !dev.features().compute) {
+        MESSAGE("this backend reads buffers back only by waiting: the async read case is skipped");
+        return;
+    }
+    std::uint8_t bytes[16];
+    for (int i = 0; i < 16; ++i) bytes[i] = std::uint8_t(i + 1);
+    BufferDesc bd;
+    bd.size = sizeof(bytes);
+    bd.usage.storageBuffer = true;
+    bd.data = Range{bytes, sizeof(bytes)};
+    bd.label = "gpu_interface async";
+    const Buffer buf = dev.make_buffer(bd);
+    REQUIRE(dev.state(buf) == ResourceState::Valid);
+    dev.commit();
+
+    auto first = dev.request_buffer_read(buf, 4, 8);
+    REQUIRE_MESSAGE(first, (first ? "" : first.error().message));
+    const ReadTicket a = first.value();
+    REQUIRE(a.valid());
+    dev.commit();
+    std::vector<std::uint8_t> out;
+    REQUIRE(dev.poll_buffer_read(a, out, true));
+    REQUIRE(out.size() == 8u);
+    CHECK(out[0] == 5);  // the offset is dropped
+    CHECK(out[7] == 12);
+    CHECK_FALSE(dev.poll_buffer_read(a, out, true));  // already read: stale
+    dev.release_buffer_read(a);                       // harmless on a stale ticket
+
+    // A new read may reuse the slot: the old ticket does not name it.
+    auto second = dev.request_buffer_read(buf, 0, 4);
+    REQUIRE(second);
+    const ReadTicket b = second.value();
+    REQUIRE(b.valid());
+    CHECK(b.generation != a.generation);
+    ReadTicket old = a;
+    old.slot = b.slot;
+    CHECK_FALSE(dev.poll_buffer_read(old, out, false));
+    dev.release_buffer_read(old);  // does not release b's read
+    dev.commit();
+    REQUIRE(dev.poll_buffer_read(b, out, true));
+    CHECK(out.size() == 4u);
+    CHECK(out[0] == 1);
+    CHECK(!dev.request_buffer_read(buf, 1, 0));  // no bytes: an error
+    dev.destroy_buffer(buf);
 }

@@ -202,7 +202,7 @@ public:
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
     bool async_read_supported() const override { return false; }
-    Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t bytes) override;
+    Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) override;
     bool poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) override { return false; }
     void release_buffer_read(ReadTicket) override {}
 

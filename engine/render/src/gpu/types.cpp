@@ -1,25 +1,109 @@
 // The backend-neutral helpers of gpu/types.h (no sokol here: RecordingDevice and the later backends use them too).
 #include "gpu/types.h"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace fa::gpu {
 
 namespace {
 
-// Indexed by PixelFormat's value (sokol's order); the names are sokol's without the SG_PIXELFORMAT_ prefix.
-constexpr const char* kPixelFormatNames[] = {
-    "DEFAULT",   "NONE",      "R8",        "R8SN",          "R8UI",          "R8SI",           "R16",
-    "R16SN",     "R16UI",     "R16SI",     "R16F",          "RG8",           "RG8SN",          "RG8UI",
-    "RG8SI",     "R32UI",     "R32SI",     "R32F",          "RG16",          "RG16SN",         "RG16UI",
-    "RG16SI",    "RG16F",     "RGBA8",     "SRGB8A8",       "RGBA8SN",       "RGBA8UI",        "RGBA8SI",
-    "BGRA8",     "SBGR8A8",   "RGB10A2",   "RG11B10F",      "RGB9E5",        "RG32UI",         "RG32SI",
-    "RG32F",     "RGBA16",    "RGBA16SN",  "RGBA16UI",      "RGBA16SI",      "RGBA16F",        "RGBA32UI",
-    "RGBA32SI",  "RGBA32F",   "DEPTH",     "DEPTH_STENCIL", "BC1_RGBA",      "BC2_RGBA",       "BC3_RGBA",
-    "BC3_SRGBA", "BC4_R",     "BC4_RSN",   "BC5_RG",        "BC5_RGSN",      "BC6H_RGBF",      "BC6H_RGBUF",
-    "BC7_RGBA",  "BC7_SRGBA", "ETC2_RGB8", "ETC2_SRGB8",    "ETC2_RGB8A1",   "ETC2_RGBA8",     "ETC2_SRGB8A8",
-    "EAC_R11",   "EAC_R11SN", "EAC_RG11",  "EAC_RG11SN",    "ASTC_4x4_RGBA", "ASTC_4x4_SRGBA",
+// What kind of values a format holds.
+enum class Kind : std::uint8_t { None, Unorm, Snorm, Uint, Sint, Float, Depth, Compressed };
+
+struct FormatInfo {
+    PixelFormat format;  // the row's own format: the table is checked to be in PixelFormat's order
+    const char* name;    // sokol's name without the SG_PIXELFORMAT_ prefix
+    Kind kind;
+    int bytes;  // of one pixel; 0 for None, Default and the compressed formats
 };
-static_assert(sizeof(kPixelFormatNames) / sizeof(kPixelFormatNames[0]) == std::size_t(PixelFormat::Count),
-              "one name per PixelFormat");
+
+// One row per PixelFormat, in its order (sokol's).
+constexpr FormatInfo kFormats[] = {
+    {PixelFormat::Default, "DEFAULT", Kind::None, 0},
+    {PixelFormat::None, "NONE", Kind::None, 0},
+    {PixelFormat::R8, "R8", Kind::Unorm, 1},
+    {PixelFormat::R8Sn, "R8SN", Kind::Snorm, 1},
+    {PixelFormat::R8Ui, "R8UI", Kind::Uint, 1},
+    {PixelFormat::R8Si, "R8SI", Kind::Sint, 1},
+    {PixelFormat::R16, "R16", Kind::Unorm, 2},
+    {PixelFormat::R16Sn, "R16SN", Kind::Snorm, 2},
+    {PixelFormat::R16Ui, "R16UI", Kind::Uint, 2},
+    {PixelFormat::R16Si, "R16SI", Kind::Sint, 2},
+    {PixelFormat::R16F, "R16F", Kind::Float, 2},
+    {PixelFormat::Rg8, "RG8", Kind::Unorm, 2},
+    {PixelFormat::Rg8Sn, "RG8SN", Kind::Snorm, 2},
+    {PixelFormat::Rg8Ui, "RG8UI", Kind::Uint, 2},
+    {PixelFormat::Rg8Si, "RG8SI", Kind::Sint, 2},
+    {PixelFormat::R32Ui, "R32UI", Kind::Uint, 4},
+    {PixelFormat::R32Si, "R32SI", Kind::Sint, 4},
+    {PixelFormat::R32F, "R32F", Kind::Float, 4},
+    {PixelFormat::Rg16, "RG16", Kind::Unorm, 4},
+    {PixelFormat::Rg16Sn, "RG16SN", Kind::Snorm, 4},
+    {PixelFormat::Rg16Ui, "RG16UI", Kind::Uint, 4},
+    {PixelFormat::Rg16Si, "RG16SI", Kind::Sint, 4},
+    {PixelFormat::Rg16F, "RG16F", Kind::Float, 4},
+    {PixelFormat::Rgba8, "RGBA8", Kind::Unorm, 4},
+    {PixelFormat::Srgb8A8, "SRGB8A8", Kind::Unorm, 4},
+    {PixelFormat::Rgba8Sn, "RGBA8SN", Kind::Snorm, 4},
+    {PixelFormat::Rgba8Ui, "RGBA8UI", Kind::Uint, 4},
+    {PixelFormat::Rgba8Si, "RGBA8SI", Kind::Sint, 4},
+    {PixelFormat::Bgra8, "BGRA8", Kind::Unorm, 4},
+    {PixelFormat::Sbgr8A8, "SBGR8A8", Kind::Unorm, 4},
+    {PixelFormat::Rgb10A2, "RGB10A2", Kind::Unorm, 4},
+    {PixelFormat::Rg11B10F, "RG11B10F", Kind::Float, 4},
+    {PixelFormat::Rgb9E5, "RGB9E5", Kind::Float, 4},
+    {PixelFormat::Rg32Ui, "RG32UI", Kind::Uint, 8},
+    {PixelFormat::Rg32Si, "RG32SI", Kind::Sint, 8},
+    {PixelFormat::Rg32F, "RG32F", Kind::Float, 8},
+    {PixelFormat::Rgba16, "RGBA16", Kind::Unorm, 8},
+    {PixelFormat::Rgba16Sn, "RGBA16SN", Kind::Snorm, 8},
+    {PixelFormat::Rgba16Ui, "RGBA16UI", Kind::Uint, 8},
+    {PixelFormat::Rgba16Si, "RGBA16SI", Kind::Sint, 8},
+    {PixelFormat::Rgba16F, "RGBA16F", Kind::Float, 8},
+    {PixelFormat::Rgba32Ui, "RGBA32UI", Kind::Uint, 16},
+    {PixelFormat::Rgba32Si, "RGBA32SI", Kind::Sint, 16},
+    {PixelFormat::Rgba32F, "RGBA32F", Kind::Float, 16},
+    {PixelFormat::Depth, "DEPTH", Kind::Depth, 4},
+    {PixelFormat::DepthStencil, "DEPTH_STENCIL", Kind::Depth, 4},
+    {PixelFormat::Bc1Rgba, "BC1_RGBA", Kind::Compressed, 0},
+    {PixelFormat::Bc2Rgba, "BC2_RGBA", Kind::Compressed, 0},
+    {PixelFormat::Bc3Rgba, "BC3_RGBA", Kind::Compressed, 0},
+    {PixelFormat::Bc3Srgba, "BC3_SRGBA", Kind::Compressed, 0},
+    {PixelFormat::Bc4R, "BC4_R", Kind::Compressed, 0},
+    {PixelFormat::Bc4RSn, "BC4_RSN", Kind::Compressed, 0},
+    {PixelFormat::Bc5Rg, "BC5_RG", Kind::Compressed, 0},
+    {PixelFormat::Bc5RgSn, "BC5_RGSN", Kind::Compressed, 0},
+    {PixelFormat::Bc6hRgbF, "BC6H_RGBF", Kind::Compressed, 0},
+    {PixelFormat::Bc6hRgbUf, "BC6H_RGBUF", Kind::Compressed, 0},
+    {PixelFormat::Bc7Rgba, "BC7_RGBA", Kind::Compressed, 0},
+    {PixelFormat::Bc7Srgba, "BC7_SRGBA", Kind::Compressed, 0},
+    {PixelFormat::Etc2Rgb8, "ETC2_RGB8", Kind::Compressed, 0},
+    {PixelFormat::Etc2Srgb8, "ETC2_SRGB8", Kind::Compressed, 0},
+    {PixelFormat::Etc2Rgb8A1, "ETC2_RGB8A1", Kind::Compressed, 0},
+    {PixelFormat::Etc2Rgba8, "ETC2_RGBA8", Kind::Compressed, 0},
+    {PixelFormat::Etc2Srgb8A8, "ETC2_SRGB8A8", Kind::Compressed, 0},
+    {PixelFormat::EacR11, "EAC_R11", Kind::Compressed, 0},
+    {PixelFormat::EacR11Sn, "EAC_R11SN", Kind::Compressed, 0},
+    {PixelFormat::EacRg11, "EAC_RG11", Kind::Compressed, 0},
+    {PixelFormat::EacRg11Sn, "EAC_RG11SN", Kind::Compressed, 0},
+    {PixelFormat::Astc4x4Rgba, "ASTC_4x4_RGBA", Kind::Compressed, 0},
+    {PixelFormat::Astc4x4Srgba, "ASTC_4x4_SRGBA", Kind::Compressed, 0},
+};
+static_assert(sizeof(kFormats) / sizeof(kFormats[0]) == std::size_t(PixelFormat::Count), "one row per PixelFormat");
+
+constexpr bool rows_in_order() {
+    for (std::size_t i = 0; i < sizeof(kFormats) / sizeof(kFormats[0]); ++i)
+        if (std::size_t(kFormats[i].format) != i) return false;
+    return true;
+}
+static_assert(rows_in_order(), "kFormats[i] describes PixelFormat(i)");
+
+// The row of `f`, or the None row past Count.
+const FormatInfo& info(PixelFormat f) {
+    const auto i = std::size_t(f);
+    return i < std::size_t(PixelFormat::Count) ? kFormats[i] : kFormats[std::size_t(PixelFormat::None)];
+}
 
 }  // namespace
 
@@ -38,66 +122,18 @@ const char* backend_name(Backend b) {
 }
 
 const char* pixel_format_name(PixelFormat f) {
-    const auto i = std::size_t(f);
-    return i < std::size_t(PixelFormat::Count) ? kPixelFormatNames[i] : "?";
+    return std::size_t(f) < std::size_t(PixelFormat::Count) ? kFormats[std::size_t(f)].name : "?";
 }
 
-int pixel_format_bytes(PixelFormat f) {
-    switch (f) {
-        case PixelFormat::R8:
-        case PixelFormat::R8Sn:
-        case PixelFormat::R8Ui:
-        case PixelFormat::R8Si: return 1;
-        case PixelFormat::R16:
-        case PixelFormat::R16Sn:
-        case PixelFormat::R16Ui:
-        case PixelFormat::R16Si:
-        case PixelFormat::R16F:
-        case PixelFormat::Rg8:
-        case PixelFormat::Rg8Sn:
-        case PixelFormat::Rg8Ui:
-        case PixelFormat::Rg8Si: return 2;
-        case PixelFormat::R32Ui:
-        case PixelFormat::R32Si:
-        case PixelFormat::R32F:
-        case PixelFormat::Rg16:
-        case PixelFormat::Rg16Sn:
-        case PixelFormat::Rg16Ui:
-        case PixelFormat::Rg16Si:
-        case PixelFormat::Rg16F:
-        case PixelFormat::Rgba8:
-        case PixelFormat::Srgb8A8:
-        case PixelFormat::Rgba8Sn:
-        case PixelFormat::Rgba8Ui:
-        case PixelFormat::Rgba8Si:
-        case PixelFormat::Bgra8:
-        case PixelFormat::Sbgr8A8:
-        case PixelFormat::Rgb10A2:
-        case PixelFormat::Rg11B10F:
-        case PixelFormat::Rgb9E5: return 4;
-        case PixelFormat::Rg32Ui:
-        case PixelFormat::Rg32Si:
-        case PixelFormat::Rg32F:
-        case PixelFormat::Rgba16:
-        case PixelFormat::Rgba16Sn:
-        case PixelFormat::Rgba16Ui:
-        case PixelFormat::Rgba16Si:
-        case PixelFormat::Rgba16F: return 8;
-        case PixelFormat::Rgba32Ui:
-        case PixelFormat::Rgba32Si:
-        case PixelFormat::Rgba32F: return 16;
-        case PixelFormat::Depth:
-        case PixelFormat::DepthStencil: return 4;
-        default: return 0;
-    }
-}
+int pixel_format_bytes(PixelFormat f) { return info(f).bytes; }
 
-bool pixel_format_compressed(PixelFormat f) {
-    return std::uint32_t(f) >= std::uint32_t(PixelFormat::Bc1Rgba) &&
-           std::uint32_t(f) < std::uint32_t(PixelFormat::Count);
-}
+bool pixel_format_compressed(PixelFormat f) { return info(f).kind == Kind::Compressed; }
 
-bool pixel_format_depth(PixelFormat f) { return f == PixelFormat::Depth || f == PixelFormat::DepthStencil; }
+bool pixel_format_depth(PixelFormat f) { return info(f).kind == Kind::Depth; }
+
+bool pixel_format_integer(PixelFormat f) { return info(f).kind == Kind::Uint || info(f).kind == Kind::Sint; }
+
+bool pixel_format_signed_normalized(PixelFormat f) { return info(f).kind == Kind::Snorm; }
 
 ViewType ViewDesc::type() const {
     if (texture.image.valid()) return ViewType::Texture;

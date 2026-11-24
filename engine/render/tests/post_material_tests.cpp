@@ -1010,12 +1010,12 @@ TEST_CASE(
     using render::pick_ldr_cut_format;
     // The choice, whatever this GPU can do: an SDR window and a float display keep the display format; an HDR window
     // over an 8-bit one takes the half float, else the full float, else stays.
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, false, true, true) == SG_PIXELFORMAT_RGBA8);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, true, true) == SG_PIXELFORMAT_RGBA16F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, true) == SG_PIXELFORMAT_RGBA32F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, false) == SG_PIXELFORMAT_RGBA8);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, true, true, true) == SG_PIXELFORMAT_RGBA16F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, false, false, false) == SG_PIXELFORMAT_RGBA16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, false, true, true) == gpu::PixelFormat::Rgba8);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, true, true) == gpu::PixelFormat::Rgba16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, false, true) == gpu::PixelFormat::Rgba32F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, false, false) == gpu::PixelFormat::Rgba8);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba16F, true, true, true) == gpu::PixelFormat::Rgba16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba16F, false, false, false) == gpu::PixelFormat::Rgba16F);
 
     Gfx& g = gfx();
     REQUIRE(g.ok);

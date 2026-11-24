@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <utility>
 
 namespace fa::gpu {
@@ -38,15 +39,13 @@ namespace {
 std::string quoted(const std::string& s) { return "'" + s + "'"; }
 std::string str(const char* s) { return s ? s : ""; }
 
-bool integer_format(PixelFormat f) {
-    const std::string n = pixel_format_name(f);
-    return n.size() > 2 && (n.compare(n.size() - 2, 2, "UI") == 0 || n.compare(n.size() - 2, 2, "SI") == 0);
+// Whether [at, at + count) lies inside [0, limit): computed in 64 bits, so a start and a size near INT_MAX cannot wrap
+// around into a range that looks valid.
+bool span_fits(int at, int count, int limit) {
+    return at >= 0 && count > 0 && std::int64_t(at) + std::int64_t(count) <= std::int64_t(limit);
 }
-
-bool signed_normalized(PixelFormat f) {
-    const std::string n = pixel_format_name(f);
-    return n.size() > 2 && n.compare(n.size() - 2, 2, "SN") == 0;
-}
+// The last index of [at, at + count), for a message (64 bits, as span_fits).
+std::string span_last(int at, int count) { return std::to_string(std::int64_t(at) + std::int64_t(count) - 1); }
 
 // The pixel formats of a desktop GPU (D3D11 feature level 11 / GL 4.3 / Metal on Apple silicon, the common subset).
 PixelFormatCaps desktop_caps(PixelFormat f, bool compute) {
@@ -63,11 +62,11 @@ PixelFormatCaps desktop_caps(PixelFormat f, bool compute) {
         c.sample = c.render = c.msaa = c.depth = true;
         return c;
     }
-    const bool integer = integer_format(f);
+    const bool integer = pixel_format_integer(f);
     const bool float32 = f == PixelFormat::R32F || f == PixelFormat::Rg32F || f == PixelFormat::Rgba32F;
     c.sample = true;
     c.filter = !integer && !float32;
-    c.render = f != PixelFormat::Rgb9E5 && !signed_normalized(f);
+    c.render = f != PixelFormat::Rgb9E5 && !pixel_format_signed_normalized(f);
     c.blend = c.render && !integer;
     c.msaa = c.render && !integer && !float32;
     if (compute) {
@@ -505,15 +504,15 @@ View RecordingDevice::make_view(const ViewDesc& d) {
             if (need) add(what, "image " + quoted(img->label) + " was not made with " + need);
             const int mip = iv ? iv->mipLevel : d.texture.mipLevels.base;
             const int mipCount = iv ? 1 : (d.texture.mipLevels.count > 0 ? d.texture.mipLevels.count : ii.mips - mip);
-            if (mip < 0 || mipCount <= 0 || mip + mipCount > ii.mips)
-                add(what, "mip levels " + std::to_string(mip) + ".." + std::to_string(mip + mipCount - 1) +
+            if (!span_fits(mip, mipCount, ii.mips))
+                add(what, "mip levels " + std::to_string(mip) + ".." + span_last(mip, mipCount) +
                               " are outside image " + quoted(img->label) + " (" + std::to_string(ii.mips) + " levels)");
             const int depthOrSlices = ii.slices;
             const int slice = iv ? iv->slice : d.texture.slices.base;
             const int sliceCount =
                 iv ? 1 : (d.texture.slices.count > 0 ? d.texture.slices.count : depthOrSlices - slice);
-            if (slice < 0 || sliceCount <= 0 || slice + sliceCount > depthOrSlices)
-                add(what, "slices " + std::to_string(slice) + ".." + std::to_string(slice + sliceCount - 1) +
+            if (!span_fits(slice, sliceCount, depthOrSlices))
+                add(what, "slices " + std::to_string(slice) + ".." + span_last(slice, sliceCount) +
                               " are outside image " + quoted(img->label) + " (" + std::to_string(depthOrSlices) +
                               " slices)");
             if (info.type == ViewType::ResolveAttachment && ii.samples != 1)
@@ -932,7 +931,7 @@ Result<void> RecordingDevice::read_buffer(Buffer buffer, std::size_t, std::size_
     return no_gpu("read_buffer", state_->buffers.describe(buffer.id) + " has no contents on the recording device");
 }
 
-Result<ReadTicket> RecordingDevice::request_buffer_read(Buffer buffer, std::size_t) {
+Result<ReadTicket> RecordingDevice::request_buffer_read(Buffer buffer, std::size_t, std::size_t) {
     std::lock_guard<std::mutex> lock(mutex_);
     return no_gpu("request_buffer_read",
                   state_->buffers.describe(buffer.id) + " cannot be read back (async_read_supported() is false)");
@@ -1298,7 +1297,7 @@ void RecordingCommandList::set_bindings(const Bindings& b) {
             const PixelFormat f = e->info.format;
             const PixelFormatCaps caps = device_.pixel_format_caps(f);
             const ImageSampleType st = r.sampleType[i];
-            const bool depth = pixel_format_depth(f), integer = integer_format(f);
+            const bool depth = pixel_format_depth(f), integer = pixel_format_integer(f);
             const bool ok = st == ImageSampleType::Depth               ? depth
                             : st == ImageSampleType::Float             ? (!depth && !integer && caps.filter)
                             : st == ImageSampleType::UnfilterableFloat ? (!integer)
@@ -1481,10 +1480,10 @@ void RecordingCommandList::write_image(const ImageWrite& w) {
             fail(cmd, "image " + quoted(e->label) + " was not made with usage.writeTransient",
                  "make images rewritten after creation with usage.writeTransient");
         const int slices = w.size.numSlices > 0 ? w.size.numSlices : 1;
-        if (w.dst.mipLevel < 0 || w.dst.mipLevel >= ii.mips || w.dst.x < 0 || w.dst.y < 0 || w.size.width <= 0 ||
-            w.size.height <= 0 || w.dst.x + w.size.width > mip_size(ii.width, w.dst.mipLevel) ||
-            w.dst.y + w.size.height > mip_size(ii.height, w.dst.mipLevel) || w.dst.slice < 0 ||
-            w.dst.slice + slices > ii.slices)
+        if (w.dst.mipLevel < 0 || w.dst.mipLevel >= ii.mips ||
+            !span_fits(w.dst.x, w.size.width, mip_size(ii.width, w.dst.mipLevel)) ||
+            !span_fits(w.dst.y, w.size.height, mip_size(ii.height, w.dst.mipLevel)) ||
+            !span_fits(w.dst.slice, slices, ii.slices))
             fail(cmd,
                  "the rectangle " + std::to_string(w.size.width) + "x" + std::to_string(w.size.height) + " at (" +
                      std::to_string(w.dst.x) + ", " + std::to_string(w.dst.y) + ") of mip " +
@@ -1546,9 +1545,10 @@ void RecordingCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
                 fail(cmd, "destination image " + quoted(dst->label) + " was not made with usage.copyDst",
                      "add usage.copyDst to the image");
             const ImageInfo& ii = dst->info;
-            if (c.dst.mipLevel < 0 || c.dst.mipLevel >= ii.mips || c.dst.x < 0 || c.dst.y < 0 || c.size.width <= 0 ||
-                c.size.height <= 0 || c.dst.x + c.size.width > mip_size(ii.width, c.dst.mipLevel) ||
-                c.dst.y + c.size.height > mip_size(ii.height, c.dst.mipLevel))
+            if (c.dst.mipLevel < 0 || c.dst.mipLevel >= ii.mips ||
+                !span_fits(c.dst.x, c.size.width, mip_size(ii.width, c.dst.mipLevel)) ||
+                !span_fits(c.dst.y, c.size.height, mip_size(ii.height, c.dst.mipLevel)) ||
+                !span_fits(c.dst.slice, c.size.numSlices > 0 ? c.size.numSlices : 1, ii.slices))
                 fail(cmd, "the rectangle is outside image " + quoted(dst->label), "copy inside the mip level's size");
         }
     }

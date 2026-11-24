@@ -15,8 +15,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "sokol_gfx.h"
-
 #include "fa/core/image.h"
 #include "fa/core/json.h"
 #include "fa/core/math.h"
@@ -31,6 +29,8 @@
 #include "fa/scene/rich_text.h"
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
+#include "gpu/device.h"
+#include "gpu/sg_bridge.h"
 #include "gpu_types.h"
 #include "postprocess_resolve.h"
 
@@ -1569,15 +1569,51 @@ constexpr sg_pixel_format kSceneDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
 // `display` is Gpu::display_format(); `half` and `full` say whether RGBA16F and RGBA32F can be rendered to and sampled
 // with filtering. Without an HDR output, or with a display format that is already float, the display format; else the
 // first float format the GPU can use, and the display format when it can use none.
-sg_pixel_format pick_ldr_cut_format(sg_pixel_format display, bool hdrOutput, bool half, bool full);
+gpu::PixelFormat pick_ldr_cut_format(gpu::PixelFormat display, bool hdrOutput, bool half, bool full);
 
+// The renderer's shared GPU state: the device (gpu::Device), the frame's command list, the pipeline cache, the samplers,
+// the static buffers and the transient pools. It reaches the GPU only through the device (gpu/device.h); the handles it
+// hands to code that still calls sokol are gpu::bridged::* (gpu/sg_bridge.h), which convert to the sg_* types.
+// docs/design/ARCHITECTURE_RENDERING_GPU.md, "How the renderer reaches the device".
 class Gpu {
 public:
     Gpu() = default;
+    // Leaves the live list (active()) and releases the device without touching the GPU's resources: call shutdown()
+    // first while the context is open. Not copyable or movable: active() holds its address.
+    ~Gpu();
+    Gpu(const Gpu&) = delete;
+    Gpu& operator=(const Gpu&) = delete;
+    // Makes the device on the open sokol context (gpu::make_device(gpu::built_sokol_backend()) adopts the context
+    // Renderer::init opened) and the frame's command list, then the built-in programs, samplers and buffers.
     bool init(int sampleCount, std::string* error);
+    // Destroys everything init and the getters made, submits the frame's list and releases the device (the sokol
+    // context stays open: it is the renderer's). Safe to call twice, and on a Gpu whose init failed.
     void shutdown();
 
-    sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
+    // The device every resource of the renderer is made on, between init() and shutdown(). Single-threaded: the
+    // thread that ran init (gpu/device.h, THREADING).
+    gpu::Device& device() {
+        FA_ASSERT(device_, "Gpu::device() before Gpu::init() or after shutdown()");
+        return *device_;
+    }
+    bool has_device() const { return device_ != nullptr; }
+    // The command list of the frame being recorded: every pass, draw, upload and copy of the frame goes into it. Ask
+    // for it again after a commit (commit_frame, begin_frame): a reference kept across one names a submitted list
+    // (gpu/device.h, LIFETIME). A frame-graph pass gets it from PassContext::commands().
+    gpu::CommandList& commands() {
+        FA_ASSERT(list_, "Gpu::commands() before Gpu::init() or after shutdown()");
+        return *list_;
+    }
+    // Ends the frame on the device: submits the frame's list, commits (Device::commit) and begins the next list.
+    void commit_frame();
+    // The Gpu initialised last of those still alive (null: none). The static pass functions record on its list.
+    static Gpu* active();
+    // The device of active() (FA_ASSERTs there is one): for the free functions that have no Gpu at hand yet, the
+    // Target helpers without a device (make_target, destroy_target). TRANSITIONAL (M77-P2..P4): the passes get the
+    // device from their Gpu once they are converted.
+    static gpu::Device& active_device();
+
+    gpu::bridged::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
     // `opaque` = blending off (QuadBatch::opaque).
     //
@@ -1588,13 +1624,14 @@ public:
     // that stage for the others.
     // `shader` = a program of a sprite material (quad or quad_plain; the pipeline is keyed by it); default = the
     // built-in one.
-    sg_pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
-                              BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
-                              sg_shader shader = {}, int instanceVec4 = 0);
+    gpu::bridged::Pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
+                                         BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
+                                         gpu::bridged::Shader shader = {}, int instanceVec4 = 0);
     // `instanceVec4` = the vec4 of per-quad instanced params of that material (MaterialUse::instVec4): vertex buffer 1
     // (kQuadInstBuffer), attributes 7.. (the quad vertex shader's fa_inst_d0..2), one value per vertex.
-    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
-                              bool opaque = false, sg_shader shader = {}, int instanceVec4 = 0) {
+    gpu::bridged::Pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha,
+                                         bool plain = false, bool opaque = false, gpu::bridged::Shader shader = {},
+                                         int instanceVec4 = 0) {
         return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader, instanceVec4);
     }
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
@@ -1606,29 +1643,34 @@ public:
     // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     // `lod` = the built-in program (no `shader`) of a draw that cross-fades between two levels of detail: mesh_lod / mesh_skin_lod, the
     // programs with the dither's discard (mesh_common.glsl fa_lod_dither). A custom material dithers inside its own alphaMode "clip".
-    sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false, bool lod = false);
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}, bool glass = false, bool lod = false) {
+    gpu::bridged::Pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided,
+                                         bool skinned = false, gpu::bridged::Shader shader = {}, MeshExtras extras = {},
+                                         bool glass = false, bool lod = false);
+    gpu::bridged::Pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false,
+                                         gpu::bridged::Shader shader = {}, MeshExtras extras = {}, bool glass = false,
+                                         bool lod = false) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass, lod);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
-    sg_pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
-                              sg_shader shader, MeshExtras extras);
-    sg_pipeline full_pipeline(const MaterialPassState& state, bool skinned, sg_shader shader, MeshExtras extras) {
+    gpu::bridged::Pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                                         gpu::bridged::Shader shader, MeshExtras extras);
+    gpu::bridged::Pipeline full_pipeline(const MaterialPassState& state, bool skinned, gpu::bridged::Shader shader,
+                                         MeshExtras extras) {
         return full_pipeline(scene_target_format(), state, skinned, shader, extras);
     }
     // `shader`: the program of a sky material (id 0 = the built-in gradient).
-    sg_pipeline sky_pipeline(const TargetFormat& format, sg_shader shader = {});
-    sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
-    sg_pipeline sky_pipeline(sg_shader shader) { return sky_pipeline(scene_target_format(), shader); }
+    gpu::bridged::Pipeline sky_pipeline(const TargetFormat& format, gpu::bridged::Shader shader = {});
+    gpu::bridged::Pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
+    gpu::bridged::Pipeline sky_pipeline(gpu::bridged::Shader shader) {
+        return sky_pipeline(scene_target_format(), shader);
+    }
 
     // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
     // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the
     // RGBA16F fallback) or of the sample count only makes this return another key: the pipelines of the old one stay in
     // the cache until they go idle.
-    TargetFormat scene_target_format() const { return {sceneFormat_, kSceneDepthFormat, sampleCount_}; }
+    TargetFormat scene_target_format() const { return {scene_format(), kSceneDepthFormat, sampleCount_}; }
     // The shadow map pass: an R32F colour attachment and a DEPTH one, never multisampled.
     static TargetFormat shadow_target_format() { return {SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_DEPTH, 1}; }
 
@@ -1636,7 +1678,7 @@ public:
     // depth, gb = octahedral view-space normal, a = coverage) and a depth buffer, never multisampled. prepass_color_format() is what
     // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
     // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
-    static sg_pixel_format prepass_color_format();
+    sg_pixel_format prepass_color_format() const;
     // `velocity`: the pass also writes the motion vectors into a second colour attachment (velocity_format(), M76).
     TargetFormat prepass_target_format(bool velocity = false) const {
         return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1, velocity ? velocity_format() : SG_PIXELFORMAT_NONE};
@@ -1655,11 +1697,11 @@ public:
     // whose first hit is a back face is inside geometry).
     // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
     // the prepass with the dither); it declares the slots of prepass_program().
-    sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
-                                 bool lod = false);
-    sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
-                                 MeshExtras extras = {}) {
+    gpu::bridged::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
+                                            gpu::bridged::Shader shader = {}, MeshExtras extras = {},
+                                            bool cullFront = false, bool lod = false);
+    gpu::bridged::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::bridged::Shader shader = {},
+                                            MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
     // The subsurface pass (M73.5, mesh_common.glsl fs_sss): the diffuse light of the meshes that scatter into colour 0 (rgb light, a = linear
@@ -1669,15 +1711,15 @@ public:
         return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
     }
     // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
-    sg_shader builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label);
+    gpu::Shader builtin_shader(gpu::Shader& slot, gpu::GeneratedShader desc, const char* label);
     bool sss_ready();
     // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
     const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }
     // The main pass's vertex layout and culling, no blending, depth written: the draw of the prepass's depth plus the two colours.
-    sg_pipeline sss_pipeline(bool doubleSided, bool skinned);
+    gpu::bridged::Pipeline sss_pipeline(bool doubleSided, bool skinned);
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
-    sg_pipeline prepass_view_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline prepass_view_pipeline(const TargetFormat& format);
     // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world (shaders/quad_motion.glsl). The mask is an R8 image
     // (reactive_format(): renderable and sampleable on GLES3, WebGL2, D3D11 and Metal; the MAX blend is core on all of them), and
     // reactive_ready() says whether this GPU makes it. quad_motion_ready() builds the two programs (once; false with one log line when they
@@ -1686,11 +1728,11 @@ public:
     static sg_pixel_format reactive_format() { return SG_PIXELFORMAT_R8; }
     bool reactive_ready();
     bool quad_motion_ready();
-    sg_pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
+    gpu::bridged::Pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
     // The full-screen triangle of a post material's program (post_common.glsl) into `format`, no blending (the pass
     // writes every pixel of its rectangle) and no depth; keyed by the program, so a reload that destroys it
     // (destroy_shader) drops the pipeline too.
-    sg_pipeline post_material_pipeline(const TargetFormat& format, sg_shader shader);
+    gpu::bridged::Pipeline post_material_pipeline(const TargetFormat& format, gpu::bridged::Shader shader);
 
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than
@@ -1709,7 +1751,7 @@ public:
     // Tests: while on, a pipeline getter makes and caches nothing (it returns an empty pipeline) and keeps the vertex
     // layout it built, which probed_layout() returns. Used to check offsets and strides without a draw.
     void set_layout_probe(bool on) { layoutProbe_ = on; }
-    const sg_vertex_layout_state& probed_layout() const { return probedLayout_; }
+    const gpu::VertexLayout& probed_layout() const { return probedLayout_; }
     // While on, every pipeline made or asked for is kept out of the eviction (Renderer::warm_step turns it on around a group).
     void set_warming(bool on) { warming_ = on; }
     static constexpr std::size_t kPipelineCacheCap = 192;
@@ -1724,22 +1766,23 @@ public:
     // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
     // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
     // `extras` count only with `fullVertex` (the shadow programs without vertex() and clip do not read them).
-    sg_pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false, sg_shader shader = {},
-                                bool fullVertex = false, MeshExtras extras = {});
-    sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false,
-                                MeshExtras extras = {}) {
+    gpu::bridged::Pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false,
+                                           gpu::bridged::Shader shader = {}, bool fullVertex = false,
+                                           MeshExtras extras = {});
+    gpu::bridged::Pipeline shadow_pipeline(bool skinned = false, gpu::bridged::Shader shader = {},
+                                           bool fullVertex = false, MeshExtras extras = {}) {
         return shadow_pipeline(shadow_target_format(), skinned, shader, fullVertex, extras);
     }
     // Destroys a custom material program together with the pipelines made from it.
-    void destroy_shader(sg_shader shader);
-    sg_pipeline blit_pipeline(const TargetFormat& format);
-    sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount) {
+    void destroy_shader(gpu::bridged::Shader shader);
+    gpu::bridged::Pipeline blit_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount) {
         return blit_pipeline(TargetFormat{colorFormat, depthFormat, sampleCount});
     }
     // The same copy into an RGBA8 target without depth, keeping the source's alpha: how a frame in a float scene_format() is
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
-    sg_pipeline blit_keep_pipeline(const TargetFormat& format);
-    sg_pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
+    gpu::bridged::Pipeline blit_keep_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
     static TargetFormat blit_keep_target_format() { return {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
@@ -1747,16 +1790,13 @@ public:
     // (SceneSettings.colorSpace): RGBA16F, else R11G11B10 (float, no alpha), else SRGB8A8, else RGBA8 (see Gpu::init).
     // FA_SCENE_FORMAT: rgba8 = the 8-bit end of the chain (gamma: RGBA8, linear: SRGB8A8), r11g11b10 = prefer the packed float one
     // (a linear scene; the gamma chain is as without it), read once at init to test a path on a GPU that would pick another.
-    sg_pixel_format scene_format() const { return sceneFormat_; }
+    sg_pixel_format scene_format() const { return gpu::to_sg(sceneFormat_); }
     // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB-ENCODED values, so the GPU must not
     // encode them again): RGBA16F where the scene is, else plain RGBA8. SRGB8A8 (a linear scene in 8 bits) would encode them twice;
     // R11G11B10 has a 6-bit mantissa, so encoded values near 1 step by 1/64 of the range and a gradient bands where an 8-bit image
     // does not (the linear scene needs the packed format for its dark values, the encoded picture does not). An 8-bit display image
     // cannot hold values above 1: such a window stays within paper white (Renderer::Impl::float_display).
-    sg_pixel_format display_format() const {
-        return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 || sceneFormat_ == SG_PIXELFORMAT_RG11B10F ? SG_PIXELFORMAT_RGBA8
-                                                                                                 : sceneFormat_;
-    }
+    sg_pixel_format display_format() const { return gpu::to_sg(display_pixel_format()); }
     // The format of the images a final pass cut by display-referred custom passes goes through
     // (Renderer::Impl::ldrMid): they hold DISPLAY values like display_format(), so never the scene's own SRGB8A8 (the
     // GPU would encode them again) or R11G11B10 (no alpha, banding). With an HDR output (`hdrOutput`) and a display
@@ -1792,18 +1832,18 @@ public:
     // cannot be created, in which case the bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
-    sg_pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
-    sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
-        return bloom_pipeline(stage, TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, sampleCount});
+    gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
+    gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
+        return bloom_pipeline(stage, TargetFormat{scene_format(), SG_PIXELFORMAT_NONE, sampleCount});
     }
     // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
     bool colorfilter_ready();
     // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
     // shader cannot be created.
-    sg_pipeline colorfilter_pipeline(const TargetFormat& format);
-    sg_pipeline colorfilter_pipeline() {
-        return colorfilter_pipeline(TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, 1});
+    gpu::bridged::Pipeline colorfilter_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline colorfilter_pipeline() {
+        return colorfilter_pipeline(TargetFormat{scene_format(), SG_PIXELFORMAT_NONE, 1});
     }
 
     // The final pass of the post-processing stack (post.glsl: exposure, tonemap, output encode, colour filter): one program, created on
@@ -1812,13 +1852,13 @@ public:
     int post_ready_calls() const {
         return postReadyCalls_;
     }  // how often a frame asked for it: 0 for a world without a stack (tests)
-    sg_pipeline post_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline post_pipeline(const TargetFormat& format);
     // The automatic exposure (exposure.glsl), the same way.
     bool exposure_ready();
-    sg_pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
+    gpu::bridged::Pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
     // The ambient occlusion (ssao.glsl, renderer_ssao.cpp), the same way: false + one logged error when its shaders cannot be made.
     bool ssao_ready();
-    sg_pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
+    gpu::bridged::Pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
 
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
     // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
@@ -1826,15 +1866,17 @@ public:
     // The format the light buffer is drawn in: RGBA16F where the GPU renders to it with blending and filtering, else RGBA8
     // (half the range, see light_range()), else NONE: no light buffer. The environment variable FA_LIGHT_FORMAT (rgba16f,
     // rgba8 or none) narrows the choice to that one, to test a path on a GPU that would pick another.
-    sg_pixel_format light_format() const { return lightFormat_; }
+    sg_pixel_format light_format() const { return gpu::to_sg(lightFormat_); }
     // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
-    float light_range() const { return lightFormat_ == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f; }
-    sg_pipeline light_pipeline(const TargetFormat& format);
-    sg_pipeline light_pipeline() { return light_pipeline(light_target_format()); }
-    TargetFormat light_target_format() const { return {lightFormat_, SG_PIXELFORMAT_NONE, 1}; }
+    float light_range() const { return lightFormat_ == gpu::PixelFormat::Rgba8 ? 2.0f : 1.0f; }
+    gpu::bridged::Pipeline light_pipeline(const TargetFormat& format);
+    gpu::bridged::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
+    TargetFormat light_target_format() const { return {light_format(), SG_PIXELFORMAT_NONE, 1}; }
 
     // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour
-    // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass.
+    // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass. They
+    // record on the command list of active() (its commands()), or, while no Gpu is alive, on the sokol
+    // context itself (gpu::begin_context_pass: Renderer::present_clear).
     // begin_pass records the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline
     // it hands out was made for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong).
     // Outside a pass (warm-up, a getter called before the pass begins) nothing is checked.
@@ -1849,13 +1891,13 @@ public:
     static void end_compute_pass();
     // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others
     // (destroy_shader drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
-    sg_pipeline compute_pipeline(sg_shader shader);
+    gpu::bridged::Pipeline compute_pipeline(gpu::bridged::Shader shader);
     static const TargetFormat& pass_format() {
         return passFormat_;
     }  // of the pass begun last; meaningful while in_pass()
 
-    sg_buffer quad_index_buffer() const { return quadIndices_; }
-    sg_buffer fullscreen_triangle() const { return fsTriangle_; }
+    gpu::bridged::Buffer quad_index_buffer() const { return quadIndices_; }
+    gpu::bridged::Buffer fullscreen_triangle() const { return fsTriangle_; }
     // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
     // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
     // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
@@ -1869,13 +1911,13 @@ public:
     // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
     void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
-    sg_buffer acquire_transient(std::size_t bytes);
+    gpu::bridged::Buffer acquire_transient(std::size_t bytes);
     // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
     // that holds `texels` (width * rows * 4 floats), written now and valid until the pool restarts like the buffers' (after a
     // commit). Call it once per view and frame, outside a pass, and bind the view this frame.
     struct LightImage {
-        sg_image image{};
-        sg_view view{};
+        gpu::bridged::Image image{};
+        gpu::bridged::View view{};
     };
     LightImage write_light_image(int rows, const float* texels);
     // The image of the previous joint palettes of the motion vectors (M76-P1c, kPrevPaletteWidth wide, the same format and the same rules as
@@ -1892,7 +1934,7 @@ public:
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
         const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16 || paletteImagesUsed_ >= 16;
-        if (!committed_ && full) sg_commit();
+        if (!committed_ && full) commit_frame();
         if (committed_ || full) {
             // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
             lightImagesPeak_ = std::max(lightImagesPeak_, lightImagesUsed_);
@@ -1920,24 +1962,42 @@ public:
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
+    gpu::Shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
         blitKeepShader_{};
-    sg_shader meshSkinShader_{}, shadowSkinShader_{};
-    sg_shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
+    gpu::Shader meshSkinShader_{}, shadowSkinShader_{};
+    gpu::Shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
         prepassSkinLodShader_{};  // made on the first fade
-    sg_shader bloom_shaders_[int(BloomStage::Count)]{};
-    sg_shader colorfilter_shader_{};
-    sg_shader post_shader_{};
-    sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
-    sg_shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
-    sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
-    sg_shader sssShader_{}, sssSkinShader_{};
-    sg_shader light_shader_{};
+    gpu::Shader bloom_shaders_[int(BloomStage::Count)]{};
+    gpu::Shader colorfilter_shader_{};
+    gpu::Shader post_shader_{};
+    gpu::Shader exposure_shaders_[int(ExposureStage::Count)]{};
+    gpu::Shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
+    gpu::Shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
+    gpu::Shader sssShader_{}, sssSkinShader_{};
+    gpu::Shader light_shader_{};
 
 private:
+    // A generated program (shaders/*.glsl.h) made on the device through the cache layer (shader_cache.h).
+    gpu::Shader make_builtin(gpu::GeneratedShader desc, const char* label);
+    // Destroys `s` when it was made and clears it.
+    void drop_shader(gpu::Shader& s);
+    bool shader_valid(gpu::Shader s) const;
+    // The capabilities of `f` on this GPU.
+    gpu::PixelFormatCaps caps(gpu::PixelFormat f) const;
+    gpu::PixelFormat display_pixel_format() const {
+        return sceneFormat_ == gpu::PixelFormat::Srgb8A8 || sceneFormat_ == gpu::PixelFormat::Rg11B10F
+                   ? gpu::PixelFormat::Rgba8
+                   : sceneFormat_;
+    }
+
+    std::unique_ptr<gpu::Device> device_;
+    gpu::CommandList* list_ = nullptr;  // the frame's (device_->begin_commands), until commit_frame
+    // The Gpus between init() and shutdown(), in init order (the editor has several, each with its renderer). The
+    // static begin_pass / end_pass and active_device() use the last one; they all share the one sokol context.
+    static inline std::vector<Gpu*> live_;
     // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
     // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
-    sg_pipeline find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& desc);
+    gpu::bridged::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
     void sweep_pipelines();
 
     static inline bool inPass_ = false;
@@ -1956,29 +2016,29 @@ private:
     int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
-    sg_shader quadVelShader_{}, quadReactShader_{};
+    gpu::Shader quadVelShader_{}, quadReactShader_{};
     int quadMotionState_ = 0;  // same meaning as bloomState_ (the quad motion programs)
-    sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
-    sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
+    gpu::PixelFormat lightFormat_ = gpu::PixelFormat::None;
+    gpu::PixelFormat sceneFormat_ = gpu::PixelFormat::Rgba8;  // see scene_format()
     struct SceneChain {
-        sg_pixel_format formats[4]{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8,
-                                   SG_PIXELFORMAT_RGBA8};
+        gpu::PixelFormat formats[4]{gpu::PixelFormat::Rgba8, gpu::PixelFormat::Rgba8, gpu::PixelFormat::Rgba8,
+                                    gpu::PixelFormat::Rgba8};
         int count = 0;
         int at = 0;
     };
     SceneChain sceneChain_[2];  // [0] gamma, [1] linear
     bool linear_ = false, srgbTextures_ = false;
     void refresh_scene_format();
-    sg_sampler samplers_[int(SamplerKind::Count)]{};
-    sg_buffer quadIndices_{}, fsTriangle_{};
+    gpu::Sampler samplers_[int(SamplerKind::Count)]{};
+    gpu::Buffer quadIndices_{}, fsTriangle_{};
     struct PipelineEntry {
-        sg_pipeline pipeline{};
+        gpu::Pipeline pipeline{};
         std::uint64_t lastUsed = 0;  // pipelineTick_ of the last ask
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
     bool layoutProbe_ = false;
-    sg_vertex_layout_state probedLayout_{};
+    gpu::VertexLayout probedLayout_{};
     std::unordered_set<std::uint32_t>
         failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
@@ -1987,14 +2047,14 @@ private:
     std::size_t pipelineCap_ = kPipelineCacheCap;
     std::uint64_t pipelineIdleFrames_ = kPipelineIdleFrames;
     struct Transient {
-        sg_buffer buf{};
+        gpu::Buffer buf{};
         std::size_t capacity = 0;
     };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
     struct LightImg {
-        sg_image image{};
-        sg_view view{};
+        gpu::Image image{};
+        gpu::View view{};
         int rows = 0;
     };
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
@@ -2006,8 +2066,8 @@ private:
     std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim
     std::uint32_t lightImagesRestarts_ = 0;
     bool committed_ = true;
-    sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
-    std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
+    gpu::Buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
+    std::uint64_t pacedFrame_ = 0;         // frame_ + 1 of the frame it last made the command buffer for
     // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet).
     std::uint64_t pacerCopyFrame_ = 0;
     bool pacerFailed_ = false;  // the pacer buffers could not be made: said once, not tried again
@@ -2043,6 +2103,9 @@ struct TargetDesc {
     // output (metalfx.h). Single-sample targets only.
     bool storage = false;
 };
+// Its images and views are made on a gpu::Device and held as the sokol handles the passes still read (the same ids:
+// gpu::from_sg gives the device's handle). TRANSITIONAL (M77-P2..P4): they become gpu:: handles with the passes, in
+// one step, since a bridged handle in the passes' many `t ? t->texView : sg_view{}` would be ambiguous.
 struct Target {
     sg_image color{}, resolve{}, depth{};
     sg_view colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
@@ -2056,12 +2119,20 @@ struct Target {
 
     // The image that holds the finished picture: the resolve image of an MSAA target, else the colour image.
     sg_image texture_image() const { return resolve.id ? resolve : color; }
-    // True when it was made (a colour image exists) and the GPU accepted every image and view that was made.
+    // True when it was made (a colour image exists) and `device` accepted every image and view that was made.
+    bool valid(const gpu::Device& device) const;
+    // The same on Gpu::active_device() (false, with no device asked, when there is no colour image).
     bool valid() const;
 };
-// Makes the target (nothing is checked: a GPU that cannot make an image leaves it FAILED, see Target::valid()).
+// Makes the target on `device` (nothing is checked: a GPU that cannot make an image leaves it FAILED, see
+// Target::valid()). target.cpp.
+Target make_target(gpu::Device& device, const TargetDesc& desc);
+// The same on Gpu::active_device() (TRANSITIONAL, M77-P2..P4: for the passes not converted yet).
 Target make_target(const TargetDesc& desc);
-// Destroys the views, then the images, and resets `t` to empty. Safe on an empty or half-made target.
+// Destroys the views, then the images, on `device` (the one that made them), and resets `t` to empty. Safe on an
+// empty or half-made target.
+void destroy_target(gpu::Device& device, Target& t);
+// The same on Gpu::active_device(); an empty target needs no device (destroying twice is harmless).
 void destroy_target(Target& t);
 // A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's
 // format. The caller sets what the pass does with the old contents: PassDesc's load and store actions default to

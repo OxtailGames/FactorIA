@@ -1,7 +1,7 @@
 // What the renderer can do on the backend and GPU it runs on (Renderer::supports, the `render.supports` command): one table of named
 // features, each with the backends it can ever run on, what it needs from the GPU, and whether the engine implements it yet. The table
-// and the decision are pure (a FeatureEnv in, an answer out) so a test can ask "what would D3D11 say"; only feature_env_from_sokol()
-// touches the GPU.
+// and the decision are pure (a FeatureEnv in, an answer out) so a test can ask "what would D3D11 say"; only feature_env_from_device()
+// (and its sokol twin feature_env_from_sokol(), render_features_sg.cpp) asks the GPU.
 //
 // Names: the capabilities of the GPU the M71 pipeline relies on (floatTargets, r11g11b10, sampledDepth, computeShaders), the engine
 // features built on them (linearColor, hdrOutput) and one entry per post effect (the names of kPostEffectOrder, fa/scene/postprocess.h).
@@ -11,12 +11,14 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
 #include "fa/platform/hdr_output.h"
+#include "gpu/device.h"
 
 namespace fa::render {
 
@@ -27,7 +29,7 @@ inline constexpr int kFeatureBackendCount = 6;
 // "GL", "GLES3", "WebGL2", "D3D11", "Metal", "Headless": the column names of the documentation table.
 const char* feature_backend_label(FeatureBackend b);
 
-// What the GPU reported (sg_query_pixelformat / sg_query_features), plus the backend.
+// What the GPU reported (gpu::Device::pixel_format_caps / features / limits), plus the backend.
 struct FeatureEnv {
     FeatureBackend backend = FeatureBackend::Headless;
     bool halfTargets = false;   // RGBA16F renders, blends and filters
@@ -46,7 +48,7 @@ struct FeatureEnv {
     int maxArrayLayers = 0;
     int maxArrayTextureSize = 0;
     // metalfx: Apple's upscalers can run here (the Metal backend, an OS and a GPU that have them), and why not (metalfx::support()). Asked by
-    // feature_env_from_sokol on Metal only; a FeatureEnv made by hand says no.
+    // feature_env_from_device (and feature_env_from_sokol) on Metal only; a FeatureEnv made by hand says no.
     bool metalfx = false;
     std::string metalfxWhy;
 };
@@ -91,7 +93,19 @@ int find_feature(std::string_view name);
 // backend or the missing GPU capability, or "planned (<milestone>)" for a feature the engine does not draw.
 bool feature_supported(const FeatureEnv& env, int index, std::string* why = nullptr);
 
-// The environment of the running backend (needs sg_setup done). Reads the GPU's pixel formats and features.
+// The row of a device backend: D3D12 and Vulkan answer Headless until they get their own rows (M77.2, M77.3).
+FeatureBackend feature_backend_of(gpu::Backend backend);
+
+// The environment of a backend from what its GPU reports: `caps` answers per pixel format; `askMetalFx` asks the
+// MetalFX framework on Metal (only with a live context). The hdr fields stay unasked (set_hdr_env).
+FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& limits, bool compute,
+                                    const std::function<gpu::PixelFormatCaps(gpu::PixelFormat)>& caps, bool askMetalFx);
+
+// The environment of `device`: its backend, pixel formats, features and limits.
+FeatureEnv feature_env_from_device(const gpu::Device& device);
+
+// The same for the open sokol context, for the code that has no Device yet (TRANSITIONAL, M77-P2..P5: the passes,
+// compute and custom shaders still call it). Needs sg_setup done; render_features_sg.cpp.
 FeatureEnv feature_env_from_sokol();
 
 // The answer of render.supports for every feature under `env`:

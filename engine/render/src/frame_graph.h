@@ -44,6 +44,10 @@
 #include "fa/core/types.h"
 #include "target_pool.h"
 
+namespace fa::gpu {
+class CommandList;
+}  // namespace fa::gpu
+
 namespace fa::render {
 
 struct ResourceId {
@@ -115,8 +119,9 @@ public:
 
     // Runs the live passes in order. Transients come from `pool` (acquired at their first pass, released after
     // their last one; whatever the way out, a failure or a pass that throws, none stays acquired). Fails when
-    // compile() has not succeeded.
-    Result<void> execute(TargetPool& pool);
+    // compile() has not succeeded. `commands` is the command list the passes record on (PassContext::commands(): the
+    // renderer's frame list, Gpu::commands()); null in the CPU-only tests.
+    Result<void> execute(TargetPool& pool, gpu::CommandList* commands = nullptr);
 
     // The functions execute() calls around each pass callback; kept by clear() and release_callbacks().
     void set_pass_hooks(PassHooks hooks) { hooks_ = std::move(hooks); }
@@ -178,8 +183,9 @@ private:
     bool released_ = false;  // release_callbacks() ran: the passes cannot execute
     std::vector<PassStats> stats_;
     PassHooks hooks_;
-    int hookFailures_ = 0;                 // `end` hooks that threw in the last execute()
-    std::vector<std::uint64_t> physical_;  // per resource, valid while execute() runs
+    int hookFailures_ = 0;                  // `end` hooks that threw in the last execute()
+    std::vector<std::uint64_t> physical_;   // per resource, valid while execute() runs
+    gpu::CommandList* commands_ = nullptr;  // execute()'s `commands`, while it runs
 };
 
 // What a pass's callback sees: the physical target of each resource it declared.
@@ -202,6 +208,10 @@ public:
     // The size and formats the resource was declared with.
     const TransientDesc& desc(ResourceId r) const { return graph_.resources_[r.index].desc; }
     const std::string& pass_name() const { return pass_.name; }
+    // The command list the pass records on (FrameGraph::execute's `commands`): null when the graph runs without one
+    // (the CPU-only tests). Ask for it in the callback each frame: it is valid only while the pass runs (a list is
+    // invalid after its submit, gpu/device.h, LIFETIME).
+    gpu::CommandList* commands() const { return graph_.commands_; }
 
 private:
     const FrameGraph& graph_;
