@@ -14,9 +14,10 @@
 #endif
 #include <TargetConditionals.h>
 
+#include <atomic>
 #include <format>
-
-#include "fa/core/log.h"
+#include <memory>
+#include <mutex>
 
 namespace fa::render::metalfx {
 
@@ -138,7 +139,16 @@ Support support_of(id<MTLDevice> device) {
 
 }  // namespace
 
+// What the completion handler of a command buffer (Metal's thread) tells the renderer's thread. Shared with every block in flight, so the
+// scaler can be gone when a buffer finishes.
+struct CommandStatus {
+    std::atomic<bool> failed{false};
+    std::mutex mutex;  // guards `why` and the one store of `failed`
+    std::string why;
+};
+
 struct Scaler::Impl {
+    std::shared_ptr<CommandStatus> status = std::make_shared<CommandStatus>();
     Desc desc;
     bool valid = false;
     int generation = 0;
@@ -168,6 +178,7 @@ Scaler::Scaler() : impl_(std::make_unique<Impl>()) {}
 Scaler::~Scaler() { release(); }
 
 void Scaler::release() {
+    impl_->status = std::make_shared<CommandStatus>();  // a buffer still in flight reports to the old one
     impl_->spatial = nil;
     impl_->temporal = nil;
     impl_->valid = false;
@@ -179,6 +190,16 @@ bool Scaler::valid() const { return impl_->valid; }
 const Desc& Scaler::desc() const { return impl_->desc; }
 int Scaler::generation() const { return impl_->generation; }
 int Scaler::encoded() const { return impl_->encoded; }
+
+bool Scaler::command_failed(std::string* why) const {
+    CommandStatus& st = *impl_->status;
+    if (!st.failed.load(std::memory_order_acquire)) return false;
+    if (why) {
+        std::lock_guard<std::mutex> lock(st.mutex);
+        *why = st.why;
+    }
+    return true;
+}
 
 bool Scaler::configure(const Desc& desc, std::string* error) {
     if (impl_->valid && impl_->desc == desc) return true;
@@ -345,6 +366,16 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
         // them, and the sokol buffer of the passes after this call goes behind it. sokol hands out neither its command buffer
         // nor a way to commit it other than sg_commit().
         sg_commit();
+        // MetalFX does not wait for the passes that drew its inputs: queued right behind them it read the picture, the depth and the
+        // motion while the GPU was still writing them, and the output changed from run to run (the same frames hashed differently each
+        // time; with this wait, or a wait for each frame, they hash alike). An empty buffer behind them completes when they have, so the
+        // CPU waits here for the picture's passes (not for the scaler, nor for the passes drawn after it).
+        @autoreleasepool {
+            id<MTLCommandBuffer> fence = [(__bridge id<MTLCommandQueue>)sg_mtl_command_queue() commandBuffer];
+            fence.label = @"metalfx-inputs";
+            [fence commit];
+            [fence waitUntilCompleted];
+        }
         @autoreleasepool {
             id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
             id<MTLCommandBuffer> cmd = [queue commandBuffer];
@@ -385,13 +416,17 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 t.motionTexture = nil;
                 t.outputTexture = nil;
             }
+            std::shared_ptr<CommandStatus> status = im.status;
             [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) {
-                // Another thread (Metal's completion queue). fa::log is safe to call from any thread (a mutex around its ring and its
-                // stderr line; its sinks must be thread-safe, log.h), and this block captures nothing of the scaler, which may be gone by
-                // now. A scaler that fails leaves its output as it was: the picture shows it, the log says why.
-                if (done.status == MTLCommandBufferStatusError)
-                    FA_WARN("render", "MetalFX command buffer failed: {}",
-                            done.error ? std::string([[done.error localizedDescription] UTF8String]) : std::string("unknown error"));
+                // Another thread (Metal's completion queue). The block captures the shared status, not the scaler, which may be gone by
+                // now. The first error is kept and flagged; Scaler::command_failed hands it to the renderer, which gives MetalFX up with
+                // its one warning (every later buffer of a failed scaler would fail the same way, so the later ones say nothing). A scaler
+                // that fails leaves its output as it was.
+                if (done.status != MTLCommandBufferStatusError) return;
+                std::lock_guard<std::mutex> lock(status->mutex);
+                if (status->failed.load(std::memory_order_relaxed)) return;
+                status->why = done.error ? std::string([[done.error localizedDescription] UTF8String]) : std::string("unknown error");
+                status->failed.store(true, std::memory_order_release);  // after `why`: command_failed reads it when it sees the flag
             }];
             [cmd commit];
         }

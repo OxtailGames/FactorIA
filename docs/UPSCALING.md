@@ -141,9 +141,13 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
   The motion image is in UV units as MetalFX reads it: from the pixel to where it was (previous minus current position), scaled by the
   render size. `metalfx_tests` checks that convention with a moving pattern: that sign is clearly better than the opposite one or none.
-  **Open:** in the renderer's own scenes `metalfx_renderer_tests` could not make the output depend on the sign of the motion image (a
-  square that moves leaves the same few pixels of ghost with either sign, or none), although the image has the right values and the
-  history does not reset; the tests there check what holds (no trail, the history resets and converges, the fallbacks) and not the sign.
+  The sign is proven in both places it matters: `metalfx_tests` (the wrapper, with a pattern that moves in x and one that moves in y: the
+  motion image's y runs down like the picture's) and `metalfx_renderer_tests` (a high-frequency stripe texture that moves under a camera that
+  pans and pitches: the motion the renderer hands over gives about half the error of the opposite sign or of none, and beats one frame
+  stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. MetalFX itself does not
+  wait for the passes that drew its inputs, so the renderer waits for them (one CPU wait per MetalFX frame, right after the picture's
+  passes are submitted); without it the output changed from run to run. A MetalFX command buffer that finishes with an error is reported once
+  and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
 - **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,
   through it. At `native` quality the stage is off and MetalFX has nothing to do, like the other modes.

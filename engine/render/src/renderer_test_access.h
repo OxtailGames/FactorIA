@@ -102,6 +102,16 @@ struct RendererTestAccess {
     static bool mfx_reset(Renderer& r);
     static void mfx_force_create_failure(Renderer& r, bool fail);
     static void mfx_signs(Renderer& r, float jitterSign, float motionSign);
+    // M76-P5c: mfx_force_support: what the renderer believes the GPU's MetalFX can do (spatial, temporal), whatever it really can, so the
+    // fallback runs on a Metal GPU that has no MetalFX; mfx_prep_only: a MetalFX frame draws its preparation pass and then the temporal
+    // upscaler, without asking MetalFX anything; mfx_images: how many of the preparation images (depth, motion) are alive; mfx_last_wrote:
+    // the last frame's MetalFX temporal scaler drew; mfx_read_prep: the preparation pass at pixel (x, y) of the render picture, read back
+    // as out = {depth, motion x, motion y} (false + error when the images are not there).
+    static void mfx_force_support(Renderer& r, bool spatial, bool temporal);
+    static void mfx_prep_only(Renderer& r, bool only);
+    static int mfx_images(Renderer& r);
+    static bool mfx_last_wrote(Renderer& r);
+    static bool mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);

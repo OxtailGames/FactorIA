@@ -114,6 +114,10 @@ public:
     int generation() const;
     // The frames encoded since configure (the first one resets the temporal history).
     int encoded() const;
+    // True once a command buffer of this scaler finished with an error (MetalFX or the GPU refused it; the completion handler runs on
+    // another thread, so the answer comes a frame or two after the encode), with the error text in `why`. The scaler keeps drawing nothing
+    // useful then: the caller gives MetalFX up. A new scaler (configure with another desc, release) starts clear.
+    bool command_failed(std::string* why) const;
     void release();
 
 private:
