@@ -1,7 +1,7 @@
 // The graphics tab of the options (scripts/ui/options.js, scripts/settings.js): the quality button and the effect switches change
 // the PostProcess fields of the scene and are saved in storage. The scene's PostProcess is added here, so the test passes in any game.
 import { test, expect, game } from "factoria:test";
-import { world, storage, scene, i18n } from "factoria";
+import { world, storage, scene, i18n, window, game as engine } from "factoria";
 import * as settings from "../scripts/settings.js";
 
 /** Opens the options of the menu scene on the Graphics tab with a gamepad; focus is on the tab. */
@@ -188,4 +188,301 @@ test("graphics settings: a scene's own High shows as Medium where High is not of
   world.spawn({ id: "gi_light", components: { GlobalIllumination2D: { enabled: true, quality: "high" } } });
   for (const p of ["ios", "android", "web"]) expect(settings.lightingShown(settings.load(), p)).toBe("medium");
   for (const p of ["windows", "macos", "linux"]) expect(settings.lightingShown(settings.load(), p)).toBe("high");
+});
+
+// ---------------------------------------------------------------------------------------------- the second page: preset and upscaling
+
+/** The graphics tab with a renderer that draws every upscaler mode (settings.overrideRenderSupports), on its second page. Call restore() at the end. */
+function openQuality(supports = () => true) {
+  settings.overrideRenderSupports(supports);
+  const pad = openGraphics();
+  game.click("gfx_page");
+  return pad;
+}
+const restore = () => {
+  settings.overrideRenderSupports(null);
+  window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
+  window.renderScale = 1;
+  window.dynamicResolution = { enabled: false, targetMs: 0, minScale: 0.5, maxScale: 1 };
+  engine.graphics.preset("custom");
+};
+const saved = () => storage.get("settings").graphics;
+const button = (id) => world.find(id).get("Button");
+
+test("graphics page: the second page opens from the first and goes back, and the tab always opens on the first", () => {
+  openQuality();
+  try {
+    expect(world.find("graphics_section").active).toBe(false);
+    expect(world.find("quality_section").active).toBe(true);
+    game.click("gfx_page_back");
+    expect(world.find("graphics_section").active).toBe(true);
+    expect(world.find("quality_section").active).toBe(false);
+    game.click("gfx_page");
+    game.click("tab_video");
+    game.click("tab_graphics");
+    expect(world.find("graphics_section").active).toBe(true);
+    expect(world.find("quality_section").active).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: a preset applies, is saved, and drives the effects quality and the upscaler", () => {
+  storage.set("settings", { graphics: { effects: { bloom: false } } });
+  openQuality();
+  try {
+    game.click("gfx_preset_low");
+    expect(engine.graphics.preset().preset).toBe("low");
+    expect(saved().preset).toBe("low");
+    expect(saved().quality).toBe("low"); // the preset drives the effects quality row
+    expect(saved().effects).toEqual({}); // and clears the switches the player touched
+    expect(fx().ssaoEnabled).toBe(false);
+    expect(window.upscaler.mode).toBe("auto"); // the preset's own upscaler
+    expect(window.upscaler.quality).toBe("performance");
+    game.click("gfx_preset_ultra"); // the game's own look: no upscaler, the best effects quality
+    expect(engine.graphics.preset().preset).toBe("ultra");
+    expect(saved().quality).toBe("high");
+    expect(fx().ssaoEnabled).toBe(true);
+    expect(window.upscaler.mode).toBe("stretch");
+    game.click("gfx_preset_medium");
+    game.click("gfx_preset_custom");
+    expect(engine.graphics.preset().preset).toBe("custom");
+    expect(saved().preset).toBe("custom");
+    expect(saved().quality).toBe("medium"); // custom leaves the effects quality alone
+    expect(window.upscaler.mode).toBe("stretch"); // the game's own upscaler is back
+    expect(button("gfx_preset_custom").color).toEqual(button("tab_graphics").color); // the chosen one is highlighted
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: Auto detects once, keeps its pick, and shows it next to the button", () => {
+  storage.set("settings", { volume: { music: 0.3 } });
+  openQuality();
+  try {
+    expect(saved()?.detected ?? null).toBe(null);
+    game.click("gfx_preset_auto");
+    const pick = saved().detected;
+    expect(["low", "medium", "high", "ultra"]).toContain(pick);
+    expect(saved().preset).toBe("auto");
+    expect(engine.graphics.preset().preset).toBe(pick);
+    expect(button("gfx_preset_auto").text).toContain(i18n.t(`options.gfx.p.${pick}`));
+    game.click("gfx_preset_custom");
+    game.click("gfx_preset_auto"); // the second time reads the pick
+    expect(saved().detected).toBe(pick);
+    // The pick is the one used from now on: a saved pick that is not what this GPU detects shows that no detection ran.
+    const other = pick === "low" ? "medium" : "low";
+    storage.set("settings", { graphics: { preset: "auto", detected: other } });
+    engine.graphics.preset("custom");
+    settings.apply();
+    expect(engine.graphics.preset().preset).toBe(other);
+    expect(settings.detectPreset(settings.load())).toBe(other);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the upscaling modes this GPU cannot draw are greyed out with the reason", () => {
+  openQuality((feature) => feature === "spatialUpscaler");
+  try {
+    expect(button("gfx_mode_auto").interactable).toBe(true);
+    expect(button("gfx_mode_stretch").interactable).toBe(true);
+    expect(button("gfx_mode_spatial").interactable).toBe(true);
+    expect(button("gfx_mode_temporal").interactable).toBe(false);
+    expect(button("gfx_mode_metalfx").interactable).toBe(false);
+    const note = world.find("quality_note");
+    expect(note.active).toBe(true);
+    expect(note.get("Text").text).toContain(i18n.t("options.gfx.um.temporal"));
+    expect(note.get("Text").text).toContain(i18n.t("options.gfx.unsup.metalfx"));
+    expect(note.get("Text").text).not.toContain(i18n.t("options.gfx.unsup.spatial"));
+    game.click("gfx_mode_temporal"); // greyed out: nothing happens
+    expect(window.upscaler.mode).not.toBe("temporal");
+    expect(saved().upscaler ?? {}).toEqual({});
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the mode, quality, render scale and sharpness apply at once and are saved", () => {
+  openQuality();
+  try {
+    game.click("gfx_mode_spatial");
+    expect(window.upscaler.mode).toBe("spatial");
+    expect(saved().upscaler.mode).toBe("spatial");
+    game.click("gfx_uq"); // native -> quality
+    game.click("gfx_uq"); // -> balanced
+    expect(window.upscaler.quality).toBe("balanced");
+    expect(saved().upscaler.quality).toBe("balanced");
+    expect(world.find("gfx_sharpness").active).toBe(true); // spatial sharpens
+    game.setSlider("gfx_sharpness", 0.8);
+    game.step(1); // the change reaches the page at the next step
+    expect(window.upscaler.sharpness).toBeCloseTo(0.8, 2);
+    expect(saved().upscaler.sharpness).toBeCloseTo(0.8, 2);
+    game.setSlider("gfx_render_scale", 0.5);
+    game.step(1);
+    expect(window.renderScale).toBeCloseTo(0.5, 2);
+    expect(saved().renderScale).toBeCloseTo(0.5, 2);
+    expect(world.find("gfx_render_scale").get("Slider").label).toContain("50");
+    game.setSlider("gfx_render_scale", 0); // the slider is clamped to the range window.renderScale accepts
+    game.step(1);
+    expect(window.renderScale).toBeCloseTo(0.33, 2);
+    game.click("gfx_mode_stretch"); // the plain stretch has no sharpen stage
+    expect(world.find("gfx_sharpness").active).toBe(false);
+    expect(saved().upscaler.mode).toBe("stretch");
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: a manual upscaler choice wins over the preset's, and picking a preset again clears it", () => {
+  openQuality();
+  try {
+    game.click("gfx_preset_high");
+    expect(window.upscaler.quality).toBe("quality");
+    for (let i = 0; i < 3; i++) game.click("gfx_uq"); // quality -> balanced -> performance -> ultraPerformance
+    expect(window.upscaler.quality).toBe("ultraPerformance");
+    expect(engine.graphics.preset().preset).toBe("high"); // the preset row does not move
+    game.click("gfx_preset_high");
+    expect(saved().upscaler).toEqual({});
+    expect(window.upscaler.quality).toBe("quality");
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the dynamic resolution row cycles off, 30 fps, 60 fps and the display's refresh, applies at once and is saved", () => {
+  openQuality();
+  try {
+    expect(world.find("gfx_dynamic_slot").active).toBe(true);
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.off"));
+    expect(saved().dynamicResolution).toBe(null); // nothing chosen yet
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 30, 2);
+    expect(saved().dynamicResolution).toBe("30");
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.30"));
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 60, 2);
+    expect(saved().dynamicResolution).toBe("60");
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBe(0); // follows the display
+    expect(saved().dynamicResolution).toBe("display");
+    expect(window.dynamicResolution.minScale).toBe(0.5); // the game's own range is kept
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(saved().dynamicResolution).toBe("off");
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.off"));
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: a game that turned dynamic resolution on itself shows it, and a row is hidden where the renderer cannot do it", () => {
+  storage.set("settings", {}); // the player chose nothing
+  window.dynamicResolution = { enabled: true, targetMs: 25 };
+  openQuality();
+  try {
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.custom"));
+    game.click("gfx_dynamic"); // custom -> the first choice, off
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(saved().dynamicResolution).toBe("off");
+  } finally {
+    restore();
+  }
+  openQuality((feature) => feature !== "dynamicResolution");
+  try {
+    expect(world.find("gfx_dynamic_slot").active).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics settings: the saved dynamic resolution applies at the start, and an old save changes nothing", () => {
+  try {
+    storage.set("settings", { graphics: { quality: "low" } }); // a save of an older kit
+    expect(settings.load().graphics.dynamicResolution).toBe(null);
+    window.dynamicResolution = { enabled: true, targetMs: 25 }; // what the game set
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBe(25); // untouched
+    storage.set("settings", { graphics: { dynamicResolution: "60" } });
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 60, 2);
+    storage.set("settings", { graphics: { dynamicResolution: "off" } });
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(false);
+    storage.set("settings", { graphics: { dynamicResolution: "bogus" } }); // a save this kit does not know: ignored
+    window.dynamicResolution = { enabled: true, targetMs: 25 };
+    settings.apply();
+    expect(window.dynamicResolution.targetMs).toBe(25);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: manual -> preset -> custom saves the upscaler the engine puts back, and the next start draws it", () => {
+  openQuality();
+  try {
+    game.click("gfx_mode_spatial");
+    expect(saved().upscaler.mode).toBe("spatial");
+    game.click("gfx_preset_low");
+    expect(saved().upscaler).toEqual({});
+    game.click("gfx_preset_custom");
+    expect(window.upscaler.mode).toBe("spatial"); // the engine restored the game's own setting
+    expect(saved().upscaler.mode).toBe("spatial"); // ...and the save says the same
+    // The next start: the engine begins from the project's upscaler and the kit applies the save.
+    window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
+    engine.graphics.preset("custom");
+    settings.apply();
+    expect(window.upscaler.mode).toBe("spatial");
+    expect(engine.graphics.preset().preset).toBe("custom");
+  } finally {
+    restore();
+  }
+});
+
+test("graphics settings: the saved preset, upscaler and render scale apply at the start, and an old save changes nothing", () => {
+  storage.set("settings", { graphics: { preset: "medium", upscaler: { mode: "spatial", sharpness: 0.3 }, renderScale: 0.75 } });
+  try {
+    expect(settings.load().graphics.detected).toBe(null);
+    settings.apply();
+    expect(engine.graphics.preset().preset).toBe("medium");
+    expect(window.upscaler.mode).toBe("spatial"); // the player's own key wins over the preset's "auto"
+    expect(window.upscaler.quality).toBe("balanced"); // the preset's
+    expect(window.upscaler.sharpness).toBeCloseTo(0.3, 2);
+    expect(window.renderScale).toBeCloseTo(0.75, 2);
+    // A save of an older kit has none of the keys: nothing is touched.
+    window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
+    window.renderScale = 1;
+    engine.graphics.preset("custom");
+    storage.set("settings", { volume: { music: 0.3 }, graphics: { quality: "low", effects: {} } });
+    const g = settings.load().graphics;
+    expect([g.preset, g.detected, g.renderScale]).toEqual([null, null, null]);
+    expect(g.upscaler).toEqual({});
+    settings.apply();
+    expect(engine.graphics.preset().preset).toBe("custom");
+    expect(window.upscaler.mode).toBe("stretch");
+    expect(window.renderScale).toBe(1);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the texts are in the game's language", () => {
+  if (!i18n.languages.includes("es")) return; // a game with one language: nothing to check
+  openQuality();
+  try {
+    i18n.setLanguage("es");
+    game.step(2);
+    expect(world.find("gfx_preset_label").get("Text").text).toContain("Preset");
+    expect(button("gfx_preset_low").text).toBe("Bajo");
+    expect(button("gfx_page_back").text).toBe("Efectos de pantalla");
+    expect(button("gfx_uq").text).toContain("Calidad del escalado");
+  } finally {
+    i18n.setLanguage("en");
+    restore();
+  }
 });

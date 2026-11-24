@@ -38,6 +38,7 @@
 #include "fa/ai/skills.h"
 #include "fa/ai/session.h"
 #include "fa/core/asset_manifest.h"
+#include "fa/tooling/graphics_settings.h"
 #include "level_gen_model.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -747,6 +748,17 @@ public:
                              std::string* error = nullptr);
     bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
     bool showSceneSettings_ = false;
+
+    // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset and
+    // render.upscaler {mode, quality, sharpness} in factoria.json, a working copy with Save and Revert, checked by the
+    // engine's own parsers (fa/tooling/graphics_settings.h). The autotest drives the same functions and widgets.
+    void draw_graphics_settings_panel();
+    void graphics_settings_reload();                            // reads factoria.json again (opening, Revert)
+    bool graphics_settings_save(std::string* error = nullptr);  // Save: false and a message when refused
+    bool showGraphics_ = false;
+    GraphicsSettings graphicsWork_, graphicsSaved_;
+    std::string graphicsDir_;  // the project the working copy was read for
+    std::string graphicsLoadError_, graphicsMessage_;
 
     // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
     // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a
@@ -1972,6 +1984,7 @@ public:
     void at_section_O3(AtScript& at);  // autotest_model_particles.cpp
     void at_section_G3(AtScript& at);  // autotest_graph.cpp
     void at_section_Q3(AtScript& at);  // autotest_scene_settings.cpp
+    void at_section_Q4(AtScript& at);  // autotest_graphics_settings.cpp
     void at_section_L4(AtScript& at);  // autotest_lightmap.cpp
     void at_section_T3(AtScript& at);  // autotest_terrain.cpp
     void at_section_F3(AtScript& at);  // autotest_foliage.cpp

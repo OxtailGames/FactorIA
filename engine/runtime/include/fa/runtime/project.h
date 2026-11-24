@@ -36,6 +36,9 @@
 #include "fa/core/types.h"
 #include "fa/scene/ui_tooltip.h"
 #include "fa/render/renderer.h"
+#include "fa/render/graphics_preset.h"
+#include "fa/render/dynamic_resolution.h"
+#include "fa/render/upscaler.h"
 
 namespace fa {
 
@@ -122,6 +125,14 @@ struct ProjectSettings {
     // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
+    // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
+    // window.upscaler. The renderer draws "stretch", "spatial", "temporal" and "metalfx" (Apple, Metal only: where it is not available the next best draws and effectiveMode says which).
+    render::UpscalerSettings upscaler;
+    // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
+    // scale follows the frame time. Off (the default) draws at the fixed render scale.
+    render::DynamicResolutionSettings dynamicResolution;
+    // "render": {"graphicsPreset": "high"} (M76-P6a, docs/UPSCALING.md "Graphics presets"): the preset a run starts with. custom (default) = none.
+    render::GraphicsPreset graphicsPreset = render::GraphicsPreset::Custom;
     FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();
     Json inputSchemes = Json::

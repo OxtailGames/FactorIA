@@ -75,6 +75,8 @@ public:
         std::uint64_t serial = 0;  // Renderer::Impl::frameSerial
         Gpu* gpu = nullptr;        // for the sub-rectangle copies of a sculpt (null: the whole texture is made again)
         sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;  // Gpu::texture_format(RGBA8): SRGB8A8 in a linear scene
+        float lodQuality =
+            1.0f;  // the graphics preset's factor on Terrain.lodQuality (QualityLimits.terrainLodQuality)
     };
     // Appends the nodes of every Terrain the camera draws to `out` (one MeshItem per node, opaque) and keeps their TerrainDraw in
     // `draws`. Brings the GPU copy of each terrain's heights up to date first (the whole texture when its version changed). Returns the

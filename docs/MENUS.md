@@ -93,11 +93,32 @@ What the command does, file by file; do it by hand when you want to see each fil
    of the scene and of the scenes loaded later, saved as `settings.graphics.lighting2d`; until the player chooses it is `null`, the
    scene keeps its own values and the button shows them; the cycle starts from what the scene shows, so a `GlobalIllumination2D` with `enabled: false` and `quality: "medium"` shows Off and the next click is Low; on `game.platform` `ios`, `android` and `web` the engine's cascade budget turns High off (docs/rendering/RENDERING_2D_GI.md), so the button cycles Off, Low and Medium there and a saved High is applied as Medium; a game with its own scenes calls `settings.applyScene()` when each starts, as for `PostProcess`, and a scene's own High shows as Medium there; a 2D scene (one with a `Sprite`, or once the player has chosen) without a `GlobalIllumination2D` shows the choice and the tab's note says it has no effect there, while a 3D scene shows no lighting note; the lighting and HDR notes show together when both apply; `settings.lightingShown(s, platform)` is what the button shows for settings `s` on a platform, and `settings.overrideRenderSupports(fn)` is a test hook that answers `renderSupports(feature)` with `fn(feature)`, null restores the renderer), plus HDR output where `render.supports {"feature":"hdrOutput"}` says the display can show it (greyed out
    otherwise). It writes the `PostProcess` fields of the scene's cameras and volumes (exposure, tonemap, grading, the colour filter
-   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr, lighting2d}`) in the same `settings` storage entry, and
+   and fog are never touched), saves `settings.graphics` (`{quality, effects, hdr, lighting2d, preset, detected, upscaler, renderScale}`) in the same `settings` storage entry, and
    `settings.applyScene()` puts it on every scene that starts. Choosing a quality clears the switches the player touched; a
    switch wins over the quality. The menu scripts call `settings.applyOnce()` when their scene starts, so the choice reaches the
    `PostProcess` components the scene has at that moment: one a script adds or changes later is not touched until the player
    changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
+   **Second page: preset and upscaling.** The "Preset and upscaling" button of the tab (`gfx_page`) swaps its content for a second page
+   (`quality_section`, with a Back button, `gfx_page_back`; the tab always opens on the first page): a **Preset** row (`gfx_preset_*`:
+   Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (`gfx_mode_*`: Auto, Stretch, Spatial, Temporal, MetalFX), a button
+   that cycles the upscaling quality (`gfx_uq`: native, quality, balanced, performance, ultra performance), a render scale slider
+   (`gfx_render_scale`, 0.33 to 1, two decimals) and a sharpness slider (`gfx_sharpness`, active only while the mode that draws is not
+   plain stretch). The selected button of each row is highlighted. A mode this GPU does not draw (`render.supports`:
+   `spatialUpscaler`, `temporalUpscaler`, `metalfx`) is greyed out and the one note under the rows lists every such mode with its reason (not one note per button: "Spatial: needs a window with a GPU"), in the player's language. The sharpness slider shows hundredths.
+   **Auto** (the preset) runs `game.graphics.detect()` once, applies its pick, saves it as `detected` and shows it on the button;
+   it does not detect again until the save is cleared. **How it relates to the "quality" row:** the preset drives it. Choosing Low,
+   Medium, High or Ultra sets the screen-effects quality to low, medium, high and high and clears the effect switches the player
+   touched, then applies the preset (`game.graphics.preset`); Custom leaves the quality as it is. Choosing a quality on the first
+   page does not change the preset, so the two rows never fight: the preset is the engine's limits layer (shadows, reflections,
+   level-of-detail distances...), the quality is this kit's post-effects row. An upscaler or render scale choice made on the page
+   is the player's own setting and stays over the preset; choosing a preset again puts the preset's own back. Everything is
+   saved in `settings.graphics` (`{quality, effects, hdr, lighting2d, preset, detected, upscaler, renderScale, dynamicResolution}`; `upscaler` holds
+   only the keys the player chose, `renderScale` and `dynamicResolution` are `null` until chosen) and applied by `settings.applyOnce()` at start and on
+   every change; a save from before these keys loads and changes nothing. The **Dynamic resolution** row (`gfx_dynamic`, in
+   `gfx_dynamic_slot`, hidden where `render.supports` says it is not drawn) is one button that cycles Off, 30 fps, 60 fps and the
+   display's refresh and sets `window.dynamicResolution` (docs/UPSCALING.md, "Dynamic resolution"); the choice is saved as the
+   string `"off"`, `"30"`, `"60"` or `"display"`, and a save without it leaves the game's own setting untouched. The second page fits the options panel at 1280x720 (the layout tests
+   `menus_rtl` and `menus_text_scale` guard it in English, Spanish and Arabic).
    The Graphics tab is the tallest: in a game that also shows the analytics row (an `analytics` section in factoria.json),
    the bottom few pixels of the options panel fall off a 720-high screen (the Back button stays visible) and the log warns
    that the panel is larger than the screen; such a game lowers `spacing` of `graphics_section` or shortens its notes.

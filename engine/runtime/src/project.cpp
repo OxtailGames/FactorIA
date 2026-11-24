@@ -90,17 +90,36 @@ Json ProjectSettings::to_json() const {
     physics["fixedHz"] = fixedHz;
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
-    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f) {
+    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
-        render["interpolation"] = renderInterpolation;
+        if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
+            render["interpolation"] = renderInterpolation;
+        else
+            render.erase("interpolation");
         if (renderInterpolationSnapDistance > 0.0f)
             render["interpolationSnapDistance"] = renderInterpolationSnapDistance;
         else
             render.erase("interpolationSnapDistance");
+        if (upscaler != render::UpscalerSettings{})
+            render["upscaler"] = render::upscaler_to_json(upscaler);
+        else
+            render.erase("upscaler");
+        if (dynamicResolution != render::DynamicResolutionSettings{})
+            render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
+        else
+            render.erase("dynamicResolution");
+        if (graphicsPreset != render::GraphicsPreset::Custom)
+            render["graphicsPreset"] = std::string(render::graphics_preset_name(graphicsPreset));
+        else
+            render.erase("graphicsPreset");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
+        j["render"].erase("upscaler");
+        j["render"].erase("dynamicResolution");
+        j["render"].erase("graphicsPreset");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -643,6 +662,31 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
+        if (auto up = it->find("upscaler"); up != it->end() && !up->is_null()) {
+            Result<render::UpscalerSettings> upscalerSet =
+                render::parse_upscaler_settings(*up, at("/render/upscaler"), render::UpscalerSettings{});
+            if (!upscalerSet.ok()) return upscalerSet.error();
+            s.upscaler = upscalerSet.value();
+        }
+        if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
+            Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
+                *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
+            if (!dynamicSet.ok()) return dynamicSet.error();
+            s.dynamicResolution = dynamicSet.value();
+        }
+        if (auto gp = it->find("graphicsPreset"); gp != it->end() && !gp->is_null()) {
+            std::optional<render::GraphicsPreset> preset;
+            if (gp->is_string()) preset = render::parse_graphics_preset(gp->get<std::string>());
+            if (!preset) {
+                std::vector<std::string> names;
+                for (std::string_view n : render::kGraphicsPresetNames) names.emplace_back(n);
+                return make_error(at("/render/graphicsPreset") + ": unknown graphics preset " +
+                                      describe_json_value(*gp),
+                                  gp->is_string() ? did_you_mean(gp->get<std::string>(), names)
+                                                  : "Use \"low\", \"medium\", \"high\", \"ultra\" or \"custom\".");
+            }
+            s.graphicsPreset = *preset;
+        }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
         if (!it->is_object())
@@ -1013,6 +1057,72 @@ constexpr const char* kSchemaText =
           "minimum": 0,
           "default": 0,
           "description": "With interpolation: a fixed step that moves an entity farther than this many world units (pixels in 2D) is a jump and is drawn without blending. 0 (default) = no limit; use entity.teleport() for known jumps."
+)JSON"
+    R"JSON(        },
+        "upscaler": {
+          "type": "object",
+          "description": "How the picture drawn at a lower resolution reaches the screen (M76, docs/UPSCALING.md). A game-wide setting that scripts change at run time with window.upscaler and the command render.upscaler. M76 stores and reports it; every mode still draws as \"stretch\" until the renderer learns the others.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "default": "stretch",
+              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
+            },
+            "quality": {
+              "type": "string",
+              "enum": ["native", "quality", "balanced", "performance", "ultraPerformance"],
+              "default": "native",
+              "description": "How much smaller than the output the frame is drawn: native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultraPerformance 1/3 of the output's width and height. Default native."
+            },
+            "sharpness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.5,
+              "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            }
+          }
+        },
+        "dynamicResolution": {
+          "type": "object",
+          "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true turns the controller on. false (default) draws at the fixed render scale."
+            },
+            "targetMs": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 100,
+              "default": 0,
+              "description": "The frame time to hold, in ms: 33.3 for 30 fps, 16.7 for 60 fps. 0 or null (default) follows the refresh rate of the display the window is on (the OS's, else one estimated from the frame times, else 60 Hz: docs/UPSCALING.md, \"The display's refresh rate\"). 0, or 4 to 100."
+            },
+            "minScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 0.5,
+              "description": "The smallest share of the render size's width and height the controller uses, 0.25 to 1. Default 0.5 (a quarter of the pixels)."
+            },
+            "maxScale": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 1,
+              "default": 1,
+              "description": "The largest share, where it starts, minScale to 1. Default 1."
+            }
+          }
+        },
+        "graphicsPreset": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "ultra", "custom"],
+          "default": "custom",
+          "description": "The graphics preset a run starts with (M76, docs/UPSCALING.md, \"Graphics presets\"): a quality layer the renderer applies on top of what the scene asks for (shadow cascades and sizes, ambient occlusion, reflections, depth of field, motion blur, volumetric fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. low, medium, high and ultra lower the settings of the scene, never raise them; custom (the default) is no layer: the game looks as its author made it. It writes nothing into the scenes. While a preset other than custom is on, render.upscaler is what custom brings back, not what is drawn. Scripts and the commands graphics.preset and graphics.detect change it at run time; the engine does not save the player's choice."
         }
       }
     },

@@ -44,6 +44,7 @@ const PostProcess& postprocess_neutral() {
         p.fogHeightDensity = 0.0f;
         p.sunShaftsIntensity = 0.0f;
         p.radialBlurIntensity = 0.0f;
+        p.temporalAASharpen = 0.0f;
         return p;
     }();
     return neutral;
@@ -56,7 +57,8 @@ void register_postprocess_component(TypeRegistry& r) {
          "grain, lens "
          "distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, "
          "reflections, fog, sun "
-         "shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's "
+         "shafts, radial blur, temporal antialiasing, colour filter), every one off by default. On the entity of a "
+         "Camera it is that camera's "
          "own stack. "
          "On any other entity it is a VOLUME: shape \"global\" applies to every camera, \"box\", \"circle\" (2D, x and "
          "y) and "
@@ -69,7 +71,8 @@ void register_postprocess_component(TypeRegistry& r) {
          "switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, "
          "vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named "
          "`<effect><Parameter>`. "
-         "The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, "
+         "The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, temporalAA, depthOfField, motionBlur, "
+         "radialBlur, "
          "lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, "
          "outline, "
          "pixelate, posterize, filmGrain, colorFilter (the last pass). Every effect is drawn; "
@@ -195,7 +198,10 @@ void register_postprocess_component(TypeRegistry& r) {
             "and "
             "stay crisp. When the final pass runs (exposure, tonemap, or a colour filter in a linear scene) the HUD is "
             "drawn after it and "
-            "never glows, whatever this says.")
+            "never glows, whatever this says. With window.renderScale below 1 the HUD is drawn after the scale-up, "
+            "sharp at the window size, only when it would not glow or be changed by the post stack anyway (this false, "
+            "or no bloom, or a final pass); with this true and a bloom the HUD stays in the smaller game picture, "
+            "glow included, and is scaled up with it.")
         .asset_field(
             "bloomLensDirt", &PostProcess::bloomLensDirt, "texture",
             "Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it "
@@ -433,6 +439,49 @@ void register_postprocess_component(TypeRegistry& r) {
                "Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it.")
         .range(0.01f, 20)
 
+        // temporalAA
+        .field("temporalAAEnabled", &PostProcess::temporalAAEnabled,
+               "Switches the temporal antialiasing on: the camera is shaken by a sub-pixel amount every frame (meshes, "
+               "sky and HDRI move together; the HUD does not) and the frames are blended into a clean, smooth edge. It "
+               "runs on the lit HDR picture at the render resolution, after the exposure slot and before the depth of "
+               "field, on every backend (two fragment passes, no compute), with one history per camera (RGBA16F; "
+               "RGBA8 on a GPU that cannot render to half floats, where colours above 1 are clipped in the history). "
+               "The history is reprojected with the motion vectors when the frame has them, else with the depth "
+               "prepass (so it needs no other setting); it starts again after a cut, a resize or render-scale change, "
+               "a floating-origin shift, a scene load or a frame the camera did not draw. Not drawn (and not "
+               "jittered) for CameraView, render-target and camera.capture cameras. Off: no pass, no image, no "
+               "jitter. docs/UPSCALING.md has the details.")
+        .field("temporalAAFeedback", &PostProcess::temporalAAFeedback,
+               "Only used when temporalAAEnabled. 0.5..0.98: the share of the picture taken from the frames before. "
+               "Higher is smoother and ghosts more behind moving things; 0.9 is the usual choice.")
+        .range(0.5f, 0.98f)
+        .field("temporalAASharpen", &PostProcess::temporalAASharpen,
+               "Only used when temporalAAEnabled. 0..1: sharpening that gives back the detail the blend of frames "
+               "softens.")
+        .range(0, 1)
+        .field(
+            "temporalAAVarianceGamma", &PostProcess::temporalAAVarianceGamma,
+            "Only used when temporalAAEnabled. 0.5..2: how far the history colour may differ from the colours around "
+            "the pixel before it is clipped to them. Lower removes ghosts and flickers more, higher keeps more "
+            "detail.")
+        .range(0.5f, 2)
+        .field("temporalAAReactiveScale", &PostProcess::temporalAAReactiveScale,
+               "Only used when temporalAAEnabled. 0..4: how strongly things that change too fast to follow (particles, "
+               "fast objects, flashes) shorten the history there; 0 ignores them, 1 is the default.")
+        .range(0, 4)
+        .field("temporalAAMipBias", &PostProcess::temporalAAMipBias,
+               "Only used when temporalAAEnabled, and by the temporal upscaler (render.upscaler \"temporal\" or "
+               "\"metalfx\") for a camera whose stack has the effect on; without it the upscaler uses -0.5. -2..0: "
+               "the texture detail asked of the scene's materials (meshes, terrain, impostors, custom 3D shaders "
+               "that read fa_mip_bias; never sprites, UI or text) while the frames are accumulated. The textures are "
+               "read at a mip level shifted by log2(render size / output size) + this value, never above 0: the "
+               "accumulation of jittered frames gives back the detail a smaller picture would otherwise blur away. "
+               "With the temporal antialiasing alone (render scale 1) the shift is this value. 0 turns the bias off "
+               "at scale 1 and keeps the shift of the resolution ratio when upscaling; -2 is the sharpest, with more "
+               "shimmer for the history to resolve. No temporal pass, no bias: the picture is the same as without "
+               "the field.")
+        .range(-2, 0)
+
         // depthOfField
         .field("depthOfFieldEnabled", &PostProcess::depthOfFieldEnabled,
                "Switches the depth of field on: opaque 3D meshes away from the focus distance are blurred, "
@@ -473,11 +522,16 @@ void register_postprocess_component(TypeRegistry& r) {
 
         // motionBlur
         .field("motionBlurEnabled", &PostProcess::motionBlurEnabled,
-               "Switches the camera motion blur on: the picture smears along the way the camera moved since the frame "
-               "before, computed from the depth prepass (opaque 3D meshes; the sky only smears when the camera "
-               "turns). Objects that move on their own are not blurred. There is no blur on the first frame or "
-               "after the camera did not draw the frame before (a cut); a camera that jumps to another place in "
-               "one frame blurs up to a longest streak. It runs before the bloom and the final pass.")
+               "Switches the motion blur on: the picture smears along the way things moved since the frame before. "
+               "With motionBlurMode \"object\" (the default) every moving object blurs along its own motion, read "
+               "from the velocity image the depth prepass writes (meshes, skinned meshes and the other things that "
+               "write one), and a fast object blurs over a sharp "
+               "background without the background smearing into it; where no object wrote a velocity (the sky, "
+               "static scenery of a moving camera) the camera's own motion from the depth is used. With \"camera\" "
+               "only the camera's motion blurs (objects that move on their own are not). There is no blur on the "
+               "first frame or after the camera did not draw the frame before (a cut); a camera that jumps to "
+               "another place in one frame blurs up to the longest streak. It runs after the temporal antialiasing "
+               "and before the bloom and the final pass.")
         .field(
             "motionBlurIntensity", &PostProcess::motionBlurIntensity,
             "Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole "
@@ -485,8 +539,20 @@ void register_postprocess_component(TypeRegistry& r) {
         .range(0, 1)
         .field("motionBlurSamples", &PostProcess::motionBlurSamples,
                "Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. A "
-               "streak is at most 8% of the picture's larger side.")
+               "graphics preset caps it. In mode \"camera\" a streak is at most 8% of the picture's larger side.")
         .range(4, 32)
+        .enum_field(
+            "motionBlurMode", &PostProcess::motionBlurMode, {"object", "camera"},
+            "Only used when motionBlurEnabled. object (default): the blur follows the velocity image, so moving "
+            "objects blur too (a tile-max / neighbour-max filter keeps a fast object soft-edged over a sharp "
+            "background); it needs a GPU that can draw the velocity image (render.supports motionVectors) and "
+            "falls back to camera mode where it cannot. camera: only the camera's own movement, from the depth "
+            "(cheaper: one pass, no velocity image).")
+        .field("motionBlurMaxRadius", &PostProcess::motionBlurMaxRadius,
+               "Only used when motionBlurEnabled and motionBlurMode is object. 1..64 design pixels (times the render "
+               "scale): how far the blur of a pixel reaches on each side, so the longest streak is twice this. A "
+               "faster motion is cut to it. Smaller is cheaper and cleaner for very fast objects.")
+        .range(1, 64)
 
         // ssr
         .field(

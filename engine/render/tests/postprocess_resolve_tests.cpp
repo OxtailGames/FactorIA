@@ -416,6 +416,18 @@ TEST_CASE("custom post passes: the display-referred places parse, the ones that 
     }
 }
 
+TEST_CASE("custom post passes: the temporal antialiasing (M76) is no place, and the message names the ones that are") {
+    for (const char* name : {"before:temporalAA", "after:temporalAA"}) {
+        INFO(name);
+        auto bad = parse_custom_post_pass(Json::object({{"material", "m"}, {"position", name}}), "/p");
+        REQUIRE_FALSE(bad.ok());
+        CHECK(bad.error().message.find("/p/position") != std::string::npos);
+        CHECK(bad.error().hint.find("is not a place") != std::string::npos);
+        CHECK(bad.error().hint.find("temporal antialiasing") != std::string::npos);
+        CHECK(bad.error().hint.find("before:depthOfField") != std::string::npos);
+    }
+}
+
 TEST_CASE("resolve_post_stack: custom passes of the camera and of volumes, in order; an unreadable entry is reported") {
     Scene s;
     s.world.add<PostProcess>(s.cam);
@@ -575,8 +587,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the 5 planned rows of M76 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + 5 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -631,7 +643,7 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     const std::string_view drawn[] = {
         "ssao",         "exposure",   "bloom",      "tonemap", "colorFilter", "lensDistortion", "chromaticAberration",
         "colorGrading", "vignette",   "sharpen",    "outline", "pixelate",    "posterize",      "filmGrain",
-        "depthOfField", "motionBlur", "radialBlur", "ssr",     "fog",         "sunShafts"};
+        "depthOfField", "motionBlur", "radialBlur", "ssr",     "fog",         "sunShafts",      "temporalAA"};
     for (const std::string_view e : kPostEffectOrder) {
         CAPTURE(e);
         if (std::find(std::begin(drawn), std::end(drawn), e) != std::end(drawn)) {
@@ -675,6 +687,86 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
     CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
+}
+
+// M76-P0: the rows of the shared API are planned until the packages that draw them land (motionVectors landed in P1a,
+// spatialUpscaler in P3b, temporalUpscaler in P4, metalfx in P5b); temporalAA is the effect row of that name and has been drawn since M76-P2.
+TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
+    const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
+    // Dynamic resolution is drawn (M76-P6c): every GPU backend, no longer planned.
+    {
+        const int i = find_feature("dynamicResolution");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whyDyn;
+        CHECK(supported(full, "dynamicResolution", &whyDyn));
+    }
+    // MetalFX is drawn (M76-P5b): supported on Metal when the OS and the GPU have it (FeatureEnv::metalfx), with the reason when not.
+    {
+        const int i = find_feature("metalfx");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        FeatureEnv with = full;
+        with.metalfx = true;
+        CHECK(supported(with, "metalfx"));
+        FeatureEnv without = full;
+        without.metalfx = false;
+        std::string why;
+        CHECK_FALSE(supported(without, "metalfx", &why));
+        CHECK(why.find("MetalFX") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+        without.metalfxWhy = "MetalFX is not on this GPU: use the temporal upscaler.";
+        CHECK_FALSE(supported(without, "metalfx", &why));
+        CHECK(why.find("not on this GPU") != std::string::npos);
+        // Never on another backend, whatever the flag says.
+        FeatureEnv gl = gpu(FeatureBackend::Gl, true, true, true, true);
+        gl.metalfx = true;
+        CHECK_FALSE(supported(gl, "metalfx"));
+    }
+    // The motion vectors are drawn since M76-P1a (the prepass writes them for a consumer: the debug view, the temporal antialiasing).
+    const int mv = find_feature("motionVectors");
+    REQUIRE(mv >= 0);
+    CHECK(feature_table()[std::size_t(mv)].kind == FeatureKind::Engine);
+    CHECK(feature_table()[std::size_t(mv)].planned == nullptr);
+    CHECK(supported(full, "motionVectors"));
+    // The spatial upscaler is drawn (M76-P3b): supported on every backend with a GPU, no longer planned.
+    {
+        const int i = find_feature("spatialUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whySpatial;
+        CHECK(supported(full, "spatialUpscaler", &whySpatial));
+    }
+    // The temporal upscaler is drawn (M76-P4): on every backend with a GPU, whether or not it has half-float targets.
+    {
+        const int i = find_feature("temporalUpscaler");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        CHECK(supported(full, "temporalUpscaler"));
+        CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler"));
+    }
+    const unsigned metalBit = 1u << int(FeatureBackend::Metal);
+    CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
+    CHECK((feature_table()[std::size_t(find_feature("spatialUpscaler"))].backends & metalBit) != 0);
+    // The temporal upscaler (M76-P4) is drawn on every GPU backend, with an 8-bit history where there are no float targets.
+    const FeatureDef& tu = feature_table()[std::size_t(find_feature("temporalUpscaler"))];
+    CHECK(tu.kind == FeatureKind::Engine);
+    CHECK(tu.planned == nullptr);
+    CHECK((tu.backends & (1u << int(FeatureBackend::Gl))) != 0);
+    CHECK(supported(full, "temporalUpscaler", nullptr));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler", nullptr));
+    // The effect row of the temporal antialiasing (M76-P2): drawn on every GPU (an 8-bit history where there are no float targets), and no
+    // engine row of the same name.
+    std::string why;
+    CHECK(supported(full, "temporalAA", &why));
+    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalAA", &why));
+    CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].kind == FeatureKind::Effect);
+    CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].planned == nullptr);
+    CHECK(((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0);
 }
 
 // (The big-world rows of M75 are all drawn now: the planned-row check of M75-P0 is gone with the last of them, `impostors`.)

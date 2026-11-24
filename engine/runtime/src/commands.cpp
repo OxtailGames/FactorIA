@@ -1212,8 +1212,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "foliageInstancesCulled the ones left out of the picture (outside the view, behind an Occluder, beyond "
          "fadeEnd, or past the 262144 a camera takes at once; one kept only for the shadow maps counts too): both 0 "
          "with no Foliage (docs/BIG_WORLDS_TERRAIN.md). "
-         "views counts the CameraViews drawn. width and height are the size of the picture in pixels (design size * "
-         "window.renderScale). Same as game.renderStats() "
+         "views counts the CameraViews drawn. width and height are the size in pixels the game is drawn at (design "
+         "size * "
+         "window.renderScale * the upscaler quality's scale; the HUD and a screenshot are at the design size). Same as "
+         "game.renderStats() "
          "in tests. Needs graphics. Example: game.render_stats {}",
          parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
         [&engine](const Json&) {

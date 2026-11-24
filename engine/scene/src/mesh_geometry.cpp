@@ -225,7 +225,7 @@ Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string
         const std::string lower = to_lower(mesh);
         if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
             std::vector<std::string> names(std::begin(kPrimitiveNames), std::end(kPrimitiveNames));
-            return make_error(std::format("unknown collider mesh '{}'", mesh),
+            return make_error(std::format("unknown mesh '{}' (collider or occluder geometry)", mesh),
                               std::string("Use a primitive name (") + kPrimitiveHint +
                                   ") or a "
                                   "project-relative .gltf/.glb path. " +

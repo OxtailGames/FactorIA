@@ -75,7 +75,10 @@ struct Frame {
     // made in the scene's format (a CameraView, a render target) still holds linear light and is encoded as it is read.
     bool displayOverLinear = false;
     float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
-    float textScale = 1.0f;    // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
+    // The scale the screen-space items (HUD, UI, debug text) are rasterized and clipped at: the render scale, or 1 when the upscale
+    // stage draws them over the upscaled picture at the output size (render_upscale.h). Everything else uses renderScale.
+    float screenScale = 1.0f;
+    float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     float uiScale =
         1.0f;  // World::ui_scale() of this frame: screen-space UI is drawn this many times as big (ui_rect.h)
     bool white_used = false;

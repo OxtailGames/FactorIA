@@ -202,6 +202,8 @@ struct Sprite {
         Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
     std::int32_t instances =
         0;  // 0 = the sprite's one quad; N > 0 = N quads in ONE draw, placed by the material's vertex() from its compute buffers
+    float reactive =
+        -1.0f;  // -1 = by blend (Additive 1, others 0); 0..1 (M76): trusted over the history of the temporal antialiasing / upscaler
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -669,6 +671,8 @@ struct ParticleEmitter {
     std::string material;  // "" = the built-in look; else a *.material.json of kind "sprite" (docs/SHADERS.md)
     Json materialParams =
         Json::object();  // per-entity overrides of the material's params, as MeshRenderer.materialParams
+    float reactive =
+        1.0f;  // 0..1: how much the temporal antialiasing / upscaler trusts these particles over their history (M76)
 };
 
 // -------------------------------------------------------------------- UI ---

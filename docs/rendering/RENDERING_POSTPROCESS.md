@@ -73,13 +73,37 @@ both off there is no pass and no prepass for them: the picture is the one withou
   view depth, moved toward it each frame by `1 - exp(-depthOfFieldFocusSpeed * dt)` of the way (engine clock: the same frames give the
   same focus on every machine). The focus is state of the renderer, one per camera; the first frame, a camera that did not draw the frame
   before, no target, a destroyed target or one behind the camera use `depthOfFieldFocusDistance` at once.
-- **`motionBlur`.** A pixel's velocity is the screen distance between its point now and in the frame before (from the depth and the
-  previous view-projection); the picture is sampled along it (`motionBlurSamples` taps, a fixed jitter) over `motionBlurIntensity` of
-  it, at most 8% of the picture's larger side. **Only the camera's movement blurs**; an object that moves on its own does not. No blur
-  on the first frame or after the camera did not draw (a camera switch, a deactivated camera). A camera moved to another place between
-  two frames is **not** told from a very fast one: it blurs with the longest streak for that frame.
-- **Both on.** `dof-down`, `dof-gather`, `dof-composite` (into a scratch image of the camera's size), `motion-blur` (reads the scratch,
-  writes the picture). Each alone ends with a copy (`dof-copy`, `motion-copy`): a pass cannot read the image it writes.
+- **`motionBlur`, `motionBlurMode`.** A pixel's velocity is the screen distance between its point now and in the frame before; the
+  picture is smeared along it over `motionBlurIntensity` of it (the shutter, 0 to 1). `motionBlurMode` chooses where the velocity comes from:
+  - **`"object"` (the default).** The velocity image of the depth prepass (RG16F, `uvPrev - uvCurr`, unjittered; the pass that writes it is described in the repository's docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md
+    (repository only, not in the binary)), so **an object that moves on its own blurs along its own way** and a
+    still one next to it stays sharp. The vector is cut to `motionBlurMaxRadius` design pixels (1 to 64, default 24, times the render
+    scale; the longest streak is twice that, centred on the pixel). A pixel nobody wrote a velocity for (the sky, anything the prepass
+    does not draw) uses the camera's own movement rebuilt from the depth, as the camera mode does. The filter is McGuire's
+    (a fast, stable feature-aware motion blur): the longest vector of every block of pixels the size of the radius, the longest of the
+    3 x 3 blocks around a pixel, and a depth-aware gather that adds a fast object over a slower pixel behind it, adds a pixel behind a fast
+    object only as far as that pixel's own blur reaches, and never smears a sharp background into a moving object. The taps are
+    `motionBlurSamples` at most (the preset's knob, 32 at the most; a short streak uses fewer), jittered by a fixed pattern.
+    The picture of one run is the picture of every run. The edge of the moving object itself stays defined (the blur spreads
+    mostly outside its silhouette): that is how this filter looks, not a lost blur.
+  - **`"camera"`.** The depth and the previous view-projection only, so only the camera's movement blurs, the way every earlier version
+    did, bit for bit. No velocity image is asked for.
+  - **Why the default does not change existing games much.** No example of the engine turns `motionBlur` on and the effect is off by
+    default, so a game that does not set it is untouched (no pass, no prepass, no velocity image: tested bit for bit). In a game that
+    does, a static scene seen by a moving camera blurs about as before: the velocity image of a static mesh holds the camera's motion and
+    the sky falls back to the same reconstruction, so the two modes differ by the weights of the taps only (tested within a bound). What
+    changes is that the moving objects blur too. A game that wants the old look exactly sets `motionBlurMode` to `"camera"`.
+  - **Where it runs.** After the temporal antialiasing and before the bloom, so it blurs the resolved picture; with the temporal upscaler it
+    blurs the render-size picture before the resolve (the velocity image is unjittered, so the blur never follows the jitter). Where the
+    velocity image cannot be made (a GPU with no RG16F target, a frame with global illumination replacing the prepass) or the shaders fail,
+    the camera mode draws instead, with one log line.
+  - No blur on the first frame or after the camera did not draw (a camera switch, a deactivated camera); the per-object mode still asks
+    for the velocity image on those frames so the objects keep their models of the frame before. A camera moved to another place
+    between two frames is **not** told from a very fast one: it blurs with the longest streak for that frame.
+- **Both on.** `dof-down`, `dof-gather`, `dof-composite` (into a scratch image of the camera's size), then the motion blur, which reads the
+  scratch and writes the picture: `motion-blur` in the camera mode, and in the object mode `motion-velocity` (the blur vector and the depth of
+  every pixel), `motion-tile-x` and `motion-tile-y` (the longest vector of each block) and `motion-blur` (the gather). Each alone ends with
+  a copy (`dof-copy`, `motion-copy`): a pass cannot read the image it writes.
 - **Cost.** The prepass, a scratch image of the camera's size and, for the depth of field, two half-size `RGBA16F` images. If the GPU
   cannot make them the effects are skipped for that size, and the log says so once.
 

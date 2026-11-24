@@ -89,6 +89,9 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     const Mat4 projGl = z01 ? Mat4::perspective(90.0f, 1.0f, nearP, farP, false) : ci.proj;
     ci.viewProj = ci.proj * ci.view;
     ci.invViewProj = ci.viewProj.inverse();
+    ci.drawProj = ci.proj;  // the probes are never jittered (M76)
+    ci.drawViewProj = ci.viewProj;
+    ci.drawInvViewProj = ci.invViewProj;
     ci.queryViewProj = projGl * ci.view;
     ci.queryInvViewProj = ci.queryViewProj.inverse();
     ci.clear = true;
@@ -102,7 +105,7 @@ void Renderer::Impl::probe_face_frame(Frame& fr, World& world, const ReflectionP
     fr.lodFollowMain = true;
     setup_frame(fr, world, 0.0f);
     fr.targetW = fr.targetH = resolution;
-    fr.renderScale = 1.0f;
+    fr.renderScale = fr.screenScale = 1.0f;
     fr.mask = CameraMask(camera_tag_list(rp.showTags), camera_tag_list(rp.hideTags));
 }
 

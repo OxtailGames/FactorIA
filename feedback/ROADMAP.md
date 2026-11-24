@@ -113,7 +113,7 @@ file: then put this status and the milestones section back).
 
 **What comes next (2026-11-23):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
 M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
-(0.32.0), M73 (0.33.0), M74 (0.34.0) and M75 (0.35.0) are done. Next M76-M89 in their own order. M99 waits for the
+(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0) and M76 (0.36.0) are done. Next M77-M89 in their own order. M99 waits for the
 user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -830,7 +830,7 @@ SHADERS.md "Not available yet" becomes empty.
 - M75.6 (M) — DONE in 0.35.0 Foliage and scattering: GPU-instanced grass, trees and rocks with per-instance data, wind, LOD and culling,
   painted or scattered by rules.
 
-## M76. Temporal antialiasing and open upscalers (L; 4 packages) — the user, 2026-11-06
+## M76. Temporal antialiasing and open upscalers (L; 4 packages) — the user, 2026-11-06 — DONE in 0.36.0
 
 - M76.1 (L) The temporal base: per-pixel motion vectors (static, moving, skinned meshes, particles, sprites), camera
   jitter, a depth buffer every pass can read, TAA with history rejection, per-object motion blur from M71.3.
@@ -1152,7 +1152,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0), M73 (done in 0.33.0), M74 (done in 0.34.0) and M75 (done in 0.35.0). M76-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0), M73 (done in 0.33.0), M74 (done in 0.34.0), M75 (done in 0.35.0) and M76 (done in 0.36.0). M77-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):

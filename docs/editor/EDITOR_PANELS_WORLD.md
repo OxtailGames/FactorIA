@@ -119,6 +119,26 @@ typed, sets one and takes it back with the param's Reset, takes the material bac
 with Undo and forward with Redo, and checks that a refused value leaves no step. The panel's rules (`scene_settings_model.*`) have
 unit tests in `scene_settings_tests.cpp`.
 
+## Graphics settings window
+
+View > Graphics opens a window with the graphics settings a run of the project starts with, the keys `render.graphicsPreset`,
+`render.upscaler` (`mode`, `quality`, `sharpness`) and `render.dynamicResolution` (`enabled`, `targetMs`, `minScale`, `maxScale`) of `factoria.json` ([UPSCALING.md](../UPSCALING.md), "Graphics presets"). It is a
+form over a working copy, like Platform settings: **Preset** and the upscaler's **Mode** and **Quality** are combos of the engine's
+own names, **Sharpness** a slider (greyed out while the mode is `stretch`), each with its doc as a tooltip. The **Dynamic resolution** group is a checkbox (**Enabled**), a **Target (ms)** drag (0 shows "display refresh") and the **Min scale** and **Max scale** sliders, greyed out while it is off; the editor's own viewport never uses it, only a run of the game does.
+
+- **Checks.** The values go through the code that loads the project and the `render.upscaler` and `graphics.preset` commands, so a
+  wrong one is marked in red with its JSON pointer (`/render/upscaler/mode`, `/render/dynamicResolution/minScale`) and the engine's sentence with a "did you mean", and
+  **Save** stays disabled. A `factoria.json` whose values are wrong when the window opens shows the error at the top.
+- **Save / Revert.** **Save** writes only those three keys (the text of the file is patched: every other key, the order and the
+  formatting stay); a value at its default (`custom`, `stretch`/`native`/0.5) removes its key and an empty `render` object goes with
+  them. **Revert** reads the file again. If the file is not valid JSON, Save refuses and writes nothing.
+- **No preview.** The editor has no preview of render settings (a preset or a mode in the viewport): Save, then Play to see them. The
+  player's own choice at run time is the menu kit's Graphics tab ([MENUS.md](../MENUS.md), the Graphics tab).
+
+**Autotest.** Section Q4 of `fa_editor_autotest` opens the window from the menu, picks a mode and a preset with real clicks on the
+combos, Saves and reads `factoria.json` back with the engine's own reader, turns the dynamic resolution on, sets a misspelt mode and a minimum scale above the maximum (each named with its pointer, Save
+disabled and refused) and Reverts. The rules (`fa/tooling/graphics_settings.h`, shared with the command `project.graphics`) have unit tests in `tools/common/tests/graphics_settings_test.cpp`.
+
 ## Graph panel
 
 View > Graph opens the Graph panel, which edits the node graph of ONE `*.material.json` ([SHADERS.md](../SHADERS.md), "Node graphs"). Open a material in it by

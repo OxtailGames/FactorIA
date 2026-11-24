@@ -38,10 +38,16 @@ enum class OutlineMode : std::int32_t { Depth, Sprite };
 // PostProcess.ssaoQuality: the number of directions and steps of the ambient occlusion (GTAO), cost grows with each level.
 enum class SsaoQuality : std::int32_t { Low, Medium, High, Ultra };
 
+// PostProcess.motionBlurMode: what the motion blur smears by. Object: the velocity image (the motion of every moving object, skinned meshes
+// and custom vertex() materials included; where nothing wrote a velocity, the camera's own motion from the depth); Camera: the camera's
+// own motion only, from the depth.
+enum class MotionBlurMode : std::int32_t { Object, Camera };
+
 // The effects of the stack in the canonical ORDER they run in, written once. Everything up to Bloom works on scene-linear HDR
 // colour (before the tonemap); Tonemap brings it to the display range; the rest work on the display-referred picture.
 // Why this order: ambient occlusion, reflections, fog and sun shafts belong to the lighting of the scene; the exposure scales
-// the lit scene before any effect that depends on how bright it is; depth of field and the blurs (motion, radial) act on the
+// the lit scene before any effect that depends on how bright it is; the temporal antialiasing resolves the jittered frames of
+// the lit, exposed HDR picture before anything blurs it (a blur before it would be smeared by the history); depth of field and the blurs (motion, radial) act on the
 // scene before the lens effects (distortion, chromatic aberration) and the bloom, which glows from what the lens shows; the
 // tonemap and the colour grading make the picture; vignette, sharpen, outline, pixelate and posterize are then looks drawn on
 // the finished picture; grain goes over everything but the colour filter, which stays the LAST pass (the accessibility filter
@@ -52,6 +58,7 @@ enum class PostEffect : std::int32_t {
     Fog,
     SunShafts,
     Exposure,
+    TemporalAA,
     DepthOfField,
     MotionBlur,
     RadialBlur,
@@ -73,11 +80,27 @@ inline constexpr int kPostEffectCount = int(PostEffect::Count);
 
 // The name of each effect, in canonical order: the prefix of its PostProcess fields and the name `render.supports` and the
 // postprocess.* commands use.
-inline constexpr std::array<std::string_view, kPostEffectCount> kPostEffectOrder = {
-    "ssao",         "ssr",        "fog",          "sunShafts",      "exposure",
-    "depthOfField", "motionBlur", "radialBlur",   "lensDistortion", "chromaticAberration",
-    "bloom",        "tonemap",    "colorGrading", "vignette",       "sharpen",
-    "outline",      "pixelate",   "posterize",    "filmGrain",      "colorFilter"};
+inline constexpr std::array<std::string_view, kPostEffectCount> kPostEffectOrder = {"ssao",
+                                                                                    "ssr",
+                                                                                    "fog",
+                                                                                    "sunShafts",
+                                                                                    "exposure",
+                                                                                    "temporalAA",
+                                                                                    "depthOfField",
+                                                                                    "motionBlur",
+                                                                                    "radialBlur",
+                                                                                    "lensDistortion",
+                                                                                    "chromaticAberration",
+                                                                                    "bloom",
+                                                                                    "tonemap",
+                                                                                    "colorGrading",
+                                                                                    "vignette",
+                                                                                    "sharpen",
+                                                                                    "outline",
+                                                                                    "pixelate",
+                                                                                    "posterize",
+                                                                                    "filmGrain",
+                                                                                    "colorFilter"};
 
 constexpr std::string_view post_effect_name(PostEffect e) { return kPostEffectOrder[std::size_t(e)]; }
 // True for the effects that run on scene-linear HDR colour (up to and including the bloom), false after the tonemap.
@@ -213,10 +236,26 @@ struct PostProcess {
     float depthOfFieldFarBlur = 8.0f;     // largest blur in design pixels behind the focus
     bool depthOfFieldBokeh = true;        // true: a disc blur where bright points become discs; false: a smooth blur
 
-    // --- motionBlur: smear from the camera's movement (from depth) ---------------------------------------------------------------
+    // --- temporalAA: antialiasing from the frames before (M76) -------------------------------------------------------------------
+    // Drawn by renderer_taa.h on every backend (render.supports temporalAA): the jittered picture blended with the camera's history.
+    bool temporalAAEnabled = false;
+    float temporalAAFeedback =
+        0.9f;  // 0.5..0.98: the share of the picture taken from the history (higher = smoother, ghosts more)
+    float temporalAASharpen = 0.25f;  // 0..1: sharpening that gives back what the history blur takes away
+    float temporalAAVarianceGamma =
+        1.0f;  // 0.5..2: how far the history may stray from the neighbours before it is clipped
+    float temporalAAReactiveScale =
+        1.0f;  // 0..4: how much the reactive mask (particles, fast objects) shortens the history
+    float temporalAAMipBias =
+        -0.5f;  // -2..0: mip levels added to the textures' level of detail while the frames are accumulated (docs/UPSCALING.md "Texture mip bias")
+
+    // --- motionBlur: smear from the motion of the objects (the velocity image) and of the camera (from depth) ---------------------
     bool motionBlurEnabled = false;
     float motionBlurIntensity = 0.5f;    // 0..1: the part of the frame the shutter is open
     std::int32_t motionBlurSamples = 8;  // 4 .. 32 taps along the movement
+    MotionBlurMode motionBlurMode = MotionBlurMode::Object;
+    float motionBlurMaxRadius =
+        24.0f;  // 1 .. 64 design pixels: how far a pixel's blur reaches on each side (object mode)
 
     // --- ssr: screen-space reflections (3D) --------------------------------------------------------------------------------------
     bool ssrEnabled = false;

@@ -3,11 +3,15 @@
 #include "renderer_test_access.h"
 #include "fa/render/compute.h"
 #include "scene2d.h"
+#include "quality.h"
 #include "render_features.h"
 #include "render_scene.h"
+#include "fa/scene/jitter.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 
 namespace fa {
@@ -108,6 +112,39 @@ void DebugDraw::clear() {
     impl_->texts.clear();
 }
 
+// The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on, the renderer draws that effect
+// (post_drawn_mask), the camera is one of the game's frame (`mainFrameCamera`: a CameraView, a render-target camera and a capture draw
+// no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
+// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready()` compiles the two
+// programs the first time (a sokol resource creation, valid outside a pass), but only for a camera whose stack has TemporalAA that the
+// renderer draws, and on the thread that owns the GPU context (update and the frame run on it); a game without the effect never compiles them.
+int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
+    // M76-P4: the temporal upscaler jitters the frame's one camera by the sequence render() chose for the upscale ratio, whatever its stack.
+    if (temporalPhases > 0 && mainFrameCamera) return std::min(temporalPhases, kJitterPhasesMax);
+    if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
+    const bool on = mainFrameCamera && ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
+                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && taa.ready() && !taa.unavailable();
+    return on ? kJitterPhasesDefault : 0;
+}
+
+// The texture LOD bias of a camera drawn with `phases` jitter phases (M76-P4b, docs/UPSCALING.md "Texture mip bias"). The temporal upscaler
+// (temporalPhases) draws at the render size and accumulates into the output size, so the textures are read as finely as the output would:
+// log2(render width / output width) plus the offset (the stack's temporalAAMipBias when it has the effect on, else its default). The
+// temporal antialiasing alone, a picture accumulated at its own size, takes the offset. Never above 0 (no blur), never below -4. A frame that
+// is not jittered, and a jitter a test forced, have none: the picture is the one of a renderer without the feature.
+float Renderer::Impl::mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const {
+    if (phases <= 0) return 0.0f;
+    const bool temporalUpscale = temporalPhases > 0 && mainFrameCamera;
+    if (!temporalUpscale && jitterForce > 0) return 0.0f;
+    static const PostProcess kDefaults;
+    const PostProcess& f = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) ? ci.postStack->fx : kDefaults;
+    const float rawOffset = f.temporalAAMipBias;
+    const double offset = std::isfinite(rawOffset) ? std::clamp(double(rawOffset), -2.0, 0.0) : -0.5;
+    double bias = offset;
+    if (temporalUpscale && physW > 0 && targetW > 0) bias += std::log2(std::min(1.0, double(physW) / double(targetW)));
+    return float(std::clamp(bias, -4.0, 0.0));
+}
+
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget,
                                         bool blended) {
     CameraTarget target;
@@ -132,11 +169,22 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     // The editor's A/B switch (set_post_bypass): the picture as the scene draws it, with no stack, to compare it with the stack on.
     if (!postBypass && world.any<PostProcess>()) {
         auto stack = std::make_shared<PostStack>(resolve_post_stack(world, ci));
+        if (qualityOn)
+            apply_quality_limits(
+                *stack, quality);  // the graphics preset: what the cameras may draw (the components are untouched)
         for (const Error& err : stack->customErrors)
             if (warnedCustomPass.insert(err.message).second) FA_WARN("render", "{} Hint: {}", err.message, err.hint);
         ci.bloom = bloom_from_stack(*stack);
         ci.colorFilter = stack->has(PostEffect::ColorFilter) ? std::clamp(int(stack->fx.colorFilterMode), 0, 5) : 0;
         if (stack->any()) ci.postStack = std::move(stack);
+    }
+    // The sub-pixel jitter of the temporal passes, on the DRAWN matrices only (CameraGeometry::apply_jitter): the frame index is the count of
+    // the game's frames, so a run draws the same jitter on every machine. The size is the camera's image in render pixels.
+    if (const int phases = jitter_phases(ci, viewSize == nullptr); phases > 0) {
+        const float wPx = viewSize ? viewSize->x : float(physW) * ci.viewport.w;
+        const float hPx = viewSize ? viewSize->y : float(physH) * ci.viewport.h;
+        ci.apply_jitter(jitter_offset_pixels(postSerial, phases), wPx, hPx);
+        ci.mipBias = mip_bias(ci, viewSize == nullptr, phases);
     }
     // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
     // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
@@ -339,6 +387,42 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
                     if (animated) gpu->shadow_pipeline(true);
                 });
             }
+            // The prepass with the velocity image (M76): its pipelines have two colour attachments, so they are not the ones of a camera
+            // that only reads the depth. Only where a PostProcess asks for temporal antialiasing, the effect that reads it; the engine's
+            // programs of a mesh drawn as it is (one sided and double sided, skinned where an entity has an Animator).
+            bool temporal = false;
+            world.each<PostProcess>([&](Entity, PostProcess& p) { temporal = temporal || p.temporalAAEnabled; });
+            if (temporal) {
+                im.warmGroups.push_back([gpu, animated] {
+                    if (!gpu->velocity_ready()) return;
+                    const TargetFormat f = gpu->prepass_target_format(true);
+                    for (const bool doubleSided : {false, true}) {
+                        gpu->prepass_pipeline(f, doubleSided, false, {}, {});
+                        if (animated) gpu->prepass_pipeline(f, doubleSided, true, {}, {});
+                    }
+                });
+            }
+        }
+        // The 2D quads' velocity and reactive passes (M76-P1d): only where a PostProcess asks for temporal antialiasing and the
+        // world has 2D items to draw (a 2D scene has no mesh, so this is outside the mesh block).
+        bool temporal2d = false;
+        world.each<PostProcess>([&](Entity, PostProcess& p) { temporal2d = temporal2d || p.temporalAAEnabled; });
+        bool quads = false;
+        if (temporal2d) {
+            world.each<Sprite>([&](Entity, Sprite&) { quads = true; });
+            world.each<ParticleEmitter>([&](Entity, ParticleEmitter&) { quads = true; });
+            world.each<Shape2D>([&](Entity, Shape2D&) { quads = true; });
+            world.each<Tilemap>([&](Entity, Tilemap&) { quads = true; });
+        }
+        if (quads) {
+            im.warmGroups.push_back([gpu] {
+                if (gpu->velocity_ready()) {
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1}, false);
+                }
+                if (gpu->reactive_ready()) {
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1}, true);
+                }
+            });
         }
     }
     if (im.warmNext >= im.warmGroups.size()) return 0;
@@ -382,12 +466,13 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0       ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0   ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0        ? DebugView::Ao
-                       : std::strcmp(dv, "cascades") == 0  ? DebugView::Cascades
-                       : std::strcmp(dv, "occlusion") == 0 ? DebugView::Occlusion
-                                                           : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0           ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0       ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0            ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0      ? DebugView::Cascades
+                       : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
+                       : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
+                                                               : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -451,6 +536,9 @@ void Renderer::shutdown() {
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
+        im.taa.release();
+        im.spatial.release();
+        im.mfxPrep.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -460,6 +548,9 @@ void Renderer::shutdown() {
         im.impostors.destroy();
         im.foliage.destroy();
         im.assets.reset();
+        destroy_target(
+            im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
+        destroy_target(im.reactiveProbe);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
@@ -480,15 +571,56 @@ void Renderer::set_target_size(int width, int height) {
     impl_->shadowTargetFailed = false;  // a shadow map that could not be made is tried again after a resize
     impl_->create_targets(width, height);
 }
-void Renderer::set_render_scale(float scale) {
+void Renderer::set_render_scale(float scale, float baseScale) {
     if (!initialized()) return;
     if (!(scale >= kMinRenderScale)) scale = 1.0f;
     scale = std::min(scale, kMaxRenderScale);
+    if (!(baseScale >= kMinRenderScale)) baseScale = scale;  // 0 (and a NaN): no dynamic part
+    baseScale = std::min(baseScale, kMaxRenderScale);
+    const bool dynamicStep =
+        baseScale == impl_->renderBaseScale;  // only the dynamic part moved: the history of the upscaler lives on
+    impl_->renderBaseScale = baseScale;
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
     impl_->shadowTargetFailed = false;
+    impl_->scaleStepOnly = dynamicStep;
     impl_->create_targets(impl_->targetW, impl_->targetH);
+    impl_->scaleStepOnly = false;
 }
+void Renderer::set_gpu_frame_timing(bool on) {
+    if (!initialized()) return;
+    impl_->gpuFrameWanted = on;
+    if (!on) impl_->gpuFrameMs.clear();
+}
+void Renderer::take_gpu_frame_ms(std::vector<double>& out) {
+    if (!impl_ || impl_->gpuFrameMs.empty()) return;
+    out.insert(out.end(), impl_->gpuFrameMs.begin(), impl_->gpuFrameMs.end());
+    impl_->gpuFrameMs.clear();
+}
+void Renderer::set_upscale_stage(bool on) {
+    if (!initialized() || impl_->upscaleStage == on) return;
+    impl_->upscaleStage = on;
+    impl_->free_output_targets();
+}
+bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
+void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
+const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+void Renderer::set_quality(const render::QualityLimits& limits) {
+    impl_->quality = limits;
+    impl_->qualityOn = limits != render::QualityLimits{};
+}
+const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
+ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
+render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
+    render::FeatureEnv env;  // headless (no GPU) until the renderer has one
+    if (initialized()) env = render::feature_env_from_sokol();
+    return render::resolve_quality(preset, env);
+}
+render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
+render::UpscalerMode Renderer::effective_upscaler_mode() const {
+    return impl_ ? impl_->effective_upscaler_mode() : render::UpscalerMode::Stretch;
+}
+float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -621,9 +753,27 @@ bool Renderer::gpu_timing_supported(std::string* reason) const {
     return ok;
 }
 
+// Reads the answers the timer has now. The profiler's list (gpuFrames) and the dynamic resolution's (gpuFrameMs,
+// take_gpu_frame_ms) each get every result once: whoever polls (render() or take_gpu_ms()) feeds both, so neither
+// takes the other's samples.
+void Renderer::Impl::poll_gpu_frames() {
+    const std::size_t before = gpuFrames.size();
+    gpuTimer.poll(gpuFrames);
+    if (!testGpuFrames.empty()) {  // RendererTestAccess::inject_gpu_frame_ms: answers a test made up
+        gpuFrames.insert(gpuFrames.end(), testGpuFrames.begin(), testGpuFrames.end());
+        testGpuFrames.clear();
+    }
+    if (!gpuFrameWanted) return;
+    constexpr std::size_t kKeepFrames = 64;
+    gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
+                      gpuFrames.end());
+    if (gpuFrameMs.size() > kKeepFrames)
+        gpuFrameMs.erase(gpuFrameMs.begin(), gpuFrameMs.end() - std::ptrdiff_t(kKeepFrames));
+}
+
 void Renderer::take_gpu_ms(std::vector<double>& out) {
     if (!impl_ || !Profiler::on()) return;
-    impl_->gpuTimer.poll(impl_->gpuFrames);  // render() polls too: what it read waits in gpuFrames for this call
+    impl_->poll_gpu_frames();  // render() polls too: what it read waits in gpuFrames for this call
     out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
     impl_->gpuFrames.clear();
 }
@@ -1030,6 +1180,66 @@ bool RendererTestAccess::prev_view_proj(Renderer& r, Entity camera, Mat4& out) {
     out = it->second.viewProj;
     return true;
 }
+bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittered, Vec2& jitterPx) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->prevViewProj.find(camera.bits());
+    if (it == r.impl_->prevViewProj.end()) return false;
+    jittered = it->second.jittered;
+    jitterPx = it->second.jitterPx;
+    return true;
+}
+bool RendererTestAccess::last_job_needs_velocity(Renderer& r) { return r.impl_ && r.impl_->lastJobNeedsVelocity; }
+void RendererTestAccess::force_velocity(Renderer& r, bool on) {
+    if (!r.impl_) return;
+    r.impl_->forceVelocity = on;
+    if (!on) {
+        render::destroy_target(r.impl_->velocityProbe);
+        render::destroy_target(r.impl_->reactiveProbe);
+    }
+}
+void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
+    if (!r.impl_) return;
+    r.impl_->probeCameraOnly = !camera.is_null();
+    r.impl_->probeCamera = camera.is_null() ? 0 : camera.bits();
+}
+void RendererTestAccess::force_no_velocity_target(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->noVelocityTarget = on;
+}
+void RendererTestAccess::force_no_palette_sampling(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->noPaletteSampling = on;
+}
+void RendererTestAccess::set_palette_row_cap(Renderer& r, int rows) {
+    if (r.impl_) r.impl_->paletteRowCap = rows;
+}
+bool RendererTestAccess::read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_reactive(out, w, h, error);
+}
+bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_velocity(out, w, h, error);
+}
+void RendererTestAccess::force_jitter(Renderer& r, int phases) {
+    if (r.impl_) r.impl_->jitterForce = std::max(phases, 0);
+}
+std::vector<Vec2> RendererTestAccess::last_jitter(Renderer& r) {
+    std::vector<Vec2> out;
+    if (r.impl_)
+        for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.jitterPx);
+    return out;
+}
+std::vector<float> RendererTestAccess::last_mip_bias(Renderer& r) {
+    std::vector<float> out;
+    if (r.impl_)
+        for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.mipBias);
+    return out;
+}
 int RendererTestAccess::post_history_images(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_image_count() : 0;
 }
@@ -1044,8 +1254,121 @@ int RendererTestAccess::post_history_attempts(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_attempts() : 0;
 }
 
+void RendererTestAccess::inject_gpu_frame_ms(Renderer& r, double ms) {
+    if (r.impl_) r.impl_->testGpuFrames.push_back(ms);
+}
+
 void RendererTestAccess::set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     if (r.impl_) r.impl_->beforeFrameGraph = std::move(hook);
+}
+
+int RendererTestAccess::taa_images(Renderer& r) { return r.impl_ ? r.impl_->taa.history_image_count() : 0; }
+bool RendererTestAccess::taa_used_history(Renderer& r, Entity camera) {
+    return r.impl_ && r.impl_->taa.last_used_history(camera.bits());
+}
+int RendererTestAccess::taa_resets(Renderer& r) { return r.impl_ ? r.impl_->taa.resets() : 0; }
+int RendererTestAccess::upscale_phases(Renderer& r) { return r.impl_ ? r.impl_->temporalPhases : 0; }
+int RendererTestAccess::upscale_impl(Renderer& r) { return r.impl_ ? int(r.impl_->upscaleImpl) : 0; }
+bool RendererTestAccess::upscale_used_history(Renderer& r) {
+    return r.impl_ && r.impl_->taa.last_used_history(render::kUpscaleCamKey);
+}
+bool RendererTestAccess::mfx_failed(Renderer& r) { return r.impl_ && r.impl_->mfxFailed; }
+int RendererTestAccess::mfx_encoded(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.encoded() : 0; }
+int RendererTestAccess::mfx_generation(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.generation() : 0; }
+bool RendererTestAccess::mfx_reset(Renderer& r) { return r.impl_ && r.impl_->mfxLastReset; }
+void RendererTestAccess::mfx_force_create_failure(Renderer& r, bool fail) {
+    if (r.impl_) r.impl_->mfxForceCreateFail = fail;
+}
+void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSign) {
+    if (!r.impl_) return;
+    r.impl_->mfxJitterSign = jitterSign;
+    r.impl_->mfxMotionSign = motionSign;
+}
+void RendererTestAccess::mfx_force_support(Renderer& r, bool spatial, bool temporal) {
+    if (!r.impl_) return;
+    r.impl_->mfxSupport = render::metalfx::Support{};
+    r.impl_->mfxSupport.spatial = spatial;
+    r.impl_->mfxSupport.temporal = temporal;
+    r.impl_->mfxSupportKnown = true;
+}
+void RendererTestAccess::mfx_prep_only(Renderer& r, bool only) {
+    if (r.impl_) r.impl_->mfxPrepOnly = only;
+}
+bool RendererTestAccess::mfx_reactive_enabled(Renderer& r) { return r.impl_ && r.impl_->mfxScaler.reactive_mask(); }
+int RendererTestAccess::mfx_reactive_frames(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.reactive_encoded() : 0; }
+void RendererTestAccess::mfx_no_reactive(Renderer& r, bool none) {
+    if (r.impl_) r.impl_->mfxNoReactive = none;
+}
+void RendererTestAccess::mfx_scaler_hooks(Renderer& r, bool emptyBuffers, bool failBuffers) {
+    if (!r.impl_) return;
+    render::metalfx::Scaler::TestHooks h;
+    h.emptyBuffers = emptyBuffers;
+    h.failBuffers = failBuffers;
+    r.impl_->mfxScaler.set_test_hooks(h);
+}
+bool RendererTestAccess::mfx_wait_signalled(Renderer& r, int timeoutMs) {
+    return r.impl_ && r.impl_->mfxScaler.test_wait_signalled(timeoutMs);
+}
+int RendererTestAccess::mfx_images(Renderer& r) {
+    return r.impl_ ? int(r.impl_->mfxDepth.color.id != 0) + int(r.impl_->mfxMotion.color.id != 0) : 0;
+}
+bool RendererTestAccess::mfx_last_wrote(Renderer& r) { return r.impl_ && r.impl_->mfxLastWrote; }
+bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error) {
+    if (!r.impl_ || !r.impl_->mfxDepth.valid() || !r.impl_->mfxMotion.valid()) {
+        if (error) *error = "the MetalFX preparation images are not alive";
+        return false;
+    }
+    Renderer::Impl& im = *r.impl_;
+    if (!im.gpu.committed()) {  // the frame's work must be submitted before a read-back waits for it
+        sg_commit();
+        im.gpu.note_commit();
+    }
+    std::vector<std::uint8_t> depth, motion;
+    if (!render::readback_storage_image(im.mfxDepth.color, SG_PIXELFORMAT_R32F, x, y, 1, 1, depth, error) ||
+        !render::readback_storage_image(im.mfxMotion.color, SG_PIXELFORMAT_RG16F, x, y, 1, 1, motion, error))
+        return false;
+    if (depth.size() < 4 || motion.size() < 4) {
+        if (error) *error = "the read-back of the MetalFX preparation images came back short";
+        return false;
+    }
+    std::memcpy(&out[0], depth.data(), 4);
+    auto half_to_float =
+        [](std::uint16_t h) {  // IEEE half -> float (the values here are normal numbers, zero or small)
+            const int sign = (h >> 15) & 1, exp = (h >> 10) & 0x1F, man = h & 0x3FF;
+            float v = exp == 0    ? std::ldexp(float(man), -24)
+                      : exp == 31 ? std::numeric_limits<float>::infinity()
+                                  : std::ldexp(float(man | 0x400), exp - 25);
+            return sign ? -v : v;
+        };
+    for (int i = 0; i < 2; ++i) {
+        std::uint16_t h;
+        std::memcpy(&h, &motion[std::size_t(i) * 2], 2);
+        out[1 + i] = half_to_float(h);
+    }
+    return true;
+}
+int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
+bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
+bool RendererTestAccess::taa_upscale_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.upscale_unavailable(); }
+void RendererTestAccess::taa_set_budget(Renderer& r, std::uint64_t bytes) {
+    if (r.impl_) r.impl_->taa.set_budget(bytes);
+}
+void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
+    if (r.impl_) r.impl_->taa.force_rgba8(force);
+}
+int RendererTestAccess::output_idle_frames() { return Renderer::Impl::kOutputIdleFrames; }
+render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
+    render::OutputTargetsInfo o;
+    if (!r.impl_) return o;
+    const Renderer::Impl& im = *r.impl_;
+    o.out = im.outTarget.valid();
+    o.outDepth = o.out && im.outTarget.depth.id != 0;
+    o.filter = im.outFilterTarget.valid();
+    o.spatial = im.spatialTarget.valid();
+    o.outW = im.outTarget.w;
+    o.outH = im.outTarget.h;
+    o.outSamples = im.outTarget.samples;
+    return o;
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {
@@ -1125,6 +1448,9 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
     fr.textScale = textScale;
     fr.uiScale = ui_scale_clamped(world.ui_scale());
     fr.renderScale = renderScale;
+    fr.screenScale =
+        hudAtOutput ? 1.0f
+                    : renderScale;  // 1: the screen-space items go over the upscaled picture (render_world decided)
     fr.linear = gpu.linear();
     fr.warnedLights2d = &warnedLights2d;
     fr.warnedSpriteMesh = &warnedSpriteMesh;
@@ -1148,11 +1474,13 @@ void Renderer::Impl::render(World& world, float dt) {
     frameOutput = render::select_output(output(), float_display());
     frameAboveWhite = false;
     auto t0 = std::chrono::steady_clock::now();
-    if (Profiler::on()) {
+    if (Profiler::on() || gpuFrameWanted) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
-        gpuTimer.poll(gpuFrames);
+        poll_gpu_frames();
         constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
-        if (gpuFrames.size() > kKeepGpuFrames)
+        if (!Profiler::on())
+            gpuFrames.clear();  // only the dynamic resolution asked: nobody takes these
+        else if (gpuFrames.size() > kKeepGpuFrames)
             gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
         gpuTimer.begin();
     } else {
@@ -1168,7 +1496,52 @@ void Renderer::Impl::render(World& world, float dt) {
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
+    // M76-P4: the temporal upscaler jitters the camera by the number of phases the upscale ratio asks for (the cameras are built with it) and
+    // resolves it into the output image; it works on a frame of ONE full-viewport camera (several cameras or a split screen are drawn with
+    // the spatial upscaler: each would need a history of its rectangle). The frame is decided here, before the cameras are built: the
+    // cameras are collected with the jitter the last frame's count says (none after a several-camera frame), and collected again when
+    // this frame's count says otherwise (a change of camera count, not every frame).
+    temporalPhases = 0;
+    temporalFrame = false;
+    upscaleTaa = TaaPlan{};
+    upscaleImpl = render::UpscaleImpl::Stretch;
+    mfxFrame = false;
+    outStorage = false;
+    int wantedPhases = 0;
+    if (upscale_active()) {
+        render::UpscalerCaps oneCamera = upscaler_caps();
+        oneCamera.multiCamera = false;
+        const render::UpscalerMode oneCameraMode = render::effective_upscaler_mode(upscaler, oneCamera);
+        // MetalFX: its temporal scaler takes the same jittered frame (and needs the TAA resolve ready, as the fallback of a frame it cannot
+        // draw); a GPU with only its spatial scaler draws an unjittered frame (run_upscale).
+        mfxFrame = oneCameraMode == render::UpscalerMode::MetalFx && oneCamera.metalfxTemporal && oneCamera.temporal;
+        outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
+        if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
+            wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
+        // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is
+        // made longer in steps of 4 phases, so it changes every few steps and the jitter of the frames before it
+        // stays valid for the history (the frame index goes on).
+        if (wantedPhases > 0 && renderScale != renderBaseScale)
+            wantedPhases = std::min((wantedPhases + 3) / 4 * 4, kJitterPhasesMax);
+    }
+    temporalPhases = temporalBlocked ? 0 : wantedPhases;
     lastCams = collect_cameras(world);
+    const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
+    // The history of the output size is made before the cameras are jittered: a budget or a GPU that refuses it decides this frame (no jitter,
+    // the spatial upscaler), not the frame after a jittered picture that nothing resolves.
+    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH, postSerial)) {
+        wantedPhases = 0;
+        mfxFrame = false;
+    }
+    if (temporalPhases != (oneFullCamera ? wantedPhases : 0)) {
+        temporalPhases = oneFullCamera ? wantedPhases : 0;
+        lastCams = collect_cameras(world);
+    }
+    temporalBlocked = !oneFullCamera;
+    if (temporalPhases > 0) {
+        temporalFrame = true;
+        upscaleImpl = mfxFrame ? render::UpscaleImpl::MetalFx : render::UpscaleImpl::Temporal;
+    }
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
@@ -1211,6 +1584,25 @@ void Renderer::Impl::render(World& world, float dt) {
     } else {
         for (const CameraInfo& c : lastCams) specs.push_back({c, true, false});
         specs.push_back({lastCams.front(), false, true});
+    }
+
+    // The upscale stage (M76-P3a) draws the screen-space items over the upscaled picture, at the output size, when no pass after them in the
+    // old order (renderer_draw.cpp, build_graph) would have changed their pixels. The glyphs are rasterized for the size they are drawn at,
+    // so this is decided before the gather (decide_hud_at_output). The bloom is the only effect that reaches items drawn in the game image
+    // (bloomScreenSpace): the effects that put them over the bloom or over the final pass leave them alone, but the scene-colour effects
+    // are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
+    hudAtOutput = decide_hud_at_output(world);
+    // A stage that is off keeps no output image for long: the pictures of a game that has the player's render scale back at 1 (or a window
+    // that grew to the render size) are freed here, once, after kOutputIdleFrames frames in a row without the stage. A dynamic resolution
+    // or a spatial/temporal switch that oscillates around the boundary reuses them instead of making them again every few frames.
+    // A frame without the stage draws its picture in the scene target: the kept images hold an older one, so final_target() must not
+    // point at them even when this frame has no job that would clear the flags.
+    if (!upscale_active()) outActive = outFilterActive = false;
+    if (upscale_active() || !(outTarget.color.id || outFilterTarget.color.id || spatialTarget.color.id)) {
+        outputIdleFrames = 0;
+    } else if (++outputIdleFrames >= kOutputIdleFrames) {
+        free_output_targets();
+        outputIdleFrames = 0;
     }
 
     std::vector<Frame> frames(specs.size());
@@ -1260,7 +1652,7 @@ void Renderer::Impl::render(World& world, float dt) {
             setup(fr);
             fr.targetW = tc.w;
             fr.targetH = tc.h;
-            fr.renderScale = 1.0f;
+            fr.renderScale = fr.screenScale = 1.0f;
             scene2d.gather(world, fr);
             if (fr.cam.studio) {
                 fr.lights2d.clear();
@@ -1291,7 +1683,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 setup(fr);
                 fr.targetW = rq.pxW;
                 fr.targetH = rq.pxH;
-                fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
+                fr.renderScale = fr.screenScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
                 scene2d.gather(world, fr);
                 if (fr.cam
                         .studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness

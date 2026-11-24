@@ -11,7 +11,8 @@
 //     (apex at the top-middle of its box) has its centroid at pivot [0.5, 1/3]: use that to spin it without wobble.
 //   * Screen space: position is in design pixels from the TOP-LEFT, +Y down, drawn after the world.
 //     `anchor` shifts the position by anchor * target size, e.g. anchor [1,0], pivot [1,1], position [-20,20]
-//     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the edges.
+//     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the
+//     edges.
 //   * Blend: Alpha, Additive (dst + src*a), Multiply (dst * mix(1, src, a)); items sort by layer as usual and
 //     batches split where the blend changes.
 //
@@ -38,6 +39,8 @@
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/graphics_preset.h"
+#include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/world.h"
@@ -57,7 +60,9 @@ struct RendererTestAccess;
 // Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
 // the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`). With the depth pyramid
 // (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
+// MotionVectors (M76) paints the per-pixel motion vectors the prepass writes (direction as hue, magnitude as brightness, grey where no mesh
+// wrote one), over the picture, with the prepass drawn only for it.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -334,7 +339,49 @@ public:
     // Recreates the targets: draw again before capturing.
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
-    void set_render_scale(float scale);
+    // `baseScale` (0: the same as `scale`) is the part of `scale` that does not come from the dynamic resolution (the
+    // player's scale times the upscaler's quality): the temporal upscaler's history is bound to it, not to the size,
+    // so a step of the dynamic resolution (a different `scale` with the same `baseScale`) keeps the history and any
+    // other change of the render size starts it again.
+    void set_render_scale(float scale, float baseScale = 0.0f);
+    // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported()
+    // (D3D11 and OpenGL), every drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms
+    // appends the milliseconds of the frames whose result arrived since the last call (a few frames late, never
+    // waited for) and clears them; nothing while off. Measurement only. The profiler's take_gpu_ms() and this list
+    // each see every result (they do not take each other's). Needs an initialized renderer (before init() the call
+    // does nothing: ask again after it).
+    void set_gpu_frame_timing(bool on);
+    void take_gpu_frame_ms(std::vector<double>& out);
+    // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is
+    // drawn at the lower resolution, brought back to the design size by the upscale stage, and the screen-space items (HUD, UI,
+    // debug text) are drawn over it at the design size, so text stays sharp, unless the post stack would have changed them (a bloom
+    // with PostProcess.bloomScreenSpace true makes them glow): then they stay in the smaller picture and are scaled up with it, as
+    // without the stage. capture() returns the design-size picture, HUD included. Off (the default), set_render_scale only changes the size of every image and of the captures (a screenshot "scale"),
+    // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
+    void set_upscale_stage(bool on);
+    bool upscale_stage() const;
+    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): what the upscale stage draws with. The mode that really draws
+    // is effective_upscaler_mode(): the setting's mode where this backend can draw it, and "stretch" for pixel art (ScaleMode::PixelPerfect,
+    // set_scale_mode) so its hard edges stay. With "spatial" the stage also runs at render scale 1 when the sharpness is above 0 (the
+    // sharpen alone); with "stretch" it never does. The render scale itself is not derived here: the caller sets it (Engine does:
+    // docs/UPSCALING.md, "The render scale").
+    void set_upscaler(const render::UpscalerSettings& settings);
+    const render::UpscalerSettings& upscaler() const;
+    // The quality layer of the graphics presets (fa/render/graphics_preset.h, docs/UPSCALING.md "Graphics presets"): limits the renderer applies
+    // to what the scene, its cameras' PostProcess and its lights ask for, from the next frame on. The default (QualityLimits{}) limits nothing.
+    // Nothing of the scene is changed, so setting the default again brings the game's own look back unchanged; the simulation never reads it.
+    void set_quality(const render::QualityLimits& limits);
+    const render::QualityLimits& quality() const;
+    // The colour space the game target is in now (the last drawn world's SceneSettings.colorSpace; Gamma before the first frame). A caller
+    // that draws a world of its own (the GPU benchmark) gives it this one, so the draw does not make the game's targets again.
+    ColorSpace color_space() const;
+    // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
+    // reason of each (render.supports' status). Changes nothing; needs no frame.
+    render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
+    render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
+    render::UpscalerMode
+    effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised
+    float render_scale() const;       // the scale set by set_render_scale (1 before)
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();

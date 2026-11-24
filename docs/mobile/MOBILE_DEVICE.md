@@ -196,6 +196,16 @@ keyboard instead ([MENUS.md](../MENUS.md), "On-screen keyboard (gamepad players)
   game's thread, which works on the releases known to the author but is not guaranteed by Android. Written against the NDK
   headers and compiled only: it was not run on a device or in the emulator.
 
+### Frame rate and battery: draw fewer pixels
+
+A phone's GPU is the first limit of a 3D game. Three settings of M76 lower the cost without touching the game
+([UPSCALING.md](../UPSCALING.md)): `render.upscaler` with `mode` `auto` and `quality` `balanced` or `performance` draws the game
+at 1/1.7 or 1/2 of the screen size and brings it up with the spatial or temporal upscaler (MetalFX on an iPhone with iOS 16 or later), the HUD and the UI
+staying sharp at the screen's size; `render.dynamicResolution` (`enabled`, `targetMs` 16.7 or 33.3) moves the scale by itself to hold the frame time; and
+`game.graphics.detect()` suggests a preset (a phone or tablet is never above `medium`, a handheld never above `high`), which `game.graphics.preset(name)`
+applies. Call `detect` once from a loading screen (it blocks its frame). The menu kit's options panel has all three for the player. The web build draws the
+same settings with WebGL2 (`spatial`, `temporal`; no MetalFX). A pixel-art game (`pixelPerfect`) always stretches.
+
 ## Web
 
 A game also runs in a browser page: the player is compiled to WebAssembly with Emscripten and draws with WebGL 2

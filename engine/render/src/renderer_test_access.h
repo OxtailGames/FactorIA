@@ -45,6 +45,13 @@ struct Gi2dFieldInfo {
     bool irradianceReady = false, history = false, primed = false;
 };
 
+// The images of the upscale stage that live at the output size (M76 POL-UPSCALE): outTarget (the picture the screen-space items are drawn
+// over), its depth image, outFilterTarget (the colour filter after the items) and the spatial upscaler's target.
+struct OutputTargetsInfo {
+    bool out = false, outDepth = false, filter = false, spatial = false;
+    int outW = 0, outH = 0, outSamples = 0;
+};
+
 }  // namespace render
 
 struct RendererTestAccess {
@@ -63,7 +70,85 @@ struct RendererTestAccess {
     static int hiz_cameras(Renderer& r);
     // The view-projection the renderer keeps of `camera`'s last frame (what motion blur reprojects from); false when it keeps none.
     static bool prev_view_proj(Renderer& r, Entity camera, Mat4& out);
+    // M76: the jittered view-projection and the jitter in render pixels the renderer keeps of `camera`'s last frame (what the temporal
+    // passes resolve their history with); false when it keeps none.
+    static bool prev_jittered(Renderer& r, Entity camera, Mat4& jittered, Vec2& jitterPx);
+    // M76: jitter every camera with `phases` (0 = back to the rule: only a stack with TemporalAA on that the renderer draws), so a test
+    // or the pass that turns TemporalAA on can run the jitter before the effect is drawn.
+    static void force_jitter(Renderer& r, int phases);
+    // M76: every camera asks for the velocity image (as the effects that read it will), and the frame keeps a copy of the last camera's.
+    // read_velocity gives that copy after a frame: `out` = w * h * 4 floats (RGBA, top row first), rg = uvPrev - uvCurr or 1024. False + `error`
+    // when no frame drew one (the GPU makes no RG16F image, or no opaque mesh was drawn).
+    static void force_velocity(Renderer& r, bool on);
+    // Whether the last job the renderer planned (a frame's camera or a capture) asked for the velocity image (PostPlan::needsVelocity).
+    static bool last_job_needs_velocity(Renderer& r);
+    // With several cameras in a frame the probe holds the last one's images; this names the only camera whose images it copies (a null entity: every camera again).
+    static void probe_camera(Renderer& r, Entity camera);
+    // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.
+    static void force_no_velocity_target(Renderer& r, bool on);
+    // M76-P1d: behave as a GPU that cannot sample RGBA32F in the vertex stage (the previous joint palettes cannot be read: skinned draws write the
+    // sentinel, one warning), and as one whose palette image holds only `rows` rows of 1024 texels (a skinned draw takes 192 texels).
+    static void force_no_palette_sampling(Renderer& r, bool on);
+    static void set_palette_row_cap(Renderer& r, int rows);
+    static bool read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
+    // M76-P1d: the same for the reactive mask of the last camera (the first channel of each texel holds the mask, 0..1).
+    static bool read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
+    // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
+    static std::vector<Vec2> last_jitter(Renderer& r);
+    // M76-P4b: the texture LOD bias of the cameras of the last frame (CameraInfo::mipBias), in draw order.
+    static std::vector<float> last_mip_bias(Renderer& r);
     static int ldr_cut_format(Renderer& r);
+    // M76-P2: the temporal antialiasing (renderer_taa.h): the history images alive, whether `camera`'s last resolve blended with its history,
+    // how often a history was started, the format of the histories (sg_pixel_format as an int), whether the renderer gave the effect up, and
+    // 8-bit histories as a GPU without half-float targets has.
+    static int taa_images(Renderer& r);
+    static bool taa_used_history(Renderer& r, Entity camera);
+    static int taa_resets(Renderer& r);
+    static int taa_format(Renderer& r);
+    static bool taa_unavailable(Renderer& r);
+    static bool
+    taa_upscale_unavailable(Renderer& r);  // the upscaler's history was refused (the cameras' flag is taa_unavailable)
+    static void taa_set_budget(Renderer& r,
+                               std::uint64_t bytes);  // the bytes the TAA histories may take together (0: the default)
+    static void taa_force_rgba8(Renderer& r, bool force);
+    // M76 POL-LAST-B: the frames in a row without the stage after which its images are freed.
+    static int output_idle_frames();
+    // M76 POL-UPSCALE: which of the output-size images the renderer holds now (valid, with their depth).
+    static render::OutputTargetsInfo output_targets(Renderer& r);
+    // M76-P4: the temporal upscaler: the jitter phases the last frame asked of its camera (0: the frame was not jittered for it), the
+    // implementation the last frame's upscale stage used (render::UpscaleImpl as an int), and whether its last resolve blended with the history.
+    static int upscale_phases(Renderer& r);
+    static int upscale_impl(Renderer& r);
+    static bool upscale_used_history(Renderer& r);
+    // M76-P5b: MetalFX. mfx_failed: the renderer gave it up (creation or a frame failed); mfx_encoded: frames the scaler encoded since it was
+    // made; mfx_generation: scalers made; mfx_reset: the last MetalFX temporal frame reset the scaler's history. Hooks: the next scaler
+    // creation fails, and the sign of the jitter and of the motion handed to MetalFX (-1 flips it, to show the sign matters).
+    static bool mfx_failed(Renderer& r);
+    static int mfx_encoded(Renderer& r);
+    static int mfx_generation(Renderer& r);
+    static bool mfx_reset(Renderer& r);
+    static void mfx_force_create_failure(Renderer& r, bool fail);
+    static void mfx_signs(Renderer& r, float jitterSign, float motionSign);
+    // M76-P5c: mfx_force_support: what the renderer believes the GPU's MetalFX can do (spatial, temporal), whatever it really can, so the
+    // fallback runs on a Metal GPU that has no MetalFX; mfx_prep_only: a MetalFX frame draws its preparation pass and then the temporal
+    // upscaler, without asking MetalFX anything; mfx_images: how many of the preparation images (depth, motion) are alive; mfx_last_wrote:
+    // the last frame's MetalFX temporal scaler drew; mfx_read_prep: the preparation pass at pixel (x, y) of the render picture, read back
+    // as out = {depth, motion x, motion y} (false + error when the images are not there).
+    static void mfx_force_support(Renderer& r, bool spatial, bool temporal);
+    static void mfx_prep_only(Renderer& r, bool only);
+    // M76 POL-METALFX: the reactive mask of MetalFX. mfx_reactive_enabled: the scaler was made with the mask input (false before the
+    // first MetalFX frame, and on an OS older than macOS 14.4 / iOS 17.4); mfx_reactive_frames: the frames that handed it a mask;
+    // mfx_no_reactive: hand none (the contrast of a test). mfx_scaler_hooks: the scaler's test hooks (metalfx.h, Scaler::TestHooks: the
+    // frames are encoded without any MetalFX work, and/or their command buffers end as failed ones); mfx_wait_signalled: the GPU raised the
+    // event of the last MetalFX frame within `timeoutMs` (false: a buffer that never released the passes after it).
+    static bool mfx_reactive_enabled(Renderer& r);
+    static int mfx_reactive_frames(Renderer& r);
+    static void mfx_no_reactive(Renderer& r, bool none);
+    static void mfx_scaler_hooks(Renderer& r, bool emptyBuffers, bool failBuffers);
+    static bool mfx_wait_signalled(Renderer& r, int timeoutMs);
+    static int mfx_images(Renderer& r);
+    static bool mfx_last_wrote(Renderer& r);
+    static bool mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);
@@ -72,6 +157,7 @@ struct RendererTestAccess {
     static void last_cluster_info(Renderer& r, float out[4]);
     static bool read_floats(Renderer& r, bool present, std::vector<float>& out, std::string* error);
     static void set_before_frame_graph(Renderer& r, std::function<void()> hook);
+    static void inject_gpu_frame_ms(Renderer& r, double ms);
     static render::SkyBuilds sky_builds(Renderer& r);
     static std::uint64_t decal_atlas_bytes(Renderer& r);
     static bool read_probe_atlas(Renderer& r, int x, int y, int w, int h, std::vector<float>& out, std::string* error);
@@ -140,6 +226,10 @@ inline bool renderer_read_floats(Renderer& r, bool present, std::vector<float>& 
 inline void renderer_set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     RendererTestAccess::set_before_frame_graph(r, std::move(hook));
 }
+
+// A GPU frame time the next poll of the timer answers as if the timer had resolved it (the profiler's
+// take_gpu_ms() and the dynamic resolution's take_gpu_frame_ms() each get it once).
+inline void renderer_inject_gpu_frame_ms(Renderer& r, double ms) { RendererTestAccess::inject_gpu_frame_ms(r, ms); }
 
 // The probe atlas (renderer_probes.h): a rectangle of its texels as RGBA floats, top row first (RGBA8 atlas: bytes / 255); the tile of a probe
 // (`id`: the entity's bits; render::kProbeSkyId for the sky's entry); and the next probe GPU objects as an RGBA8 GPU would make them (call before

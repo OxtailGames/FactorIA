@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/render/dynamic_resolution.h"
 #include "fa/runtime/internal/background_loader.h"
 #include "fa/runtime/internal/world_streamer.h"
 #include "fa/core/i18n.h"
@@ -149,8 +150,59 @@ struct Engine::Impl {
     bool pendingKeepProps = false;  // the scene change scheduled for the end of the frame is a reload
     void take_scene_props(bool keepProps);
 
-    double heldScale = 1.0;    // Engine::hold_render_scale: the render scale between captures
-    bool renderStale = false;  // OnDemand: simulated since the last draw
+    double heldScale = 1.0;  // Engine::hold_render_scale: the render scale between captures
+    // window.renderScale was set by the player's option (Engine::set_render_scale) and not as a size by hold_render_scale (--render-scale,
+    // the recorder): then it is combined with the upscaler's quality (apply_render_scale).
+    bool playerScale = false;
+    // The ONE place that decides the render scale the renderer draws at and whether its upscale stage runs: from heldScale, the
+    // upscaler's quality and the mode that really draws (docs/UPSCALING.md, "The render scale"). Called by every change of those.
+    void apply_render_scale();
+    // Dynamic resolution (M76-P6c, docs/UPSCALING.md): the controller, what feeds it and what it last reported. The
+    // factor it gives is the `dynamicScale` that apply_render_scale multiplies in (1 while off, in the editor and for
+    // a scale held as a size).
+    render::DynamicResolutionController dynRes;
+    std::optional<double> injectedFrameMs;  // Engine::set_dynamic_resolution_frame_ms
+    std::optional<double> injectedGpuMs;    // Engine::set_dynamic_resolution_gpu_ms
+    std::uint64_t drawCount = 0;            // frames handed to the renderer (draw())
+    std::uint64_t tickDrawCount = 0;        // drawCount at the last tick that measured
+    const char* dynSource = "none";         // what the last tick measured (DynamicResolutionState::source)
+    std::vector<double> gpuFrameScratch;
+    // What keeps a measurement that says nothing about the new scale or the scene out of the controller (all counted
+    // in frames or in the frames' own dt, never read from a clock): the frames after a change of the scale whose time
+    // is the new images' (kDynSettleFrames), the seconds after a scene load while shaders compile and assets arrive
+    // (kDynFreezeS), and the frames in a row in which the GPU timer gave no result (after kGpuMissFrames the tick
+    // measures the time between frames instead).
+    static constexpr int kDynSettleFrames = 3;
+    static constexpr double kDynFreezeS = 3.0;
+    static constexpr int kGpuMissFrames = 120;
+    int dynSettle = 0;
+    double dynFreezeS = 0.0;
+    int gpuMissFrames = 0;
+    std::optional<render::DynamicResolutionSettings>
+        appliedProjectDynRes;  // the project's render.dynamicResolution last applied
+    float dynamic_factor() const;
+    void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
+    void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)
+    // The display refresh rate a targetMs of 0 follows (M76-P6d, docs/UPSCALING.md, "The display's refresh rate"): the
+    // platform's (asked again every kRefreshPollS seconds of frames, so a move to another monitor is seen), else the
+    // estimate from the time between presented frames while vsync paces them, else kDynamicDefaultRefreshHz. Only a
+    // windowed game outside the editor tracks it; it changes the frame time the controller holds and nothing of the
+    // simulation.
+    static constexpr double kRefreshPollS = 2.0;
+    static constexpr int kRefreshRetryPolls =
+        15;                                   // a given-up estimate starts over after this many polls (30 s of frames)
+    std::optional<double> injectedRefreshHz;  // Engine::set_display_refresh_hz
+    int refreshGaveUpPolls = 0;
+    double refreshHz = 0.0;  // 0: the default
+    const char* refreshSource = "default";
+    render::RefreshRateEstimator refreshEstimator;
+    double refreshPollS = 0.0;
+    bool refreshPolled = false;  // the platform was asked once
+    bool refreshPaced = false;   // the last frame was paced by the display (vsync on, no frame cap, continuous)
+    int refreshDisplayW = 0,
+        refreshDisplayH = 0;                // the display the estimate measures (a move to another one starts it again)
+    void track_display_refresh(double dt);  // once per frame, before dynamic_resolution_tick
+    bool renderStale = false;               // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;
@@ -247,6 +299,18 @@ struct Engine::Impl {
     void apply_project_settings();
     std::optional<UiTooltipSettings> appliedProjectTooltip;  // the project's tooltip delay and look last applied
     std::optional<bool> appliedProjectMirrorRtl;             // the project's ui.mirrorRtl last applied
+    std::optional<render::UpscalerSettings> appliedProjectUpscaler;  // the project's render.upscaler last applied (M76)
+    // The graphics preset (M76-P6a, engine_graphics.cpp): the quality layer the renderer applies. Custom = none.
+    render::GraphicsPreset graphicsPreset = render::GraphicsPreset::Custom;
+    render::QualityLimits
+        graphicsLimits;  // the limits of graphicsPreset after the GPU's caps (the defaults = no limit)
+    // The upscaler the game had before the first preset (Custom puts it back); empty while the preset is Custom.
+    std::optional<render::UpscalerSettings> upscalerBeforePreset;
+    std::optional<render::GraphicsPreset> appliedProjectPreset;  // the project's render.graphicsPreset last applied
+    bool applyingPreset = false;  // a preset is writing the upscaler (not a manual change)
+    // Resolves graphicsPreset on this GPU and hands the limits to the renderer (called when the renderer is created, after the project's
+    // preset was read).
+    void apply_graphics_quality();
     float appliedProjectUiScale = -1.0f;  // the project's ui.scale last applied; -1 before the first time
     // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
     // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.

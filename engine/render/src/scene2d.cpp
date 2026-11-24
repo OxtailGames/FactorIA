@@ -470,6 +470,12 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     notes.pos = m.translation();
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
+    if (!screen)
+        list.set_motion_source(e.bits(),
+                               m);  // M76-P1d: the velocity image follows the sprite's translation, rotation and scale
+    if (s.reactive >= 0.0f)
+        list.set_reactive(
+            s.reactive);  // M76-P1d: the reactive mask instead of the velocity; 0 opts out (even an Additive sprite)
     if (lit) list.set_lit(prep.normal);
     {
         QuadFx fx = prep.fx;
@@ -713,6 +719,7 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
                         clip);
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+    if (!screen) list.set_motion_source(e.bits(), m);  // M76-P1d
     if (s.lit && !screen) {
         list.set_lit(nullptr);
         QuadFx fx;
@@ -825,6 +832,7 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         list.set_fx(item_fx(f, assets, tm.emissive, tm.emissiveIntensity, std::string(), tm.lit, tm.lightLayers));
         // One material for the whole component; the bands below only hold quads that join this item (add_quads_of).
         list.set_material(assets.sprite_material(tm.material, tm.materialParams));
+        list.set_motion_source(e.bits(), m);  // M76-P1d: a map moved by its Transform has its own velocity
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
         Rect view = f.cam.visible;
@@ -1004,7 +1012,7 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         float scale = matrix_scale_x(m);
         float ppu;
         if (screen)
-            ppu = f.renderScale;
+            ppu = f.screenScale;
         else if (f.cam.perspective) {
             float dist = std::max(0.1f, length(m.translation() - f.cam.position));
             ppu = (float(f.targetH) * f.cam.viewport.h * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
@@ -1419,7 +1427,7 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
             tx.color = t.c;
             tx.pivot = {0, 1};
             TextLayout lay =
-                f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
+                f.fonts->layout(tx, t.size, f.screenScale);  // a developer overlay: the text scale does not apply
             f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
             QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}),
                            true,          pack_color(t.c),

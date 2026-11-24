@@ -36,6 +36,8 @@
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
+#include "fa/render/dynamic_resolution.h"
+#include "fa/render/upscaler.h"
 #include "fa/scene/captions.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/world.h"
@@ -61,7 +63,8 @@ struct WindowMonitor {
     std::string name;
     int width = 0, height = 0;  // logical pixels
     bool primary = false;
-    bool current = false;  // the window is on it
+    bool current = false;    // the window is on it
+    double refreshHz = 0.0;  // its refresh rate in Hz (the top of a variable one); 0 = the OS does not say
 };
 
 class WindowControl {
@@ -246,13 +249,73 @@ public:
         if (error) *error = "this host has no renderer";
         return false;
     }
-    // The player's render scale option (`window.renderScale`, 0.5 .. 1): the game target is drawn at design size * scale.
+    // The player's render scale option (`window.renderScale`, 0.33 .. 1): the game target is drawn at design size * scale and brought back to the design size.
     // set_render_scale returns "" when done, else a sentence saying why not. The default only remembers the value, for
     // hosts without a renderer; Engine hands it to the renderer too.
     virtual double render_scale() const { return renderScale_; }
     virtual std::string set_render_scale(double scale) {
         renderScale_ = scale;
         return {};
+    }
+    // The upscaler setting (`window.upscaler`, M76, docs/UPSCALING.md): how the picture drawn at a lower resolution reaches the screen.
+    // set_upscaler takes a partial object ({"mode", "quality", "sharpness"}: the keys present change, the rest stays) and returns ""
+    // when done, else the error sentence (what is wrong, the valid names, a "did you mean"); nothing changes on an error. Engine
+    // also hands the value to the renderer, which draws it (stretch, spatial and temporal today), and works out the render scale it implies; the
+    // default only keeps it, for hosts without a renderer.
+    virtual render::UpscalerSettings upscaler() const { return upscaler_; }
+    // The mode that really draws (what `window.upscaler.effectiveMode` and render.upscaler report): the setting's mode where this backend
+    // can draw it, stretch for pixel art. The default, for hosts without a renderer, is what a GPU would draw for the setting: the same
+    // render::effective_upscaler_mode with upscaler_caps() (pixel art asks for stretch; the default caps say a GPU can draw spatial).
+    virtual render::UpscalerMode effective_upscaler_mode() const {
+        return render::effective_upscaler_mode(upscaler(), upscaler_caps());
+    }
+    // What the display asks for when no renderer decides: pixelArt is true for a pixel-perfect scale mode. Engine overrides it.
+    virtual render::UpscalerCaps upscaler_caps() const { return {}; }
+    // `where` names the caller in the error ("window.upscaler" for a script, "render.upscaler" for the command).
+    virtual std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler") {
+        auto r = render::parse_upscaler_settings(value, where, upscaler_);
+        if (!r.ok()) return r.error().message + " Hint: " + r.error().hint;
+        upscaler_ = r.value();
+        return {};
+    }
+    // The dynamic resolution setting (`window.dynamicResolution`, M76, docs/UPSCALING.md "Dynamic resolution"): the render scale follows the
+    // frame time. set_dynamic_resolution takes a partial object ({"enabled", "targetMs", "minScale", "maxScale"}) and returns "" when done, else
+    // the error sentence; nothing changes on an error. dynamic_resolution_state() is what the controller does now (read-only: the factor in
+    // force, the smoothed frame time, the target in ms and what is measured). Engine runs the controller; the defaults keep the setting and
+    // report the largest scale, for hosts without an engine.
+    virtual render::DynamicResolutionSettings dynamic_resolution() const { return dynamicResolution_; }
+    virtual std::string set_dynamic_resolution(const Json& value,
+                                               const std::string& where = "window.dynamicResolution") {
+        auto r = render::parse_dynamic_resolution_settings(value, where, dynamicResolution_);
+        if (!r.ok()) return r.error().message + " Hint: " + r.error().hint;
+        dynamicResolution_ = r.value();
+        return {};
+    }
+    virtual render::DynamicResolutionState dynamic_resolution_state() const {
+        render::DynamicResolutionState st;
+        st.scale = dynamicResolution_.enabled ? dynamicResolution_.maxScale : 1.0f;
+        // A host without an engine knows no display: st.refreshHz is the default rate (kDynamicDefaultRefreshHz),
+        // source "default".
+        st.targetMs = dynamicResolution_.enabled ? render::dynamic_target_ms(dynamicResolution_, st.refreshHz) : 0.0;
+        return st;
+    }
+    // The graphics presets (`game.graphics`, M76, docs/UPSCALING.md "Graphics presets"). graphics_preset({}) answers
+    // the current preset; graphics_preset({"name": "high"}) applies it and answers what changed ({preset, previous,
+    // changed, changes, limits, capped, upscaler}). graphics_detect() measures the GPU (a short off-screen benchmark)
+    // and answers {preset, reason, gpu, benchmarkMs, ...} without changing anything (game.graphics.detect() leaves
+    // the times out: factoria.js). An error is a sentence (what is wrong, the valid names, a "did you mean") put in
+    // *error, and nothing changes.
+    // The defaults are for hosts without an engine (tests of the script module): no preset can be applied.
+    virtual Json graphics_preset(const Json& args, std::string* error) {
+        if (args.is_object() && args.contains("name")) {
+            if (error) *error = "no renderer in this host: a graphics preset cannot be applied.";
+            return Json();
+        }
+        return Json::object({{"preset", "custom"}});
+    }
+    virtual Json graphics_detect(std::string* error) {
+        if (error) *error = "no renderer in this host: the GPU cannot be measured.";
+        return Json();
     }
     // The device the game runs on (`game.device`): {formFactor: "desktop"|"phone"|"tablet", gpuBackend, memoryGB, tier:
     // "low"|"medium"|"high", steamDeck, handheld}. The default is what headless runs and tests report (fixed, so output never
@@ -320,6 +383,8 @@ private:
     float textScale_ = 1.0f;
     float uiScale_ = 1.0f;
     double renderScale_ = 1.0;
+    render::UpscalerSettings upscaler_;
+    render::DynamicResolutionSettings dynamicResolution_;
     Speech speech_;
     CaptionList captions_;
 };

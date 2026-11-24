@@ -1517,7 +1517,7 @@
       }
       winSet("setMode", 0, mode);
     },
-    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current, refreshHz: m.refreshHz })); },
     get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
     setMonitor(index) {
       if (!Number.isInteger(index) || index < 0) {
@@ -1553,15 +1553,43 @@
       winSet("frameCap", 3, fps);
     },
     // Resolution of the picture as a fraction of the window: 1 (default) draws at full size, 0.5 at half the width and height
-    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. Works in every run with graphics,
-    // headless tests included (game.screenshot then has that size); a run without a renderer only remembers the value.
+    // (a quarter of the pixels) and scales it up, for a "performance" graphics option. The HUD and the UI (screen-space Text,
+    // Sprite, Shape2D, UI widgets) are drawn after the scale-up, at full size, so text stays sharp, unless a bloom with PostProcess.bloomScreenSpace true (the
+    // default) makes the HUD glow and no final pass follows: then it stays in the smaller picture, glow included (bloomScreenSpace
+    // false gives the sharp HUD). 0.33 is the lowest (a third).
+    // Works in every run with graphics, headless tests included (game.screenshot is then the full size picture, HUD included);
+    // a run without a renderer only remembers the value.
     get renderScale() { return N.renderScaleGet(); },
     set renderScale(v) {
-      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.5 || v > 1) {
-        throw new Error(`window.renderScale expects a number from 0.5 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0.33 || v > 1) {
+        throw new Error(`window.renderScale expects a number from 0.33 to 1 (1 = full resolution), e.g. window.renderScale = 0.75, but got ${inspect(v)}`);
       }
       const err = N.renderScaleSet(v);
       if (err) throw new Error(`window.renderScale = ${v}: ${err}`);
+    },
+    // The upscaler (M76, docs/UPSCALING.md): { mode: "stretch" | "spatial" | "temporal" | "metalfx" | "auto", quality: "native" | "quality" |
+    // "balanced" | "performance" | "ultraPerformance", sharpness: 0..1 }. Reading gives the three settings plus effectiveMode (the mode the
+    // renderer draws with: "stretch" or "spatial" today, "stretch" for pixel art) and scale (the quality's share of the output size). Writing
+    // takes any of the three keys; the others stay. The game is drawn at renderScale * scale (never below 0.25).
+    get upscaler() { return N.upscalerGet(); },
+    set upscaler(v) {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error(`window.upscaler expects an object like { mode: "spatial", quality: "balanced", sharpness: 0.5 } (every key is optional), but got ${inspect(v)}`);
+      }
+      const { effectiveMode, scale, dynamicScale, frameMs, ...settings } = v;  // what a read gave back can be written back
+      const err = N.upscalerSet(settings);
+      if (err) throw new Error(`window.upscaler = ${inspect(v)}: ${err}`);
+    },
+    // The dynamic resolution (M76, docs/UPSCALING.md): { enabled, targetMs (0 = the display's refresh), minScale, maxScale } plus, read-only,
+    // effectiveTargetMs, scale (the factor in force), frameMs (the smoothed frame time) and source. Writing takes any of the four keys.
+    get dynamicResolution() { return N.dynamicResolutionGet(); },
+    set dynamicResolution(v) {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) {
+        throw new Error(`window.dynamicResolution expects an object like { enabled: true, targetMs: 16.7, minScale: 0.6, maxScale: 1 } (every key is optional), but got ${inspect(v)}`);
+      }
+      const { effectiveTargetMs, scale, frameMs, source, refreshHz, refreshSource, ...settings } = v;  // what a read gave back can be written back
+      const err = N.dynamicResolutionSet(settings);
+      if (err) throw new Error(`window.dynamicResolution = ${inspect(v)}: ${err}`);
     },
     // supports("frameCap" | "renderScale" | "fullscreen" | "borderless" | "monitors" | "resize" | "clipboard"): whether this run can do it, so an options menu hides what a
     // phone or a test cannot: frameCap, fullscreen and resize need a desktop window (window.available and game.device.formFactor
@@ -2267,6 +2295,32 @@
   };
 
   const APP_EVENTS = ["suspend", "resume", "focus", "blur", "dayChanged", "quit", "gamepadConnected", "gamepadDisconnected", "originShifted"];
+  const graphicsResult = (r) => {
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  };
+  const graphicsApi = Object.freeze({
+    preset(name) {
+      if (name === undefined) return graphicsResult(N.graphicsPreset({}));
+      if (typeof name !== "string") {
+        throw new Error(`game.graphics.preset(name) expects one of "low", "medium", "high", "ultra", "custom", but got ${inspect(name)}`);
+      }
+      return graphicsResult(N.graphicsPreset({ name }));
+    },
+    // What a script reads leaves out the times of the benchmark (benchmarkMs, benchmark.frameMs and totalMs): they differ from machine to
+    // machine and run to run, so a game that branched on one would not play the same twice. The preset, the GPU and the device class
+    // are what a game decides on; the command graphics.detect (tools, MCP) answers the times too.
+    detect() {
+      const { benchmarkMs, benchmark, ...rest } = graphicsResult(N.graphicsDetect());
+      const { frameMs, totalMs, ...bench } = benchmark;
+      // Deeply frozen: the GPU and the device class are objects of their own.
+      const freezeAll = (o) => {
+        if (o !== null && typeof o === "object") for (const k of Object.keys(o)) freezeAll(o[k]);
+        return Object.freeze(o);
+      };
+      return freezeAll({ ...rest, benchmark: bench });
+    },
+  });
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
@@ -2335,6 +2389,10 @@
     // a phone or a tablet }. Headless runs and tests always read
     // { formFactor: "desktop", gpuBackend: "headless", memoryGB: 8, tier: "high", steamDeck: false, handheld: false } (tests change it with game.setDevice).
     get device() { return Object.freeze(N.deviceInfo()); },
+    // The graphics presets (M76, docs/UPSCALING.md "Graphics presets"): preset() reads the current one, preset("high") applies it (low,
+    // medium, high, ultra, custom) and returns what changed; detect() measures the GPU with a short off-screen benchmark and returns the
+    // preset it suggests, changing nothing. A wrong name throws with a "did you mean".
+    get graphics() { return graphicsApi; },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     // The bot hook (docs/SCRIPTING.md, "The bot"): fn(bot) is called once per step by `play.auto` (never by a shipped game, which

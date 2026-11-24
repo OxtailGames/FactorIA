@@ -184,7 +184,7 @@ void install_file_from_repo(const char* repoRelative, const char* projectPath) {
     REQUIRE(fs::write_text(projectPath, text).ok());
 }
 
-void install_materials(bool dropPrepass = false) {
+void install_prepass_materials(bool dropPrepass = false) {
     namespace sfs = std::filesystem;
     const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
     for (const auto& e : sfs::recursive_directory_iterator(src)) {
@@ -203,12 +203,12 @@ void install_materials(bool dropPrepass = false) {
         REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
     }
 }
-struct MaterialScope {
-    explicit MaterialScope(bool dropPrepass = false) {
+struct PrepassMaterialScope {
+    explicit PrepassMaterialScope(bool dropPrepass = false) {
         gfx().renderer.clear_asset_cache();
-        install_materials(dropPrepass);
+        install_prepass_materials(dropPrepass);
     }
-    ~MaterialScope() {
+    ~PrepassMaterialScope() {
         gfx().renderer.set_shader_compiler({});
         gfx().renderer.clear_asset_cache();
     }
@@ -436,7 +436,7 @@ TEST_CASE("prepass: a skinned mesh is drawn at its pose") {
 TEST_CASE("prepass: a material with alphaMode clip cuts the same holes as the main pass") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PrepassMaterialScope scope;
     World plain;
     add_camera(plain, {0, 0, 4});
     add_mesh(plain, "plane", {0, 0, 0}, {3, 1, 3});
@@ -457,7 +457,7 @@ TEST_CASE("prepass: a material with alphaMode clip cuts the same holes as the ma
 TEST_CASE("prepass: a material's vertex() moves the mesh in the prepass as in the main pass") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    MaterialScope scope;
+    PrepassMaterialScope scope;
     World plain;
     add_camera(plain, {0, 0, 8});
     add_mesh(plain, "cube", {0, 0, 0}, {2, 2, 2});
@@ -540,7 +540,7 @@ TEST_CASE("prepass: a custom material twin made before the prepass warns once th
     Gfx& g = gfx();
     REQUIRE(g.ok);
     clear_recent_logs();
-    MaterialScope scope(true);
+    PrepassMaterialScope scope(true);
     World w;
     add_camera(w, {0, 0, 8});
     Entity e = add_mesh(w, "cube", {0, 0, 0}, {2, 2, 2});

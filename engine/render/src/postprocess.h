@@ -26,6 +26,7 @@
 #include "renderer_custom_post.h"
 #include "renderer_dof.h"
 #include "renderer_fog.h"
+#include "renderer_taa.h"
 #include "renderer_volumetric.h"
 #include "subsurface.h"
 #include "transient_targets.h"
@@ -73,6 +74,23 @@ struct PrepassRef {
     // The image inside a pass that has `res` in its reads; null when the pass did not declare it or the target is gone.
     const Target* target(const PassContext& c) const { return valid() ? targets->get(c.handle(res)) : nullptr; }
     static constexpr float kFarDepth = 60000.0f;
+};
+
+// The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md). The
+// depth prepass writes it as its second attachment when PostPlan::needsVelocity (request_velocity()); PostPlan::velocity is invalid when
+// nothing asked or the prepass did not run. What the meshes, instances, terrain, foliage and impostors write is the motion of the object; the
+// skinned meshes (of up to 64 joints, the engine maximum) and custom vertex() materials write it too (M76-P1b); a skin of more than 64 joints holds kNone. The alpha-tested cutout quads of the world (sprites, shapes, tiles, text) write their translation in a
+// pass after the prepass (M76-P1d, "quad-velocity"); a blended or additive quad and a particle write none (they are in PostPlan::reactive). RG16F at the render resolution of the camera's rectangle
+// (the size of the prepass). rg = uvPrev - uvCurr: where the surface drawn at this pixel was on the previous frame's image minus where it is
+// now, in uv units (0..1 over the camera's rectangle, y down), computed from the UNJITTERED matrices (the jitter of the two frames is not part
+// of a motion; the resolve adds it back with PostPlan::jitterNdc / prevJitterNdc). A pixel no object wrote holds kNone in both channels: the
+// resolve then reprojects with the camera alone, from the depth of the prepass and PostPlan::prevViewProj. A pass reads a value only when
+// it is finite and |value| < kValidLimit; the writer clamps a real motion to +-kMaxMotion.
+struct VelocityRef : PrepassRef {
+    static constexpr float kNone = 1024.0f;       // "no object wrote here" (exact in half float)
+    static constexpr float kValidLimit = 512.0f;  // below it a value is a motion, from it up it is the sentinel
+    static constexpr float kMaxMotion = 4.0f;     // a real motion is clamped to this many images
+    static bool is_none(float v) { return !(v < kValidLimit && v > -kValidLimit); }  // also true for NaN
 };
 
 // The ambient occlusion of a camera (PostProcess.ssao*, drawn by renderer_ssao.h) after clamping to the supported ranges.
@@ -133,6 +151,21 @@ struct PostPlan {
     // What the effects the renderer draws read from the prepass (post_effect_needs_depth / _normals of postprocess_resolve.h). The frame
     // draws the prepass when one is true (renderer_draw.cpp, plan_job); `prepass` is then valid for the passes after it.
     bool needsDepth = false, needsNormals = false;
+    // M76: this camera asks for the velocity image (VelocityRef). The prepass then writes the motion vectors into a second attachment (the
+    // frame does it when the GPU can make the image: `velocity` below is valid for the passes after the prepass, invalid otherwise).
+    // Whoever needs it calls request_velocity(): make_post_plan sets needsVelocity (without pinning it) for an effect that reads it
+    // (post_effect_needs_velocity), the renderer calls it for the debug view "motionVectors" and the test hook; a later effect or upscaler that is drawn adds itself to that table.
+    // The velocity image needs the prepass but not the depth or normals it holds: a consumer that reads them asks for those itself.
+    bool needsVelocity = false;
+    // Set by request_velocity(): something other than the temporal antialiasing wants it (the object motion blur, the debug view, the test
+    // hook, the temporal upscaler). make_post_plan sets needsVelocity alone for the temporal antialiasing, so that a frame that cannot resolve
+    // it (a capture) can take the request back (renderer_draw.cpp, plan_job) without taking the others'.
+    bool velocityPinned = false;
+    void request_velocity() { needsVelocity = velocityPinned = true; }
+    // M76-P1d: the reactive mask (`reactive` below) is wanted too: the temporal passes (TemporalAA, the temporal upscaler) call it next to
+    // request_velocity(); the debug view and the test hook ask for the velocity alone.
+    bool needsReactive = false;
+    void request_reactive() { needsReactive = true; }
     std::uint32_t readMask =
         0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;
@@ -151,10 +184,26 @@ struct PostPlan {
     // camera (`prevValid`), so a cut or a new camera never blurs.
     Mat4 prevViewProj;
     bool prevValid = false;
+    // M76, the jitter of the temporal passes (fa/scene/jitter.h). All unjittered / zero while the camera does not jitter (today always).
+    // jitterPx: the sub-pixel shift this frame's picture was drawn with, in render pixels (x right, y down); jitterNdc: the same as an offset
+    // of clip x / w and y / w. prevJitterPx / prevJitterNdc: the shift of the frame `prevViewProj` belongs to (valid with prevValid).
+    // prevJitteredViewProj: that frame's viewProj WITH its jitter, what its history image was drawn with.
+    Vec2 jitterPx{0, 0}, jitterNdc{0, 0};
+    Vec2 prevJitterPx{0, 0}, prevJitterNdc{0, 0};
+    Mat4 prevJitteredViewProj;
+    // The camera's velocity image (VelocityRef), valid for the passes after the pass that writes it; invalid when none does.
+    VelocityRef velocity;
+    // The camera's reactive mask (M76-P1d, R8 at the size of the prepass, 0..1): where the 2D quads of the world that are not an opaque surface
+    // (blended particles, the quads flagged reactive) are, so the temporal resolve trusts the current frame there (taa_resolve lowers the
+    // weight of its history by it). Invalid when nothing asked, the GPU cannot make the image or no quad is reactive in the frame.
+    PrepassRef reactive;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
+    // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has
+    // no TemporalAA, the frame is not one of the game's or the renderer cannot draw it.
+    TaaPlan taa;
     // Distance and height fog and sun shafts of this camera (renderer_fog.h): drawn on the scene colour before depth of field; empty when neither is on.
     FogFxPlan fogFx;
     // The volumetric fog of this camera (renderer_volumetric.h): the march is declared in the camera's own job (it reads the shadow atlas of that job), the apply pass

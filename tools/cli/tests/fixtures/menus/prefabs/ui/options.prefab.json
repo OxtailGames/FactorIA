@@ -234,7 +234,7 @@
             "layout": "column",
             "direction": "auto",
             "align": "start",
-            "spacing": 4
+            "spacing": 3
           }
         },
         "children": [
@@ -244,7 +244,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "Effects quality",
-                "size": [560, 40],
+                "size": [560, 36],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -256,7 +256,7 @@
               "Button": {
                 "autoSize": true,
                 "text": "2D lighting",
-                "size": [560, 40],
+                "size": [560, 36],
                 "layer": 302,
                 "fontSize": 22
               }
@@ -269,8 +269,9 @@
                 "autoSize": true,
                 "label": "Bloom",
                 "key": "options.gfx.bloom",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           },
@@ -281,8 +282,9 @@
                 "autoSize": true,
                 "label": "Film grain",
                 "key": "options.gfx.grain",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           },
@@ -293,8 +295,9 @@
                 "autoSize": true,
                 "label": "Vignette",
                 "key": "options.gfx.vignette",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           },
@@ -305,8 +308,9 @@
                 "autoSize": true,
                 "label": "Chromatic aberration",
                 "key": "options.gfx.chromatic",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           },
@@ -317,8 +321,9 @@
                 "autoSize": true,
                 "label": "Outlines",
                 "key": "options.gfx.outline",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           },
@@ -329,8 +334,22 @@
                 "autoSize": true,
                 "label": "HDR output",
                 "key": "options.gfx.hdr",
-                "size": [560, 40],
-                "layer": 302
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "gfx_page",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Preset and upscaling",
+                "key": "options.gfx.page",
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
@@ -345,6 +364,308 @@
                 "align": "start",
                 "maxWidth": 660,
                 "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "quality_section",
+        "active": false,
+        "components": {
+          "Panel": {
+            "size": [712, 440],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 4
+          }
+        },
+        "children": [
+          {
+            "id": "gfx_preset_label",
+            "components": {
+              "Text": {
+                "text": "Preset",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_presets",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_preset_auto",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Auto",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_preset_low",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Low",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_preset_medium",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Medium",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_preset_high",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "High",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_preset_ultra",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Ultra",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_preset_custom",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Custom",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "gfx_mode_label",
+            "components": {
+              "Text": {
+                "text": "Upscaling",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_modes",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_mode_auto",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Auto",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_stretch",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Stretch",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_spatial",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Spatial",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_temporal",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Temporal",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_metalfx",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "MetalFX",
+                    "size": [72, 36],
+                    "layer": 303,
+                    "fontSize": 18
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "gfx_uq",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Upscaling quality",
+                "size": [560, 36],
+                "layer": 302,
+                "fontSize": 20
+              }
+            }
+          },
+          {
+            "id": "gfx_render_scale",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "Render scale",
+                "min": 0.33,
+                "max": 1,
+                "step": 0,
+                "size": [560, 36],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_sharpness",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "Sharpness",
+                "min": 0,
+                "max": 1,
+                "step": 0,
+                "size": [560, 36],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_dynamic_slot",
+            "components": {
+              "Panel": {
+                "size": [560, 36],
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_dynamic",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Dynamic resolution",
+                    "size": [560, 36],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "quality_note",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_page_back",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Screen effects",
+                "key": "options.gfx.pageBack",
+                "size": [560, 40],
+                "layer": 302,
+                "fontSize": 20
               }
             }
           }

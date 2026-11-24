@@ -48,6 +48,8 @@ public:
         const OcclusionBuffer* occlusion =
             nullptr;  // this camera's CPU depth buffer (null: no Occluder, nothing is tested)
         std::size_t maxItems = kFoliageMaxItems;  // the cap of items for this camera (tests lower it)
+        float density = 1.0f;   // the graphics preset's factor on Foliage.density (QualityLimits.foliageDensity)
+        float distance = 1.0f;  // ... and on lodDistance, fadeStart and fadeEnd (foliageDistance)
     };
     struct Counts {
         int entities = 0;  // Foliage entities with instances ready to draw
