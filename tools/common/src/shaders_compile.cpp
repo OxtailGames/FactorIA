@@ -1289,8 +1289,8 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     if (res.material.kind == "compute" || !res.material.buffers.empty()) {
         // No glsl300es twin: GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex stage.
         std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
-        if (options.dialects
-                .empty()) {  // "every dialect" means every dialect the kind has (spirv_vk only when asked for)
+        // "Every dialect" means every dialect the kind has (spirv_vk only when asked for).
+        if (options.dialects.empty()) {
             res.dialects = has;
         } else {
             has.push_back(kShaderDialectVulkan);  // SPIR-V has compute and storage buffers

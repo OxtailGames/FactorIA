@@ -5,7 +5,9 @@
 // binding numbers, and the entry points. It needs no GPU.
 #include <doctest.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 #define SOKOL_VULKAN
 #include "sokol_gfx.h"
@@ -44,8 +46,8 @@ TEST_CASE("spirv: the blit program has SPIR-V for both stages and the set and bi
     CHECK(desc->uniform_blocks[1].spirv_set0_binding_n == 1);
     CHECK(desc->views[0].texture.spirv_set1_binding_n == 0);
     CHECK(desc->samplers[0].spirv_set1_binding_n == 32);
-    // Another backend gets no Vulkan description.
-    CHECK(blit_blit_shader_desc(SG_BACKEND_GLCORE) == nullptr);
+    // A backend the generated code has no dialect for gets no description (not GLCORE: a Linux build compiles that one).
+    CHECK(blit_blit_shader_desc(SG_BACKEND_DUMMY) == nullptr);
 }
 
 TEST_CASE("spirv: the Hi-Z compute program has a compute module") {
