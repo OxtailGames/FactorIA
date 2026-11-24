@@ -65,7 +65,7 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
     list.end_pass();
     gpu.commit_frame();
     gpu.note_commit();
-    return render::readback_rgba16f(gpu::to_sg(floatTarget.color), fw, fh, out, error);
+    return render::result_ok(gpu.device().read_image_rgba16f(floatTarget.color, fw, fh, out), error);
 }
 
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {

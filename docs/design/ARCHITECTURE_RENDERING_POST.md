@@ -249,7 +249,7 @@ each.
   also has to be explicit in the GPU order is Metal's contract, and a failed buffer, which does not signal, signals from its completion
   handler so the queue cannot stall. The exact mechanism of the race was not isolated, so the test is what guards it. `encode` has no CPU wait of its own (taking sokol's buffer of the later passes at once can take sokol's frame semaphore, which only moves that wait earlier in the frame).
   The price of taking the later buffer at once: it is open and uncommitted after `encode`, and a command buffer queued behind it (a read back with
-  its own buffer, `readback_rgba8`) would wait for it for ever, so `metalfx_upscale` calls `Gpu::note_work()` (a read back commits first) and the
+  its own buffer, `Device::read_image_rgba8`) would wait for it for ever, so `metalfx_upscale` calls `Gpu::note_work()` (a read back commits first) and the
   wrapper tests `sg_commit()` before they read back.
 - **Failure and clean-up.** A MetalFX command buffer finishes on another thread: its completion handler sets an atomic flag (and keeps the
   message under a mutex) in a status shared with the scaler (`Scaler::command_failed`); `metalfx_upscale` reads it at the start of the next

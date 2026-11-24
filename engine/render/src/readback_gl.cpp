@@ -1,5 +1,7 @@
-// OpenGL / GLES3 readback of an RGBA8 render target through a temporary FBO.
-#include "render_internal.h"
+// OpenGL / GLES3 readback (gpu/sokol_native.h): a render target through a temporary FBO, a storage buffer with
+// glGetBufferSubData. The GL names come from the Device's natives; after its own GL calls each read tells the device to
+// forget its cached GL state (Device::reset_state_cache).
+#include "gpu/sokol_native.h"
 
 #if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
 
@@ -13,11 +15,13 @@
 #include <GL/glext.h>
 #endif
 
-namespace fa::render {
+#include "gpu/device.h"
 
-bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error) {
-    sg_gl_image_info info = sg_gl_query_image_info(image);
-    GLuint tex = info.tex[info.active_slot];
+namespace fa::gpu {
+
+bool native_read_image_rgba8(Device& device, Image image, int width, int height, std::vector<std::uint8_t>& out,
+                             std::string* error) {
+    const GLuint tex = device.native_image(image).glTexture;
     if (!tex) {
         if (error) *error = "capture: the game target has no GL texture (renderer not initialized?)";
         return false;
@@ -42,13 +46,13 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     }
     glBindFramebuffer(GL_FRAMEBUFFER, GLuint(prevFbo));
     glDeleteFramebuffers(1, &fbo);
-    sg_reset_state_cache();
+    device.reset_state_cache();
     return ok;
 }
 
-bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error) {
-    sg_gl_image_info info = sg_gl_query_image_info(image);
-    GLuint tex = info.tex[info.active_slot];
+bool native_read_image_rgba16f(Device& device, Image image, int width, int height, std::vector<float>& out,
+                               std::string* error) {
+    const GLuint tex = device.native_image(image).glTexture;
     if (!tex) {
         if (error) *error = "readback: the image has no GL texture";
         return false;
@@ -82,32 +86,31 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     }
     glBindFramebuffer(GL_FRAMEBUFFER, GLuint(prevFbo));
     glDeleteFramebuffers(1, &fbo);
-    sg_reset_state_cache();
+    device.reset_state_cache();
     return ok;
 }
 
-bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
-                            std::vector<std::uint8_t>& out, std::string* error) {
+bool native_read_storage_image(Device& device, Image image, PixelFormat format, int x, int y, int width, int height,
+                               std::vector<std::uint8_t>& out, std::string* error) {
 #if defined(SOKOL_GLES3)
-    (void)image, (void)format, (void)x, (void)y, (void)width, (void)height, (void)out;
+    (void)device, (void)image, (void)format, (void)x, (void)y, (void)width, (void)height, (void)out;
     if (error) *error = "readback: GLES3 has no storage images (compute shaders need desktop OpenGL 4.3)";
     return false;
 #else
-    const sg_gl_image_info info = sg_gl_query_image_info(image);
-    const GLuint tex = info.tex[info.active_slot];
+    const GLuint tex = device.native_image(image).glTexture;
     if (!tex) {
         if (error) *error = "readback: the storage image has no GL texture";
         return false;
     }
-    const std::size_t pixel = std::size_t(sg_query_pixelformat(format).bytes_per_pixel);
+    const std::size_t pixel = std::size_t(pixel_format_bytes(format));
     GLenum glFormat = GL_RGBA, glType = GL_UNSIGNED_BYTE;
     switch (format) {
-        case SG_PIXELFORMAT_RGBA16F: glType = GL_HALF_FLOAT; break;
-        case SG_PIXELFORMAT_R32F:
+        case PixelFormat::Rgba16F: glType = GL_HALF_FLOAT; break;
+        case PixelFormat::R32F:
             glFormat = GL_RED;
             glType = GL_FLOAT;
             break;
-        case SG_PIXELFORMAT_RGBA32F: glType = GL_FLOAT; break;
+        case PixelFormat::Rgba32F: glType = GL_FLOAT; break;
         default: break;
     }
     if (pixel == 0 || x < 0 || y < 0 || width < 1 || height < 1) {
@@ -126,7 +129,7 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
     glBindTexture(GL_TEXTURE_2D, GLuint(prevTex));
     if (std::int64_t(x) + width > w ||
         std::int64_t(y) + height > h) {  // a buffer sized for the rectangle must not be overrun
-        sg_reset_state_cache();
+        device.reset_state_cache();
         if (error) *error = "readback: the rectangle is outside the storage image";
         return false;
     }
@@ -163,14 +166,14 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
                 std::memcpy(&out[std::size_t(r) * row],
                             &whole[(std::size_t(y + r) * std::size_t(w) + std::size_t(x)) * pixel], row);
     }
-    sg_reset_state_cache();
+    device.reset_state_cache();
     if (!done && error) *error = "readback: the GL driver refused to read the storage image back";
     return done;
 #endif
 }
 
-bool storage_image_loadable(sg_pixel_format format, std::string* why) {
-    (void)format;
+bool native_storage_image_loadable(const Device& device, PixelFormat format, std::string* why) {
+    (void)device, (void)format;
     // Desktop OpenGL 4.3 loads every format the shader declares with a layout qualifier (the engine always writes one);
     // GLES3 has no storage images at all, so no material reaches this.
     if (why) why->clear();
@@ -182,15 +185,14 @@ bool storage_image_loadable(sg_pixel_format format, std::string* why) {
 #endif
 }
 
-bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
-                     std::string* error) {
+bool native_read_buffer(Device& device, Buffer buffer, std::size_t offset, std::size_t bytes,
+                        std::vector<std::uint8_t>& out, std::string* error) {
 #if defined(SOKOL_GLES3)
-    (void)buffer, (void)offset, (void)bytes, (void)out;
+    (void)device, (void)buffer, (void)offset, (void)bytes, (void)out;
     if (error) *error = "readback: GLES3 has no storage buffers (compute shaders need desktop OpenGL 4.3)";
     return false;
 #else
-    const sg_gl_buffer_info info = sg_gl_query_buffer_info(buffer);
-    const GLuint buf = info.buf[info.active_slot];
+    const GLuint buf = device.native_buffer(buffer).glBuffer;
     if (!buf) {
         if (error) *error = "readback: the storage buffer has no GL buffer";
         return false;
@@ -204,7 +206,7 @@ bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, st
     glGetBufferSubData(GL_COPY_READ_BUFFER, GLintptr(offset), GLsizeiptr(bytes), out.data());
     const bool ok = glGetError() == GL_NO_ERROR;
     glBindBuffer(GL_COPY_READ_BUFFER, 0);
-    sg_reset_state_cache();
+    device.reset_state_cache();
     if (!ok && error) *error = "readback: the GL driver refused to read the storage buffer back";
     return ok;
 #endif
@@ -233,7 +235,7 @@ struct AsyncBufferRead::Impl {
 #endif
 };
 
-AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::AsyncBufferRead(Device& device) : device_(device), impl_(std::make_unique<Impl>()) {}
 AsyncBufferRead::~AsyncBufferRead() {
 #if !defined(SOKOL_GLES3)
     for (Impl::Slot& s : impl_->slots) {
@@ -245,7 +247,8 @@ AsyncBufferRead::~AsyncBufferRead() {
 
 #if defined(SOKOL_GLES3)
 bool AsyncBufferRead::supported() { return false; }
-int AsyncBufferRead::request(sg_buffer, std::size_t, std::string* error) {
+int AsyncBufferRead::request(Buffer, std::size_t, std::string* error) {
+    (void)device_;
     if (error) *error = "readback: GLES3 has no storage buffers (compute shaders need desktop OpenGL 4.3)";
     return -1;
 }
@@ -254,15 +257,14 @@ void AsyncBufferRead::release(int) {}
 #else
 bool AsyncBufferRead::supported() { return true; }
 
-int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+int AsyncBufferRead::request(Buffer buffer, std::size_t bytes, std::string* error) {
     for (Impl::Slot& s : impl_->slots)
         if (s.state == Impl::State::Discard && Impl::signalled(s, 0)) Impl::free_fence(s);
     int slot = -1;
     for (int i = 0; i < kSlots && slot < 0; ++i)
         if (impl_->slots[i].state == Impl::State::Free) slot = i;
     if (slot < 0) return -1;
-    const sg_gl_buffer_info info = sg_gl_query_buffer_info(buffer);
-    const GLuint src = info.buf[info.active_slot];
+    const GLuint src = device_.native_buffer(buffer).glBuffer;
     if (!src || bytes == 0) {
         if (error) *error = "readback: the storage buffer has no GL buffer";
         return -1;
@@ -284,7 +286,7 @@ int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* e
     glFlush();
     glBindBuffer(GL_COPY_READ_BUFFER, 0);
     glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-    sg_reset_state_cache();
+    device_.reset_state_cache();
     if (glGetError() != GL_NO_ERROR || !s.fence) {
         if (s.fence) glDeleteSync(s.fence);
         s.fence = nullptr;
@@ -306,7 +308,7 @@ bool AsyncBufferRead::poll(int slot, std::vector<std::uint8_t>& out, bool wait) 
     glGetBufferSubData(GL_COPY_READ_BUFFER, 0, GLsizeiptr(s.bytes), out.data());
     const bool ok = glGetError() == GL_NO_ERROR;
     glBindBuffer(GL_COPY_READ_BUFFER, 0);
-    sg_reset_state_cache();
+    device_.reset_state_cache();
     Impl::free_fence(s);
     return ok;
 }
@@ -318,6 +320,6 @@ void AsyncBufferRead::release(int slot) {
 }
 #endif
 
-}  // namespace fa::render
+}  // namespace fa::gpu
 
 #endif

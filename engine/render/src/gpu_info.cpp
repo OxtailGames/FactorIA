@@ -26,7 +26,7 @@
 
 #if defined(SOKOL_METAL)
 namespace fa::render {
-bool gpu_info_metal(GpuInfo& info);  // gpu_info_metal.mm
+bool gpu_info_metal(const void* mtlDevice, GpuInfo& info);  // gpu_info_metal.mm
 }
 #endif
 
@@ -110,12 +110,13 @@ std::string wide_to_utf8(const wchar_t* w) {
 }  // namespace
 #endif
 
-GpuInfo query_gpu_info() {
+GpuInfo query_gpu_info(gpu::Device& device) {
     GpuInfo info;
-    if (!sg_isvalid()) return info;  // no graphics device: backend "none"
-    info.backend = Renderer::backend_name();
+    info.backend.clear();  // Renderer::gpu_info() names it
+    const gpu::Backend backend = device.backend();
 #if defined(SOKOL_D3D11)
-    if (ID3D11Device* dev = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()))) {
+    if (backend != gpu::Backend::D3d11) return info;
+    if (ID3D11Device* dev = static_cast<ID3D11Device*>(const_cast<void*>(device.native().device))) {
         IDXGIDevice* dxgiDevice = nullptr;
         if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice))) &&
             dxgiDevice) {
@@ -140,6 +141,7 @@ GpuInfo query_gpu_info() {
     }
     classify_gpu(info);
 #elif defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+    if (backend != gpu::Backend::Gl && backend != gpu::Backend::Gles3 && backend != gpu::Backend::WebGl2) return info;
     const auto str = [](GLenum e) {
         const GLubyte* s = glGetString(e);
         return s ? std::string(reinterpret_cast<const char*>(s)) : std::string();
@@ -173,9 +175,11 @@ GpuInfo query_gpu_info() {
     }  // an extension query must leave no error for the frame that follows (a lost context repeats one for ever: 16 at most)
 #endif
     classify_gpu(info, vendorString);
-    sg_reset_state_cache();
+    device.reset_state_cache();
 #elif defined(SOKOL_METAL)
-    if (gpu_info_metal(info)) classify_gpu(info);
+    if (backend == gpu::Backend::Metal && gpu_info_metal(device.native().device, info)) classify_gpu(info);
+#else
+    (void)backend;
 #endif
     return info;
 }

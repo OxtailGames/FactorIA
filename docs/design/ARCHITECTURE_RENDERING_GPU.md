@@ -41,7 +41,8 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - the frame: `begin_commands(label)`, `submit(list)`, `commit()`, `frame_index()`, commit listeners,
   `reset_state_cache()`;
 - statistics (`enable_stats`, `total_stats`), GPU timers (`timer_*`), readbacks (`read_image_rgba8`,
-  `read_image_rgba16f`, `read_storage_image`, `read_buffer`) and asynchronous buffer reads (`request_buffer_read`,
+  `read_image_rgba16f`, `read_storage_image`, `read_buffer`), `storage_image_loadable(format, why)` (whether a compute
+  shader may load a storage image of that format: `"access": "readwrite"`) and asynchronous buffer reads (`request_buffer_read`,
   `poll_buffer_read`, `release_buffer_read`).
 
 **CommandList** records one thread's part of a frame:
@@ -131,7 +132,10 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
   `PassDesc::for_swapchain` with the defaults of the open sokol context (a test checks every field).
 - `SokolDevice::create` adopts the sokol context that is open (the renderer's; left open at destruction) or opens one
   from `DeviceInit` (and shuts it down at destruction). `frame_index()` counts commits through a commit listener.
-- Timers and readbacks forward to the renderer's `GpuTimer`, `readback_*.cpp/.mm` and `AsyncBufferRead`.
+- Timers forward to the renderer's `GpuTimer`. Readbacks, `storage_image_loadable`, the asynchronous reads' rings
+  (`gpu::AsyncBufferRead`) and the GLES fix of a new image's mip range forward to the `native_*` functions of
+  gpu/sokol_native.h, which the per-backend files implement over `native()`, `native_image()` and `native_buffer()`
+  (readback_metal.mm, readback_d3d11.cpp, readback_gl.cpp, image_gl.cpp): they hold no sokol call.
 - Asynchronous reads come from a pool of up to 8 `AsyncBufferRead` rings of 4 slots each, made lazily (a ticket's slot is
   ring * 4 + slot): the Hi-Z cull of up to 8 cameras keeps 4 reads in flight each. A request takes the first ring with a
   free slot; when all 32 are busy it returns an invalid ticket without an error.
@@ -198,8 +202,14 @@ frame 0 commit
 
 By default it reports a desktop GPU with compute (`DeviceInit::recordingDefaultCaps`); with that flag false it
 reports exactly `recordingFeatures` and `recordingLimits`, so a test can describe a GLES3-class device. It has no GPU
-memory and no clock: readbacks and asynchronous reads fail with a hint, and `timer_supported()` is false with a
-reason (the timed scopes are still recorded).
+memory and no clock, so its readbacks give a deterministic answer: a read a GPU would accept returns zeros of the size
+it asked for and is recorded in the stream (`read_image_rgba8 image 'ldr' 0 0 16x8`, `read_buffer buffer 'hiz' 8 16`;
+`CommandKind::ReadImage` / `ReadBuffer`, no list); one it would refuse (a dead handle, a format the read does not take,
+a rectangle or range outside the resource, a storage read without compute) fails with a teaching error and records
+nothing; a read while a list is still recording or was submitted but not committed reports to `errors()` (a GPU would
+not have run that work yet) and still answers. `storage_image_loadable` is true for RGBA8, RGBA16F, R32F and RGBA32F
+when the device has compute. Asynchronous reads stay unsupported (`async_read_supported()` false; a request fails with
+a hint), and `timer_supported()` is false with a reason (the timed scopes are still recorded).
 
 ## How the next packages migrate
 
@@ -284,10 +294,10 @@ uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp,
 renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
 `note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
 `begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
-those files: the context lifecycle (before any device exists), the readbacks. A pass opened on its
+those files: the context lifecycle (before any device exists), the readbacks (P5d2 moved them behind the Device). A pass opened on its
 own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
 state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
-the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files. The 3D light and environment passes
+the sokol backend's own timer (the D3D11 device calls). The 3D light and environment passes
 (M77-P4b): renderer_env (the sky cube and its prefilter), renderer_sky_phys, renderer_subsurface, renderer_fog,
 renderer_volumetric, renderer_xmit (transmission), renderer_hdri and the read-back commits of renderer_probes. Each of
 those classes makes its shaders, pipelines, images and samplers on `gpu.device()` and remembers the device in `ready()`
@@ -304,7 +314,7 @@ P5a: the render targets and formats are interface types. `Target` holds `gpu::Im
 device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
 `velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
 (`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
-`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the readbacks and the
+`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges until P5d2: the readbacks and the
 storage-image helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
 P5b: the asset and material types are interface types. `TextureAsset` and `LutAsset` hold a `gpu::Image` / `gpu::View`
 and a `gpu::PixelFormat`, `SubMesh` its `gpu::Buffer`s, `MaterialProgram` a `gpu::Shader`; ktx2.cpp picks the target
@@ -314,7 +324,7 @@ backend the reflection names (hlsl register, msl index, wgsl and spir-v group an
 `make_material_program` creates it with `gpu.device().make_shader`. The sokol overloads of `make_shader`
 (shader_cache_sg.cpp) and `feature_env_from_sokol` (render_features_sg.cpp) are deleted: nothing called them. Draws
 bind the interface handles as they are; `draw_group` no longer converts its bindings twice. The files of this list
-call no `from_sg` any more; `to_sg` is left only in front of the sokol-only readbacks and storage-image helpers.
+call no `from_sg` any more; `to_sg` was left only in front of the sokol-only readbacks and storage-image helpers (gone in P5d2).
 
 ## P5c: native_metal and the 2D painter
 
@@ -365,8 +375,25 @@ passes pass `gpu` (or `gpu.device()`) down from `Renderer::Impl`, and a caller t
 `Gpu::begin_pass` / `end_pass` / `in_pass` / `pass_format` functions are members of the Gpu that owns the list they
 record on; `begin_compute_pass` / `end_compute_pass` had no caller and went. `Renderer::begin_window_pass` and
 `end_window_pass` use `gpu::begin_context_pass` / `end_context_pass`, which need no Gpu. Still on sokol after P5d1: the
-readbacks, the storage-image helpers and `sg_bridge.h` (P5d2), and the context lifecycle (`open_context`, `close_context`,
-`commit_context`).
+readbacks, the storage-image helpers (P5d2), `sg_bridge.h` (P5d3), and the context lifecycle (`open_context`,
+`close_context`, `commit_context`).
+
+**P5d2: readbacks and queries through the device.** The renderer reads pixels and buffers only with the Device's
+`read_image_rgba8`, `read_image_rgba16f`, `read_storage_image` and `read_buffer` (capture, the HDR and probe reads, the
+2D GI fields, the MetalFX probe; `result_ok(result, error)` in render_internal.h turns a `Result<void>` into the
+renderer's bool + sentence); `render::readback_*`, `render::AsyncBufferRead` and `render::storage_image_loadable` are
+gone. The per-backend files (readback_metal.mm, readback_d3d11.cpp, readback_gl.cpp) now implement the `native_*`
+functions of gpu/sokol_native.h over the Device's natives (`native()`, `native_image()` with the GL texture of every
+frame slot in `NativeImage::glTextures`, `native_buffer()`), and `gpu::AsyncBufferRead` keeps the Device it reads
+from: none of them calls sokol. `Device::storage_image_loadable(format, why)` is a new virtual (compute.cpp asks it
+for `"access": "readwrite"`); its base answer is false with a sentence that names the backend, so D3d12Device and
+VulkanDevice compile unchanged until they answer it. `make_image` of a SokolDevice applies the GLES mip-range fix
+itself (`native_finish_image`, image_gl.cpp), so cube and array images need no helper of their own. The adapter
+query is `Renderer::gpu_info()` (public): `render::query_gpu_info(device)` reads the D3D11 adapter, the GL strings or
+the Metal device through `native()`, and the gi2d read commits with `Gpu::commit_frame()`. RecordingDevice answers the
+reads deterministically (see "RecordingDevice"). Still on sokol after P5d2: `sg_bridge.h` and `bridged::` (P5d3), the
+context lifecycle (renderer.cpp), gpu_timer.cpp (the sokol backend's own timer) and `native_window_handles` /
+`UiPainter::create` (ui_painter.cpp: `sg_isvalid` and the context's native queue and device).
 
 ## How to convert an sg_* call site
 
@@ -397,6 +424,8 @@ readbacks, the storage-image helpers and `sg_bridge.h` (P5d2), and the context l
 | `GpuTimer` | `timer_supported`, `timer_begin_frame`, `begin_timed_scope` / `end_timed_scope` on the list, `timer_poll` |
 | `readback_rgba8`, `readback_rgba16f`, `readback_storage_image`, `readback_buffer` | `read_image_rgba8`, `read_image_rgba16f`, `read_storage_image`, `read_buffer` |
 | `AsyncBufferRead` | `async_read_supported`, `request_buffer_read`, `poll_buffer_read`, `release_buffer_read` |
+| `storage_image_loadable(format, why)` (render_internal.h) | `device.storage_image_loadable(format, why)` |
+| `render::query_gpu_info()` | `Renderer::gpu_info()` (the renderer's device; private: `render::query_gpu_info(device)`) |
 
 A test of the converted code makes a `RecordingDevice` and asserts on `errors()` (empty) and on `stream_text()`; a
 test that needs pixels keeps the GPU fixture (`fa::test::gfx()`) and reads through the `SokolDevice`.

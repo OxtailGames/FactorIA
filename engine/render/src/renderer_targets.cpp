@@ -628,7 +628,7 @@ bool Renderer::Impl::read_rgba8(gpu::Image image, gpu::View view, int w, int h, 
                                 std::string* error, bool premultiplied, bool displayValues) {
     const gpu::PixelFormat sf = gpu.scene_format();
     if ((sf == gpu::PixelFormat::Rgba8 && !gpu.linear()) || (sf == gpu::PixelFormat::Srgb8A8 && !premultiplied))
-        return readback_rgba8(gpu::to_sg(image), w, h, out, error);
+        return render::result_ok(gpu.device().read_image_rgba8(image, w, h, out), error);
     if (!readbackTarget.color.id || readW != w || readH != h) {
         free_read_image();
         TargetDesc d;
@@ -673,7 +673,7 @@ bool Renderer::Impl::read_rgba8(gpu::Image image, gpu::View view, int w, int h, 
     // The read-back waits for the GPU and on Metal only a commit submits the copy (see Renderer::capture()).
     gpu.commit_frame();
     gpu.note_commit();
-    return readback_rgba8(gpu::to_sg(readbackTarget.color), w, h, out, error);
+    return render::result_ok(gpu.device().read_image_rgba8(readbackTarget.color, w, h, out), error);
 }
 
 // Makes (or keeps) the shadow atlas, at least `width` x `height` texels (the part of the atlas the frame's layout uses). False when the

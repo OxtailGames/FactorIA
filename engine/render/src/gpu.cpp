@@ -1362,7 +1362,7 @@ Gpu::LightImage Gpu::fill_light_image(LightImg& l, int rows, const float* texels
         d.height = rows;
         d.pixelFormat = gpu::PixelFormat::Rgba32F;
         d.label = "light-data";
-        l.image = device_->make_image(d);  // through render::make_image and its per-backend fixes
+        l.image = device_->make_image(d);  // SokolDevice applies the per-backend fixes (native_finish_image)
         gpu::ViewDesc vd{};
         vd.texture.image = l.image;
         vd.label = "light-data";

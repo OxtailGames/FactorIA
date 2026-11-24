@@ -322,6 +322,6 @@ private:
 
 // Reads a field's image back as floats, texture row 0 first (the smallest world y), 4 floats per texel. False + `error` when the GPU
 // cannot. The work recorded so far must have been committed by the caller.
-bool gi2d_read(const Target& t, bool isGl, std::vector<float>& out, std::string* error);
+bool gi2d_read(gpu::Device& device, const Target& t, bool isGl, std::vector<float>& out, std::string* error);
 
 }  // namespace fa::render

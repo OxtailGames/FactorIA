@@ -40,6 +40,9 @@ enum class CommandKind : std::uint8_t {
     BeginTimedScope,
     EndTimedScope,
     Commit,
+    // Device-level reads (no list: recorded when the device is asked, between the frames' commands).
+    ReadImage,   // read_image_rgba8 / read_image_rgba16f / read_storage_image: id the image, args x, y, width, height
+    ReadBuffer,  // read_buffer: id the buffer, args offset, bytes (each clamped to INT_MAX)
 };
 
 // The snake_case name of a command kind ("begin_pass"), as stream_text() prints it.
@@ -49,7 +52,7 @@ const char* command_kind_name(CommandKind kind);
 struct RecordedCommand {
     CommandKind kind = CommandKind::Commit;
     std::uint64_t frame = 0;  // Device::frame_index() when it was submitted (a Commit: the frame it ended)
-    std::string list;         // the label of the command list ("" for a Commit)
+    std::string list;         // the label of the command list ("" for a Commit and the device-level reads)
     std::uint32_t id = 0;     // the handle it names: the pipeline, the written or copied-to resource; 0 otherwise
     // Its numbers: draw (base, count, instances, baseVertex, baseInstance), dispatch (x, y, z), viewport and scissor
     // (x, y, width, height; fractional viewports rounded), uniforms (slot, bytes), writes and copies (bytes),
@@ -195,13 +198,19 @@ public:
     std::vector<ScopeTime> timer_last_scopes() const override { return {}; }
     void timer_forget() override {}
 
-    // No GPU memory: every readback fails with a hint (the handles are checked first).
+    // No GPU memory, so a deterministic answer: a read that a real device would accept returns zeros of the size it
+    // asked for and is recorded in the stream (ReadImage, ReadBuffer); one it would refuse (a dead handle, a format the
+    // read does not take, a rectangle or range outside the resource) fails with the teaching error. Work submitted but
+    // not committed yet (the read would see stale contents on a GPU) goes to errors(); the read still answers.
     Result<void> read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) override;
     Result<void> read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) override;
     Result<void> read_storage_image(Image image, PixelFormat format, int x, int y, int width, int height,
                                     std::vector<std::uint8_t>& out) override;
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
+    // What a desktop GPU with compute loads: the four storage formats when features().compute; false + why otherwise.
+    bool storage_image_loadable(PixelFormat format, std::string* why) const override;
+    // The background reads stay unsupported (no frames in flight to wait for): request_buffer_read fails with a hint.
     bool async_read_supported() const override { return false; }
     Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) override;
     bool poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) override { return false; }
@@ -215,6 +224,12 @@ private:
     void report_locked(std::string message);
     // A message for a misuse outside any command list ("gpu: make_view 'shadow map': ... Fix: ..."); mutex_ is held.
     void fail_locked(const char* call, const char* label, const std::string& what, const std::string& fix);
+    // The checks and the record of a device-level read of an image (`format` None = any 4-byte colour format; `storage`
+    // = the image must be a storage image of exactly `format`); the bytes it answers are the caller's. mutex_ is held.
+    Result<void> read_image_locked(const char* call, Image image, PixelFormat format, bool storage, int x, int y,
+                                   int width, int height);
+    // Reports (errors()) a read while work recorded or submitted since the last commit() would not be on the GPU yet.
+    void check_committed_locked(const char* call);
 
     DeviceInfo info_{};
     Features features_{};

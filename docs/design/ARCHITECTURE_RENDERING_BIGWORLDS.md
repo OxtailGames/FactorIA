@@ -30,7 +30,7 @@ in `ctx.hiz`; `plan_prepass` then forces the camera's depth and normal prepass (
 depth; it costs a second draw of the opaque meshes) and `build_graph` declares a side-effect pass `hiz-reduce` right after it: a compute
 pass of one thread per cell turns the prepass image into 256 x (256 / aspect) cells of (nearest, farthest) view depth in a storage buffer
 (a pixel with no mesh counts as no depth, so only a fully covered cell occludes).
-The read-back never waits (`render::AsyncBufferRead`, render_internal.h: a ring of 4 staging slots per camera; Metal a blit into a shared
+The read-back never waits (`gpu::AsyncBufferRead` behind `Device::request_buffer_read`, gpu/sokol_native.h: a ring of 4 staging slots per camera; Metal a blit into a shared
 buffer, OpenGL 4.3 `glCopyBufferSubData` + fence, D3D11 a STAGING copy + event query; GLES3 and WebGL2 have none and never get here). It is
 asked for in `Renderer::begin_frame` BEFORE sokol's frame begins (on Metal the blit must follow the committed command buffer that holds the
 reduce); a headless renderer waits for it right there, so its latency is always exactly one frame and a test counts frames, not time. The
@@ -71,7 +71,7 @@ by its `// shdc-defines:` line, which `compile_shaders.sh` hands to sokol-shdc).
   `albedo`, `normal`, `control`) with the three programs of the shader (main, shadow, prepass), so `mesh_pipeline`, `shadow_pipeline` and
   `prepass_pipeline` draw it unchanged. Its patch is one `MeshAsset` of a 33 x 33 vertex grid (`<terrain-patch>`); a terrain with a holes
   mask uses the split patch (`<terrain-patch-split>`: 4 vertices of its own per cell, 32 x 32 cells) instead.
-- *Layers (P5d).* `albedo` and `normal` are `SG_IMAGETYPE_ARRAY` textures (`make_array_image`, one slice per layer, a mip chain made on the
+- *Layers (P5d).* `albedo` and `normal` are `SG_IMAGETYPE_ARRAY` textures (`device.make_image` of a `gpu::ImageType::Array`, one slice per layer, a mip chain made on the
   CPU) built by `update_layers` from `load_terrain_layer_images` (fa_scene: the size checks and the teaching errors) and OWNED by the
   `Entry`, never cached `TextureAsset*` from `Assets` (a clear or reload would leave them dangling; the entry follows
   `Assets::reload_generation()` and each file's version through a key). The pictures are decoded and their mip chains packed by a job

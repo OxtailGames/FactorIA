@@ -12,6 +12,9 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   with a texture and a scissor rectangle per command, pictures made by `make_texture`, the game's picture from `Renderer::game_target_texture()`
   (it replaces `game_target_image_id()` / `game_target_view_id()`). The editor no longer calls sokol_gfx or sokol_imgui, and the screenshots
   of the autotest look the same. MetalFX orders its work against the frame through `gpu::Device::native_metal()`.
+- What the graphics API says about the GPU (`GpuInfo`: name, vendor, driver, unified memory, software) is `Renderer::gpu_info()`, asked of the
+  renderer's own device; the free function `fa::render::query_gpu_info()` is gone (M77-P5d2). The renderer's own read-backs (captures, HDR
+  and probe reads) go through the private GPU interface, `gpu::Device`.
 - Shaders for the Vulkan backend (M77): `tools/shaders/compile_shaders.sh` also asks sokol-shdc for `spirv_vk`, so every built-in
   shader (the compute Hi-Z one too) has its SPIR-V in the generated headers, behind `#if defined(SOKOL_VULKAN)`: no other backend's player
   carries a byte of it (the headers grow by a quarter, 75 MB to 95 MB in the repository). The pinned sokol-shdc already supports it, so the

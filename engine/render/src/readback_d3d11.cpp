@@ -1,5 +1,6 @@
-// D3D11 readback through a staging texture. UNTESTED (no Windows toolchain here).
-#include "render_internal.h"
+// D3D11 readback through a staging texture (gpu/sokol_native.h). The D3D11 objects come from the Device's natives.
+// Built by the Windows CI and the MinGW cross build.
+#include "gpu/sokol_native.h"
 
 #if defined(SOKOL_D3D11)
 
@@ -11,14 +12,41 @@
 
 #include <cstring>
 
+#include "gpu/device.h"
 #include "hdr_encode.h"
 
-namespace fa::render {
+namespace fa::gpu {
 
-bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error) {
-    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
-    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    auto* src = static_cast<ID3D11Texture2D*>(const_cast<void*>(sg_d3d11_query_image_info(image).tex2d));
+namespace {
+
+ID3D11Device* d3d11_device(const Device& device) {
+    return static_cast<ID3D11Device*>(const_cast<void*>(device.native().device));
+}
+ID3D11DeviceContext* d3d11_context(const Device& device) {
+    return static_cast<ID3D11DeviceContext*>(const_cast<void*>(device.native().context));
+}
+// The 2D texture of `image`; null for a 3D image (native_image gives its ID3D11Texture3D, which these reads do not
+// take) and for an image that is not valid.
+ID3D11Texture2D* d3d11_texture2d(const Device& device, Image image) {
+    const NativeImage n = device.native_image(image);
+    auto* res = static_cast<ID3D11Resource*>(const_cast<void*>(n.resource));
+    if (!res || !n.texture) return nullptr;
+    D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+    res->GetType(&dim);
+    return dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D ? static_cast<ID3D11Texture2D*>(const_cast<void*>(n.texture))
+                                                     : nullptr;
+}
+ID3D11Buffer* d3d11_buffer(const Device& device, Buffer buffer) {
+    return static_cast<ID3D11Buffer*>(const_cast<void*>(device.native_buffer(buffer).buffer));
+}
+
+}  // namespace
+
+bool native_read_image_rgba8(Device& gpuDevice, Image image, int width, int height, std::vector<std::uint8_t>& out,
+                             std::string* error) {
+    ID3D11Device* device = d3d11_device(gpuDevice);
+    ID3D11DeviceContext* ctx = d3d11_context(gpuDevice);
+    ID3D11Texture2D* src = d3d11_texture2d(gpuDevice, image);
     if (!device || !ctx || !src) {
         if (error) *error = "capture: no D3D11 texture for the game target";
         return false;
@@ -53,10 +81,11 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     return true;
 }
 
-bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error) {
-    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
-    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    auto* src = static_cast<ID3D11Texture2D*>(const_cast<void*>(sg_d3d11_query_image_info(image).tex2d));
+bool native_read_image_rgba16f(Device& gpuDevice, Image image, int width, int height, std::vector<float>& out,
+                               std::string* error) {
+    ID3D11Device* device = d3d11_device(gpuDevice);
+    ID3D11DeviceContext* ctx = d3d11_context(gpuDevice);
+    ID3D11Texture2D* src = d3d11_texture2d(gpuDevice, image);
     if (!device || !ctx || !src) {
         if (error) *error = "readback: no D3D11 texture for the image";
         return false;
@@ -89,23 +118,23 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     for (int y = 0; y < height; ++y) {  // D3D rows are top-down
         std::memcpy(row.data(), static_cast<const std::uint8_t*>(map.pData) + std::size_t(y) * map.RowPitch,
                     stride * sizeof(std::uint16_t));
-        for (std::size_t i = 0; i < stride; ++i) out[std::size_t(y) * stride + i] = half_to_float(row[i]);
+        for (std::size_t i = 0; i < stride; ++i) out[std::size_t(y) * stride + i] = render::half_to_float(row[i]);
     }
     ctx->Unmap(staging, 0);
     staging->Release();
     return true;
 }
 
-bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
-                            std::vector<std::uint8_t>& out, std::string* error) {
-    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
-    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    auto* src = static_cast<ID3D11Texture2D*>(const_cast<void*>(sg_d3d11_query_image_info(image).tex2d));
+bool native_read_storage_image(Device& gpuDevice, Image image, PixelFormat format, int x, int y, int width, int height,
+                               std::vector<std::uint8_t>& out, std::string* error) {
+    ID3D11Device* device = d3d11_device(gpuDevice);
+    ID3D11DeviceContext* ctx = d3d11_context(gpuDevice);
+    ID3D11Texture2D* src = d3d11_texture2d(gpuDevice, image);
     if (!device || !ctx || !src) {
         if (error) *error = "readback: no D3D11 texture for the storage image";
         return false;
     }
-    const std::size_t pixel = std::size_t(sg_query_pixelformat(format).bytes_per_pixel);
+    const std::size_t pixel = std::size_t(pixel_format_bytes(format));
     D3D11_TEXTURE2D_DESC desc{};
     src->GetDesc(&desc);
     if (pixel == 0 || desc.SampleDesc.Count != 1 || x < 0 || y < 0 || width < 1 || height < 1 ||
@@ -146,14 +175,14 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
     return true;
 }
 
-bool storage_image_loadable(sg_pixel_format format, std::string* why) {
-    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
+bool native_storage_image_loadable(const Device& gpuDevice, PixelFormat format, std::string* why) {
+    ID3D11Device* device = d3d11_device(gpuDevice);
     DXGI_FORMAT dxgi = DXGI_FORMAT_UNKNOWN;
     switch (format) {
-        case SG_PIXELFORMAT_RGBA8: dxgi = DXGI_FORMAT_R8G8B8A8_UNORM; break;
-        case SG_PIXELFORMAT_RGBA16F: dxgi = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
-        case SG_PIXELFORMAT_R32F: dxgi = DXGI_FORMAT_R32_FLOAT; break;
-        case SG_PIXELFORMAT_RGBA32F: dxgi = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
+        case PixelFormat::Rgba8: dxgi = DXGI_FORMAT_R8G8B8A8_UNORM; break;
+        case PixelFormat::Rgba16F: dxgi = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
+        case PixelFormat::R32F: dxgi = DXGI_FORMAT_R32_FLOAT; break;
+        case PixelFormat::Rgba32F: dxgi = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
         default: break;
     }
     // D3D11.0 hardware guarantees a typed load only for R32_FLOAT/UINT/SINT; the others are a capability bit of the
@@ -169,11 +198,11 @@ bool storage_image_loadable(sg_pixel_format format, std::string* why) {
     return false;
 }
 
-bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
-                     std::string* error) {
-    auto* device = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
-    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    auto* src = static_cast<ID3D11Buffer*>(const_cast<void*>(sg_d3d11_query_buffer_info(buffer).buf));
+bool native_read_buffer(Device& gpuDevice, Buffer buffer, std::size_t offset, std::size_t bytes,
+                        std::vector<std::uint8_t>& out, std::string* error) {
+    ID3D11Device* device = d3d11_device(gpuDevice);
+    ID3D11DeviceContext* ctx = d3d11_context(gpuDevice);
+    ID3D11Buffer* src = d3d11_buffer(gpuDevice, buffer);
     if (!device || !ctx || !src) {
         if (error) *error = "readback: no D3D11 buffer for the storage buffer";
         return false;
@@ -218,17 +247,16 @@ struct AsyncBufferRead::Impl {
         State state = State::Free;
     };
     Slot slots[kSlots];
-    static ID3D11Device* device() { return static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device())); }
-    static ID3D11DeviceContext* context() {
-        return static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    }
-    static bool finished(Slot& s) {
+    ID3D11DeviceContext* ctx = nullptr;  // the device's immediate context (it outlives the ring)
+    bool finished(Slot& s) const {
         BOOL b = FALSE;
-        return context()->GetData(s.done, &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK && b;
+        return ctx && ctx->GetData(s.done, &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK && b;
     }
 };
 
-AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::AsyncBufferRead(Device& device) : device_(device), impl_(std::make_unique<Impl>()) {
+    impl_->ctx = d3d11_context(device_);
+}
 AsyncBufferRead::~AsyncBufferRead() {
     for (Impl::Slot& s : impl_->slots) {
         if (s.staging) s.staging->Release();
@@ -238,16 +266,16 @@ AsyncBufferRead::~AsyncBufferRead() {
 
 bool AsyncBufferRead::supported() { return true; }
 
-int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+int AsyncBufferRead::request(Buffer buffer, std::size_t bytes, std::string* error) {
     for (Impl::Slot& s : impl_->slots)
-        if (s.state == Impl::State::Discard && Impl::finished(s)) s.state = Impl::State::Free;
+        if (s.state == Impl::State::Discard && impl_->finished(s)) s.state = Impl::State::Free;
     int slot = -1;
     for (int i = 0; i < kSlots && slot < 0; ++i)
         if (impl_->slots[i].state == Impl::State::Free) slot = i;
     if (slot < 0) return -1;
-    ID3D11Device* device = Impl::device();
-    ID3D11DeviceContext* ctx = Impl::context();
-    auto* src = static_cast<ID3D11Buffer*>(const_cast<void*>(sg_d3d11_query_buffer_info(buffer).buf));
+    ID3D11Device* device = d3d11_device(device_);
+    ID3D11DeviceContext* ctx = impl_->ctx;
+    ID3D11Buffer* src = d3d11_buffer(device_, buffer);
     if (!device || !ctx || !src || bytes == 0 || bytes > 0xFFFFFFFFu) {
         if (error) *error = "readback: no D3D11 buffer for the storage buffer";
         return -1;
@@ -292,16 +320,16 @@ int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* e
 bool AsyncBufferRead::poll(int slot, std::vector<std::uint8_t>& out, bool wait) {
     if (slot < 0 || slot >= kSlots || impl_->slots[slot].state != Impl::State::Pending) return false;
     Impl::Slot& s = impl_->slots[slot];
-    if (!Impl::finished(s) && !wait) return false;
+    if (!impl_->finished(s) && !wait) return false;
     // Map without DO_NOT_WAIT blocks until the copy has run: only on `wait`.
     D3D11_MAPPED_SUBRESOURCE map{};
-    if (FAILED(Impl::context()->Map(s.staging, 0, D3D11_MAP_READ, 0, &map))) {
+    if (!impl_->ctx || FAILED(impl_->ctx->Map(s.staging, 0, D3D11_MAP_READ, 0, &map))) {
         s.state = Impl::State::Free;
         return false;
     }
     out.resize(s.bytes);
     std::memcpy(out.data(), map.pData, s.bytes);
-    Impl::context()->Unmap(s.staging, 0);
+    impl_->ctx->Unmap(s.staging, 0);
     s.state = Impl::State::Free;
     return true;
 }
@@ -312,6 +340,6 @@ void AsyncBufferRead::release(int slot) {
     if (s.state == Impl::State::Pending) s.state = Impl::State::Discard;
 }
 
-}  // namespace fa::render
+}  // namespace fa::gpu
 
 #endif

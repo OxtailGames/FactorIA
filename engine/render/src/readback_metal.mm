@@ -1,5 +1,6 @@
-// Metal readback: blit the render target into a shared buffer and wait. Covered by the render goldens on macOS.
-#include "render_internal.h"
+// Metal readback (gpu/sokol_native.h): blit the render target into a shared buffer and wait. Covered by the render
+// goldens on macOS. The Metal objects come from the Device's natives.
+#include "gpu/sokol_native.h"
 
 #if defined(SOKOL_METAL)
 
@@ -7,17 +8,52 @@
 
 #include <cstring>
 
+#include "gpu/device.h"
 #include "hdr_encode.h"
 
-namespace fa::render {
+namespace fa::gpu {
 
-bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error) {
+namespace {
+
+// The texture of `image` and the device's queue and MTLDevice (nil when the device has none).
+struct MetalObjects {
+    id<MTLTexture> tex = nil;
+    id<MTLBuffer> buf = nil;
+    id<MTLCommandQueue> queue = nil;
+    id<MTLDevice> device = nil;
+};
+
+MetalObjects metal_objects(const Device& device) {
+    const NativeDevice n = device.native();
+    MetalObjects m;
+    m.queue = (__bridge id<MTLCommandQueue>)n.commandQueue;
+    m.device = (__bridge id<MTLDevice>)n.device;
+    return m;
+}
+
+MetalObjects metal_objects(const Device& device, Image image) {
+    MetalObjects m = metal_objects(device);
+    m.tex = (__bridge id<MTLTexture>)device.native_image(image).texture;
+    return m;
+}
+
+MetalObjects metal_objects(const Device& device, Buffer buffer) {
+    MetalObjects m = metal_objects(device);
+    m.buf = (__bridge id<MTLBuffer>)device.native_buffer(buffer).buffer;
+    return m;
+}
+
+}  // namespace
+
+bool native_read_image_rgba8(Device& gpuDevice, Image image, int width, int height, std::vector<std::uint8_t>& out,
+                             std::string* error) {
     // The command buffer and its encoder are autoreleased. A headless run has no run loop to drain the pool, so without an
     // own pool every capture kept its buffer (one frame of pixels) until the process ended: 8 MB a frame at 1080p.
     @autoreleasepool {
-    id<MTLTexture> tex = (__bridge id<MTLTexture>)sg_mtl_query_image_info(image).tex[sg_mtl_query_image_info(image).active_slot];
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MetalObjects m = metal_objects(gpuDevice, image);
+    id<MTLTexture> tex = m.tex;
+    id<MTLCommandQueue> queue = m.queue;
+    id<MTLDevice> device = m.device;
     if (!tex || !queue || !device) {
         if (error) *error = "capture: no Metal texture for the game target";
         return false;
@@ -38,11 +74,13 @@ bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint
     }
 }
 
-bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error) {
+bool native_read_image_rgba16f(Device& gpuDevice, Image image, int width, int height, std::vector<float>& out,
+                               std::string* error) {
     @autoreleasepool {
-    id<MTLTexture> tex = (__bridge id<MTLTexture>)sg_mtl_query_image_info(image).tex[sg_mtl_query_image_info(image).active_slot];
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MetalObjects m = metal_objects(gpuDevice, image);
+    id<MTLTexture> tex = m.tex;
+    id<MTLCommandQueue> queue = m.queue;
+    id<MTLDevice> device = m.device;
     if (!tex || !queue || !device) {
         if (error) *error = "readback: no Metal texture for the image";
         return false;
@@ -65,23 +103,23 @@ bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>&
     std::vector<std::uint16_t> halves(n);
     std::memcpy(halves.data(), [buf contents], n * 2);
     out.resize(n);
-    for (std::size_t i = 0; i < n; ++i) out[i] = half_to_float(halves[i]);
+    for (std::size_t i = 0; i < n; ++i) out[i] = render::half_to_float(halves[i]);
     return true;
     }
 }
 
-bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
-                            std::vector<std::uint8_t>& out, std::string* error) {
+bool native_read_storage_image(Device& gpuDevice, Image image, PixelFormat format, int x, int y, int width, int height,
+                               std::vector<std::uint8_t>& out, std::string* error) {
     @autoreleasepool {
-    const sg_mtl_image_info info = sg_mtl_query_image_info(image);
-    id<MTLTexture> tex = (__bridge id<MTLTexture>)info.tex[info.active_slot];
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MetalObjects m = metal_objects(gpuDevice, image);
+    id<MTLTexture> tex = m.tex;
+    id<MTLCommandQueue> queue = m.queue;
+    id<MTLDevice> device = m.device;
     if (!tex || !queue || !device) {
         if (error) *error = "readback: no Metal texture for the storage image";
         return false;
     }
-    const NSUInteger pixel = NSUInteger(sg_query_pixelformat(format).bytes_per_pixel);
+    const NSUInteger pixel = NSUInteger(pixel_format_bytes(format));
     if (pixel == 0 || x < 0 || y < 0 || width < 1 || height < 1 || NSUInteger(x) + NSUInteger(width) > tex.width ||
         NSUInteger(y) + NSUInteger(height) > tex.height) {
         if (error) *error = "readback: the storage image does not have the size or format asked for";
@@ -109,26 +147,30 @@ bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y
     }
 }
 
-bool storage_image_loadable(sg_pixel_format format, std::string* why) {
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+bool native_storage_image_loadable(const Device& gpuDevice, PixelFormat format, std::string* why) {
+    id<MTLDevice> device = metal_objects(gpuDevice).device;
+    if (!device) {
+        if (why) *why = "the Metal device is gone";
+        return false;
+    }
     const MTLReadWriteTextureTier tier = [device readWriteTextureSupport];
     // Tier 1 (older Intel Macs, iOS A9-A10) reads and writes only the single-channel 32-bit formats in one texture;
     // Tier 2 adds the 8-bit, 16-bit float and 32-bit float RGBA ones.
     if (tier == MTLReadWriteTextureTier2) return true;
-    if (tier == MTLReadWriteTextureTier1 && format == SG_PIXELFORMAT_R32F) return true;
+    if (tier == MTLReadWriteTextureTier1 && format == PixelFormat::R32F) return true;
     if (why)
         *why = std::string("this Metal GPU supports reading and writing one texture only for r32f (read-write texture tier ") +
                (tier == MTLReadWriteTextureTier1 ? "1" : "none") + ")";
     return false;
 }
 
-bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
-                     std::string* error) {
+bool native_read_buffer(Device& gpuDevice, Buffer buffer, std::size_t offset, std::size_t bytes,
+                        std::vector<std::uint8_t>& out, std::string* error) {
     @autoreleasepool {
-    const sg_mtl_buffer_info info = sg_mtl_query_buffer_info(buffer);
-    id<MTLBuffer> src = (__bridge id<MTLBuffer>)info.buf[info.active_slot];
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MetalObjects m = metal_objects(gpuDevice, buffer);
+    id<MTLBuffer> src = m.buf;
+    id<MTLCommandQueue> queue = m.queue;
+    id<MTLDevice> device = m.device;
     if (!src || !queue || !device) {
         if (error) *error = "readback: no Metal buffer for the storage buffer";
         return false;
@@ -180,7 +222,7 @@ struct AsyncBufferRead::Impl {
     }
 };
 
-AsyncBufferRead::AsyncBufferRead() : impl_(std::make_unique<Impl>()) {}
+AsyncBufferRead::AsyncBufferRead(Device& device) : device_(device), impl_(std::make_unique<Impl>()) {}
 AsyncBufferRead::~AsyncBufferRead() {
     for (Impl::Slot& s : impl_->slots)
         if (s.cmd && s.state != Impl::State::Free) [s.cmd waitUntilCompleted];
@@ -188,17 +230,17 @@ AsyncBufferRead::~AsyncBufferRead() {
 
 bool AsyncBufferRead::supported() { return true; }
 
-int AsyncBufferRead::request(sg_buffer buffer, std::size_t bytes, std::string* error) {
+int AsyncBufferRead::request(Buffer buffer, std::size_t bytes, std::string* error) {
     @autoreleasepool {
     impl_->sweep();
     int slot = -1;
     for (int i = 0; i < kSlots && slot < 0; ++i)
         if (impl_->slots[i].state == Impl::State::Free) slot = i;
     if (slot < 0) return -1;
-    const sg_mtl_buffer_info info = sg_mtl_query_buffer_info(buffer);
-    id<MTLBuffer> src = (__bridge id<MTLBuffer>)info.buf[info.active_slot];
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
-    id<MTLDevice> device = (__bridge id<MTLDevice>)sg_mtl_device();
+    const MetalObjects m = metal_objects(device_, buffer);
+    id<MTLBuffer> src = m.buf;
+    id<MTLCommandQueue> queue = m.queue;
+    id<MTLDevice> device = m.device;
     if (!src || !queue || !device || bytes == 0 || bytes > std::size_t(src.length)) {
         if (error) *error = "readback: no Metal buffer of that size to read";
         return -1;
@@ -248,6 +290,6 @@ void AsyncBufferRead::release(int slot) {
     if (s.state == Impl::State::Pending) s.state = Impl::State::Discard;
 }
 
-}  // namespace fa::render
+}  // namespace fa::gpu
 
 #endif
