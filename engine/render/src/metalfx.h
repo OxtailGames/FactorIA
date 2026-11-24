@@ -5,13 +5,16 @@
 // platform that is not Metal builds the stubs of metalfx.cpp: `support()` answers "no" with the reason, `Scaler::configure` fails.
 //
 // ORDER IN THE FRAME. A Scaler encodes into its own MTLCommandBuffer, because sokol does not hand out the frame's one (it makes it at
-// the frame's first pass and commits it in sg_commit). `Scaler::encode` therefore SPLITS the frame: it calls sg_commit() (the sokol
-// passes recorded so far, which write the scene colour, are submitted), commits the MetalFX buffer on the same queue behind them, and
-// the passes recorded after it (HUD, present) start a new sokol command buffer that the queue runs behind the MetalFX one. The queue
-// is in-order, so the upscaler reads this frame's colour and the later passes read this frame's output. Cost: one more sg_commit
-// per frame (one more command buffer) and one command buffer of the scaler. docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
-// After the split Gpu::committed() still says false (the renderer's own note of "this frame was submitted" is made at the end of the
-// frame, not by the commit of encode): a read-back that follows commits once more, which is harmless (an empty commit).
+// the frame's first pass and commits it in sg_commit). `Scaler::encode` therefore SPLITS the frame: sokol's buffer with the passes so
+// far (they write the scene colour; platform's fa_sg_mtl_command_buffer() hands it out) signals a shared event and is committed with
+// sg_commit(), the MetalFX buffer waits for that event, runs and signals a second one, and sokol's buffer of the passes after it (HUD,
+// present) is taken at once, right after the MetalFX commit, and waits for the second event. So the upscaler reads this frame's colour
+// and the later passes read this frame's output, ordered on the GPU and without a wait of the CPU's own. Cost: one more sg_commit (one
+// more command buffer) per frame and one command buffer of the scaler. docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
+// After `encode` that later buffer is OPEN and not committed. Anything that reads back through a command buffer of its own
+// (readback_rgba8, readback_rgba16f) MUST sg_commit() first: its buffer is queued behind the open one and would wait for it for ever.
+// Gpu::committed() still says false after the split (the renderer's own note of "this frame was submitted" is made at the end of the
+// frame), so the renderer calls Gpu::note_work() after `encode` and a read back that asks Gpu::committed() commits for itself.
 //
 // No MetalFX on the machine that runs the CI (a VM with a paravirtual GPU): the tests that need a scaler say so with a MESSAGE and
 // return, they never pass silently (the skip is in the test output and in the doctest report as a message).

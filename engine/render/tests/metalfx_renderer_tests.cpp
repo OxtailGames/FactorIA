@@ -572,6 +572,7 @@ TEST_CASE("metalfx renderer: a stripe texture that moves under a panning, pitchi
             << ")");
     CHECK(err[0] < 0.8 * err[1]);
     CHECK(err[0] < 0.8 * err[2]);
+    CHECK(err[0] < oneFrame);  // and it beats one frame stretched
 }
 
 TEST_CASE("metalfx renderer: the preparation pass writes the 0..1 depth and the UV motion of a camera that pans (any "

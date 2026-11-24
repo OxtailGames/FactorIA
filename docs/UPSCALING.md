@@ -146,8 +146,9 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   motion image's y runs down like the picture's) and `metalfx_renderer_tests` (a high-frequency stripe texture that moves under a camera that
   pans and pitches: the motion the renderer hands over gives clearly less error than the opposite sign or none (the test asks for under 0.8 times
   each), and beats one frame stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. `Scaler::encode`
-  splits the sokol frame and orders its own command buffer against the passes before and after it on the GPU, with a shared event (the
-  CPU never waits); without that the same frames, queued without a wait, gave a different picture from run to run (see
+  splits the sokol frame and orders its own command buffer against the passes before and after it on the GPU, with shared events (the
+  CPU has no wait of its own: taking sokol's buffer of the later passes may take sokol's frame semaphore a little earlier in the frame); before
+  this the same frames, queued without a wait, gave a different picture from run to run (see
   docs/design/ARCHITECTURE_RENDERING_POST.md, "Proof of the motion (P5c)", for what was measured; repository only, not in the binary). A MetalFX command buffer that finishes with an error is reported once
   and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.

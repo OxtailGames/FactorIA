@@ -170,18 +170,27 @@ each.
   1. *Own buffer, committed at the end of the frame.* The queue runs buffers in the order they were enqueued, and sokol's was enqueued at its
      first pass: the own buffer runs after the whole frame, so the passes that read the output see the PREVIOUS frame's picture. Correct only
      with a frame of latency and the HUD drawn from the old picture. Rejected.
-  2. *`MTLEvent` / `MTLSharedEvent` between the buffers.* Signalling needs a buffer to encode into (the sokol one is out of reach), and a
-     wait before the sokol buffer is committed deadlocks the queue (an enqueued, uncommitted buffer blocks everything behind it). Rejected.
+  2. *`MTLEvent` / `MTLSharedEvent` between the buffers* (used, together with option 4). Signalling needs a buffer to encode into, and sokol's is
+     out of reach through its public API; but its implementation is compiled in engine code (`engine/platform/src/sokol_impl_apple.m`), which
+     exposes `fa_sg_mtl_command_buffer()` (it closes sokol's open blit encoder, acquires the frame's buffer if there is none and returns it).
+     An event signalled from a separate, empty buffer orders nothing (a buffer behind another one does not wait for it), so the signal is
+     encoded inside sokol's own buffer. A wait inside a buffer that is committed before the one that signals would deadlock the queue (an
+     enqueued, uncommitted buffer blocks everything behind it), so every wait is in a buffer whose signal is already committed or in flight.
   3. *The encoder's buffer through a private selector.* Not public API; breaks with an OS update. Rejected.
-  4. *Split the frame with `sg_commit()`* (chosen). `Scaler::encode` calls `sg_commit()`: the sokol buffer with the passes so far (the scene)
-     is committed; the own buffer, made after it, is enqueued behind it and committed; the next sokol pass makes a new buffer, enqueued behind
-     the MetalFX one. One in-order queue, so the scaler reads this frame's colour and the later passes read this frame's output; sokol's
-     resources are hazard tracked, so no fence or event is needed. A mid-frame `sg_commit` is something the renderer already does (a full
-     transient pool, read-backs, `gi2d`). The test `metalfx: a pass that writes the input and a pass that reads the output in the same
+  4. *Split the frame with `sg_commit()`, order the buffers with shared events and take the later buffer at once* (chosen). `Scaler::encode`
+     takes sokol's buffer of the passes so far (`fa_sg_mtl_command_buffer`), encodes a signal of event value A in it, adds a completion
+     handler that raises the event to A (a buffer that fails does not signal), and calls `sg_commit()`. The MetalFX buffer waits for A,
+     runs, and signals B at its end (its completion handler also raises the event to B). Then `encode` takes sokol's buffer of the passes after
+     it right away, which sokol would otherwise do at their first pass, and encodes a wait for B in it; it is left open for the HUD and the
+     present, and a completion handler keeps the event alive (sokol's buffers hold resources unretained). A mid-frame `sg_commit` is something
+     the renderer already does (a full transient pool, read-backs, `gi2d`). What the tests catch and what they do not: the test "frames queued
+     without waiting for the GPU" (below) fails with the old code and passes with the early take alone, so it does NOT catch the events being
+     removed: the events rest on Metal's contract, not on a test. The failure path (a MetalFX buffer that finishes with an error, whose handler
+     raises the event) has no test either. The test `metalfx: a pass that writes the input and a pass that reads the output in the same
      frame ...` queues twelve frames without waiting for the GPU, each with its own grey, and checks every frame shows its own grey; with
      the `sg_commit()` taken out of `encode` all twelve frames show the wrong picture.
 - **Cost of the split** (per frame that upscales): one more `sg_commit` (one more sokol command buffer, its garbage collection and uniform
-  buffer rotation) and one command buffer of the scaler; no semaphore of our own. sokol's semaphore counts its own two buffers in flight
+  buffer rotation) and one command buffer of the scaler; no semaphore of our own, and two shared events values per frame. sokol's semaphore counts its own two buffers in flight
   (`SG_NUM_INFLIGHT_FRAMES`), so with two buffers per frame the CPU may run about one frame ahead of the GPU instead of two. `encode` does
   not tell `Gpu::note_commit()`: the commit listener counts it (`Gpu::frame()` moves on) and the frame still has work to come, so the pool of
   transient buffers keeps going (a buffer acquired before the split stays valid after it: its active slot rotates only when it is written
@@ -238,7 +247,7 @@ each.
   takes sokol's buffer of the later passes right away (sokol takes it at their first pass) with a wait for that second signal. Taking the
   later buffer at once is what the test needed (8 of 8 and 10 of 10 runs passed with it alone, without the events; 7 of 8 failed without it and without the events); that it
   also has to be explicit in the GPU order is Metal's contract, and a failed buffer, which does not signal, signals from its completion
-  handler so the queue cannot stall. The exact mechanism of the race was not isolated, so the test is what guards it. No CPU wait is left.
+  handler so the queue cannot stall. The exact mechanism of the race was not isolated, so the test is what guards it. `encode` has no CPU wait of its own (taking sokol's buffer of the later passes at once can take sokol's frame semaphore, which only moves that wait earlier in the frame).
   The price of taking the later buffer at once: it is open and uncommitted after `encode`, and a command buffer queued behind it (a read back with
   its own buffer, `readback_rgba8`) would wait for it for ever, so `metalfx_upscale` calls `Gpu::note_work()` (a read back commits first) and the
   wrapper tests `sg_commit()` before they read back.
