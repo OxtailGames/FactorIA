@@ -154,6 +154,7 @@ public:
     NativeDevice native() const override { return {}; }
     NativeImage native_image(Image) const override { return {}; }
     NativeBuffer native_buffer(Buffer) const override { return {}; }
+    MetalNative* native_metal() override { return nullptr; }
 
     Buffer make_buffer(const BufferDesc& desc) override;
     Image make_image(const ImageDesc& desc) override;

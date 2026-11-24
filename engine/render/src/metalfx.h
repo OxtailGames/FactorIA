@@ -4,15 +4,16 @@
 // (NSBundle), so a player built with it still starts on an OS without it, and `support()` says why a scaler is not there. Every
 // platform that is not Metal builds the stubs of metalfx.cpp: `support()` answers "no" with the reason, `Scaler::configure` fails.
 //
-// ORDER IN THE FRAME. A Scaler encodes into its own MTLCommandBuffer, because sokol does not hand out the frame's one (it makes it at
-// the frame's first pass and commits it in sg_commit). `Scaler::encode` therefore SPLITS the frame: sokol's buffer with the passes so
-// far (they write the scene colour; platform's fa_sg_mtl_command_buffer() hands it out) signals a shared event and is committed with
-// sg_commit(), the MetalFX buffer waits for that event, runs and signals a second one, and sokol's buffer of the passes after it (HUD,
-// present) is taken at once, right after the MetalFX commit, and waits for the second event. So the upscaler reads this frame's colour
-// and the later passes read this frame's output, ordered on the GPU and without a wait of the CPU's own. Cost: one more sg_commit (one
-// more command buffer) per frame and one command buffer of the scaler. docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
+// ORDER IN THE FRAME. A Scaler encodes into its own MTLCommandBuffer, because the frame's one is the device's (the passes record into it
+// and the frame's commit submits it). `Scaler::encode` therefore SPLITS the frame, through gpu::Device::native_metal() (gpu/device.h,
+// MetalNative): the device's buffer with the passes so far (they write the scene colour; MetalNative::current_command_buffer() hands it
+// out) signals a shared event and is committed with MetalNative::split_commit(), the MetalFX buffer waits for that event, runs and signals
+// a second one, and the device's buffer of the passes after it (HUD, present) is taken at once, right after the MetalFX commit, and waits
+// for the second event. So the upscaler reads this frame's colour and the later passes read this frame's output, ordered on the GPU and
+// without a wait of the CPU's own. Cost: one more commit (one more command buffer) per frame and one command buffer of the scaler.
+// docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
 // After `encode` that later buffer is OPEN and not committed. Anything that reads back through a command buffer of its own
-// (readback_rgba8, readback_rgba16f) MUST sg_commit() first: its buffer is queued behind the open one and would wait for it for ever.
+// (readback_rgba8, readback_rgba16f) MUST commit first: its buffer is queued behind the open one and would wait for it for ever.
 // Gpu::committed() still says false after the split (the renderer's own note of "this frame was submitted" is made at the end of the
 // frame), so the renderer calls Gpu::note_work() after `encode` and a read back that asks Gpu::committed() commits for itself.
 //
@@ -23,7 +24,8 @@
 #include <memory>
 #include <string>
 
-#include "sokol_gfx.h"
+#include "gpu/device.h"
+#include "gpu/types.h"
 
 namespace fa::render::metalfx {
 
@@ -47,13 +49,11 @@ struct Support {
     // "the iOS simulator has no MetalFX", "this build draws with OpenGL"). Also set when only one scaler is there: it names the other.
     std::string reason;
 };
-// True when the open sokol context draws with Metal (macOS, iOS or the iOS simulator). Needs sg_isvalid().
-inline bool on_metal() {
-    const sg_backend b = sg_query_backend();
-    return b == SG_BACKEND_METAL_MACOS || b == SG_BACKEND_METAL_IOS || b == SG_BACKEND_METAL_SIMULATOR;
-}
-// Cheap (a class lookup and two device questions); call it once graphics is up (the Metal device exists).
-Support support();
+// True when `device` draws with Metal (macOS, iOS or the iOS simulator).
+inline bool on_metal(const gpu::Device& device) { return device.backend() == gpu::Backend::Metal; }
+// What the GPU `metalDevice` (the id<MTLDevice> of gpu::Device::native().device; null = none yet) can do. Cheap (a class lookup and two
+// device questions); call it once graphics is up (the Metal device exists).
+Support support(const void* metalDevice);
 // What the system's default Metal GPU can do, asked without a renderer or a sokol device (a headless run reports what a GPU here would
 // draw: Engine::upscaler_caps). The same answer as support() on a window drawn on that GPU; none on every backend that is not Metal.
 Support support_default_device();
@@ -62,13 +62,13 @@ struct Desc {
     Kind kind = Kind::Spatial;
     int inputWidth = 0, inputHeight = 0;    // the render resolution
     int outputWidth = 0, outputHeight = 0;  // the display resolution; at least the input's
-    sg_pixel_format colorFormat = SG_PIXELFORMAT_RGBA16F;
-    sg_pixel_format outputFormat = SG_PIXELFORMAT_RGBA16F;
+    gpu::PixelFormat colorFormat = gpu::PixelFormat::Rgba16F;
+    gpu::PixelFormat outputFormat = gpu::PixelFormat::Rgba16F;
     ColorSpace colorSpace = ColorSpace::Linear;  // spatial only
     // Temporal only: the depth image (R32F, or a 32-bit float depth) and the motion image (RG16F or RG32F) are the same size as
     // the colour.
-    sg_pixel_format depthFormat = SG_PIXELFORMAT_R32F;
-    sg_pixel_format motionFormat = SG_PIXELFORMAT_RG16F;
+    gpu::PixelFormat depthFormat = gpu::PixelFormat::R32F;
+    gpu::PixelFormat motionFormat = gpu::PixelFormat::Rg16F;
     bool autoExposure = false;   // temporal: MetalFX measures the exposure itself (else Frame::preExposure is used)
     bool depthReversed = false;  // temporal: 1 is near
     // Temporal: the scaler takes a reactive mask (an R8 image of the input's size: 0 = MetalFX's own judgement, 1 = ignore the history here)
@@ -81,19 +81,19 @@ struct Desc {
     bool operator==(const Desc&) const = default;
 };
 
-// One frame's images. All are sokol images of the sizes and formats of the Desc; `color`, `depth` and `motion` need only to be sampled
+// One frame's images. All are gpu::Image of the sizes and formats of the Desc; `color`, `depth` and `motion` need only to be sampled
 // (any image). `output` is written by MetalFX, so it is made with usage.color_attachment AND usage.storage_image (the spatial scaler
 // needs the first, the temporal one both: MTLTextureUsageRenderTarget | ShaderWrite), and the passes that follow read it through an
 // ordinary texture view of the same image (compute.cpp makes that kind of image).
 struct Frame {
-    sg_image color{};
-    sg_image output{};
-    sg_image depth{};   // temporal only
-    sg_image motion{};  // temporal only
+    gpu::Image color{};
+    gpu::Image output{};
+    gpu::Image depth{};   // temporal only
+    gpu::Image motion{};  // temporal only
     // Temporal, optional: the reactive mask of this frame (an R8 image of the input's size, read as sampled). Handed to MetalFX only when
     // the scaler has one (Desc::reactiveMask, `reactive_mask()`); else ignored. Invalid: this frame has none. A mask of another size or
     // format is refused like any other image.
-    sg_image reactive{};
+    gpu::Image reactive{};
     // Temporal: the sub-pixel shift the picture was drawn with, in render pixels: how far the drawn picture is moved, right and DOWN
     // the image (a scene sampled at (x + jx, y + jy) is moved by (-jx, -jy), so those are -jx, -jy). Measured by the tests: the
     // opposite sign converges to a worse picture.
@@ -114,16 +114,16 @@ public:
 
     // Makes the scaler for `desc`, or keeps the one made for the same desc; a change of kind, size or format makes a new one (and the
     // temporal history starts again: the next encode resets). False with `error` (the reason and what to do) when MetalFX is not
-    // available here or refuses the sizes. Call it outside a pass.
-    bool configure(const Desc& desc, std::string* error);
-    // Upscales `frame` now, in order with the sokol passes around it (see the top of the file). Call it OUTSIDE a pass, after the
-    // pass that drew `color` ended and before the first pass that reads `output`. It commits the sokol frame so far (sg_commit):
-    // Gpu counts that commit through its listener; do not call Gpu::note_commit for it (the frame still has passes to come). The sokol
-    // buffer of those passes is taken and left open (it waits for the scaler on the GPU): anything that reads back through a command
-    // buffer of its own (readback_rgba8) must sg_commit() first or waits behind it for ever; Gpu::note_work() says so to the renderer.
+    // available here or refuses the sizes (or `device` is not a Metal device). Call it outside a pass.
+    bool configure(gpu::Device& device, const Desc& desc, std::string* error);
+    // Upscales `frame` now, in order with the passes of `device` around it (see the top of the file). Call it OUTSIDE a pass, after the
+    // pass that drew `color` ended and before the first pass that reads `output`. It commits the frame so far (MetalNative::split_commit):
+    // Gpu counts that commit through its listener; do not call Gpu::note_commit for it (the frame still has passes to come). The buffer
+    // of those passes is taken and left open (it waits for the scaler on the GPU): anything that reads back through a command
+    // buffer of its own (readback_rgba8) must commit first or waits behind it for ever; Gpu::note_work() says so to the renderer.
     // Checks the images against the desc BEFORE it commits anything: false with `error` and no work done when an image is missing, of
     // another size or format, or MetalFX could not write the output.
-    bool encode(const Frame& frame, std::string* error);
+    bool encode(gpu::Device& device, const Frame& frame, std::string* error);
 
     bool valid() const;
     const Desc& desc() const;

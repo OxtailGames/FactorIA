@@ -1279,6 +1279,38 @@ NativeDevice SokolDevice::native() const {
     return n;
 }
 
+#if defined(SOKOL_METAL)
+// engine/platform/src/sokol_impl_apple.m: sokol's command buffer for the passes recorded from now on (it makes one when there is none yet).
+extern "C" const void* fa_sg_mtl_command_buffer(void);
+#endif
+
+// The Metal command-buffer access of a SokolDevice on Metal (gpu/device.h, MetalNative).
+class SokolMetalNative final : public MetalNative {
+public:
+    explicit SokolMetalNative(SokolDevice& device) : device_(device) {}
+    const void* current_command_buffer() override {
+        device_.check_thread("MetalNative::current_command_buffer");
+#if defined(SOKOL_METAL)
+        return fa_sg_mtl_command_buffer();
+#else
+        return nullptr;
+#endif
+    }
+    void split_commit() override {
+        device_.check_thread("MetalNative::split_commit");
+        sg_commit();
+    }
+
+private:
+    SokolDevice& device_;
+};
+
+MetalNative* SokolDevice::native_metal() {
+    if (info_.backend != Backend::Metal) return nullptr;
+    if (!metal_) metal_ = std::make_unique<SokolMetalNative>(*this);
+    return metal_.get();
+}
+
 NativeImage SokolDevice::native_image(Image image) const {
     check_thread("Device::native_image");
     NativeImage n;

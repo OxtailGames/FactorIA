@@ -22,7 +22,7 @@ using render::UpscaleInput;
 // What this GPU can do, asked once (a class lookup and two device questions).
 const render::metalfx::Support& Renderer::Impl::metalfx_support() {
     if (!mfxSupportKnown) {
-        mfxSupport = render::metalfx::support();
+        mfxSupport = render::metalfx::support(gpu.device().native().device);
         mfxSupportKnown = true;
     }
     return mfxSupport;
@@ -74,7 +74,7 @@ bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, sg_pixel_fo
 // (a frame that drew no mesh has none: everything is sky then) and reads the velocity when there is one.
 bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, Target& out, const PassContext& c) {
     using render::metalfx::Kind;
-    if (mfxFailed || !gpu.has_device() || !render::metalfx::on_metal() || !out.valid() || !src.valid()) return false;
+    if (mfxFailed || !gpu.has_device() || !render::metalfx::on_metal(gpu.device()) || !out.valid() || !src.valid()) return false;
     // A command buffer of an earlier frame came back with an error (it finishes on another thread): MetalFX is given up from this frame on.
     std::string commandError;
     if (mfxScaler.command_failed(&commandError))
@@ -95,14 +95,14 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     d.inputHeight = in.renderH;
     d.outputWidth = in.outW;
     d.outputHeight = in.outH;
-    d.colorFormat = src.format.color;
-    d.outputFormat = out.format.color;
+    d.colorFormat = gpu::from_sg(src.format.color);
+    d.outputFormat = gpu::from_sg(out.format.color);
     // Spatial: linear light above 1 in a float scene, linear light in a smaller one, else display values.
     d.colorSpace = !in.linear                                   ? render::metalfx::ColorSpace::Perceptual
                    : src.format.color == SG_PIXELFORMAT_RGBA16F ? render::metalfx::ColorSpace::Hdr
                                                                 : render::metalfx::ColorSpace::Linear;
-    d.depthFormat = SG_PIXELFORMAT_R32F;
-    d.motionFormat = SG_PIXELFORMAT_RG16F;
+    d.depthFormat = gpu::PixelFormat::R32F;
+    d.motionFormat = gpu::PixelFormat::Rg16F;
     d.autoExposure = false;  // the scene colour is exposed before the stage: pre-exposure 1
     // The scaler takes the reactive mask from the start (on an OS that has the input) instead of being made again when the first
     // mask appears: a new scaler pays its synchronous start-up and drops the history, in the very frame a particle shows up, and a
@@ -112,8 +112,8 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     if (mfxForceCreateFail) return metalfx_fail("MetalFX creation was refused (test hook).");
 
     render::metalfx::Frame f;
-    f.color = src.texture_image();
-    f.output = out.color;
+    f.color = gpu::from_sg(src.texture_image());
+    f.output = gpu::from_sg(out.color);
     if (temporalKind) {
         const Target* prepass = upscalePrepass.target(c);
         const Target* velocity = upscaleVelocity.target(c);
@@ -126,7 +126,7 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         if (reactive && (reactive->w != in.renderW || reactive->h != in.renderH ||
                          reactive->format.color != Gpu::reactive_format()))
             reactive = nullptr;
-        if (reactive && !mfxNoReactive) f.reactive = reactive->texture_image();
+        if (reactive && !mfxNoReactive) f.reactive = gpu::from_sg(reactive->texture_image());
         if (!ensure_mfx_target(mfxDepth, "mfx-depth", SG_PIXELFORMAT_R32F, in.renderW, in.renderH) ||
             !ensure_mfx_target(mfxMotion, "mfx-motion", SG_PIXELFORMAT_RG16F, in.renderW, in.renderH))
             return metalfx_fail("the depth and motion images of the render size could not be made.");
@@ -174,8 +174,8 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         list.end_pass();
         ++stats.drawCalls;
 
-        f.depth = mfxDepth.color;
-        f.motion = mfxMotion.color;
+        f.depth = gpu::from_sg(mfxDepth.color);
+        f.motion = gpu::from_sg(mfxMotion.color);
         // The picture was drawn moved by the jitter (right and down); the motion image is in UV units, MetalFX scales it to render pixels.
         f.jitterX = upscaleTaa.jitterPx.x * mfxJitterSign;
         f.jitterY = upscaleTaa.jitterPx.y * mfxJitterSign;
@@ -189,12 +189,12 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     }
     if (mfxPrepOnly) return false;  // test hook: the preparation pass is drawn and read, MetalFX is not asked
     // After the preparation pass: a scaler MetalFX cannot make costs one preparation pass, once (the failure is for good).
-    if (!mfxScaler.configure(d, &error)) return metalfx_fail(error);
+    if (!mfxScaler.configure(gpu.device(), d, &error)) return metalfx_fail(error);
     // a scaler made just now starts its history; the spatial one has none
     mfxLastReset = temporalKind && (f.reset || mfxScaler.encoded() == 0);
-    // Encode splits the frame (sg_commit): the passes recorded so far, which wrote the picture, go first.
-    if (!mfxScaler.encode(f, &error)) return metalfx_fail(error);
-    gpu.note_work();  // encode left sokol's buffer for the passes after it open and uncommitted: a read back must commit it first
+    // Encode splits the frame (a commit of the device): the passes recorded so far, which wrote the picture, go first.
+    if (!mfxScaler.encode(gpu.device(), f, &error)) return metalfx_fail(error);
+    gpu.note_work();  // encode left the device's buffer for the passes after it open and uncommitted: a read back must commit it first
     mfxLastWrote = temporalKind;
     ++stats.drawCalls;  // the scaler's own pass
     return true;
