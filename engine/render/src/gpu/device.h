@@ -8,7 +8,8 @@
 //
 // Implementations: SokolDevice (gpu/sokol_device.h: GL, GLES3, WebGL2, D3D11, Metal through sokol_gfx),
 // RecordingDevice (gpu/recording_device.h: no GPU; validates and records, for tests and the CPU logic of the later
-// backends) and, later in M77, the engine's own D3D12 and Vulkan backends. make_device() picks one.
+// backends) and the engine's own D3D12 and Vulkan backends (gpu/d3d12_device.h, gpu/vulkan_device.h). make_device()
+// picks one; the renderer draws through the one RendererDesc::backend names.
 //
 // THREADING. A Device is created, used for resources and destroyed on one thread, the render thread. A CommandList
 // belongs to the thread that called begin_commands() until it is submitted: a backend that records in parallel
@@ -146,6 +147,23 @@ struct DeviceInit {
     bool recordingDefaultCaps = true;
 };
 
+// ---- the window: swapchain and present (Device::create_swapchain and the calls after it) --------------------------
+// The window a device presents into, as the platform layer hands it over. On the sokol backends sokol_app made the
+// swapchain already (the native fields stay null and are not read); an explicit backend (D3D12, Vulkan) makes its own
+// swapchain on the native window.
+struct SwapchainDesc {
+    const void* nativeWindow = nullptr;   // HWND (Windows), ANativeWindow* (Android), the X11 Window (Linux)
+    const void* nativeDisplay = nullptr;  // the X11 Display* (Linux); null elsewhere
+    int width = 0;                        // framebuffer pixels; 0 = the window's size
+    int height = 0;
+    int sampleCount = 1;  // MSAA of the swapchain's image
+    // The colour format of the swapchain: Default = the device's SDR format (EnvironmentDefaults::colorFormat);
+    // Rgba16F = scRGB (Windows) or EDR (Apple); Rgb10A2 = HDR10. swapchain_format_supported() says which it takes.
+    PixelFormat colorFormat = PixelFormat::Default;
+    bool vsync = true;
+    const char* label = nullptr;
+};
+
 // The GPU device (see the header comment for threading, lifetime, barriers and errors).
 class Device {
 public:
@@ -247,9 +265,10 @@ public:
     // Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F,
     // RGBA32F) on this GPU: the question behind a material's `"access": "readWrite"`. pixel_format_caps().read does not
     // answer it (on D3D11.0 hardware a typed UAV exists for formats it cannot load; on Metal the read-write texture tier
-    // decides). False + `why` (a sentence about this GPU, for the material's error) when it cannot. The default answers
-    // false with a teaching `why`: a backend that has not built the question yet (D3D12, Vulkan) refuses rather than
-    // promising a load the GPU may not do.
+    // decides). False + `why` (a sentence about this GPU, for the material's error) when it cannot. Every backend answers
+    // it (the sokol ones, D3D12 from the typed UAV load support of the format, Vulkan from the storage-image feature of
+    // the format). The default answers false with a teaching `why`, for a backend that has not built the question:
+    // it refuses rather than promising a load the GPU may not do.
     virtual bool storage_image_loadable(PixelFormat format, std::string* why) const;
     // Asynchronous readback of `bytes` bytes of a storage buffer from `offset`, frames in flight: request() queues a
     // copy behind the committed work and returns a ticket (an invalid ticket with ok = every slot is busy, ask again
@@ -262,14 +281,49 @@ public:
     virtual Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) = 0;
     virtual bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) = 0;
     virtual void release_buffer_read(ReadTicket ticket) = 0;
+
+    // ---- the window: swapchain and present -------------------------------------------------------------------------
+    // The frame of a renderer that draws into a window (RendererDesc::headless false), on the render thread:
+    //   create_swapchain(desc)               once, before the first frame (Renderer::init)
+    //   acquire_swapchain(windowFrame)       each frame: the image to draw into, for a PassDesc::for_swapchain pass
+    //   ... the passes; submit(); commit()
+    //   present()                            shows the image acquired this frame
+    //   resize_swapchain(w, h)               when the window's framebuffer changed size (before the next acquire)
+    //   destroy_swapchain()                  before the device goes (nothing when there is none)
+    // The sokol devices present into sokol_app's swapchain: the window system made it, resizes it and presents it after
+    // the frame callback, so create and resize only record the request, acquire hands back `windowFrame` (the frame's
+    // surface as the window system gave it, gpu::swapchain_of(GfxSwapchain)) and present does nothing (commit() ended
+    // the frame). The defaults below are the answer of a backend without a window path (D3D12 and Vulkan for now, and
+    // RecordingDevice): every call fails with a teaching error and nothing changes.
+    virtual Result<void> create_swapchain(const SwapchainDesc& desc);
+    virtual Result<void> resize_swapchain(int width, int height);
+    // `windowFrame` is read by the sokol devices only (an explicit backend acquires the next image of its own
+    // swapchain). The result is valid until present().
+    virtual Result<Swapchain> acquire_swapchain(const Swapchain& windowFrame);
+    virtual Result<void> present();
+    virtual void destroy_swapchain();
+    virtual bool has_swapchain() const;
+    // Whether the window's swapchain can take `format` as its colour format (the HDR question: Rgba16F for scRGB or
+    // EDR, Rgb10A2 for HDR10; Default and the environment's colour format are the SDR one). False + `why` (one sentence
+    // naming the backend) when it cannot. It answers for the backend, before any swapchain exists; whether the display
+    // shows HDR is the platform's question (fa/platform/hdr_output.h).
+    virtual bool swapchain_format_supported(PixelFormat format, std::string* why) const;
 };
 
 // Makes the device of `backend`:
 //  * Gl, Gles3, WebGl2, D3d11, Metal: a SokolDevice, when it is the sokol backend this binary was built with (it adopts
 //    the sokol context the renderer opened, or opens one with `init` when none is open).
 //  * Recording: a RecordingDevice (no GPU).
-//  * D3d12, Vulkan: an error for now (the backends arrive in M77.2 and M77.3).
+//  * D3d12: make_d3d12_device (gpu/d3d12_device.h) with `init` and the engine's pipeline cache file
+//    (d3d12_pipeline_cache_file()); an error off Windows.
+//  * Vulkan: make_vulkan_device (gpu/vulkan_device.h) with `init` and the other options at their defaults, in a build
+//    whose renderer has Vulkan (FA_RENDER_VULKAN: the SPIR-V of the built-in shaders); an error elsewhere.
+// D3D12 and Vulkan draw offscreen only for now (no window path: create_swapchain fails).
 Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init = {});
+
+// Whether make_device(backend) can succeed in this binary: the built sokol backend, Recording, D3d12 on Windows, Vulkan
+// where FA_RENDER_VULKAN is on. True does not promise a GPU (a machine without a Vulkan driver still fails).
+bool device_backend_compiled(Backend backend);
 
 // The sokol backend this binary was built with (Gl, Gles3, WebGl2, D3d11 or Metal).
 Backend built_sokol_backend();

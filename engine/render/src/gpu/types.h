@@ -682,7 +682,7 @@ struct VertexBufferLayout {
 // One vertex attribute of a layout (index = the shader's attribute location).
 struct VertexAttr {
     int bufferIndex = 0;  // the vertex buffer slot it reads
-    int offset = 0;       // bytes from the start of the vertex (0 with every offset 0 = packed in order)
+    int offset = 0;       // bytes from the start of the vertex (0 with every offset of its buffer 0 = packed in order)
     VertexFormat format = VertexFormat::Invalid;  // Invalid = unused
 };
 
@@ -691,6 +691,14 @@ struct VertexLayout {
     VertexBufferLayout buffers[kMaxVertexBuffers]{};
     VertexAttr attrs[kMaxVertexAttributes]{};
 };
+
+// The bytes of one attribute of format `f` (0 for Invalid).
+int vertex_format_bytes(VertexFormat f);
+// sokol_gfx's rule made explicit: in each vertex buffer whose attributes all have offset 0, they get packed offsets in
+// attribute order, and a buffer of stride 0 gets the packed size; the attributes end at the first Invalid format. A
+// layout that mixes a packed buffer with a buffer of given offsets (the mesh vertex next to the instance matrix) then
+// means the same on every backend, also on one that packs only while every offset of the layout is 0.
+void resolve_vertex_offsets(VertexLayout& layout);
 
 // Stencil state of one face.
 struct StencilFaceState {

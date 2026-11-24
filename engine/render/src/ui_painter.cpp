@@ -7,6 +7,7 @@
 
 #include "gpu/sokol_context.h"
 #include "gpu/sokol_shaders.h"
+#include "render_internal.h"
 #include "shaders/ui2d.glsl.h"
 #include "ui_painter_internal.h"
 
@@ -48,7 +49,7 @@ UiNativeHandles native_window_handles(const GfxSwapchain& swapchain) {
 // UiPainterImpl
 // ---------------------------------------------------------------------------------------------------------------------
 bool UiPainterImpl::init(std::string* error) {
-    gpu::ShaderDesc sd = gpu::generated_shader_desc(ui2d_ui2d_shader_desc);
+    gpu::ShaderDesc sd = gpu::generated_shader_desc(*device, ui2d_ui2d_shader_desc);
     sd.label = "ui2d";
     shader = device->make_shader(sd);
     if (device->state(shader) != gpu::ResourceState::Valid) {
@@ -89,6 +90,7 @@ bool UiPainterImpl::grow(gpu::Buffer& buffer, std::size_t& capacity, std::size_t
     gpu::BufferDesc d;
     d.size = size;
     d.usage.writeTransient = true;
+    d.usage.vertexBuffer = kind == Kind::Vertex;
     d.usage.indexBuffer = kind == Kind::Index;
     d.usage.stagingBuffer = kind == Kind::Staging;  // a staging buffer is only a copy source
     d.usage.copySrc = kind == Kind::Staging;
@@ -417,6 +419,15 @@ std::unique_ptr<UiPainter> UiPainter::create(std::string* error) {
     return std::make_unique<UiPainter>(std::move(impl));
 }
 
+std::unique_ptr<UiPainter> UiPainter::create(Renderer& renderer, std::string* error) {
+    gpu::Device* device = RendererDeviceAccess::device(renderer);
+    if (!device) {
+        set_error(error, "UiPainter::create(Renderer&) needs an initialized renderer (call Renderer::init first)");
+        return nullptr;
+    }
+    return make_ui_painter_on(*device, error);  // the renderer's device, not owned: the renderer outlives the painter
+}
+
 UiTexture UiPainter::make_texture(int width, int height, const std::uint8_t* rgba, std::string* error) {
     return impl_->make_texture(width, height, rgba, false, error);
 }
@@ -440,10 +451,9 @@ bool UiPainter::upload(const UiFrame& frame, std::string* error) {
 void UiPainter::draw(const GfxSwapchain& swapchain, const UiFrame& frame) {
     gpu::Device& device = *impl_->device;
     const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
-    // The same defaults Renderer::begin_window_pass makes the window pass with (the context's), so the pipeline's formats
-    // match that pass; a painter on a device with no context (a test's RecordingDevice) uses its device's.
-    const gpu::PassDesc pass =
-        gpu::PassDesc::for_swapchain(sc, gpu::context_open() ? gpu::context_defaults() : device.environment_defaults());
+    // The device's defaults: on a sokol device the context's, the ones Renderer::begin_window_pass makes the window pass
+    // with, so the pipeline's formats match that pass.
+    const gpu::PassDesc pass = gpu::PassDesc::for_swapchain(sc, device.environment_defaults());
     gpu::CommandList& list = device.begin_commands("ui draw");
     impl_->draw(list, pass.format, frame);
     device.submit(list);

@@ -24,7 +24,10 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - `gpu/types.h` is the vocabulary: handles, enums, descs, capabilities, pass and binding structs. No sokol type
   appears in it, so a D3D12 or Vulkan backend includes nothing of sokol.
 - `gpu/device.h` declares `Device` and `CommandList` (pure virtual), `DeviceInit`, `make_device(Backend, DeviceInit)`
-  and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build).
+  and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build). `make_device` makes
+  the built sokol backend, Recording, D3D12 (Windows; with the engine's pipeline cache file) and Vulkan (where
+  `FA_RENDER_VULKAN` is on, options at their defaults); `device_backend_compiled(b)` says which this binary can make,
+  and every other request is a teaching error that names the backend to ask for instead.
 - `gpu/sokol_device.h` holds `SokolDevice`, its immediate `SokolCommandList`, and the `to_sg` / `from_sg`
   conversions the call sites use while they move over.
 - M77-P1 (this page's first version) lands the interface and its implementations only: `Gpu` does not own a
@@ -126,8 +129,11 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
   value-initialised desc means what a zeroed sokol desc means.
 - Descs convert field by field (`to_sg(const BufferDesc&)` and the rest). Labels, shader sources and data ranges are
   borrowed for the call, never kept.
-- The generated shader headers return `sg_shader_desc`: `generated_shader_desc(name_shader_desc)` (gpu/sokol_shaders.h)
-  gives the `ShaderDesc` for `Device::make_shader`.
+- The generated shader headers return `sg_shader_desc`: `generated_shader_desc(device, name_shader_desc)`
+  (gpu/sokol_shaders.h) gives the `ShaderDesc` for `Device::make_shader` in the dialect of `device`: GLSL on GL,
+  GLSL ES on GLES3 and WebGL2, HLSL 5 on D3D11 and D3D12, the MSL of `DeviceInfo::metalTarget` on Metal, SPIR-V on
+  Vulkan, and on Recording the dialect of the open context (the built one when none is open). A header without that
+  dialect logs an error and gives an empty desc, which `make_shader` refuses.
 - `to_sg(const PassDesc&)` gives the `sg_pass` of a pass (the swapchain case included); a window pass is
   `PassDesc::for_swapchain(sc, device.environment_defaults())` (a test checks every field).
 - The conversions are declared in gpu/sokol_device.h, which only the sokol backend's files and the tests include.
@@ -220,9 +226,9 @@ a hint), and `timer_supported()` is false with a reason (the timed scopes are st
   unchanged; a converted file includes no `sokol_gfx.h`.
 - Handles keep sokol's ids during the move, so a converted function can hand a `gpu::Image` to one that still takes
   `sg_image` (`to_sg(h)`), and the reverse (`from_sg(img)`).
-- **M77.2 / M77.3** add `D3d12Device` and `VulkanDevice` behind the same interface; `make_device(Backend::D3d12)` and
-  `Backend::Vulkan` stop returning "not built yet". RecordingDevice's checks are the contract they implement: a frame
-  that RecordingDevice accepts must run on them.
+- **M77.2 / M77.3** add `D3d12Device` and `VulkanDevice` behind the same interface, and M77-P9b lets the renderer
+  draw through them (`RendererDesc::backend`, "The renderer on its backend" below). RecordingDevice's checks are the
+  contract they implement: a frame that RecordingDevice accepts must run on them.
 
 ## How the renderer reaches the device
 
@@ -321,6 +327,37 @@ backend the reflection names (hlsl register, msl index, wgsl and spir-v group an
 (shader_cache_sg.cpp) and `feature_env_from_sokol` (render_features_sg.cpp) are deleted: nothing called them. Draws
 bind the interface handles as they are; `draw_group` no longer converts its bindings twice. The files of this list
 call no `from_sg` any more; `to_sg` was left only in front of the sokol-only readbacks and storage-image helpers (gone in P5d2).
+
+## The renderer on its backend
+
+`RendererDesc::backend` (`GpuBackend`, fa/render/renderer.h) names the device the renderer draws through. `Default`
+(and the sokol backend this binary was built with) is what the renderer always did: `init()` opens or adopts the sokol
+context and `Gpu::init` makes `make_device(built_sokol_backend())` on it. `D3d12`, `Vulkan` and `Recording` make
+their device with `make_device(backend, init)` (the window environment's default formats in `init`) and hand it to
+`Gpu::init`; they never open, adopt or close the sokol context. Another sokol backend is an `init()` error that says
+which one the binary has. Every built-in program comes from `generated_shader_desc(device, ...)`, so each device
+gets its own dialect; `gpu_info().backend` names the device's backend ("d3d12", "vulkan", "dummy" for Recording).
+`UiPainter::create(Renderer&, error)` makes a painter on the renderer's device (not owned: destroy it before
+`Renderer::shutdown`); `UiPainter::create(error)` still makes one on the open sokol context (the editor).
+`Gpu::find_or_make` writes every vertex offset and stride out (`gpu::resolve_vertex_offsets`: sokol's rule, each
+buffer whose offsets are all 0 is packed on its own), so a backend that packs the whole layout at once reads the
+same attributes; vertex buffers say `usage.vertexBuffer`, and the lean 2D program binds only its texture and sampler.
+
+**The window path** (gpu/device.h, "the window: swapchain and present"): `create_swapchain(SwapchainDesc)` once
+(`Renderer::init` when not headless), `acquire_swapchain(windowFrame)` each frame for the `PassDesc::for_swapchain`
+pass of `Renderer::present`, `present()` after the frame's commit, `resize_swapchain(w, h)`, `destroy_swapchain()`
+(`Renderer::shutdown`), and `swapchain_format_supported(format, why)`, the HDR question `warm_step` asks before it
+makes the RGBA16F and RGB10A2 copies. The sokol devices answer it over sokol_app's swapchain (the window system made
+it and presents it: create and resize record, acquire hands the frame back, present does nothing; RGBA16F on Metal
+and D3D11, RGB10A2 on D3D11). The defaults in device.cpp are the answer of a backend without a window path (D3D12,
+Vulkan and Recording for now): every call fails with an error that says to draw offscreen (`RendererDesc::headless`)
+or pick the sokol backend, so a non-headless renderer on them fails `init()`.
+
+**Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
+which opens the SPIR-V of every generated header. ON on Linux, Windows and Android; on macOS it follows
+`FA_BUILD_TESTS`, so the Debug suite draws the renderer on MoltenVK while a release build (the players, the editor:
+tests off) carries no SPIR-V; OFF on iOS and the web. It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws
+a 2D and a 3D frame on Vulkan and on the platform's sokol backend and compares them within the golden limits.
 
 ## P5c: native_metal and the 2D painter
 
@@ -447,12 +484,12 @@ test that needs pixels keeps the GPU fixture (`fa::test::gfx()`) and reads throu
 ## D3D12 backend
 
 The engine's own Direct3D 12 device (M77-P7a: the core; M77-P7c1: shaders, pipelines, passes and draws; M77-P7c2:
-GPU timers and asynchronous reads; M77-P9: the window). Its code is
+GPU timers and asynchronous reads; M77-P9b: the renderer on it, offscreen). Its code is
 `engine/render/src/gpu/d3d12_device.h` and `d3d12_*_win32.cpp` (the `_win32` suffix keeps it out of every other
 build); `d3d12_device.cpp` is the factory of the other platforms, which returns a teaching error ("runs on Windows
 only", hint `make_device(built_sokol_backend())`). `fa_render` links `d3d12`, `dxgi` and `dxguid` on Windows.
-`make_device(Backend::D3d12)` still answers "not built yet" until the renderer can run on it; tests and tools make it
-with `make_d3d12_device(D3d12Options)`.
+`make_device(Backend::D3d12)` makes it with `DeviceInit` and `pipelineCacheFile = d3d12_pipeline_cache_file()` (the
+renderer's `RendererDesc::backend = GpuBackend::D3d12`); tests make it with `make_d3d12_device(D3d12Options)`.
 
 **Options and start-up.** `D3d12Options` picks WARP or the first hardware adapter (high-performance preference), the
 debug layer (and GPU-based validation, which needs it), the frames in flight (1 to 3), the upload ring's size and the
@@ -586,13 +623,14 @@ it does not (also when the device is destroyed), atomically through `fs::write_b
 the file, a full disk) keeps the old file and warns. Deleting the file clears the cache. `counters()` has
 `pipelineLibrary`, `psoLibraryHits`, `psoLibraryMisses`, `pipelineCacheStored` and `pipelineCacheDiscarded`; the
 process totals are the `pipelineCache` object of the shader cache report (`ShaderBuildStats::to_json`, the `gpu` part
-of `loading.startup`). The renderer sets the option once it draws through D3D12 (M77-P9).
+of `loading.startup`). `make_device(Backend::D3d12)`, the renderer's way to the device, sets it.
 
 **Passes and draws.** `begin_pass` checks its attachments (live views of the right kind, one size, the resolve
 single-sampled with the colour format, the depth sample count equal to the colour one) and that `PassDesc::format` is
 what they are; it sets the targets, clears what `colorLoad` / `depthLoad` / `stencilLoad` say (Clear, or Default),
 and a viewport and scissor over the whole target. `end_pass` resolves an MSAA colour attachment into `resolve`. A pass
-into the window (`PassDesc::swapchain`) is an error until M77-P9. `set_pipeline` checks that the pipeline is a render
+into the window (`PassDesc::swapchain`) is an error that says the backend has no window path yet and to pick the
+sokol backend for a window. `set_pipeline` checks that the pipeline is a render
 one in a render pass and a compute one in a compute pass, and that its formats, colour count and sample count equal
 the pass's. `set_bindings` checks every slot against the shader (an empty slot the shader declares, a slot it does
 not, a view of the wrong kind, a buffer without the usage, a view of a mip and layer the pass draws into) and `set_uniforms` the block's exact size; uniforms are
@@ -602,7 +640,8 @@ block was set and `set_bindings` called since `set_pipeline`. As in sokol, once 
 inside a pass whose `begin_pass` failed is skipped. `draw_ex`'s `baseVertex` is the index offset with an index buffer
 and is added to `base` without one; dispatch counts are 0 to 65535 per dimension.
 
-**Not yet (M77-P9).** Passes into the window.
+**Not yet.** The window: `create_swapchain` and the calls after it fail with the default's teaching error (the DXGI
+swapchain is a later package).
 
 **Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
 WARP device with the debug layer and ends by checking that the layer reported no error. Resources: buffer and image

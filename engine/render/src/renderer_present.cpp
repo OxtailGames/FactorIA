@@ -71,10 +71,20 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
     if (!initialized()) return;
     Impl& im = *impl_;
-    const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
+    gpu::Device& device = im.gpu.device();
+    // The image of the window to draw into (gpu/device.h, "the window: swapchain and present"): on the sokol devices the
+    // frame's surface as sokol_app gave it.
+    auto acquired = device.acquire_swapchain(gpu::swapchain_of(swapchain));
+    if (!acquired) {
+        if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", acquired.error().to_string());
+        im.presentFailed = true;  // said once
+        im.inFrame = false;
+        return;
+    }
+    const gpu::Swapchain sc = acquired.value();
     im.scaleMode = mode;
     Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
-    PassDesc pass = PassDesc::for_swapchain(sc, im.gpu.device().environment_defaults());
+    PassDesc pass = PassDesc::for_swapchain(sc, device.environment_defaults());
     pass.label = "present";
     pass.colorLoad = gpu::LoadAction::Clear;  // the letterbox bars
     pass.clearColor = {0, 0, 0, 1};
@@ -101,6 +111,10 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     list.end_pass();
     im.gpu.commit_frame();
     im.gpu.note_commit();
+    if (auto shown = device.present(); !shown) {
+        if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", shown.error().to_string());
+        im.presentFailed = true;
+    }
     im.inFrame = false;
 }
 

@@ -13,8 +13,19 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The
   backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
   `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
-  the device was lost. The renderer
-  will turn the file on when it draws through D3D12 (from M77-P9).
+  the device was lost. A renderer on D3D12 (`RendererDesc::backend`, M77-P9b) uses the file.
+- The renderer draws through the device `RendererDesc::backend` names (`GpuBackend`, M77-P9b): `Default` is the platform's sokol
+  backend as before; `D3d12` (Windows) and `Vulkan` draw offscreen (`headless`) on the engine's own backends, and `Recording` on
+  none (tests). Asked for a window they fail `init()` with an error that says to draw offscreen or pick the sokol backend (their
+  swapchains come later); a backend the build lacks names the one it has. Each built-in shader is taken in the device's dialect
+  (`gpu::generated_shader_desc(device, ...)`), `gpu_info().backend` names the device's backend ("d3d12", "vulkan"), the window goes
+  through a swapchain interface of the device (create, acquire, present, resize, the HDR format question), and
+  `UiPainter::create(Renderer&, error)` paints on the renderer's device. `FA_RENDER_VULKAN` (ON on Linux, Windows and Android; on
+  macOS only with the tests, so the Debug suite draws on MoltenVK; OFF on iOS and the web) compiles the SPIR-V of the built-in
+  shaders into `fa_render`: the Linux, Windows and Android players now carry it, the Apple and web ones do not. A test draws a 2D and
+  a 3D frame on Vulkan and on the sokol backend and compares them. The renderer now gives every pipeline explicit vertex offsets (the
+  per-buffer packing of sokol_gfx, `gpu::resolve_vertex_offsets`), says `vertexBuffer` on its mesh and UI vertex buffers, and binds
+  only the slots the lean 2D program declares, which the stricter backends ask for.
 - The editor draws its interface through a public 2D painter of the renderer, `fa::render::UiPainter` (`fa/render/ui_painter.h`): triangle lists
   with a texture and a scissor rectangle per command, pictures made by `make_texture`, the game's picture from `Renderer::game_target_texture()`
   (it replaces `game_target_image_id()` / `game_target_view_id()`). The editor no longer calls sokol_gfx or sokol_imgui, and the screenshots
@@ -24,9 +35,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   and probe reads) go through the private GPU interface, `gpu::Device`.
 - Shaders for the Vulkan backend (M77): `tools/shaders/compile_shaders.sh` also asks sokol-shdc for `spirv_vk`, so every built-in
   shader (the compute Hi-Z one too) has its SPIR-V in the generated headers, behind `#if defined(SOKOL_VULKAN) ||
-  defined(FA_SHADERS_SPIRV)`: no other backend's player carries a byte of it (the headers grow by a quarter, 75 MB to 95 MB in the
-  repository). The pinned sokol-shdc already supports it, so the pin does not move. Nothing in the player reads the SPIR-V yet.
-- The engine's own Vulkan backend draws and computes (M77, for its tests and tools; the renderer does not run on it yet): shaders from
+  defined(FA_SHADERS_SPIRV)`, which only a build that can run the renderer on Vulkan sets (`FA_RENDER_VULKAN`,
+  above); the headers grow by a quarter, 75 MB to 95 MB in the repository. The pinned sokol-shdc already supports it, so the pin
+  does not move.
+- The engine's own Vulkan backend draws and computes (M77; the renderer runs on it offscreen, above): shaders from
   sokol-shdc's SPIR-V with its descriptor sets (uniform blocks in set 0, views and samplers in set 1, the bindless table in set 2),
   cached set layouts, pipeline layouts, render passes and pipelines over a `VkPipelineCache`, render and compute passes with
   load/store/clear and MSAA resolve, viewports, scissors, bindings, uniforms, indexed and instanced draws with a base vertex, and

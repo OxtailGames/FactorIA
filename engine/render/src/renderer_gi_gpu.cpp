@@ -37,7 +37,7 @@ bool ProbeGpu::gi_ready() {
                         {Prog::GiDepth, probe_gi_depth_shader_desc, "probe_gi_depth"},
                         {Prog::GiMeta, probe_gi_meta_shader_desc, "probe_gi_meta"}};
         for (const auto& p : programs) {
-            shaders_[int(p.prog)] = make_shader(device, gpu::generated_shader_desc(p.desc), p.name);
+            shaders_[int(p.prog)] = make_shader(device, gpu::generated_shader_desc(device, p.desc), p.name);
             ok = ok && device.state(shaders_[int(p.prog)]) == gpu::ResourceState::Valid;
         }
     }
