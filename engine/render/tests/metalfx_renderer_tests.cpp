@@ -228,8 +228,9 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     CHECK(caps.metalfxTemporal == support.temporal);
     CHECK(own.r.effective_upscaler_mode() == (caps.metalfx ? UpscalerMode::MetalFx : UpscalerMode::Temporal));
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(caps.metalfx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
-    CHECK(RendererTestAccess::upscale_phases(own.r) ==
-          32);  // jittered either way (MetalFX's temporal scaler takes the same frame)
+    // Jittered by the temporal upscaler and by MetalFX's temporal scaler (it takes the same frame); a GPU with only
+    // MetalFX's spatial scaler (a CI VM) draws an unjittered frame.
+    CHECK(RendererTestAccess::upscale_phases(own.r) == (caps.metalfx && !caps.metalfxTemporal ? 0 : 32));
     CHECK(own.r.effective_upscaler_mode() != UpscalerMode::Stretch);
     const int row = render::find_feature("metalfx");
     REQUIRE(row >= 0);

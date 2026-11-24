@@ -5076,9 +5076,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.debugPrepass) {
             // The debug view "motionVectors" paints the velocity image (the prepass's depth and normals are not part of it).
             const bool vv = debugView == DebugView::MotionVectors && velRes.valid();
-            const ResourceId shown = vv ? velRes : prepassRes;
-            add("prepass-view", {shown, game}, {game}, [this, &ctx, shown](const PassContext& c) {
-                const Target* t = transient_targets().get(c.handle(shown));
+            const ResourceId viewRes = vv ? velRes : prepassRes;
+            add("prepass-view", {viewRes, game}, {game}, [this, &ctx, viewRes](const PassContext& c) {
+                const Target* t = transient_targets().get(c.handle(viewRes));
                 if (t) prepass_view_pass(ctx, *t);
             });
         }
