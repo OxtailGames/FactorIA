@@ -35,8 +35,8 @@ bool mfx_here(const char* test) {
     const render::metalfx::Support s = render::metalfx::support();
     const bool ok = s.temporal && render::metalfx::on_metal();
     if (!ok)
-        MESSAGE("MetalFX is not available here, the test is skipped (" << test << "): "
-                                                                         << (s.reason.empty() ? "not the Metal backend" : s.reason));
+        MESSAGE("MetalFX is not available here, the test is skipped ("
+                << test << "): " << (s.reason.empty() ? "not the Metal backend" : s.reason));
     return ok;
 }
 
@@ -198,7 +198,8 @@ double round4(double v) { return std::round(v * 10000.0) / 10000.0; }
 
 }  // namespace
 
-TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it and the next best where not, with the reason") {
+TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it and the next best where not, with the "
+          "reason") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -214,7 +215,8 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     CHECK(caps.metalfxTemporal == support.temporal);
     CHECK(own.r.effective_upscaler_mode() == (caps.metalfx ? UpscalerMode::MetalFx : UpscalerMode::Temporal));
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(caps.metalfx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
-    CHECK(RendererTestAccess::upscale_phases(own.r) == 32);  // jittered either way (MetalFX's temporal scaler takes the same frame)
+    CHECK(RendererTestAccess::upscale_phases(own.r) ==
+          32);  // jittered either way (MetalFX's temporal scaler takes the same frame)
     CHECK(own.r.effective_upscaler_mode() != UpscalerMode::Stretch);
     const int row = render::find_feature("metalfx");
     REQUIRE(row >= 0);
@@ -240,8 +242,9 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     CHECK(own.r.effective_upscaler_mode() == (caps.metalfx ? UpscalerMode::MetalFx : UpscalerMode::Temporal));
 }
 
-TEST_CASE("metalfx renderer: a still scene converges to the supersampled picture, closer than stretch and than one frame, "
-          "and the opposite jitter sign is worse") {
+TEST_CASE(
+    "metalfx renderer: a still scene converges to the supersampled picture, closer than stretch and than one frame, "
+    "and the opposite jitter sign is worse") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!mfx_here("still scene")) return;
@@ -277,11 +280,11 @@ TEST_CASE("metalfx renderer: a still scene converges to the supersampled picture
         CHECK(img.height == kOutH);
         (sign > 0 ? converged : flipped) = edge_error(linear_plane(img), ref);
     }
-    MESSAGE("edge pixels " << edges << ", error of stretch " << round4(stretchError) << ", of one frame " << round4(oneFrameError)
-                           << ", of 80 frames " << round4(converged) << ", of 80 frames with the jitter sign flipped "
-                           << round4(flipped));
+    MESSAGE("edge pixels " << edges << ", error of stretch " << round4(stretchError) << ", of one frame "
+                           << round4(oneFrameError) << ", of 80 frames " << round4(converged)
+                           << ", of 80 frames with the jitter sign flipped " << round4(flipped));
     CHECK(converged < oneFrameError);  // the history adds detail a single frame at half size cannot have
-    CHECK(converged < flipped);  // the sign of the jitter matters, and the one handed to MetalFX is the right one
+    CHECK(converged < flipped);        // the sign of the jitter matters, and the one handed to MetalFX is the right one
 }
 
 TEST_CASE("metalfx renderer: a moving object leaves no ghost with the motion handed to MetalFX") {
@@ -311,8 +314,8 @@ TEST_CASE("metalfx renderer: a moving object leaves no ghost with the motion han
         const std::vector<float> truth = reference_plane(big.draw(bigScene.w), 4);
         ghosts[run] = ghost_pixels(linear_plane(img), truth, kOutW, kOutH);
     }
-    MESSAGE("ghost pixels after " << frames << " frames: motion handed to MetalFx " << ghosts[0] << ", opposite sign " << ghosts[1]
-                                  << ", no motion " << ghosts[2]);
+    MESSAGE("ghost pixels after " << frames << " frames: motion handed to MetalFx " << ghosts[0] << ", opposite sign "
+                                  << ghosts[1] << ", no motion " << ghosts[2]);
     // A few pixels of a soft edge, not a trail of the twenty places the square was in. The three counts are close: on this scene the
     // output of the temporal scaler barely depends on the sign of the motion image (see "Open" in docs/UPSCALING.md, MetalFX), so the test
     // cannot tell the right sign from the wrong one here; the sign is checked where it shows, in metalfx_tests.cpp.
@@ -360,7 +363,8 @@ TEST_CASE("metalfx renderer: a camera cut, a resize and a quality change reset t
     CHECK_FALSE(RendererTestAccess::mfx_failed(own.r));
 }
 
-TEST_CASE("metalfx renderer: a scaler that cannot be made falls to the temporal upscaler with one warning, and stays there") {
+TEST_CASE(
+    "metalfx renderer: a scaler that cannot be made falls to the temporal upscaler with one warning, and stays there") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!mfx_here("fallback")) return;
