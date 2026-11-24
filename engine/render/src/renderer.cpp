@@ -1585,6 +1585,9 @@ void Renderer::Impl::render(World& world, float dt) {
     // A stage that is off keeps no output image for long: the pictures of a game that has the player's render scale back at 1 (or a window
     // that grew to the render size) are freed here, once, after kOutputIdleFrames frames in a row without the stage. A dynamic resolution
     // or a spatial/temporal switch that oscillates around the boundary reuses them instead of making them again every few frames.
+    // A frame without the stage draws its picture in the scene target: the kept images hold an older one, so final_target() must not
+    // point at them even when this frame has no job that would clear the flags.
+    if (!upscale_active()) outActive = outFilterActive = false;
     if (upscale_active() || !(outTarget.color.id || outFilterTarget.color.id || spatialTarget.color.id)) {
         outputIdleFrames = 0;
     } else if (++outputIdleFrames >= kOutputIdleFrames) {

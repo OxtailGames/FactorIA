@@ -853,6 +853,7 @@ TEST_CASE("quad motion: a floating-origin rebase while a sprite turns leaves the
         if (f < 5) continue;
         INFO("frame " << f << (f == 5 ? " (the one right after the rebase)" : ""));
         const Plane v = read_velocity(o);
+        float biggest = 0.0f;
         for (const Vec2 q : {Vec2{22, 22}, Vec2{-22, -22}}) {
             const int x = px_x(q.x), y = px_y(q.y);
             REQUIRE_FALSE(v.none(x, y));
@@ -862,7 +863,14 @@ TEST_CASE("quad motion: a floating-origin rebase while a sprite turns leaves the
             const Vec2 want = expected_velocity(now, before);
             CHECK(v.r(x, y) == doctest::Approx(want.x).scale(1.0).epsilon(0.05));
             CHECK(v.g(x, y) == doctest::Approx(want.y).scale(1.0).epsilon(0.05));
+            // The rotation's own motion survives the rebase (a zero vector would pass the loose Approx above).
+            CHECK(v.r(x, y) * want.x > 0.0f);
+            CHECK(v.g(x, y) * want.y > 0.0f);
+            biggest = std::max(biggest, std::fabs(want.x));
         }
-        CHECK(std::fabs(v.r(px_x(0), px_y(0))) < 1.5e-3f);  // the centre did not jump by the 1000 px of the shift
+        CHECK(biggest > 0.004f);
+        // The centre did not jump by the 1000 px of the shift.
+        CHECK(std::fabs(v.r(px_x(0), px_y(0))) < 1.5e-3f);
+        CHECK(std::fabs(v.g(px_x(0), px_y(0))) < 1.5e-3f);
     }
 }
