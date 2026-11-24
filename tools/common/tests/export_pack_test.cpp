@@ -488,3 +488,53 @@ TEST_CASE("export --release: export.pack.codecs picks the codec of an extension,
     CHECK(big->size() == 200000);
     CHECK(r->packBytes < r->packFileBytes);  // 400 KB of repeated bytes pack small
 }
+
+TEST_CASE(
+    "export --release: export.pack.codec and directStorage choose gdeflate, files stored by default stay stored") {
+    // {codec, directStorage, platform, the codec of data/big.json, of data/big.txt, of data/raw.bin}
+    struct Case {
+        const char* codec;
+        bool directStorage;
+        const char* platform;
+        Codec json, txt;
+    };
+    const Case cases[] = {
+        {"auto", false, "windows", Codec::Lz4, Codec::Zstd},  // today's choice
+        {"auto", true, "linux", Codec::Lz4, Codec::Zstd},     // the option only matters on Windows
+        {"auto", true, "windows", Codec::GDeflate, Codec::GDeflate},
+        {"gdeflate", false, "linux", Codec::GDeflate, Codec::GDeflate},
+        {"zstd", false, "linux", Codec::Zstd, Codec::Zstd},
+        {"lz4", false, "windows", Codec::Lz4, Codec::Lz4},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.codec);
+        CAPTURE(c.directStorage);
+        CAPTURE(c.platform);
+        testing::TempDir tmp;
+        const std::string proj = make_project(tmp);
+        testing::write_all(stdfs::path(proj) / "data" / "big.json", std::string(200000, 'a'));
+        testing::write_all(stdfs::path(proj) / "data" / "big.txt", std::string(200000, 'b'));
+        testing::write_all(stdfs::path(proj) / "data" / "keep.dat", std::string(200000, 'c'));
+        testing::write_all(stdfs::path(proj) / "data" / "pic.png", std::string(200000, 'd'));  // stored by default
+        const stdfs::path file = stdfs::path(proj) / "factoria.json";
+        auto j = parse_json(testing::read_all(file), "factoria.json");
+        REQUIRE(j.ok());
+        (*j)["export"]["pack"]["codec"] = c.codec;
+        (*j)["export"]["pack"]["directStorage"] = c.directStorage;
+        (*j)["export"]["pack"]["codecs"] = Json::object({{".dat", "store"}});
+        testing::write_all(file, j->dump(2));
+        auto r = export_project(options_for(tmp, proj, c.platform, true));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string dir = std::string(c.platform) == "windows" ? "pack-test-windows" : "pack-test-linux";
+        auto pack = PackReader::open(tmp.sub("out/" + dir + "/game.pak"));
+        REQUIRE(pack.ok());
+        CHECK(pack.value()->codec_of("data/big.json") == c.json);
+        CHECK(pack.value()->codec_of("data/big.txt") == c.txt);
+        CHECK(pack.value()->codec_of("data/keep.dat") == Codec::Store);  // an extension named in codecs wins
+        CHECK(pack.value()->codec_of("data/pic.png") == Codec::Store);   // stored by default
+        auto big = pack.value()->read("data/big.txt");
+        REQUIRE(big.ok());
+        CHECK(big->size() == 200000);
+        CHECK(r->packBytes < r->packFileBytes);
+    }
+}

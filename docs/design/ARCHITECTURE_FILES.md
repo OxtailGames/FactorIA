@@ -11,7 +11,7 @@ archive (`core/pack.h`) that `fa::fs::mount_pack` mounts, which is how a `--rele
 (`read_*`, `exists`, `is_directory`, `file_size`, `modified_time`, `list`); absolute paths and writes still go to the host.
 So engine code must not open a game file with `std::ifstream` or `std::filesystem` on a path it built from the project
 folder: use `fs::`, or the file will be missing from a packed game. A pack (format 2) holds each file in checksummed blocks of
-256 KiB, each compressed with the file type's codec (`core/compress.h`: store, lz4, zstd). On 64-bit desktops it is
+256 KiB, each compressed with the file type's codec (`core/compress.h`: store, lz4, zstd, gdeflate). On 64-bit desktops it is
 memory-mapped once; elsewhere (32-bit, web, `FA_PACK_MAP=0`) it reads positionally (no shared file offset), so it is safe from
 any thread either way. `fs::read_view(path)` answers an `fs::FileView` instead of a vector: no copy for a file of a mapped
 pack stored as it is (the view keeps the pack mapped while it lives, also after `unmount_pack`), a warm file or an Android
@@ -99,9 +99,9 @@ floor against leaking a secret by accident, not a barrier: a child that runs wit
 mode without checks) runs as the user and can read `ai.json`, the keychain and the files itself. A signed export run through the
 stdio `factoria mcp` gets no `FACTORIA_*_PASSWORD` for the same reason: signing passwords are not in any allow-list.
 
-## Block codecs: LZ4 and Zstandard (`core/compress.h`)
-`fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`) are the engine's own
-implementations of two public formats, with no outside library: the LZ4 **block** format (no frame; levels 1 to 12) and
+## Block codecs: LZ4, Zstandard and GDeflate (`core/compress.h`)
+`fa::compress` / `fa::decompress` / `fa::decompress_into` (`Codec::Store`, `Lz4`, `Zstd`, `GDeflate`) are the engine's own
+implementations of public formats (GDeflate has its own section below), with no outside library: the LZ4 **block** format (no frame; levels 1 to 12) and
 the Zstandard frame format of RFC 8878 (levels 1 to 19). They are for the game pack (M70.4); `zlib_compress` stays for
 `storage` and the PNG and PSD code. Their files are private (`engine/core/src/`): `lz4_codec.cpp`, `zstd_decode.cpp`
 (every frame the reference tool writes except dictionaries: any window up to 128 MiB, Huffman with 1 or 4 streams and
@@ -118,3 +118,52 @@ before it allocates, a window over 128 MiB or a dictionary is an error that says
 thread-safe. The tests round-trip many inputs at many levels, decode the reference fixtures, cut and flip bits of valid
 blocks and feed garbage (also run under ASan and UBSan while writing them).
 
+### GDeflate (`gdeflate_codec.cpp`, M77)
+`Codec::GDeflate` (3 in the pack index) is the stream DirectStorage 1.1 decompresses on the GPU, written for the engine from
+the published description of the format (no code of the reference implementation, no dependency). The reader reads it on the
+CPU like any codec; the pack stores it so that the Windows DirectStorage reader (M77) can hand a block to the GPU as it is.
+Levels 1 to 12 (0 = 6; a hash-chain match finder with lazy matching from level 4, deeper chains per level), all read by the
+same decoder.
+
+What is implemented (`fa::compress` makes one stream per block; the pack's block is up to 256 KiB, so four tiles):
+
+- **Stream header, 8 bytes, little-endian:** `u8 id = 4`, `u8 magic = 0xFB` (id ^ 0xFF), `u16 numTiles`, then a `u32` with bits
+  0-1 `tileSizeIdx = 1` (64 KiB tiles, the only size), bits 2-19 `lastTileSize` (the bytes of the last tile; 0 = a full 65536)
+  and bits 20-31 reserved, 0. An empty input is the header with 0 tiles.
+- **Tile table:** `u32[numTiles]` after the header. Entry 0 is the compressed size of the LAST tile; entry `i >= 1` is the byte
+  offset of tile `i` in the tile data that follows the table (tile 0 starts at offset 0 and ends where tile 1 starts). Tile data
+  is a multiple of 4 bytes, tiles back to back with no padding.
+- **A tile** holds up to 65536 input bytes as an ordinary Deflate64 bitstream (RFC 1951 with the two Deflate64 changes: length
+  symbol 285 is length `3 + 16 extra bits`, distance codes 30 and 31 give distances up to 65536) dealt to 32 lanes. Lane `n`
+  starts with the `n`-th 32-bit word of the tile; whenever a lane has fewer than 32 unread bits it takes the next 32-bit word of
+  the tile, so the words after the first 128 bytes are in the order the lanes ran dry. The symbols of a block go to the lanes
+  round-robin from lane 0. A match's length symbol and its extra bits go to its lane and its distance symbol and extra bits to
+  the SAME lane one round later (that lane skips a turn); after the end-of-block symbol there is one more round for the pending
+  distances (lanes after the end-of-block lane, then those before it). A block header (3 bits, and for a dynamic block 5+5+4
+  bits) goes to lane 0; the 3-bit precode lengths one per lane from lane 0 and then the code-length symbols round-robin from
+  lane 0; a stored block is its 3-bit header and a 16-bit length in lane 0 (no complement, no alignment, at most 65535 bytes)
+  followed by one byte per lane round-robin from lane 0. The next block starts on lane 0 again. A tile is at least 128 bytes.
+- **The encoder** writes, per tile, one dynamic-Huffman block (matches never leave their tile), or stored blocks when that is
+  not smaller. Its output is a pure function of the input and the level (integer decisions, no wall-clock, no randomness, not
+  dependent on `size_t` width), so the same pack bytes come out on every platform.
+- **The decoder** also reads static blocks and several blocks per tile (what the reference compressor can write). It checks
+  everything it can: the header fields, the table (offsets in order and inside the data), every code (oversubscribed or
+  incomplete codes, a missing end-of-block symbol, symbols 286/287 and distance codes past 31), every distance against the
+  tile start, every match and literal against the tile's output size, and every lane word against the tile's end. A fault is
+  an error `gdeflate block is damaged: tile N: <what> (at byte B)` with `B` the offset in the block (the pack adds the file
+  and block). The decoder allocates its tables (~10 KiB) per call and nothing proportional to the output.
+- **Pack:** codec 3 needs no format version: a pack that holds gdeflate files is a version-2 pack, and an older FactorIA
+  reports `codec 3 ... which this FactorIA does not know`. The writer picks it per file with `export.pack.codecs`, for all the
+  files it would compress with `export.pack.codec = "gdeflate"` (docs/exporting/EXPORTING_DESKTOP.md), or, with `"auto"`, for a
+  Windows export with `export.pack.directStorage` on (default off; the reader that uses it arrives in M77).
+
+Tests (`engine/core/tests/test_gdeflate.cpp`): round trips of 0, 1, 64 KiB +/- 1, 256 KiB and more bytes of text, noise,
+zeros and structured data at several levels; the header and the table; the decoder against two tiles written by hand
+(stored, static with a match in the next round); every cut and bit flip of a small stream; error text with tile and byte;
+the pak (mapped, read, through `fs::mount_pack`); determinism; and a bench case that prints MB/s against lz4 and zstd.
+**Test vectors for the reference decoder:** the case "test vectors" pins the FNV-1a hash of eight inputs and of the streams
+this encoder writes for them, and with `FA_GDEFLATE_VECTORS_DIR=<dir>` writes `<name>.raw` and `<name>.gdef` for each. A
+Windows job (M77 P11b) runs the `.gdef` files through DirectStorage's own decompressor (CPU `IDStorageCompressionCodec`
+or the GPU path) and compares with the `.raw`; the reverse (its compressor, our decoder) is the same files written by
+`GDeflate::Compress` and read with `fa::decompress`. Until that job runs, bit-compatibility with the GPU decoder rests on the
+published description, not on a run of the reference.

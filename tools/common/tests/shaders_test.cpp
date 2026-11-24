@@ -377,6 +377,16 @@ TEST_CASE("shader dialects: one set per platform, as the design's table says") {
     CHECK(*shader_dialects_for({"android", "web"}) == std::vector<std::string>{"glsl300es"});
     CHECK(shader_dialects_for({}).value() == shader_dialects());
     CHECK(shader_dialects().size() == 6);
+    // spirv_vk (the Vulkan backend, M77) is asked for, never a default.
+    CHECK(shader_dialects_all().size() == 7);
+    CHECK(shader_dialects_all().back() == kShaderDialectVulkan);
+    CHECK(*shader_dialects_for({"windows"}, true) == std::vector<std::string>{"hlsl5", "spirv_vk"});
+    CHECK(*shader_dialects_for({"linux", "macos"}, true) ==
+          std::vector<std::string>{"glsl430", "metal_macos", "spirv_vk"});
+    CHECK(*shader_dialects_for({"android", "web"}, true) == std::vector<std::string>{"glsl300es", "spirv_vk"});
+    CHECK(*shader_dialects_for({"macos", "ios", "web"}, true) ==
+          std::vector<std::string>{"glsl300es", "metal_macos", "metal_ios", "metal_sim"});
+    CHECK(*shader_dialects_for({}, true) == shader_dialects_all());
     const auto unknown = shader_dialects_for({"windos"});
     REQUIRE_FALSE(unknown.ok());
     CHECK(unknown.error().hint.find("Did you mean 'windows'?") != std::string::npos);

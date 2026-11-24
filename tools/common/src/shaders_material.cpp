@@ -862,10 +862,24 @@ const std::vector<std::string>& shader_dialects() {
     return v;
 }
 
-Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms) {
-    if (platforms.empty()) return shader_dialects();
+const std::vector<std::string>& shader_dialects_all() {
+    static const std::vector<std::string> v = [] {
+        std::vector<std::string> all = shader_dialects();
+        all.push_back(kShaderDialectVulkan);
+        return all;
+    }();
+    return v;
+}
+
+bool shader_platform_has_vulkan(const std::string& platform) {
+    return platform == "windows" || platform == "linux" || platform == "android";
+}
+
+Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms, bool vulkan) {
+    if (platforms.empty()) return vulkan ? shader_dialects_all() : shader_dialects();
     std::set<std::string> wanted;
     for (const std::string& p : platforms) {
+        if (vulkan && shader_platform_has_vulkan(p)) wanted.insert(kShaderDialectVulkan);
         if (p == "windows")
             wanted.insert("hlsl5");
         else if (p == "linux")
@@ -881,7 +895,7 @@ Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::stri
             return make_error("unknown platform '" + p + "'", did_you_mean(p, shader_platforms()));
     }
     std::vector<std::string> out;
-    for (const std::string& d : shader_dialects())
+    for (const std::string& d : shader_dialects_all())
         if (wanted.count(d)) out.push_back(d);
     return out;
 }
