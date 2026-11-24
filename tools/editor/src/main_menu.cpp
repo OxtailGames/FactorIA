@@ -203,6 +203,10 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     view.push_back(with(toggle("Scene settings", showSceneSettings_), "menu:scenesettings",
                         "The settings of the whole scene: the sky (colours, or a sky material with its params), fog, "
                         "ambient light, gravity, music and colour space; every change is one undo step"));
+    view.push_back(with(toggle("Graphics", showGraphics_), "menu:graphics",
+                        "The project's graphics preset (render.graphicsPreset) and upscaler (render.upscaler: mode, "
+                        "quality, sharpness) in factoria.json, with Save and Revert; the engine's own checks name a "
+                        "wrong value and what to use"));
     view.push_back(
         with(toggle("Lightmap", showLightmap_), "menu:lightmap",
              "Bake the scene's baked lights, its sky and its static meshes into lightmaps (lightmap.bake_start): "

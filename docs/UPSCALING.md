@@ -186,7 +186,23 @@ upscaler is not put back by itself: applying the preset again does.
 - Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
   not written). With a preset set there, `render.upscaler` of the same file is what `custom` returns to, not what the preset
   uses. A wrong name fails to load with the JSON pointer `/render/graphicsPreset` and a "did you mean".
-- Saving the player's choice and the settings menu page are not part of this layer yet; a game applies the preset it wants.
+- The engine does not save the player's choice: the menu kit's Graphics tab does (below), and a game without the kit saves what it
+  wants and applies it at start.
+
+### Menu kit and editor
+
+- **Menu kit.** The options panel of the menu kit (docs/MENUS.md, the Graphics tab) has a second page in its Graphics tab, opened by
+  the "Preset and upscaling" button: a **Preset** row (Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (Auto and
+  each mode, with the modes this GPU does not draw greyed out and the reason shown, read from `render.supports`), the upscaling
+  quality, the render scale (0.33 to 1, `window.renderScale`) and the sharpness (only while `window.upscaler.effectiveMode` is not
+  `stretch`). Auto runs `game.graphics.detect()` once, keeps its pick in the save and shows it. A preset drives the tab's own
+  "quality" row of the screen effects (Low, Medium, High and Ultra pick low, medium, high and high), so the two never disagree. The
+  choices are saved in `settings.graphics` (`preset`, `detected`, `upscaler`, `renderScale`) and applied when a scene starts; a save
+  from before them loads as it did. Dynamic resolution is not part of this page yet (`gfx_dynamic_slot` is where its row goes).
+- **Editor.** View > Graphics edits `render.graphicsPreset` and `render.upscaler` (`mode`, `quality`, `sharpness`) of
+  `factoria.json` with Save and Revert; the values are checked by the code that loads the project and the `render.upscaler` command,
+  so a wrong one is named with its JSON pointer and a "did you mean", and Save writes only those two keys (a value at its default
+  removes its key). It does not preview: press Play after Save, or use the game's own menu, to see a preset or a mode.
 
 ## What a game can already ask
 
