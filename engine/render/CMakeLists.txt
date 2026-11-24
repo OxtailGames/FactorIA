@@ -114,24 +114,34 @@ if(FA_VULKAN_BACKEND)
     endif()
 endif()
 # The renderer on the Vulkan backend (make_device(Backend::Vulkan), RendererDesc::backend): fa_render compiles the SPIR-V
-# of every built-in shader (FA_SHADERS_SPIRV opens its guard in the generated headers). A product backend on Linux,
-# Windows and Android (ON there); on macOS only in a build that builds the tests (the render tests draw a frame on
-# MoltenVK), so a macOS release build (FA_BUILD_TESTS OFF: the players, the editor) carries none of it; never on the web
-# or iOS. Needs FA_VULKAN_BACKEND.
-if(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "windows" OR FA_PLATFORM STREQUAL "android")
-    set(FA_RENDER_VULKAN_DEFAULT ON)
-elseif(FA_PLATFORM STREQUAL "macos")
-    set(FA_RENDER_VULKAN_DEFAULT ${FA_BUILD_TESTS})
+# of every built-in shader (FA_SHADERS_SPIRV opens its guard in the generated headers), about 3.4 MB. AUTO (the
+# default, worked out again at every configure): ON on Windows, where one player carries D3D11, D3D12 and Vulkan; on
+# Linux, Android and macOS it follows FA_BUILD_TESTS, so the render tests draw a frame on Vulkan (lavapipe, MoltenVK)
+# while a build without tests (the release players and editor) carries no SPIR-V; OFF on the web and iOS. ON or OFF
+# overrides it. Needs FA_VULKAN_BACKEND.
+set(FA_RENDER_VULKAN AUTO CACHE STRING
+    "The renderer draws on the Vulkan backend (fa_render carries the SPIR-V of its shaders): AUTO, ON or OFF")
+set_property(CACHE FA_RENDER_VULKAN PROPERTY STRINGS AUTO ON OFF)
+string(TOUPPER "${FA_RENDER_VULKAN}" _fa_render_vulkan_mode)
+if(_fa_render_vulkan_mode STREQUAL "AUTO")
+    if(FA_PLATFORM STREQUAL "windows")
+        set(_fa_render_vulkan ON)
+    elseif(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "android" OR FA_PLATFORM STREQUAL "macos")
+        set(_fa_render_vulkan ${FA_BUILD_TESTS})
+    else()
+        set(_fa_render_vulkan OFF)
+    endif()
+elseif(FA_RENDER_VULKAN)
+    set(_fa_render_vulkan ON)
 else()
-    set(FA_RENDER_VULKAN_DEFAULT OFF)
+    set(_fa_render_vulkan OFF)
 endif()
-option(FA_RENDER_VULKAN "The renderer draws on the Vulkan backend (fa_render carries the SPIR-V of its shaders)"
-       ${FA_RENDER_VULKAN_DEFAULT})
-if(FA_RENDER_VULKAN AND NOT FA_VULKAN_BACKEND)
+if(_fa_render_vulkan AND NOT FA_VULKAN_BACKEND)
     message(STATUS "FactorIA: FA_RENDER_VULKAN needs FA_VULKAN_BACKEND, which is off: the renderer has no Vulkan")
-    set(FA_RENDER_VULKAN OFF)
+    set(_fa_render_vulkan OFF)
 endif()
-if(FA_RENDER_VULKAN)
+message(STATUS "FactorIA: the renderer on Vulkan (FA_RENDER_VULKAN ${FA_RENDER_VULKAN}): ${_fa_render_vulkan}")
+if(_fa_render_vulkan)
     target_compile_definitions(fa_render PRIVATE FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV)
     # The tests ask whether the renderer has Vulkan; a test file that needs the SPIR-V defines FA_SHADERS_SPIRV itself.
     if(TARGET fa_test_render)

@@ -74,6 +74,7 @@ struct Scene3D {
     }
 };
 
+#if defined(FA_RENDER_VULKAN)
 bool vulkan_required() {
     const char* v = std::getenv("FA_VULKAN_REQUIRE");
     return v && std::strcmp(v, "1") == 0;
@@ -84,6 +85,7 @@ bool cannot_run_vulkan_here(const std::string& e) {
     return has(e, "no Vulkan loader") || has(e, "no Vulkan device") || has(e, "needs 1.2") ||
            has(e, "VK_ERROR_INITIALIZATION_FAILED");
 }
+#endif
 
 // A headless renderer of kW x kH on `backend`, on the fixture's window environment (the default formats).
 struct BackendRenderer {
@@ -118,6 +120,72 @@ fa::Image draw_on(Renderer& r, World& world) {
     REQUIRE(captured);
     return img;
 }
+
+// A UI frame of one white triangle over the top-left half of a kSize x kSize display, with a 4x4 white texture of the
+// painter, and an offscreen RGBA8 target to draw it into (no window here).
+struct UiTriangle {
+    static constexpr int kSize = 64;
+    render::UiTexture tex;
+    render::UiVertex vertices[3];
+    std::uint16_t indices[3] = {0, 1, 2};
+    render::UiDrawCommand command;
+    render::UiDrawList list;
+    render::UiFrame frame;
+    gpu::Image target;
+    gpu::View view;
+
+    explicit UiTriangle(render::UiPainter& painter) {
+        const std::vector<std::uint8_t> pixels(4 * 4 * 4, 255);
+        tex = painter.make_texture(4, 4, pixels.data());
+        vertices[1].x = float(kSize);
+        vertices[2].y = float(kSize);
+        command.view = tex.view;
+        command.clipMaxX = float(kSize);
+        command.clipMaxY = float(kSize);
+        command.indexCount = 3;
+        list.vertices = vertices;
+        list.vertexCount = 3;
+        list.indices = indices;
+        list.indexCount = 3;
+        list.commands = &command;
+        list.commandCount = 1;
+        frame.displayWidth = float(kSize);
+        frame.displayHeight = float(kSize);
+        frame.lists = &list;
+        frame.listCount = 1;
+    }
+
+    // One list on `device`: a pass that clears the target, the painter's draw, the end of the pass.
+    void draw_offscreen(gpu::Device& device, render::UiPainterImpl& impl) {
+        gpu::ImageDesc id;
+        id.usage.colorAttachment = true;
+        id.width = kSize;
+        id.height = kSize;
+        id.pixelFormat = gpu::PixelFormat::Rgba8;
+        id.label = "ui target";
+        target = device.make_image(id);
+        gpu::ViewDesc vd;
+        vd.colorAttachment.image = target;
+        vd.label = "ui target";
+        view = device.make_view(vd);
+        gpu::PassDesc pass;
+        pass.label = "ui";
+        pass.color = view;
+        pass.colorLoad = gpu::LoadAction::Clear;
+        pass.format.color = gpu::PixelFormat::Rgba8;
+        gpu::CommandList& cl = device.begin_commands("ui");
+        cl.begin_pass(pass);
+        impl.draw(cl, pass.format, frame);
+        cl.end_pass();
+        device.submit(cl);
+    }
+
+    void release(gpu::Device& device, render::UiPainter& painter) {
+        painter.destroy_texture(tex);
+        if (view.valid()) device.destroy_view(view);
+        if (target.valid()) device.destroy_image(target);
+    }
+};
 
 // The fixture's renderer, at the size of the backend renderer's picture.
 fa::Image draw_on_fixture(World& world) {
@@ -191,7 +259,8 @@ TEST_CASE("renderer: a frame on the Vulkan backend matches the frame on the plat
 
 TEST_CASE("renderer: on a RecordingDevice it draws without a GPU and lends the device to a UiPainter") {
     if (!gfx().ok) {
-        MESSAGE("no GPU here (" << gfx().error << "): skipped (the built-in shaders follow the open context's dialect)");
+        MESSAGE("no GPU here (" << gfx().error
+                                << "): skipped (the built-in shaders follow the open context's dialect)");
         return;
     }
     BackendRenderer rec(GpuBackend::Recording);
@@ -218,56 +287,13 @@ TEST_CASE("renderer: on a RecordingDevice it draws without a GPU and lends the d
     render::UiPainterImpl& impl = render::UiPainterAccess::impl(*painter);
     CHECK(impl.device == dev);
     CHECK(impl.owned == nullptr);
-    const std::vector<std::uint8_t> pixels(4 * 4 * 4, 255);
-    const render::UiTexture tex = painter->make_texture(4, 4, pixels.data(), &error);
-    REQUIRE(tex.valid());
-
-    render::UiVertex vertices[3];
-    vertices[1].x = 32.0f;
-    vertices[2].y = 32.0f;
-    const std::uint16_t indices[3] = {0, 1, 2};
-    render::UiDrawCommand command;
-    command.view = tex.view;
-    command.clipMaxX = 64.0f;
-    command.clipMaxY = 64.0f;
-    command.indexCount = 3;
-    render::UiDrawList list;
-    list.vertices = vertices;
-    list.vertexCount = 3;
-    list.indices = indices;
-    list.indexCount = 3;
-    list.commands = &command;
-    list.commandCount = 1;
-    render::UiFrame frame;
-    frame.displayWidth = 64.0f;
-    frame.displayHeight = 64.0f;
-    frame.lists = &list;
-    frame.listCount = 1;
-    REQUIRE(painter->upload(frame, &error));
+    UiTriangle ui(*painter);
+    REQUIRE(ui.tex.valid());
+    REQUIRE_MESSAGE(painter->upload(ui.frame, &error), error);
 
     // Into an image of the renderer's device (a RecordingDevice has no window): one pipeline and one draw.
-    gpu::ImageDesc id;
-    id.usage.colorAttachment = true;
-    id.width = 64;
-    id.height = 64;
-    id.pixelFormat = gpu::PixelFormat::Rgba8;
-    id.label = "ui target";
-    const gpu::Image target = dev->make_image(id);
-    gpu::ViewDesc vd;
-    vd.colorAttachment.image = target;
-    vd.label = "ui target";
-    const gpu::View view = dev->make_view(vd);
-    gpu::PassDesc pass;
-    pass.label = "ui";
-    pass.color = view;
-    pass.colorLoad = gpu::LoadAction::Clear;
-    pass.format.color = gpu::PixelFormat::Rgba8;
     const std::size_t before = dev->commands().size();
-    gpu::CommandList& cl = dev->begin_commands("ui");
-    cl.begin_pass(pass);
-    impl.draw(cl, pass.format, frame);
-    cl.end_pass();
-    dev->submit(cl);
+    ui.draw_offscreen(*dev, impl);
     std::size_t uiDraws = 0;
     for (std::size_t i = before; i < dev->commands().size(); ++i)
         if (dev->commands()[i].kind == gpu::CommandKind::Draw) ++uiDraws;
@@ -276,10 +302,52 @@ TEST_CASE("renderer: on a RecordingDevice it draws without a GPU and lends the d
     for (const std::string& e : dev->errors()) errors += e + "\n";
     INFO(errors);
     CHECK(dev->errors().empty());
-    painter->destroy_texture(tex);
+    ui.release(*dev, *painter);
     painter.reset();  // before the renderer's shutdown: the device is the renderer's
-    dev->destroy_view(view);
-    dev->destroy_image(target);
+}
+
+TEST_CASE("renderer: a UiPainter made on a renderer of the sokol backend uploads and draws next to its frame") {
+    Gfx& g = gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): skipped");
+        return;
+    }
+    // The fixture's renderer keeps its frame's command list open between frames: the painter has a device of its own
+    // over the same sokol context (a second list on the renderer's device would trip its one-list-at-a-time check).
+    Scene2D s;
+    (void)g.draw(s.world);
+    std::string error;
+    std::unique_ptr<render::UiPainter> painter = render::UiPainter::create(g.renderer, &error);
+    REQUIRE_MESSAGE(painter != nullptr, error);
+    render::UiPainterImpl& impl = render::UiPainterAccess::impl(*painter);
+    REQUIRE(impl.owned != nullptr);
+    CHECK(impl.device != RendererDeviceAccess::device(g.renderer));
+    CHECK(impl.device->backend() == gpu::built_sokol_backend());
+
+    UiTriangle ui(*painter);
+    REQUIRE(ui.tex.valid());
+    REQUIRE_MESSAGE(painter->upload(ui.frame, &error), error);
+    ui.draw_offscreen(*impl.device, impl);
+    // The frame's work goes to the GPU before the read (Metal reads behind the context's command buffer, which only the
+    // commit sends; Renderer::commit_context does the same for the editor).
+    impl.device->commit();
+    std::vector<std::uint8_t> rgba;
+    auto read = impl.device->read_image_rgba8(ui.target, UiTriangle::kSize, UiTriangle::kSize, rgba);
+    REQUIRE_MESSAGE(read.ok(), (read.ok() ? std::string() : read.error().to_string()));
+    REQUIRE(rgba.size() == std::size_t(4 * UiTriangle::kSize * UiTriangle::kSize));
+    // The triangle covers the left half of the middle row in white (whichever way the rows are read); its right end keeps
+    // the clear colour, black. (The painter's blend keeps the target's alpha, so only the colour is read.)
+    const auto at = [&](int x, int y) { return rgba.data() + 4 * (y * UiTriangle::kSize + x); };
+    const int mid = UiTriangle::kSize / 2;
+    for (int c = 0; c < 3; ++c) {
+        CHECK(int(at(2, mid)[c]) > 200);
+        CHECK(int(at(UiTriangle::kSize - 4, mid)[c]) == 0);
+    }
+
+    // The renderer's next frame still runs: its own list was never touched.
+    const fa::Image after = g.draw(s.world);
+    CHECK(after.width > 0);
+    ui.release(*impl.device, *painter);
 }
 
 TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching error") {

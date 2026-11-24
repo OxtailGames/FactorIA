@@ -6,12 +6,16 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 #include <climits>
 #include <initializer_list>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "fa/core/fs.h"
+#include "gpu/d3d12_device.h"
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
 #include "fa/platform/app.h"
@@ -1096,24 +1100,33 @@ TEST_CASE(
     CHECK(device_backend_compiled(Backend::Recording));
     CHECK(device_backend_compiled(built_sokol_backend()));
 
-    // D3D12: made on Windows (with the engine's pipeline cache file; a machine without a D3D12 adapter answers with an
-    // error that says so), a teaching error everywhere else.
-    auto d3d12 = make_device(Backend::D3d12);
+    // D3D12: compiled on Windows, a teaching error everywhere else. make_device(Backend::D3d12) caches its pipelines in
+    // the user's d3d12_pipeline_cache_file(), which a test must not read or write: on Windows the device is made the
+    // same way with a cache file of its own (a machine without a D3D12 adapter answers with an error that says so).
 #if defined(_WIN32)
     CHECK(device_backend_compiled(Backend::D3d12));
-    if (d3d12) {
-        CHECK(d3d12.value()->backend() == Backend::D3d12);
-    } else {
-        MESSAGE("no D3D12 device here: " << d3d12.error().to_string());
-        CHECK(!d3d12.error().hint.empty());
-    }
+    auto cacheDir = fa::fs::make_temp_dir("fa_make_device_d3d12");
+    REQUIRE(cacheDir);
+    {
+        D3d12Options options;
+        options.pipelineCacheFile = cacheDir.value() / "d3d12-pipelines.bin";
+        auto d3d12 = make_d3d12_device(options);
+        if (d3d12) {
+            CHECK(d3d12.value()->backend() == Backend::D3d12);
+        } else {
+            MESSAGE("no D3D12 device here: " << d3d12.error().to_string());
+            CHECK(!d3d12.error().hint.empty());
+        }
+    }  // the device goes before the next one is made, and before its cache folder
+    std::error_code removeError;
+    std::filesystem::remove_all(cacheDir.value(), removeError);
 #else
     CHECK(!device_backend_compiled(Backend::D3d12));
+    auto d3d12 = make_device(Backend::D3d12);
     REQUIRE(!d3d12);
     CHECK(contains(d3d12.error().hint, "make_device(built_sokol_backend())"));
     CHECK(!contains(d3d12.error().to_string(), "M77"));
 #endif
-    d3d12 = fa::Error{};  // the device goes before the next one is made
 
     // Vulkan: made where the renderer has it (FA_RENDER_VULKAN; a machine without a Vulkan driver answers with an error
     // that names the loader), a teaching error that says how to get it everywhere else.
