@@ -60,6 +60,10 @@ int Scaler::generation() const { return 0; }
 int Scaler::encoded() const { return 0; }
 bool Scaler::command_failed(std::string*) const { return false; }
 void Scaler::release() {}
+bool Scaler::reactive_mask() const { return false; }
+int Scaler::reactive_encoded() const { return 0; }
+void Scaler::set_test_hooks(const TestHooks&) {}
+bool Scaler::test_wait_signalled(int) { return false; }
 
 }  // namespace fa::render::metalfx
 

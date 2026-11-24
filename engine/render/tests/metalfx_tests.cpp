@@ -3,10 +3,12 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "metalfx.h"
@@ -615,6 +617,293 @@ TEST_CASE("metalfx: the same in y: horizontal stripes moving down, the motion im
             << ", none " << std::round(err[2] * 10000.0) / 10000.0);
     CHECK(err[0] < 0.8 * err[1]);
     CHECK(err[0] < 0.8 * err[2]);
+}
+
+namespace {
+
+// A temporal scaler's desc for the 48x32 -> 96x64 RGBA8 frames of the tests below.
+mfx::Desc small_temporal_desc(bool reactiveMask) {
+    mfx::Desc d;
+    d.kind = mfx::Kind::Temporal;
+    d.inputWidth = 48;
+    d.inputHeight = 32;
+    d.outputWidth = 96;
+    d.outputHeight = 64;
+    d.colorFormat = d.outputFormat = SG_PIXELFORMAT_RGBA8;
+    d.depthFormat = SG_PIXELFORMAT_R32F;
+    d.motionFormat = SG_PIXELFORMAT_RG16F;
+    d.autoExposure = false;
+    d.reactiveMask = reactiveMask;
+    return d;
+}
+
+// The images of one temporal frame of 48x32 that do not change from frame to frame (no motion, a flat depth, a reactive mask of one value).
+struct SmallFrameImages {
+    sg_image depth{}, motion{}, reactive{}, reactiveWrongSize{};
+    explicit SmallFrameImages(std::uint8_t reactiveValue) {
+        const int w = 48, h = 32;
+        const std::vector<std::uint16_t> noMotion(std::size_t(w) * h * 2, 0);
+        const std::vector<float> flat(std::size_t(w) * h, 0.5f);
+        const std::vector<std::uint8_t> mask(std::size_t(w) * h, reactiveValue);
+        const std::vector<std::uint8_t> small(std::size_t(w / 2) * (h / 2), reactiveValue);
+        depth = make_data_image(w, h, SG_PIXELFORMAT_R32F, flat.data(), flat.size() * 4, "metalfx-test-depth");
+        motion =
+            make_data_image(w, h, SG_PIXELFORMAT_RG16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
+        reactive = make_data_image(w, h, SG_PIXELFORMAT_R8, mask.data(), mask.size(), "metalfx-test-reactive");
+        reactiveWrongSize =
+            make_data_image(w / 2, h / 2, SG_PIXELFORMAT_R8, small.data(), small.size(), "metalfx-test-reactive-small");
+    }
+    ~SmallFrameImages() {
+        sg_destroy_image(depth);
+        sg_destroy_image(motion);
+        sg_destroy_image(reactive);
+        sg_destroy_image(reactiveWrongSize);
+    }
+    SmallFrameImages(const SmallFrameImages&) = delete;
+    SmallFrameImages& operator=(const SmallFrameImages&) = delete;
+};
+
+// Thin vertical stripes (a period of 2.6 input pixels: detail one frame cannot carry, that the history of a jittered sequence does) that
+// jump half a period to the right in the last frame, with no motion told: what the history holds is wrong there. The mean error of the
+// last picture against the stripes at their new place, for a frame whose reactive mask is `maskValue` (0..255; -1: the frame hands
+// none). `reactiveDesc`: the scaler is made with the mask input.
+double changed_scene_error(bool reactiveDesc, int maskValue) {
+    const int inW = 48, inH = 32, outW = 96, outH = 64;
+    const float period = 2.6f;
+    auto stripes = [&](float px, float phase) {
+        return std::sin((px - phase) * (6.2831853f / period)) > 0.0f ? 242 : 13;
+    };
+    SmallFrameImages images(std::uint8_t(std::max(maskValue, 0)));
+    Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
+    mfx::Scaler scaler;
+    std::string error;
+    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(reactiveDesc), &error), error);
+    auto halton = [](int i, int base) {
+        float f = 1.0f, r = 0.0f;
+        for (int n = i; n > 0; n /= base) {
+            f /= float(base);
+            r += f * float(n % base);
+        }
+        return r;
+    };
+    const int converge = 14;
+    const float jump = period * 0.5f;
+    double result = 1.0;
+    for (int frame = 0; frame <= converge; ++frame) {
+        const bool last = frame == converge;
+        const float phase = last ? jump : 0.0f;
+        const float jx = halton(frame % 8 + 1, 2) - 0.5f, jy = halton(frame % 8 + 1, 3) - 0.5f;
+        std::vector<std::uint8_t> in(std::size_t(inW) * inH * 4, 255);
+        for (int y = 0; y < inH; ++y)
+            for (int x = 0; x < inW; ++x) {
+                const std::uint8_t v = std::uint8_t(stripes(float(x) + 0.5f + jx, phase));
+                std::uint8_t* q = &in[(std::size_t(y) * inW + x) * 4];
+                q[0] = q[1] = q[2] = v;
+            }
+        sg_image color = make_data_image(inW, inH, SG_PIXELFORMAT_RGBA8, in.data(), in.size(), "metalfx-test-color");
+        mfx::Frame f;
+        f.color = color;
+        f.depth = images.depth;
+        f.motion = images.motion;
+        f.output = out.image;
+        f.jitterX = -jx;
+        f.jitterY = -jy;
+        f.reset = frame == 0;
+        if (last && maskValue >= 0) f.reactive = images.reactive;
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        if (last) {
+            std::vector<std::uint8_t> got;
+            REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
+            std::vector<std::uint8_t> truth(std::size_t(outW) * outH * 4, 255);
+            for (int y = 0; y < outH; ++y)
+                for (int x = 0; x < outW; ++x) {
+                    const float px = (float(x) + 0.5f) * float(inW) / float(outW);
+                    std::uint8_t* q = &truth[(std::size_t(y) * outW + x) * 4];
+                    q[0] = q[1] = q[2] = std::uint8_t(stripes(px, phase));
+                }
+            result = mean_diff(got, truth, outW, outH, 4);
+            CHECK(scaler.reactive_encoded() == (maskValue >= 0 && scaler.reactive_mask() ? 1 : 0));
+        } else {
+            sg_commit();
+        }
+        sg_destroy_image(color);
+    }
+    destroy_output(out);
+    sg_commit();
+    return result;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "metalfx: a reactive mask given with the frame reaches the temporal scaler and makes it drop its history there") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!can_run(mfx::Kind::Temporal)) return;
+    {
+        mfx::Scaler probe;
+        std::string error;
+        REQUIRE_MESSAGE(probe.configure(small_temporal_desc(true), &error), error);
+        if (!probe.reactive_mask()) {
+            MESSAGE("this OS has no MetalFX reactive mask (it needs macOS 14.4 or iOS 17.4): the scaler is made "
+                    "without it, the test is "
+                    "skipped");
+            return;
+        }
+    }
+    // The scene moves 6 pixels in the last frame and no motion says so: what the history holds there is wrong. A mask of 1 tells MetalFX
+    // to ignore the history at those pixels; without a mask it blends the old picture in.
+    const double none = changed_scene_error(true, -1);
+    const double zero = changed_scene_error(true, 0);
+    const double full = changed_scene_error(true, 255);
+    const double noInput = changed_scene_error(false, -1);
+    MESSAGE("mean error of the frame after a jump of the scene: no mask "
+            << std::round(none * 10000.0) / 10000.0 << ", mask 0 " << std::round(zero * 10000.0) / 10000.0
+            << ", mask 1 " << std::round(full * 10000.0) / 10000.0 << ", scaler made without the mask input "
+            << std::round(noInput * 10000.0) / 10000.0);
+    CHECK(full < 0.7 * zero);
+    CHECK(full < 0.7 * none);
+    // A scaler with the input but a frame without a mask draws as a scaler made without the input (it is made with it from the start,
+    // so that the first mask of a game does not make it again): the same picture within what MetalFX changes from run to run.
+    CHECK(std::fabs(none - noInput) < 0.002);
+    CHECK(std::fabs(zero - none) < 0.002);
+}
+
+TEST_CASE("metalfx: the reactive mask is handed over only when the frame has one, the scaler takes one and it fits "
+          "(any Metal GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!sg_isvalid() || !mfx::on_metal()) {
+        MESSAGE("not the Metal backend, the test is skipped");
+        return;
+    }
+    // The scaler draws nothing (no MetalFX needed): what is checked is what the wrapper hands over and refuses.
+    mfx::Scaler::TestHooks hooks;
+    hooks.emptyBuffers = true;
+    SmallFrameImages images(255);
+    std::vector<std::uint8_t> px(std::size_t(48) * 32 * 4, 128);
+    sg_image color = make_data_image(48, 32, SG_PIXELFORMAT_RGBA8, px.data(), px.size(), "metalfx-test-color");
+    Output out = make_output(96, 64, SG_PIXELFORMAT_RGBA8);
+    mfx::Frame f;
+    f.color = color;
+    f.depth = images.depth;
+    f.motion = images.motion;
+    f.output = out.image;
+    std::string error;
+
+    mfx::Scaler without;
+    without.set_test_hooks(hooks);
+    REQUIRE_MESSAGE(without.configure(small_temporal_desc(false), &error), error);
+    CHECK_FALSE(without.reactive_mask());
+    f.reactive = images.reactive;
+    REQUIRE_MESSAGE(without.encode(f, &error), error);  // a scaler without the input leaves a mask alone
+    CHECK(without.reactive_encoded() == 0);
+
+    mfx::Scaler scaler;
+    scaler.set_test_hooks(hooks);
+    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(true), &error), error);
+    if (!scaler.reactive_mask()) {
+        MESSAGE("this OS has no MetalFX reactive mask (it needs macOS 14.4 or iOS 17.4): the scaler is made without it "
+                "and ignores "
+                "the mask");
+        f.reactive = images.reactive;
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        CHECK(scaler.reactive_encoded() == 0);
+    } else {
+        f.reactive = sg_image{};
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);  // no mask in this frame
+        CHECK(scaler.reactive_encoded() == 0);
+        f.reactive = images.reactive;
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        CHECK(scaler.reactive_encoded() == 2);
+        CHECK(scaler.encoded() == 3);
+        f.reactive = images.reactiveWrongSize;  // a mask of another size is refused, and no work is done
+        CHECK_FALSE(scaler.encode(f, &error));
+        CHECK(error.find("Frame.reactive") != std::string::npos);
+        CHECK(scaler.encoded() == 3);
+        f.reactive = color;  // an RGBA8 image is not an R8 mask
+        CHECK_FALSE(scaler.encode(f, &error));
+        CHECK(error.find("Frame.reactive") != std::string::npos);
+        CHECK(scaler.reactive_encoded() == 2);
+    }
+    CHECK(scaler.test_wait_signalled(10000));  // every buffer was released
+    scaler.release();
+    without.release();
+    destroy_output(out);
+    sg_destroy_image(color);
+    sg_commit();
+}
+
+TEST_CASE(
+    "metalfx: a command buffer that fails still releases the passes behind it, and the failure is reported (any Metal "
+    "GPU)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (!sg_isvalid() || !mfx::on_metal()) {
+        MESSAGE("not the Metal backend, the test is skipped");
+        return;
+    }
+    // The scaler's buffer is made to end as a failed one does: its completion handler reports an error and the buffer does not signal the
+    // event itself. The sokol buffer of the passes after the scaler waits for that event: if the handler did not raise it, the GPU would
+    // stall for ever, so every wait here has a limit and the test fails (and lets the queue go on) instead of hanging.
+    SmallFrameImages images(0);
+    std::vector<std::uint8_t> px(std::size_t(48) * 32 * 4, 128);
+    sg_image color = make_data_image(48, 32, SG_PIXELFORMAT_RGBA8, px.data(), px.size(), "metalfx-test-color");
+    Output out = make_output(96, 64, SG_PIXELFORMAT_RGBA8);
+    mfx::Frame f;
+    f.color = color;
+    f.depth = images.depth;
+    f.motion = images.motion;
+    f.output = out.image;
+    std::string error;
+    auto wait_failed = [](mfx::Scaler& s,
+                          std::string* why) {  // the flag is set on Metal's thread, a moment after the event
+        for (int i = 0; i < 5000; ++i) {
+            if (s.command_failed(why)) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return false;
+    };
+
+    // The control: a buffer that works signals, and reports nothing.
+    {
+        mfx::Scaler::TestHooks h;
+        h.emptyBuffers = true;
+        mfx::Scaler ok;
+        ok.set_test_hooks(h);
+        REQUIRE_MESSAGE(ok.configure(small_temporal_desc(false), &error), error);
+        REQUIRE_MESSAGE(ok.encode(f, &error), error);
+        CHECK(ok.test_wait_signalled(10000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        CHECK_FALSE(ok.command_failed(nullptr));
+        sg_commit();
+    }
+
+    mfx::Scaler::TestHooks h;
+    h.emptyBuffers = true;
+    h.failBuffers = true;
+    mfx::Scaler scaler;
+    scaler.set_test_hooks(h);
+    REQUIRE_MESSAGE(scaler.configure(small_temporal_desc(false), &error), error);
+    for (int round = 0; round < 3; ++round) {  // the queue goes on after a failure: later frames are released too
+        REQUIRE_MESSAGE(scaler.encode(f, &error), error);
+        REQUIRE_MESSAGE(scaler.test_wait_signalled(10000),
+                        "the failed buffer's completion handler did not raise the event (round "
+                            << round << "): the passes behind it would wait for ever");
+        std::string why;
+        REQUIRE_MESSAGE(wait_failed(scaler, &why), "the failure was not reported (round " << round << ")");
+        CHECK(why.find("test hook") != std::string::npos);
+        // The sokol buffer behind the scaler runs: a read back of the output goes through the queue after it.
+        std::vector<std::uint8_t> got;
+        REQUIRE_MESSAGE(read_back(out.image, 96, 64, got, &error), error);
+        CHECK(got.size() == std::size_t(96) * 64 * 4);
+    }
+    scaler.release();
+    CHECK_FALSE(scaler.command_failed(nullptr));  // a new scaler starts clear
+    destroy_output(out);
+    sg_destroy_image(color);
+    sg_commit();
 }
 
 #else

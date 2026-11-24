@@ -102,6 +102,10 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     d.depthFormat = SG_PIXELFORMAT_R32F;
     d.motionFormat = SG_PIXELFORMAT_RG16F;
     d.autoExposure = false;  // the scene colour is exposed before the stage: pre-exposure 1
+    // The scaler takes the reactive mask from the start (on an OS that has the input) instead of being made again when the first
+    // mask appears: a new scaler pays its synchronous start-up and drops the history, in the very frame a particle shows up, and a
+    // frame without a mask draws as a scaler made without the input (metalfx_tests checks that). Costs nothing else.
+    d.reactiveMask = temporalKind;
     std::string error;
     if (mfxForceCreateFail) return metalfx_fail("MetalFX creation was refused (test hook).");
 
@@ -114,6 +118,13 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         if (prepass && (prepass->w != in.renderW || prepass->h != in.renderH))
             prepass = nullptr;  // not the picture's size: every pixel is sky
         if (velocity && (velocity->w != in.renderW || velocity->h != in.renderH)) velocity = nullptr;
+        // The reactive mask is a transient of this frame (the pass that draws it ran before this one, and exists only when an item asked):
+        // it goes to MetalFX when it is the picture's size and the format the scaler reads, else this frame has none.
+        const Target* reactive = upscaleReactive.target(c);
+        if (reactive && (reactive->w != in.renderW || reactive->h != in.renderH ||
+                         reactive->format.color != Gpu::reactive_format()))
+            reactive = nullptr;
+        if (reactive && !mfxNoReactive) f.reactive = reactive->texture_image();
         if (!ensure_mfx_target(mfxDepth, "mfx-depth", SG_PIXELFORMAT_R32F, in.renderW, in.renderH) ||
             !ensure_mfx_target(mfxMotion, "mfx-motion", SG_PIXELFORMAT_RG16F, in.renderW, in.renderH))
             return metalfx_fail("the depth and motion images of the render size could not be made.");
