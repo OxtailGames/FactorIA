@@ -454,8 +454,11 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
 }
 
 Json Renderer::startup_report() const {
+    // The cache of the device the renderer draws with (D3D12 keeps stages of its own), not of the sokol backend.
+    const gpu::Backend backend =
+        impl_ && impl_->gpu.has_device() ? impl_->gpu.device().backend() : gpu::built_sokol_backend();
     Json j = shader_build_stats().to_json(backend_name());
-    j["cache"] = shader_cache_mode();
+    j["cache"] = shader_cache_mode(backend);
     if (impl_) {
         j["pipelinesWarmed"] = int(impl_->warmPipelines);
         j["pipelines"] = int(impl_->gpu.pipeline_count());

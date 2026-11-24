@@ -1,6 +1,7 @@
-// The engine's own D3D12 backend (src/gpu/d3d12_*: resources M77-P7a, shaders, pipelines and drawing M77-P7c1). On
-// Windows every case makes a WARP device with the debug layer and checks that the layer reported no error; the drawing
-// cases read their targets back and check them per texel; a Windows without WARP or D3D12 says so (MESSAGE) and passes.
+// The engine's own D3D12 backend (src/gpu/d3d12_*: resources M77-P7a, shaders, pipelines and drawing M77-P7c1, GPU
+// timers and asynchronous reads M77-P7c2). On Windows every case makes a WARP device with the debug layer and checks
+// that the layer reported no error; the drawing cases read their targets back and check them per texel; a Windows
+// without WARP or D3D12 says so (MESSAGE) and passes.
 // Elsewhere one case checks the factory's teaching error.
 #include <doctest.h>
 
@@ -157,11 +158,18 @@ TEST_CASE("d3d12: a WARP device answers what it can do") {
     CHECK(dev->native().context == dev->queue());
     CHECK(dev->environment_defaults().colorFormat == PixelFormat::Bgra8);
     CHECK(dev->environment_defaults().depthFormat == PixelFormat::DepthStencil);
-    step = "timers and async reads are M77-P7c2's";
+    step = "timers and async reads";
     std::string why;
-    CHECK(!dev->timer_supported(&why));
-    CHECK(contains(why, "M77-P7c2"));
-    CHECK(!dev->async_read_supported());
+    CHECK_MESSAGE(dev->timer_supported(&why), why);  // WARP's direct queue has timestamps
+    CHECK(dev->timestamp_frequency() > 0);
+    CHECK(dev->async_read_supported());
+    step = "resource binding tier";
+    CHECK(dev->resource_binding_tier() >= 1);
+    CHECK(dev->resource_binding_tier() <= 3);
+    if (dev->resource_binding_tier() >= 2)
+        CHECK(dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors));
+    else
+        CHECK(dev->bindless_descriptors() == 0);  // tier 1 has no unbounded ranges: no bindless table
     step = "the debug layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
@@ -967,7 +975,9 @@ TEST_CASE("d3d12: a uniform-colour fullscreen triangle fills RGBA8 and RGBA16F t
 TEST_CASE("d3d12: the engine's blit shader (sokol-shdc HLSL) copies a texture with a nearest and a linear sampler") {
     auto dev = make_warp();
     if (!dev) return;
-    const Shader shader = dev->make_shader(from_sg(*blit_blit_keep_shader_desc(SG_BACKEND_D3D11)));
+    const sg_shader_desc* blitDesc = blit_blit_keep_shader_desc(SG_BACKEND_D3D11);
+    REQUIRE_MESSAGE(blitDesc, "the blit shader header has no D3D11 (HLSL) variant: regenerate it with D3D11 in");
+    const Shader shader = dev->make_shader(from_sg(*blitDesc));
     REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
     PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8);
     pd.layout.attrs[0].format = VertexFormat::Float2;
@@ -1360,7 +1370,9 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     auto dev = make_warp();
     if (!dev) return;
     const Shader fill = dev->make_shader(fill_shader_desc());
-    const Shader blitShader = dev->make_shader(from_sg(*blit_blit_keep_shader_desc(SG_BACKEND_D3D11)));
+    const sg_shader_desc* blitDesc = blit_blit_keep_shader_desc(SG_BACKEND_D3D11);
+    REQUIRE_MESSAGE(blitDesc, "the blit shader header has no D3D11 (HLSL) variant: regenerate it with D3D11 in");
+    const Shader blitShader = dev->make_shader(from_sg(*blitDesc));
     const Pipeline rgba8 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba8));
     const Pipeline rgba16 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba16F));
     PipelineDesc bd = render_desc(blitShader, PixelFormat::Rgba8);
@@ -1442,10 +1454,10 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
-    step = "timers and async readbacks are still M77-P7c2's";
+    step = "an async read of no buffer is a teaching error";
     auto ticket = dev->request_buffer_read(Buffer{}, 0, 4);
     REQUIRE(!ticket);
-    CHECK(contains(ticket.error().message, "M77-P7c2"));
+    CHECK(contains(ticket.error().message, "is not a live buffer"));
 }
 
 TEST_CASE("d3d12: commit listeners and frame counting") {
@@ -1468,6 +1480,274 @@ TEST_CASE("d3d12: commit listeners and frame counting") {
     dev->destroy_buffer(dev->make_buffer(bd));
     CHECK(dev->total_stats().buffers.allocated == 1);
     CHECK(dev->total_stats().buffers.deallocated == 1);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GPU timers and asynchronous reads (M77-P7c2)
+// ---------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE("d3d12: a timed frame with two scopes resolves to frame and scope times a few frames later") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("d3d12: skipped, this queue cannot time: " << why);
+        return;
+    }
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    const Pipeline pipeline = dev->make_pipeline(render_desc(shader, PixelFormat::Rgba8));
+    const Target t = make_target(*dev, Attach::Color, 64, 64, PixelFormat::Rgba8);
+    REQUIRE_MESSAGE(dev->state(pipeline) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(t.view) == ResourceState::Valid, all_errors(*dev));
+    std::string step = "timed frames";
+    INFO("step: " << step);
+    std::vector<double> frames;
+    for (int i = 0; i < 4; ++i) {
+        dev->timer_begin_frame();
+        CommandList& list = dev->begin_commands("timed");
+        list.begin_timed_scope("clear");
+        list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+        list.end_pass();
+        list.end_timed_scope();
+        list.begin_timed_scope("fill");  // left open: submit ends it
+        list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+        list.set_pipeline(pipeline);
+        const Vec4 depth{0.0f, 0.0f, 0.0f, 0.0f};
+        const Vec4 colour{0.5f, 0.25f, 1.0f, 1.0f};
+        list.set_uniforms(0, bytes_of(depth));
+        list.set_uniforms(1, bytes_of(colour));
+        list.draw(0, 3);
+        list.end_pass();
+        dev->submit(list);
+        dev->timer_end_frame();
+        dev->commit();
+        dev->timer_poll(frames);  // never waits: whatever has arrived
+    }
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 4);  // every timed frame arrives once, in order
+    for (double ms : frames) CHECK(ms >= 0.0);
+    const std::vector<Device::ScopeTime> scopes = dev->timer_last_scopes();
+    REQUIRE(scopes.size() == 2);
+    CHECK(scopes[0].name == "clear");
+    CHECK(scopes[1].name == "fill");
+    CHECK(scopes[0].ms >= 0.0);
+    CHECK(scopes[1].ms >= 0.0);
+
+    step = "a scope outside a timed frame records nothing";
+    CommandList& untimed = dev->begin_commands("untimed");
+    untimed.begin_timed_scope("ignored");
+    untimed.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    untimed.end_pass();
+    untimed.end_timed_scope();
+    submit_and_finish(*dev, untimed);
+    frames.clear();
+    dev->timer_poll(frames);
+    CHECK(frames.empty());
+    CHECK(dev->timer_last_scopes().size() == 2);  // still the last timed frame's
+
+    step = "a scope whose list is not submitted before the frame ends is not reported";
+    dev->timer_begin_frame();
+    CommandList& late = dev->begin_commands("late");
+    late.begin_timed_scope("late");
+    late.end_timed_scope();
+    dev->timer_end_frame();
+    submit_and_finish(*dev, late);
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 1);
+    CHECK(dev->timer_last_scopes().empty());
+
+    step = "timer_forget drops the results in flight";
+    dev->timer_begin_frame();
+    CommandList& forgotten = dev->begin_commands("forgotten");
+    forgotten.begin_timed_scope("forgotten");
+    forgotten.end_timed_scope();
+    dev->submit(forgotten);
+    dev->timer_end_frame();
+    dev->timer_forget();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    frames.clear();
+    dev->timer_poll(frames);
+    CHECK(frames.empty());
+    CHECK(dev->timer_last_scopes().empty());
+
+    step = "a full ring skips frames instead of waiting";
+    for (int i = 0; i < 10; ++i) {  // never polled: six frames fill the ring, the rest are not timed
+        dev->timer_begin_frame();
+        dev->timer_end_frame();
+    }
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 6);
+    step = "the debug layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+namespace {
+
+Buffer make_storage_buffer(D3d12Device& dev, const std::vector<std::uint8_t>& data, const char* label) {
+    BufferDesc bd;
+    bd.size = data.size();
+    bd.usage.storageBuffer = true;
+    bd.usage.copySrc = true;
+    bd.data = range_of(data);
+    bd.label = label;
+    return dev.make_buffer(bd);
+}
+
+}  // namespace
+
+TEST_CASE("d3d12: async reads of a buffer and of a texture region whose rows are not 256-byte multiples") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string step = "buffer";
+    INFO("step: " << step);
+    const std::vector<std::uint8_t> data = pattern(5000, 7);
+    const Buffer buf = make_storage_buffer(*dev, data, "async-src");
+    REQUIRE(dev->state(buf) == ResourceState::Valid);
+    auto t = dev->request_buffer_read(buf, 100, 3000);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    REQUIRE(t.value().valid());
+    std::vector<std::uint8_t> out;
+    REQUIRE(dev->poll_buffer_read(t.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin() + 100, data.begin() + 3100));
+
+    step = "a write in a submitted list comes before the read";
+    const std::vector<std::uint8_t> patch = pattern(64, 8);
+    CommandList& list = dev->begin_commands("patch");
+    BufferWrite w;
+    w.data = range_of(patch);
+    w.buffer = buf;
+    w.dstOffset = 0;
+    list.write_buffer(w);
+    dev->submit(list);
+    t = dev->request_buffer_read(buf, 0, 64);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    bool done = false;
+    for (int i = 0; i < 100000 && !done; ++i) done = dev->poll_buffer_read(t.value(), out, false);  // no stall
+    if (!done) done = dev->poll_buffer_read(t.value(), out, true);
+    REQUIRE(done);
+    CHECK(out == patch);
+    dev->commit();
+
+    step = "texture: a 33x3 region of a 37x5 RGBA8 image (132-byte rows, 256-byte aligned in the copy)";
+    const std::vector<std::uint8_t> texels = pattern(std::size_t(37) * 5 * 4, 9);
+    ImageDesc id;
+    id.width = 37;
+    id.height = 5;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.data.mipLevels[0] = range_of(texels);
+    id.label = "async-image";
+    const Image img = dev->make_image(id);
+    REQUIRE(dev->state(img) == ResourceState::Valid);
+    auto ti = dev->request_image_read(img, 0, 0, 3, 1, 33, 3);
+    REQUIRE_MESSAGE(ti, ti.error().to_string());
+    REQUIRE(ti.value().valid());
+    REQUIRE(dev->poll_buffer_read(ti.value(), out, true));
+    CHECK(out == crop(texels, 37, 4, 3, 1, 33, 3));
+    ti = dev->request_image_read(img, 0, 0, 0, 0, 37, 5);
+    REQUIRE_MESSAGE(ti, ti.error().to_string());
+    REQUIRE(dev->poll_buffer_read(ti.value(), out, true));
+    CHECK(out == texels);
+
+    step = "bad requests are teaching errors";
+    auto bad = dev->request_buffer_read(buf, 4000, 2000);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "go past its 5000 bytes"));
+    bad = dev->request_buffer_read(buf, 0, 0);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "is no read"));
+    bad = dev->request_image_read(img, 0, 0, 30, 0, 8, 1);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "outside its 37x5 mip 0"));
+    bad = dev->request_image_read(img, 1, 0, 0, 0, 1, 1);
+    REQUIRE(!bad);
+    CHECK(contains(bad.error().message, "mip 1 is outside"));
+
+    step = "a read survives destroy_buffer";
+    t = dev->request_buffer_read(buf, 0, 5000);
+    REQUIRE_MESSAGE(t, t.error().to_string());
+    dev->destroy_buffer(buf);
+    dev->commit();
+    REQUIRE(dev->poll_buffer_read(t.value(), out, true));
+    std::vector<std::uint8_t> expected = data;
+    std::memcpy(expected.data(), patch.data(), patch.size());
+    CHECK(out == expected);
+    step = "the debug layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("d3d12: async read tickets are generation-checked, and every slot can be in flight at once") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const std::vector<std::uint8_t> data = pattern(1024, 11);
+    const Buffer buf = make_storage_buffer(*dev, data, "tickets");
+    REQUIRE(dev->state(buf) == ResourceState::Valid);
+    std::string step = "a ticket is read once";
+    INFO("step: " << step);
+    std::vector<std::uint8_t> out;
+    auto a = dev->request_buffer_read(buf, 0, 16);
+    REQUIRE_MESSAGE(a, a.error().to_string());
+    REQUIRE(dev->poll_buffer_read(a.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin(), data.begin() + 16));
+    out.clear();
+    CHECK(!dev->poll_buffer_read(a.value(), out, true));  // stale: already read
+    CHECK(out.empty());
+    CHECK(!dev->poll_buffer_read(ReadTicket{}, out, true));
+    CHECK(!dev->poll_buffer_read(ReadTicket{1000, 1}, out, true));
+
+    step = "a released ticket is stale, and a stale ticket does not touch the slot's next request";
+    auto b = dev->request_buffer_read(buf, 16, 16);
+    REQUIRE_MESSAGE(b, b.error().to_string());
+    dev->release_buffer_read(b.value());
+    CHECK(!dev->poll_buffer_read(b.value(), out, true));
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    auto c = dev->request_buffer_read(buf, 32, 16);
+    REQUIRE_MESSAGE(c, c.error().to_string());
+    CHECK(c.value().slot == b.value().slot);  // the slot came back once its copy finished
+    CHECK(c.value().generation != b.value().generation);
+    dev->release_buffer_read(b.value());  // stale: ignored
+    dev->release_buffer_read(a.value());
+    CHECK(!dev->poll_buffer_read(b.value(), out, true));
+    REQUIRE(dev->poll_buffer_read(c.value(), out, true));
+    CHECK(out == std::vector<std::uint8_t>(data.begin() + 32, data.begin() + 48));
+
+    step = "32 reads in flight; the 33rd gets an invalid ticket with ok";
+    std::vector<ReadTicket> tickets;
+    for (int i = 0; i < 32; ++i) {
+        auto t = dev->request_buffer_read(buf, std::size_t(i) * 32, 32);
+        REQUIRE_MESSAGE(t, t.error().to_string());
+        REQUIRE_MESSAGE(t.value().valid(), "read " << i);
+        tickets.push_back(t.value());
+    }
+    auto full = dev->request_buffer_read(buf, 0, 4);
+    REQUIRE_MESSAGE(full, full.error().to_string());
+    CHECK(!full.value().valid());
+    for (std::size_t i = tickets.size(); i-- > 0;) {  // in reverse: no order between slots
+        REQUIRE_MESSAGE(dev->poll_buffer_read(tickets[i], out, true), "read " << i);
+        CHECK_MESSAGE(out == std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(i * 32),
+                                                       data.begin() + std::ptrdiff_t(i * 32 + 32)),
+                      "read " << i);
+    }
+    auto again = dev->request_buffer_read(buf, 0, 4);
+    REQUIRE_MESSAGE(again, again.error().to_string());
+    CHECK(again.value().valid());
+    dev->release_buffer_read(again.value());
+
+    step = "a read bigger than the slot's buffer grows it";
+    std::vector<std::uint8_t> big = pattern(200000, 12);
+    const Buffer large = make_storage_buffer(*dev, big, "large");
+    REQUIRE(dev->state(large) == ResourceState::Valid);
+    auto l = dev->request_buffer_read(large, 0, big.size());
+    REQUIRE_MESSAGE(l, l.error().to_string());
+    REQUIRE(dev->poll_buffer_read(l.value(), out, true));
+    CHECK(out == big);
+    step = "the debug layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 

@@ -80,7 +80,11 @@ bool d3d_compile_stage(const gpu::ShaderFunction& fn, std::vector<std::uint8_t>&
 Json ShaderBuildStats::to_json(const char* backend) const {
     Json j = Json::object();
     j["backend"] = backend;
-    j["cache"] = shader_cache_mode();
+    // The backend of that name (the build's sokol one when the name is none of the engine's).
+    gpu::Backend named = gpu::built_sokol_backend();
+    for (int b = 0; b <= int(gpu::Backend::Recording); ++b)
+        if (std::string_view(gpu::backend_name(gpu::Backend(b))) == (backend ? backend : "")) named = gpu::Backend(b);
+    j["cache"] = shader_cache_mode(named);
     j["programs"] = programs;
     j["createMs"] = std::round(createMs * 10.0) / 10.0;
     if (stages > 0 || engine_caches_here()) {
@@ -219,6 +223,10 @@ gpu::Shader make_shader(gpu::Device& device, const gpu::ShaderDesc& desc, const 
 const ShaderBuildStats& shader_build_stats() { return g_stats; }
 void reset_shader_build_stats() { g_stats = ShaderBuildStats{}; }
 
-const char* shader_cache_mode() { return engine_caches_here() && !fs::cache_dir().empty() ? "d3d11-dxbc" : "none"; }
+const char* shader_cache_mode(gpu::Backend backend) {
+    if (!engine_caches_here() || fs::cache_dir().empty()) return "none";
+    if (backend == gpu::Backend::D3d12) return "d3d12-dxbc";
+    return backend == gpu::Backend::D3d11 ? "d3d11-dxbc" : "none";
+}
 
 }  // namespace fa::render

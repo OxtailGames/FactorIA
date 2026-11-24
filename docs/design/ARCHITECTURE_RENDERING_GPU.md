@@ -444,7 +444,9 @@ with `make_d3d12_device(D3d12Options)`.
 debug layer (and GPU-based validation, which needs it), the frames in flight (1 to 3), the upload ring's size and the
 descriptor counts. Contradictions are errors before any D3D12 call. Without the "Graphics Tools" feature the debug
 layer is missing: the device is made without it, warns, and `debug_layer_active()` is false. A device needs feature
-level 11.0 and resource binding tier 2.
+level 11.0. On resource binding tier 1 (no unbounded descriptor ranges) the device makes no bindless table whatever
+`bindlessDescriptors` asks, and warns when it asked for one; `resource_binding_tier()` and `bindless_descriptors()`
+say what it found and made.
 
 **Errors.** Every failed HRESULT becomes a message with its hex value and name (`hr_text`) and, after a device
 removal, `GetDeviceRemovedReason`. With the debug layer, the InfoQueue keeps ERROR, CORRUPTION and WARNING messages;
@@ -499,7 +501,27 @@ zero sizes the rest of the mip, as in sokol. `push_debug_group` / `pop_debug_gro
 
 **Readbacks.** `read_buffer`, `read_image_rgba8` (BGRA is swizzled to RGBA), `read_image_rgba16f`,
 `read_storage_image` and, for tests, `read_image_region(image, mip, layer, x, y, w, h)` copy into a READBACK buffer on
-an internal list, wait for it and unpack the rows. They block.
+an internal list, wait for it and unpack the rows. They block. The region's layout in the buffer comes from
+`GetCopyableFootprints` (rows 256-byte aligned) and is repacked to tight rows.
+
+**Asynchronous reads.** `request_buffer_read` (and, D3D12 only, `request_image_read(image, mip, layer, x, y, w, h)`)
+copy on an internal list executed at once, behind every list submitted so far, into one of 32 slots (as SokolDevice's
+8 rings of 4); each slot keeps a READBACK buffer, grown to the next 64 KiB when a read needs more. The slot's fence
+value says when the bytes are there: `poll_buffer_read` hands them over (an image region tightly packed) once the
+fence passed, never waits unless asked to (`wait`, bounded like every fence wait), and makes the ticket stale. A
+ticket is `{slot, generation}`: a stale or released one is ignored even after its slot was reused, and a released slot
+is reused only once its copy finished. Every slot busy = an invalid ticket with ok. A read keeps its source alive
+through `destroy_buffer`.
+
+**GPU timers.** Timestamp queries on the direct queue (`GetTimestampFrequency`; `timer_supported` is false with the
+reason when the queue cannot give one or the query heaps cannot be made). Like GpuTimer on D3D11 and GL: a ring of 6
+timed frames, each with its own query heap and READBACK buffer (a full ring skips the frame), query 0 and 1 the
+frame's start and end, two per scope after them, at most 64 scopes per frame. `timer_begin_frame` and
+`timer_end_frame` record their timestamps on the internal list; the end also resolves the frame's queries into its
+buffer and executes it, and its fence value says when `timer_poll` can read it (in order, never waiting). Scopes do
+not nest (a begin ends the one still open, submit ends one left open) and do nothing outside a timed frame; a scope
+whose list was not submitted before `timer_end_frame` is not reported. `timer_last_scopes` is the newest resolved
+frame's scopes in the order they ran; `timer_forget` drops what is in flight.
 
 **Shaders.** `make_shader` takes shader model 5.x DXBC (`bytecode`, which must start with `DXBC`; DXIL is not taken)
 or HLSL `source`, which it compiles to vs_5_1 / ps_5_1 / cs_5_1 with `D3DCompile` from `d3dcompiler_47.dll`, loaded at
@@ -542,9 +564,7 @@ block was set and `set_bindings` called since `set_pipeline`. As in sokol, once 
 inside a pass whose `begin_pass` failed is skipped. `draw_ex`'s `baseVertex` is the index offset with an index buffer
 and is added to `base` without one; dispatch counts are 0 to 65535 per dimension.
 
-**Not yet (M77-P7c2, M77-P9).** The GPU timers (`timer_supported` says why) and the asynchronous buffer reads
-(`request_buffer_read` reports "not built yet (M77-P7c2)"; `read_buffer` waits) come in M77-P7c2; passes into the
-window in M77-P9.
+**Not yet (M77-P9).** Passes into the window.
 
 **Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
 WARP device with the debug layer and ends by checking that the layer reported no error. Resources: buffer and image
@@ -553,7 +573,11 @@ the dedicated uploads, descriptor exhaustion and reuse. Drawing, each read back 
 pass; a uniform-colour fullscreen triangle into RGBA8 and RGBA16F; the engine's own blit shader (the HLSL of
 `blit.glsl.h`) with a nearest and a linear sampler; an indexed, instanced draw with a base vertex; a depth test and a
 viewport; an MSAA 4x resolve (the texels on the triangle's edge are partly covered); a compute pass writing a storage
-image and a storage buffer, whose second dispatch reads the first's writes. Then the PSO and root-signature caches,
+image and a storage buffer, whose second dispatch reads the first's writes. GPU timers: timed frames with two scopes
+resolving to non-negative times in order, a scope outside a timed frame, an unsubmitted scope, `timer_forget` and a
+full ring. Asynchronous reads: a buffer, a 33x3 region of a 37x5 RGBA8 image (rows that are not 256-byte multiples),
+bad requests, a read that outlives `destroy_buffer`, stale and released tickets, 32 reads in flight and the 33rd
+refused, a slot buffer that grows. Then the PSO and root-signature caches,
 the root signature of a shader with one block, two views and two samplers, and every error of `make_shader`,
 `make_pipeline` and the command list. A Windows without WARP says so with a MESSAGE and passes. Elsewhere one case
 checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_root_layout()` and
