@@ -102,7 +102,7 @@ public:
     // null only into that rectangle (x, y, w, h in pixels of the destination: a camera's rectangle of the picture). The
     // copy of a custom post chain (renderer_custom_post.h) uses it. False (nothing drawn) when the target of the pass
     // is gone or the copy program is not ready.
-    bool copy_into(Gpu& gpu, const PassDesc& pd, sg_view src, const int* part);
+    bool copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view src, const int* part);
 
     // The focus distance the camera `camKey` has now (a NaN when it has none): what the tests and the debug output read.
     float focus_of(std::uint64_t camKey) const;
@@ -114,19 +114,21 @@ public:
 
     // The programs, and their pipelines for a target format (made on the first use; null when the program cannot be made). Used by the passes.
     enum class Prog { Down, Gather, Composite, Copy, Motion, ObjVel, ObjTile, ObjGather, Count };
-    bool ready();
+    bool ready(Gpu& gpu);
     // The three programs of the per-object blur, made on its first use (a game that only has the camera blur never compiles them); false
     // when they could not be made (logged once: the blur is then the camera-only one).
-    bool ready_objects();
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    bool ready_objects(Gpu& gpu);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    gpu::Device* device_ =
+        nullptr;  // the device of the first ready(): the shaders and pipelines are made and destroyed on it
+    gpu::Shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;     // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     int objState_ = 0;  // the same for the per-object blur's programs

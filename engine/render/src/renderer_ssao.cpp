@@ -5,6 +5,7 @@
 
 #include "fa/core/log.h"
 
+#include "fullscreen_gpu.h"
 #include "postprocess_resolve.h"
 #include "shaders/ssao.glsl.h"
 
@@ -15,9 +16,8 @@ namespace {
 float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
 template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
+void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
+    list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
 constexpr float kMaxIntensity = 4.0f;
@@ -33,26 +33,27 @@ constexpr float kGamma = 2.2f;
 
 // One full-screen-triangle pass of the occlusion (the search and the blur) into a transient the pass draws every texel of.
 template <class U>
-void run_pass(Gpu& gpu, const Target& dst, SsaoStage stage, sg_view pre, sg_view ao, const U& fs, int fsSlot,
-              const char* label) {
+void run_pass(gpu::CommandList& list, Gpu& gpu, const Target& dst, SsaoStage stage, sg_view pre, sg_view ao,
+              const U& fs, int fsSlot, const char* label) {
     PassDesc p = pass_into(dst, label);
     p.colorLoad = SG_LOADACTION_DONTCARE;
     p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.ssao_pipeline(stage, p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_ssao_pre_tex] = pre;
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(p, swapchain));
+    list.set_pipeline(gpu.ssao_pipeline(stage, p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_ssao_pre_tex] = gpu::from_sg(pre);
     b.views[VIEW_ssao_ao_tex] =
-        ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
+        gpu::from_sg(ao.id ? ao : pre);  // the search has no occlusion image yet (its program ignores the slot)
     b.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     ssao_ssao_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_ssao_ssao_vs_params, vu);
-    apply_uniforms(fsSlot, fs);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
+    apply_uniforms(list, UB_ssao_ssao_vs_params, vu);
+    apply_uniforms(list, fsSlot, fs);
+    list.draw(0, 3, 1);
+    list.end_pass();
 }
 
 }  // namespace
@@ -115,7 +116,7 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
               h = partial ? rect.h : picH;  // the prepass has the size of the camera's rectangle
     if (w < 1 || h < 1) return 0;
     // RGBA16F targets that blend and filter (what `render.supports` asks for): without them the effect is not drawn.
-    const sg_pixelformat_info fmtInfo = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    const gpu::PixelFormatCaps fmtInfo = gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba16F);
     if (!(fmtInfo.render && fmtInfo.blend && fmtInfo.filter)) {
         if (!warned_) {
             warned_ = true;
@@ -137,7 +138,7 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
     d.width = aw;
     d.height = ah;
     // One channel is all the occlusion needs: R16F where the GPU renders it (half the memory of RGBA16F), else RGBA16F.
-    const sg_pixelformat_info r16 = sg_query_pixelformat(SG_PIXELFORMAT_R16F);
+    const gpu::PixelFormatCaps r16 = gpu.device().pixel_format_caps(gpu::PixelFormat::R16F);
     d.format = TargetFormat{r16.render && r16.sample && r16.filter ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F,
                             SG_PIXELFORMAT_NONE, 1};
     // Make sure the GPU can have both at once (the worst case), so that a failure is one warning here and not a pass that cannot
@@ -200,7 +201,8 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             const Target* t = tt->get(c.handle(a));
             const Target* pt = pp.target(c);
             if (!t || !pt) return;
-            run_pass(*g, *t, SsaoStage::Ao, pt->texView, sg_view{}, u, UB_ssao_ssao_ao_params, "ssao-ao");
+            run_pass(pass_list(c, *g), *g, *t, SsaoStage::Ao, pt->texView, sg_view{}, u, UB_ssao_ssao_ao_params,
+                     "ssao-ao");
             ++*drawCalls;
         });
     }
@@ -220,7 +222,8 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             const Target* t = tt->get(c.handle(to));
             const Target* pt = pp.target(c);
             if (!src || !t || !pt) return;
-            run_pass(*g, *t, SsaoStage::Blur, pt->texView, src->texView, u, UB_ssao_ssao_blur_params, name);
+            run_pass(pass_list(c, *g), *g, *t, SsaoStage::Blur, pt->texView, src->texView, u, UB_ssao_ssao_blur_params,
+                     name);
             ++*drawCalls;
         });
     }
@@ -243,25 +246,30 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
 #pragma warning(pop)
 #endif
 
-void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format) {
-    sg_apply_pipeline(gpu.ssao_pipeline(apply.view ? SsaoStage::View : SsaoStage::Apply, format));
-    sg_bindings bind{};
-    bind.vertex_buffers[0] = gpu.fullscreen_triangle();
-    bind.views[VIEW_ssao_pre_tex] = pre;
-    bind.views[VIEW_ssao_ao_tex] = ao;
+void Ssao::draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre,
+                      const TargetFormat& format) {
+    list.set_pipeline(gpu.ssao_pipeline(apply.view ? SsaoStage::View : SsaoStage::Apply, format));
+    gpu::Bindings bind;
+    bind.vertexBuffers[0] = gpu.fullscreen_triangle();
+    bind.views[VIEW_ssao_pre_tex] = gpu::from_sg(pre);
+    bind.views[VIEW_ssao_ao_tex] = gpu::from_sg(ao);
     bind.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&bind);
+    list.set_bindings(bind);
     ssao_ssao_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_ssao_ssao_vs_params, vu);
+    apply_uniforms(list, UB_ssao_ssao_vs_params, vu);
     ssao_ssao_apply_params_t u{};
     u.a[0] = apply.power;
     u.a[1] = apply.scale;
     u.a[2] = kPlaneTolerance;
     std::copy(apply.sz, apply.sz + 4, u.sz);
     std::copy(apply.cam, apply.cam + 4, u.cam);
-    apply_uniforms(UB_ssao_ssao_apply_params, u);
-    sg_draw(0, 3, 1);
+    apply_uniforms(list, UB_ssao_ssao_apply_params, u);
+    list.draw(0, 3, 1);
+}
+
+void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format) {
+    draw_apply(gpu.commands(), gpu, apply, ao, pre, format);
 }
 
 }  // namespace fa::render

@@ -6,6 +6,7 @@
 
 #include "fa/core/log.h"
 
+#include "fullscreen_gpu.h"
 #include "postprocess.h"
 #include "postprocess_resolve.h"
 #include "renderer_dof.h"
@@ -51,50 +52,48 @@ struct PixelRect {
 // it; when there is none, the picture stands in: fa_history_valid is false then and the shader does not read it).
 // `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is
 // gone or the program has no pipeline for this format.
-bool draw_post(Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass, sg_view history,
-               const PixelRect* part) {
+bool draw_post(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass,
+               sg_view history, const PixelRect* part) {
     if (!pd.color.id || !src.id) return false;
     const bool usesPrepass = ((d.program.viewMask >> 1) & 1u) != 0;
     if (usesPrepass && !prepass.id) return false;
-    const sg_pipeline pip = gpu.post_material_pipeline(pd.format, d.program.shader);
+    const gpu::Pipeline pip = gpu.post_material_pipeline(pd.format, d.program.shader);
     if (!pip.id) return false;
-    Gpu::begin_pass(pd);
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(pd, swapchain));
     if (part) {
-        sg_apply_viewport(part->x, part->y, part->w, part->h, true);
-        sg_apply_scissor_rect(part->x, part->y, part->w, part->h, true);
+        list.set_viewport(part->x, part->y, part->w, part->h, true);
+        list.set_scissor(part->x, part->y, part->w, part->h, true);
     }
-    sg_apply_pipeline(pip);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[0] = src;
+    list.set_pipeline(pip);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[0] = gpu::from_sg(src);
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
     if (usesPrepass) {
-        b.views[1] = prepass;
+        b.views[1] = gpu::from_sg(prepass);
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
-    b.views[kMaterialPostHistoryView] = history.id ? history : src;
+    b.views[kMaterialPostHistoryView] = gpu::from_sg(history.id ? history : src);
     for (int i = 0; i < d.textureCount; ++i) {
-        b.views[kMaterialPostFirstView + i] = d.views[i];
+        b.views[kMaterialPostFirstView + i] = gpu::from_sg(d.views[i]);
         b.samplers[kMaterialPostFirstSampler + i] = gpu.sampler(d.samplers[i]);
     }
-    // Only what the program declares: sokol rejects a binding the shader does not have.
-    for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+    // Only what the program declares: the device rejects a binding the shader does not have.
+    for (int i = 0; i < gpu::kMaxViews; ++i)
         if (!((d.program.viewMask >> i) & 1u)) b.views[i] = {};
-    for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+    for (int i = 0; i < gpu::kMaxSamplers; ++i)
         if (!((d.program.samplerMask >> i) & 1u)) b.samplers[i] = {};
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     const float flip[4] = {d.block.a[0], 0.0f, 0.0f, 0.0f};
-    const sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(0, &vr);
-    const sg_range fr{&d.block, sizeof(d.block)};
-    sg_apply_uniforms(1, &fr);
+    list.set_uniforms(0, gpu::Range{flip, sizeof(flip)});
+    list.set_uniforms(1, gpu::Range{&d.block, sizeof(d.block)});
     if (d.program.has_ub(kMaterialUbFragment)) {
         const std::size_t size = std::min<std::size_t>(d.program.ubSize[kMaterialUbFragment], sizeof(d.params));
-        const sg_range mr{d.params, size};
-        sg_apply_uniforms(kMaterialUbFragment, &mr);
+        list.set_uniforms(kMaterialUbFragment, gpu::Range{d.params, size});
     }
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.draw(0, 3, 1);
+    list.end_pass();
     return true;
 }
 
@@ -196,16 +195,20 @@ std::uint64_t history_bytes(int w, int h, sg_pixel_format format) {
 
 std::uint64_t CustomPost::history_budget() const { return historyBudget_ ? historyBudget_ : kHistoryBudgetBytes; }
 
+void CustomPost::destroy_images(HistorySlot& slot) {
+    if (!device_) return;  // no history was ever made
+    for (Target& t : slot.img) destroy_target(*device_, t);
+}
+
 void CustomPost::release_history() {
-    for (auto& entry : history_)
-        for (Target& t : entry.second->img) destroy_target(t);
+    for (auto& entry : history_) destroy_images(*entry.second);
     history_.clear();
 }
 
 void CustomPost::sweep_history(std::uint64_t frame) {
     for (auto it = history_.begin(); it != history_.end();) {
         if (frame >= it->second->planned && frame - it->second->planned >= kHistoryIdleFrames) {
-            for (Target& t : it->second->img) destroy_target(t);
+            destroy_images(*it->second);
             it = history_.erase(it);
         } else {
             ++it;
@@ -216,7 +219,7 @@ void CustomPost::sweep_history(std::uint64_t frame) {
 void CustomPost::release_history_of(std::uint64_t camera) {
     for (auto it = history_.begin(); it != history_.end();) {
         if (it->second->camera == camera) {
-            for (Target& t : it->second->img) destroy_target(t);
+            destroy_images(*it->second);
             it = history_.erase(it);
         } else {
             ++it;
@@ -231,9 +234,10 @@ void CustomPost::reset_history(std::uint64_t camera) {
 
 int CustomPost::history_image_count() const {
     int count = 0;
+    if (!device_) return 0;
     for (const auto& entry : history_)
         for (const Target& t : entry.second->img)
-            if (t.valid()) ++count;
+            if (t.valid(*device_)) ++count;
     return count;
 }
 
@@ -249,8 +253,8 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
     }
     std::shared_ptr<HistorySlot> slot;
     if (const auto it = history_.find(key); it != history_.end()) slot = it->second;
-    const bool fits =
-        slot && slot->w == w && slot->h == h && slot->format == format && slot->img[0].valid() && slot->img[1].valid();
+    const bool fits = slot && slot->w == w && slot->h == h && slot->format == format && slot->img[0].valid(*device_) &&
+                      slot->img[1].valid(*device_);
     if (!fits) {
         // The budget counts every other slot's images (this one, if it exists, is made again).
         std::uint64_t used = 0;
@@ -258,7 +262,7 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
             if (entry.second != slot) used += history_bytes(entry.second->w, entry.second->h, entry.second->format);
         const std::uint64_t wanted = history_bytes(w, h, format);
         if (!slot) slot = std::make_shared<HistorySlot>();
-        for (Target& t : slot->img) destroy_target(t);
+        destroy_images(*slot);
         slot->wrote = false;
         const std::uint64_t budget = history_budget();
         const bool inBudget = used + wanted <= budget;
@@ -274,11 +278,11 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
                 ok = false;
                 break;
             }
-            slot->img[i] = make_target(d);
-            ok = slot->img[i].valid();
+            slot->img[i] = make_target(*device_, d);
+            ok = slot->img[i].valid(*device_);
         }
         if (!ok) {
-            for (Target& t : slot->img) destroy_target(t);
+            destroy_images(*slot);
             history_.erase(key);
             if (inBudget) {  // the GPU said no
                 if (historyRefused_.size() >= kMaxProbed && !historyRefused_.contains(key)) {
@@ -321,6 +325,7 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
                            const PrepassRef& prepass, bool linear, float time, int* drawCalls,
                            std::vector<std::string>& fallbacks, const std::string& job) {
     if (!plan.any_in_mask(slots)) return 0;
+    device_ = &gpu.device();
     int firstSlot = 0;  // the first place of the mask: it names the passes
     while (((slots >> firstSlot) & 1u) == 0) ++firstSlot;
     const PostSlot slot = PostSlot(firstSlot);
@@ -550,15 +555,15 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             add(prefix + "-pass" + std::to_string(k), std::move(reads), {game}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 const sg_view src = view_of(c, prev);
-                if (draw_post(*g, into_picture("custom-post"), *data, src, pt ? pt->texView : sg_view{}, histView,
-                              rect.whole ? nullptr : &rect))
+                if (draw_post(pass_list(c, *g), *g, into_picture("custom-post"), *data, src,
+                              pt ? pt->texView : sg_view{}, histView, rect.whole ? nullptr : &rect))
                     ++*drawCalls;
             });
         } else {
             add(prefix + "-pass" + std::to_string(k), std::move(reads), {self.res}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
                 const sg_view src = first ? srcTex : view_of(c, prev);
-                const bool drew = draw_post(*g, into_image(c, self, "custom-post"), *data, src,
+                const bool drew = draw_post(pass_list(c, *g), *g, into_image(c, self, "custom-post"), *data, src,
                                             pt ? pt->texView : sg_view{}, histView, nullptr);
                 if (drew) ++*drawCalls;
                 if (drew && hs) {  // what the next frame's pass reads
@@ -575,7 +580,8 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         const Out last = out[std::size_t(n - 1)];
         add(prefix + "-copy", {last.res, game}, {game}, [=](const PassContext& c) {
             const int part[4] = {rect.x, rect.y, rect.w, rect.h};
-            if (fx->copy_into(*g, into_picture("custom-post-copy"), view_of(c, last), rect.whole ? nullptr : part))
+            if (fx->copy_into(pass_list(c, *g), *g, into_picture("custom-post-copy"), view_of(c, last),
+                              rect.whole ? nullptr : part))
                 ++*drawCalls;
         });
     }

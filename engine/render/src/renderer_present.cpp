@@ -1,6 +1,8 @@
 // Renderer: present() and the captures of the finished frame.
 #include "renderer_impl.h"
 
+#include "gpu/sg_bridge.h"
+
 namespace fa {
 
 blit_blit_fs_params_t Renderer::Impl::present_params() const {
@@ -19,26 +21,26 @@ blit_blit_fs_params_t Renderer::Impl::present_params() const {
 
 bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::string* error) {
     if (!gpu.committed()) {  // see Renderer::capture(): the frame's work must be submitted before a read-back waits for it
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
-    const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    const gpu::PixelFormatCaps half = gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba16F);
     if (!half.render) {
         if (error) *error = "this GPU cannot draw into an RGBA16F image";
         return false;
     }
     const int fw = final_w(),
               fh = final_h();  // the finished picture's size (the output size while the upscale stage ran)
-    if (floatTarget.color.id && (floatTarget.w != fw || floatTarget.h != fh)) destroy_target(floatTarget);
+    if (floatTarget.color.id && (floatTarget.w != fw || floatTarget.h != fh)) destroy_target(gpu.device(), floatTarget);
     if (!floatTarget.color.id) {
         TargetDesc d;
         d.label = "readback-rgba16f";
         d.width = fw;
         d.height = fh;
         d.colorFormat = SG_PIXELFORMAT_RGBA16F;
-        floatTarget = make_target(d);
-        if (!floatTarget.valid()) {
-            destroy_target(floatTarget);
+        floatTarget = make_target(gpu.device(), d);
+        if (!floatTarget.valid(gpu.device())) {
+            destroy_target(gpu.device(), floatTarget);
             if (error) *error = std::format("the {}x{} RGBA16F image for the read-back could not be created", fw, fh);
             return false;
         }
@@ -46,21 +48,23 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
     PassDesc p = pass_into(floatTarget, "readback-rgba16f");
     p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
     p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(present ? gpu.blit_pipeline(p.format) : gpu.blit_keep_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = final_view();
+    gpu::CommandList& list = gpu.commands();
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(p, swapchain));
+    list.set_pipeline(present ? gpu.blit_pipeline(p.format) : gpu.blit_keep_pipeline(p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = gpu::from_sg(final_view());
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     blit_blit_vs_params_t u{};
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;  // as read_rgba8: the per-backend read-back turns GL's rows top-down
-    apply_uniforms(UB_blit_blit_vs_params, u);
+    list.set_uniforms(UB_blit_blit_vs_params, gpu::Range{&u, sizeof(u)});
     const blit_blit_fs_params_t fu = present ? present_params() : blit_blit_fs_params_t{};
-    apply_uniforms(UB_blit_blit_fs_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
-    sg_commit();
+    list.set_uniforms(UB_blit_blit_fs_params, gpu::Range{&fu, sizeof(fu)});
+    list.draw(0, 3, 1);
+    list.end_pass();
+    gpu.commit_frame();
     gpu.note_commit();
     return render::readback_rgba16f(floatTarget.color, fw, fh, out, error);
 }
@@ -78,24 +82,26 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     pass.colorStore = SG_STOREACTION_STORE;
     pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
     pass.stencilLoad = SG_LOADACTION_CLEAR;
-    im.gpu.begin_pass(pass);
-    sg_apply_viewportf(vp.x, vp.y, vp.w, vp.h, true);
-    sg_apply_pipeline(im.gpu.blit_pipeline(pass.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = im.gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = im.final_view();
+    gpu::CommandList& list = im.gpu.commands();
+    gpu::Swapchain surface;
+    list.begin_pass(gpu::from_render(pass, surface));
+    list.set_viewport_f(vp.x, vp.y, vp.w, vp.h, true);
+    list.set_pipeline(im.gpu.blit_pipeline(pass.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = im.gpu.fullscreen_triangle();
+    b.views[VIEW_blit_tex] = gpu::from_sg(im.final_view());
     bool integer = mode == ScaleMode::PixelPerfect || std::fabs(vp.scale - std::round(vp.scale)) < 1e-3f;
     b.samplers[SMP_blit_smp] = im.gpu.sampler(integer ? SamplerKind::Nearest : SamplerKind::Linear);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     blit_blit_vs_params_t u{};
     u.flip[0] = im.gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_blit_blit_vs_params, u);
+    list.set_uniforms(UB_blit_blit_vs_params, gpu::Range{&u, sizeof(u)});
     // The encode for the window's output (hdr_encode.h): sRGB within white, or scRGB, HDR10 (PQ) or EDR linear light.
     const blit_blit_fs_params_t fu = im.present_params();
-    apply_uniforms(UB_blit_blit_fs_params, fu);
-    sg_draw(0, 3, 1);
-    im.gpu.end_pass();
-    sg_commit();
+    list.set_uniforms(UB_blit_blit_fs_params, gpu::Range{&fu, sizeof(fu)});
+    list.draw(0, 3, 1);
+    list.end_pass();
+    im.gpu.commit_frame();
     im.gpu.note_commit();
     im.inFrame = false;
 }
@@ -111,7 +117,7 @@ bool Renderer::capture(Image& out, std::string* error) {
     // screenshot taken in between (the toolbar button, a Play mark, game.screenshot) submits the game's work itself. Always
     // outside a pass: the game pass is closed when drawing returns.
     if (!im.gpu.committed()) {
-        sg_commit();
+        im.gpu.commit_frame();
         im.gpu.note_commit();
     }
     // 8 bits: a frame drawn for an HDR output (the HDR tonemap, values above paper white) is clipped at white here, not drawn again
@@ -316,7 +322,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         graphFromCapture = true;  // the graph the frame-graph report shows is this one until the next render()
         renderScene.reset();
         // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
     const ViewTarget& vt = *viewTargets[kKey];
