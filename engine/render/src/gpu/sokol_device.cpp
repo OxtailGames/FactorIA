@@ -1496,6 +1496,29 @@ void SokolDevice::submit(CommandList& list) {
     listOpen_ = false;
 }
 
+CommandList& SokolDevice::begin_commands(const char* label, QueueKind queue) {
+    (void)queue;  // one queue: the list is the graphics one whatever was asked (list.queue() says so)
+    return begin_commands(label);
+}
+
+SyncToken SokolDevice::submit_token(CommandList& list, std::span<const QueueHandoff>) {
+    check_thread("Device::submit_token");
+    submit(list);
+    return issue_token(QueueKind::Graphics);
+}
+
+void SokolDevice::wait_list(CommandList& list, SyncToken token) {
+    (void)token;  // one queue: its order already covers every token
+    check_thread("Device::wait_list");
+    FA_ASSERT(&list == &list_, "gpu::SokolDevice::wait_list: the list is not this device's");
+}
+
+void SokolDevice::wait_queue(QueueKind queue, SyncToken token) {
+    (void)queue;
+    (void)token;
+    check_thread("Device::wait_queue");
+}
+
 void SokolDevice::commit() {
     check_thread("Device::commit");
     FA_ASSERT(!listOpen_, "gpu::SokolDevice::commit: submit() the command list before commit()");
