@@ -4,6 +4,9 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 
 The renderer's side of the big worlds of M75 (occlusion culling on the CPU and the GPU, the floating origin, terrain, levels of detail) is on the page [rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md).
 
+The engine's GPU interface (`fa::gpu`: Device, CommandList, the sokol backend and RecordingDevice; M77), which the
+renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU interface](ARCHITECTURE_RENDERING_GPU.md).
+
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the
