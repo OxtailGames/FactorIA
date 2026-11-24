@@ -660,11 +660,14 @@ jobs:
           key: ccache-${{ runner.os }}-macos-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-macos-
 
+      # FA_RENDER_VULKAN OFF: this tree builds the tests, which would put the renderer's SPIR-V (~3.4 MB) into the player
+      # the "Player size (macos-arm64)" step measures, and the macOS player ships without it (release.yml builds with
+      # the tests off). The renderer's Vulkan tests run in the linux job, on lavapipe.
       - name: Configure and build (macos-release)
         id: build
         run: |
           ccache --zero-stats
-          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
+          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_RENDER_VULKAN=OFF
           cmake --build --preset macos-release -- -k 0
           ccache --show-stats --verbose
 

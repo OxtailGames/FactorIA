@@ -470,9 +470,9 @@ MeshAsset* TerrainRenderer::patch(gpu::Device& device, bool split) {
 // geometry (the split patch, vertex() of shaders/terrain.glsl), so no program discards. null when the GPU rejects the shaders (said once).
 MaterialAsset* TerrainRenderer::material(gpu::Device& device) {
     if (matState_ != 0) return matState_ > 0 ? material_.get() : nullptr;
-    const gpu::ShaderDesc descs[3] = {gpu::generated_shader_desc(terrain_terrain_shader_desc),
-                                      gpu::generated_shader_desc(terrain_shadow_shader_desc),
-                                      gpu::generated_shader_desc(terrain_prepass_shader_desc)};
+    const gpu::ShaderDesc descs[3] = {gpu::generated_shader_desc(device, terrain_terrain_shader_desc),
+                                      gpu::generated_shader_desc(device, terrain_shadow_shader_desc),
+                                      gpu::generated_shader_desc(device, terrain_prepass_shader_desc)};
     const char* labels[3] = {"terrain_terrain", "terrain_shadow", "terrain_prepass"};
     bool ok = true;
     for (int i = 0; i < 3; ++i) {

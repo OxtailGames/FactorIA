@@ -91,7 +91,7 @@ bool ProbeGpu::ready(Gpu& gpu) {
         static const char* const names[int(Prog::Count)] = {
             "probe_face", "probe_down", "probe_oct_cube", "probe_oct_ggx", "probe_sh", "probe_sh_cube", "probe_blit"};
         for (int p = 0; p < int(Prog::Count); ++p) {
-            shaders_[p] = make_shader(device, gpu::generated_shader_desc(descs[p]), names[p]);
+            shaders_[p] = make_shader(device, gpu::generated_shader_desc(device, descs[p]), names[p]);
             ok = ok && device.state(shaders_[p]) == gpu::ResourceState::Valid;
         }
     }

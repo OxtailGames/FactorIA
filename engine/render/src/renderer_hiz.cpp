@@ -49,7 +49,8 @@ bool Renderer::Impl::hiz_resolve(World& world) {
             why = "this backend cannot read a storage buffer back without waiting";
         }
         if (ok && hizShaderState == 0) {
-            hizShader = render::make_shader(gpu.device(), gpu::generated_shader_desc(hiz_hiz_shader_desc), "hiz_hiz");
+            hizShader = render::make_shader(gpu.device(), gpu::generated_shader_desc(gpu.device(), hiz_hiz_shader_desc),
+                                            "hiz_hiz");
             hizShaderState = hizShader.id && gpu.device().state(hizShader) == gpu::ResourceState::Valid ? 1 : -1;
             if (hizShaderState < 0) {
                 if (hizShader.id) gpu.destroy_shader(hizShader);

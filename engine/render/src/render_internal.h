@@ -1582,10 +1582,11 @@ public:
     ~Gpu();
     Gpu(const Gpu&) = delete;
     Gpu& operator=(const Gpu&) = delete;
-    // Makes the device on the open sokol context (gpu::make_device(gpu::built_sokol_backend()) adopts the context
-    // Renderer::init opened) and the frame's command list, then the built-in programs, samplers and buffers.
-    // `device` (tests): a device to use instead, such as a gpu::RecordingDevice (gpu/recording_device.h) that records what the
-    // renderer's passes call; the built-in shaders still come from the open sokol context's generated descs.
+    // Takes `device` (Renderer::init makes it from RendererDesc::backend; a test may hand in a gpu::RecordingDevice,
+    // gpu/recording_device.h, that records what the renderer's passes call), or without one makes the device on the
+    // open sokol context (gpu::make_device(gpu::built_sokol_backend()) adopts the context Renderer::init opened). Then
+    // the frame's command list, the built-in programs (each in the dialect of the device: gpu::generated_shader_desc),
+    // samplers and buffers.
     bool init(int sampleCount, std::string* error, std::unique_ptr<gpu::Device> device = nullptr);
     // Destroys everything init and the getters made, submits the frame's list and releases the device (the sokol
     // context stays open: it is the renderer's). Safe to call twice, and on a Gpu whose init failed.
@@ -2191,4 +2192,10 @@ inline std::uint32_t pack_color(const Color& c) { return c.to_rgba8(); }
 
 namespace fa {
 struct DebugDraw::Impl : render::DebugDrawData {};
+
+// The renderer's GPU device for fa_render's own code (UiPainter::create(Renderer&), the tests): null before init() and
+// after shutdown(). Defined in renderer.cpp.
+struct RendererDeviceAccess {
+    static gpu::Device* device(Renderer& renderer);
+};
 }  // namespace fa

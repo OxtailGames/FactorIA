@@ -216,7 +216,7 @@ void Gpu::drop_shader(gpu::Shader& s) {
 template <class GeneratedShader>
 gpu::Shader Gpu::make_builtin(GeneratedShader desc, const char* label) {
     static_assert(std::is_same_v<GeneratedShader, gpu::GeneratedShader>, "a generated header's desc function");
-    return make_shader(*device_, gpu::generated_shader_desc(desc), label);
+    return make_shader(*device_, gpu::generated_shader_desc(*device_, desc), label);
 }
 
 void Gpu::commit_frame() {
@@ -516,6 +516,9 @@ gpu::Pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, con
     }
     desc.depth.pixelFormat = target.depth;
     desc.sampleCount = target.samples;
+    // The offsets sokol_gfx would pack, given: the mesh layouts pack buffer 0 and give the instance buffer's, which a backend
+    // that packs only while every offset is 0 (Vulkan, D3D12) would read as buffer 0 at offset 0.
+    gpu::resolve_vertex_offsets(desc.layout);
     // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
     // bug: report it and keep it out of the cache, so the one early call does not break the key for the whole process.
     if (!shader_valid(desc.shader)) {
@@ -924,8 +927,9 @@ bool Gpu::prepass_ready() {
             "skipped. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
-    prepassProgram_[0] = program_slots(prepassShader_, gpu::generated_shader_desc(mesh_prepass_shader_desc));
-    prepassProgram_[1] = program_slots(prepassSkinShader_, gpu::generated_shader_desc(mesh_prepass_skin_shader_desc));
+    prepassProgram_[0] = program_slots(prepassShader_, gpu::generated_shader_desc(*device_, mesh_prepass_shader_desc));
+    prepassProgram_[1] =
+        program_slots(prepassSkinShader_, gpu::generated_shader_desc(*device_, mesh_prepass_skin_shader_desc));
     prepassState_ = 1;
     return true;
 }
@@ -1001,8 +1005,9 @@ bool Gpu::sss_ready() {
             "LIBGL_ALWAYS_SOFTWARE=1).");
         return false;
     }
-    sssProgram_[0] = program_slots(sssShader_, gpu::generated_shader_desc(mesh_mesh_sss_shader_desc));
-    sssProgram_[1] = program_slots(sssSkinShader_, gpu::generated_shader_desc(mesh_mesh_skin_sss_shader_desc));
+    sssProgram_[0] = program_slots(sssShader_, gpu::generated_shader_desc(*device_, mesh_mesh_sss_shader_desc));
+    sssProgram_[1] =
+        program_slots(sssSkinShader_, gpu::generated_shader_desc(*device_, mesh_mesh_skin_sss_shader_desc));
     sssState_ = 1;
     return true;
 }

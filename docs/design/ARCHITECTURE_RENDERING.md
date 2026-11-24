@@ -17,7 +17,9 @@ meters. Details in `core/math.h` and `scene/components.h`.
 
 ## Rendering
 sokol_gfx backends: D3D11 (Windows), Metal (macOS/iOS), GL 4.3 core (Linux),
-GLES3 (Android). The game always renders into an offscreen target at design
+GLES3 (Android). The renderer draws through the `gpu::Device` that `RendererDesc::backend` names (`GpuBackend::Default`:
+that sokol backend); the engine's own D3D12 and Vulkan devices draw offscreen only for now
+([ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md), "The renderer on its backend"). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
 target, so headless and windowed images match. The bloom of a `PostProcess` is a post-process
 that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,

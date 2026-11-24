@@ -84,7 +84,7 @@ XmitLayout xmit_layout(int w, int h) {
 bool Xmit::ready(gpu::Device& device) {
     if (state_ != 0) return state_ > 0;
     device_ = &device;
-    shader_ = make_shader(device, gpu::generated_shader_desc(xmit_copy_shader_desc), "xmit_copy");
+    shader_ = make_shader(device, gpu::generated_shader_desc(device, xmit_copy_shader_desc), "xmit_copy");
     if (device.state(shader_) != gpu::ResourceState::Valid) {
         if (shader_.id) device.destroy_shader(shader_);
         shader_ = {};

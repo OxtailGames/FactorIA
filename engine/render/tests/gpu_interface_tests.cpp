@@ -6,12 +6,16 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 #include <climits>
 #include <initializer_list>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "fa/core/fs.h"
+#include "gpu/d3d12_device.h"
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
 #include "fa/platform/app.h"
@@ -250,6 +254,49 @@ TEST_CASE("gpu interface: handles, enums and descs convert to sokol unchanged") 
     CHECK(sback.vertex_func.source == blit->vertex_func.source);
     CHECK(sback.attrs[ATTR_blit_blit_pos].base_type == blit->attrs[ATTR_blit_blit_pos].base_type);
     CHECK(sback.texture_sampler_pairs[0].view_slot == blit->texture_sampler_pairs[0].view_slot);
+}
+
+TEST_CASE("gpu interface: resolve_vertex_offsets packs per buffer, as sokol_gfx does, and keeps given offsets") {
+    using namespace fa::gpu;
+    // The mesh layout: buffer 0 packed (position, normal, uv, tangent, colour), the instance matrix in buffer 1 with
+    // its offsets given, the lightmap UV alone in buffer 4.
+    VertexLayout l;
+    const VertexFormat vertex[] = {VertexFormat::Float3, VertexFormat::Float3, VertexFormat::Float2,
+                                   VertexFormat::Float4, VertexFormat::Ubyte4N};
+    for (int i = 0; i < 5; ++i) l.attrs[i].format = vertex[i];
+    l.buffers[1].stride = 64;
+    for (int i = 0; i < 4; ++i) {
+        l.attrs[5 + i].format = VertexFormat::Float4;
+        l.attrs[5 + i].bufferIndex = 1;
+        l.attrs[5 + i].offset = i * 16;
+    }
+    l.attrs[9].format = VertexFormat::Float2;
+    l.attrs[9].bufferIndex = 4;
+    l.attrs[11].format = VertexFormat::Float4;  // after the first Invalid (10): not an attribute
+    l.attrs[11].bufferIndex = 0;
+    resolve_vertex_offsets(l);
+    const int packed[] = {0, 12, 24, 32, 48};
+    for (int i = 0; i < 5; ++i) CHECK(l.attrs[i].offset == packed[i]);
+    CHECK(l.buffers[0].stride == 52);
+    for (int i = 0; i < 4; ++i) CHECK(l.attrs[5 + i].offset == i * 16);
+    CHECK(l.buffers[1].stride == 64);  // given: kept
+    CHECK(l.attrs[9].offset == 0);
+    CHECK(l.buffers[4].stride == 8);
+    CHECK(l.attrs[11].offset == 0);
+    CHECK(l.buffers[2].stride == 0);  // no attribute reads it
+    CHECK(vertex_format_bytes(VertexFormat::Half4) == 8);
+    CHECK(vertex_format_bytes(VertexFormat::Uint10N2) == 4);
+    CHECK(vertex_format_bytes(VertexFormat::Invalid) == 0);
+
+    // A buffer with one given offset keeps all of its offsets, even the zeros.
+    VertexLayout g;
+    g.attrs[0].format = VertexFormat::Float2;
+    g.attrs[1].format = VertexFormat::Float2;
+    g.attrs[1].offset = 16;
+    resolve_vertex_offsets(g);
+    CHECK(g.attrs[0].offset == 0);
+    CHECK(g.attrs[1].offset == 16);
+    CHECK(g.buffers[0].stride == 16);  // sokol_gfx's stride of 0: the attributes' summed sizes
 }
 
 TEST_CASE("gpu interface: to_sg(PassDesc) maps both colour attachments, the actions and a swapchain") {
@@ -1044,25 +1091,136 @@ TEST_CASE("storage_image_loadable: RecordingDevice answers per format and comput
     CHECK(contains(why, "\"access\": \"write\""));
 }
 
-TEST_CASE("make_device: Recording, the built sokol backend, and teaching errors for the rest") {
+TEST_CASE(
+    "make_device: Recording, the built sokol backend, D3D12 and Vulkan where built, and teaching errors otherwise") {
     auto rec = make_device(Backend::Recording);
     REQUIRE(rec);
     CHECK(rec.value()->backend() == Backend::Recording);
     CHECK(rec.value()->features().compute);
+    CHECK(device_backend_compiled(Backend::Recording));
+    CHECK(device_backend_compiled(built_sokol_backend()));
 
+    // D3D12: compiled on Windows, a teaching error everywhere else. make_device(Backend::D3d12) caches its pipelines in
+    // the user's d3d12_pipeline_cache_file(), which a test must not read or write: on Windows the device is made the
+    // same way with a cache file of its own (a machine without a D3D12 adapter answers with an error that says so).
+#if defined(_WIN32)
+    CHECK(device_backend_compiled(Backend::D3d12));
+    auto cacheDir = fa::fs::make_temp_dir("fa_make_device_d3d12");
+    REQUIRE(cacheDir);
+    {
+        D3d12Options options;
+        options.pipelineCacheFile = cacheDir.value() / "d3d12-pipelines.bin";
+        auto d3d12 = make_d3d12_device(options);
+        if (d3d12) {
+            CHECK(d3d12.value()->backend() == Backend::D3d12);
+        } else {
+            MESSAGE("no D3D12 device here: " << d3d12.error().to_string());
+            CHECK(!d3d12.error().hint.empty());
+        }
+    }  // the device goes before the next one is made, and before its cache folder
+    std::error_code removeError;
+    std::filesystem::remove_all(cacheDir.value(), removeError);
+#else
+    CHECK(!device_backend_compiled(Backend::D3d12));
     auto d3d12 = make_device(Backend::D3d12);
     REQUIRE(!d3d12);
-    CHECK(contains(d3d12.error().message, "d3d12 backend is not built yet"));
-    CHECK(contains(d3d12.error().hint, "M77.2"));
+    CHECK(contains(d3d12.error().hint, "make_device(built_sokol_backend())"));
+    CHECK(!contains(d3d12.error().to_string(), "M77"));
+#endif
+
+    // Vulkan: made where the renderer has it (FA_RENDER_VULKAN; a machine without a Vulkan driver answers with an error
+    // that names the loader), a teaching error that says how to get it everywhere else.
+#if defined(FA_RENDER_VULKAN)
+    CHECK(device_backend_compiled(Backend::Vulkan));
+    if (auto vk = make_device(Backend::Vulkan)) {
+        CHECK(vk.value()->backend() == Backend::Vulkan);
+    } else {
+        MESSAGE("no Vulkan device here: " << vk.error().to_string());
+        CHECK(!vk.error().hint.empty());
+    }
+#else
+    CHECK(!device_backend_compiled(Backend::Vulkan));
     auto vk = make_device(Backend::Vulkan);
     REQUIRE(!vk);
-    CHECK(contains(vk.error().hint, "M77.3"));
+    CHECK(contains(vk.error().message, "FA_RENDER_VULKAN is off"));
+    CHECK(contains(vk.error().hint, "-DFA_RENDER_VULKAN=ON"));
+    CHECK(contains(vk.error().hint, std::string("built_sokol_backend() (") + backend_name(built_sokol_backend())));
+#endif
 
     const Backend built = built_sokol_backend();
     const Backend other = built == Backend::D3d11 ? Backend::Metal : Backend::D3d11;
+    CHECK(!device_backend_compiled(other));
     auto wrong = make_device(other);
     REQUIRE(!wrong);
     CHECK(contains(wrong.error().message, std::string("built with the ") + backend_name(built)));
+    CHECK(contains(wrong.error().hint, "built_sokol_backend()"));
+}
+
+TEST_CASE("Device: a backend without a window path refuses every swapchain call and says how to get one") {
+    RecordingDevice dev;
+    CHECK(!dev.has_swapchain());
+    const auto made = dev.create_swapchain(SwapchainDesc{});
+    REQUIRE(!made);
+    CHECK(contains(made.error().message, "create_swapchain on the recording backend, which has no window path yet"));
+    CHECK(contains(made.error().hint, "RendererDesc::headless"));
+    CHECK(contains(made.error().hint, std::string("sokol backend (") + backend_name(built_sokol_backend())));
+    CHECK(!contains(made.error().to_string(), "M77"));
+    CHECK(!dev.resize_swapchain(64, 64));
+    CHECK(!dev.acquire_swapchain(Swapchain{}));
+    const auto shown = dev.present();
+    REQUIRE(!shown);
+    CHECK(contains(shown.error().message, "present on the recording backend"));
+    dev.destroy_swapchain();  // nothing to destroy: no error, no change
+    CHECK(!dev.has_swapchain());
+    std::string why;
+    CHECK(!dev.swapchain_format_supported(PixelFormat::Default, &why));
+    CHECK(contains(why, "the recording backend has no window path yet"));
+    CHECK(dev.errors().empty());
+}
+
+TEST_CASE("SokolDevice: the window path is sokol_app's swapchain: create records, acquire hands the frame back") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the SokolDevice swapchain is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE(made);
+    Device& dev = *made.value();
+    CHECK(!dev.has_swapchain());
+    CHECK(!dev.acquire_swapchain(Swapchain{}));  // before create_swapchain
+    CHECK(!dev.present());
+    SwapchainDesc bad;
+    bad.sampleCount = 0;
+    CHECK(!dev.create_swapchain(bad));
+    SwapchainDesc desc;
+    desc.label = "window";
+    REQUIRE(dev.create_swapchain(desc));
+    CHECK(dev.has_swapchain());
+    CHECK(!dev.create_swapchain(desc));  // one at a time
+    Swapchain frame;
+    frame.width = 64;
+    frame.height = 32;
+    frame.sampleCount = 1;
+    auto acquired = dev.acquire_swapchain(frame);
+    REQUIRE(acquired);
+    CHECK(acquired.value().width == 64);
+    CHECK(acquired.value().height == 32);
+    CHECK(dev.resize_swapchain(128, 64));
+    CHECK(!dev.resize_swapchain(-1, 64));
+    CHECK(dev.present());
+    // The SDR format always; the HDR ones where the platform layer makes such a swapchain.
+    std::string why;
+    CHECK(dev.swapchain_format_supported(PixelFormat::Default, &why));
+    CHECK(dev.swapchain_format_supported(dev.environment_defaults().colorFormat, &why));
+    const Backend b = dev.backend();
+    CHECK(dev.swapchain_format_supported(PixelFormat::Rgba16F, &why) == (b == Backend::D3d11 || b == Backend::Metal));
+    CHECK(dev.swapchain_format_supported(PixelFormat::Rgb10A2, &why) == (b == Backend::D3d11));
+    why.clear();
+    CHECK(!dev.swapchain_format_supported(PixelFormat::R32F, &why));
+    CHECK(contains(why, "swapchain does not take"));
+    dev.destroy_swapchain();
+    CHECK(!dev.has_swapchain());
 }
 
 TEST_CASE("SokolDevice: a buffer, an image, a pipeline and a cleared pass on the test GPU") {
@@ -1195,7 +1353,7 @@ TEST_CASE(
     CHECK(d.colorFormat != PixelFormat::Default);
 
     // The generated header's desc for this backend, in the interface's types: a shader the device makes.
-    const ShaderDesc desc = generated_shader_desc(&blit_blit_shader_desc);
+    const ShaderDesc desc = generated_shader_desc(dev, &blit_blit_shader_desc);
     const Shader shader = dev.make_shader(desc);
     CHECK(dev.state(shader) == ResourceState::Valid);
     dev.destroy_shader(shader);

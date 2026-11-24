@@ -21,7 +21,7 @@ bool HdriSky::ready(Gpu& gpu) {
     sd.wrapU = gpu::Wrap::Repeat;  // the panorama wraps around: no seam where atan jumps
     sd.wrapV = gpu::Wrap::ClampToEdge;
     sd.label = "hdri-sampler";
-    shader_ = make_shader(device, gpu::generated_shader_desc(hdri_hdri_shader_desc), "hdri");
+    shader_ = make_shader(device, gpu::generated_shader_desc(device, hdri_hdri_shader_desc), "hdri");
     sampler_ = device.make_sampler(sd);
     if (device.state(shader_) != gpu::ResourceState::Valid || device.state(sampler_) != gpu::ResourceState::Valid) {
         release();

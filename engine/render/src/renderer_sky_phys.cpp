@@ -65,12 +65,14 @@ bool PhysicalSky::ready(Gpu& gpu) {
         !forcedOff && usable(device, gpu::PixelFormat::Rgba16F) ? gpu::PixelFormat::Rgba16F : gpu::PixelFormat::None;
     bool ok = format_ != gpu::PixelFormat::None;
     if (ok) {
-        shaders_[Transmittance] =
-            make_shader(device, gpu::generated_shader_desc(skyphys_transmittance_shader_desc), "sky_transmittance");
-        shaders_[MultiScatter] =
-            make_shader(device, gpu::generated_shader_desc(skyphys_multiscatter_shader_desc), "sky_multiscatter");
-        shaders_[SkyView] = make_shader(device, gpu::generated_shader_desc(skyphys_skyview_shader_desc), "sky_view");
-        shaders_[Sky] = make_shader(device, gpu::generated_shader_desc(skyphys_sky_shader_desc), "sky_physical");
+        shaders_[Transmittance] = make_shader(
+            device, gpu::generated_shader_desc(device, skyphys_transmittance_shader_desc), "sky_transmittance");
+        shaders_[MultiScatter] = make_shader(
+            device, gpu::generated_shader_desc(device, skyphys_multiscatter_shader_desc), "sky_multiscatter");
+        shaders_[SkyView] =
+            make_shader(device, gpu::generated_shader_desc(device, skyphys_skyview_shader_desc), "sky_view");
+        shaders_[Sky] =
+            make_shader(device, gpu::generated_shader_desc(device, skyphys_sky_shader_desc), "sky_physical");
         for (gpu::Shader s : shaders_) ok = ok && device.state(s) == gpu::ResourceState::Valid;
     }
     if (ok) {

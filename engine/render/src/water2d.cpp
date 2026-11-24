@@ -303,8 +303,8 @@ bool WaterFx::ready(Gpu& gpu) {
 
 bool WaterFx::make_ready(gpu::Device& device) {
     device_ = &device;
-    copyShader_ = make_shader(device, gpu::generated_shader_desc(water2d_copy_shader_desc), "water2d_copy");
-    fxShader_ = make_shader(device, gpu::generated_shader_desc(water2d_fx_shader_desc), "water2d_fx");
+    copyShader_ = make_shader(device, gpu::generated_shader_desc(device, water2d_copy_shader_desc), "water2d_copy");
+    fxShader_ = make_shader(device, gpu::generated_shader_desc(device, water2d_fx_shader_desc), "water2d_fx");
     if (device.state(copyShader_) != gpu::ResourceState::Valid ||
         device.state(fxShader_) != gpu::ResourceState::Valid) {
         if (copyShader_.id) device.destroy_shader(copyShader_);

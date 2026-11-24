@@ -195,14 +195,16 @@ bool FogFx::ready(gpu::Device& device, Prog prog) {
     gpu::Shader s{};
     const char* what = "fog";
     switch (prog) {
-        case Prog::Fog: s = make_shader(device, gpu::generated_shader_desc(fog_fog_shader_desc), "fog_fog"); break;
+        case Prog::Fog:
+            s = make_shader(device, gpu::generated_shader_desc(device, fog_fog_shader_desc), "fog_fog");
+            break;
         case Prog::Rays:
             what = "sun shafts";
-            s = make_shader(device, gpu::generated_shader_desc(sun_shafts_rays_shader_desc), "sun_shafts_rays");
+            s = make_shader(device, gpu::generated_shader_desc(device, sun_shafts_rays_shader_desc), "sun_shafts_rays");
             break;
         default:
             what = "sun shafts";
-            s = make_shader(device, gpu::generated_shader_desc(sun_shafts_add_shader_desc), "sun_shafts_add");
+            s = make_shader(device, gpu::generated_shader_desc(device, sun_shafts_add_shader_desc), "sun_shafts_add");
             break;
     }
     if (device.state(s) != gpu::ResourceState::Valid) {

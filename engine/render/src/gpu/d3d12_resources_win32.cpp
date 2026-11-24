@@ -175,6 +175,7 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
             t->resource = std::move(r);
             t->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
             t->buffer = true;
+            t->label = "buffer '" + label + "'";
             rec.tracked = std::move(t);
         }
     } else {
@@ -340,6 +341,7 @@ Image D3d12Device::make_image(const ImageDesc& desc) {
             t->layers = is3d ? 1u : std::uint32_t(rec.slices);
             t->planes = fi.planes;
             t->states.assign(t->subresource_count(), StateBits(D3D12_RESOURCE_STATE_COMMON));
+            t->label = "image '" + label + "'";
             rec.tracked = std::move(t);
         }
     }
@@ -611,6 +613,8 @@ View D3d12Device::make_view(const ViewDesc& desc) {
                         s.Texture2DArray.ArraySize = UINT(sliceCount);
                     }
                     dev->CreateShaderResourceView(res, &s, cpuHeaps_[kHeapView].cpu(rec.descriptor));
+                    // Its slot in the bindless table (kNoBindlessIndex when there is none or it is full).
+                    rec.bindless = take_bindless(cpuHeaps_[kHeapView].cpu(rec.descriptor));
                 }
             } else if (error.empty() && rec.type == ViewType::StorageImage) {
                 rec.heap = kHeapView;
@@ -696,13 +700,15 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             if (rec.descriptor != kNoDescriptor) cpuHeaps_[std::size_t(rec.heap)].free(rec.descriptor);
             if (rec.uavDescriptor != kNoDescriptor) cpuHeaps_[std::size_t(rec.heap)].free(rec.uavDescriptor);
         }
+        if (rec.bindless != kNoBindlessIndex) free_bindless(rec.bindless);
+        rec.bindless = kNoBindlessIndex;
         rec.tracked = nullptr;
         rec.heap = -1;
         rec.descriptor = rec.uavDescriptor = kNoDescriptor;
     }
     const bool ok = rec.tracked != nullptr;
     const int heap = rec.heap;
-    const std::uint32_t descriptor = rec.descriptor, uavDescriptor = rec.uavDescriptor;
+    const std::uint32_t descriptor = rec.descriptor, uavDescriptor = rec.uavDescriptor, bindless = rec.bindless;
     const std::uint32_t id = views_.add(std::move(rec));
     if (id == 0) {
         // The descriptors it took go back: no record holds them.
@@ -710,6 +716,7 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             if (descriptor != kNoDescriptor) cpuHeaps_[std::size_t(heap)].free(descriptor);
             if (uavDescriptor != kNoDescriptor) cpuHeaps_[std::size_t(heap)].free(uavDescriptor);
         }
+        if (bindless != kNoBindlessIndex) free_bindless(bindless);
         report("gpu d3d12: make_view '" + label + "': the view pool is full (" + std::to_string(views_.capacity()) +
                " views) (hint: destroy views you no longer use, or raise DeviceInit::viewPoolSize)");
         return {};
@@ -730,15 +737,22 @@ void D3d12Device::destroy_view(View view) {
         }
         count_destroy(stats_.views);
     }
-    if (rec.tracked || rec.heap >= 0) {
-        // The descriptors go back to their heap once the frames that may have copied them are finished.
+    if (rec.tracked || rec.heap >= 0 || rec.bindless != kNoBindlessIndex) {
+        // The descriptors (and the bindless slot) go back once the frames that may have read them are finished.
         Deferred d;
         d.tracked = std::move(rec.tracked);
         d.heap = rec.heap;
         d.descriptor = rec.descriptor;
         d.descriptor2 = rec.uavDescriptor;
+        d.bindless = rec.bindless;
         defer(std::move(d));
     }
+}
+
+std::uint32_t D3d12Device::bindless_index(View view) const {
+    std::lock_guard<std::mutex> lock(resMutex_);
+    const ViewRecord* r = views_.get(view.id);
+    return r && r->tracked ? r->bindless : kNoBindlessIndex;
 }
 
 ResourceState D3d12Device::state(View view) const {

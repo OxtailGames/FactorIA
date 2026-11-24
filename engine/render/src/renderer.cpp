@@ -251,6 +251,32 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
+namespace {
+
+// The device backend of RendererDesc::backend (Default: the sokol backend this binary was built with).
+gpu::Backend device_backend_of(GpuBackend b) {
+    switch (b) {
+        case GpuBackend::Default: return gpu::built_sokol_backend();
+        case GpuBackend::Gl: return gpu::Backend::Gl;
+        case GpuBackend::Gles3: return gpu::Backend::Gles3;
+        case GpuBackend::WebGl2: return gpu::Backend::WebGl2;
+        case GpuBackend::D3d11: return gpu::Backend::D3d11;
+        case GpuBackend::Metal: return gpu::Backend::Metal;
+        case GpuBackend::D3d12: return gpu::Backend::D3d12;
+        case GpuBackend::Vulkan: return gpu::Backend::Vulkan;
+        case GpuBackend::Recording: return gpu::Backend::Recording;
+    }
+    return gpu::built_sokol_backend();
+}
+
+// The backends that run on the sokol context (one per binary).
+bool is_sokol_backend(gpu::Backend b) {
+    return b == gpu::Backend::Gl || b == gpu::Backend::Gles3 || b == gpu::Backend::WebGl2 || b == gpu::Backend::D3d11 ||
+           b == gpu::Backend::Metal;
+}
+
+}  // namespace
+
 Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
 Renderer::~Renderer() { shutdown(); }
 
@@ -311,12 +337,12 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
         // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
         // window never takes it).
-        const render::FeatureBackend backend = render::feature_env_from_device(gpu->device()).backend;
+        const gpu::Device& dev = gpu->device();
         if (world.settings().hdrOutput == HdrOutput::Auto &&
-            (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
+            dev.swapchain_format_supported(gpu::PixelFormat::Rgba16F, nullptr)) {
             const TargetFormat hdrFormat{gpu::PixelFormat::Rgba16F, presentFormat.depth, presentFormat.samples};
             im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
-            if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
+            if (presentFormat.samples <= 1 && dev.swapchain_format_supported(gpu::PixelFormat::Rgb10A2, nullptr)) {
                 const TargetFormat hdr10Format{gpu::PixelFormat::Rgb10A2, presentFormat.depth, presentFormat.samples};
                 im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
             }
@@ -462,21 +488,58 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
                                                                : DebugView::None;
-    // A context that was already open is never this renderer's to close, whether the caller said so (adoptContext) or
-    // not (a player, a test or another Renderer opened it): only a context this call opens is closed by shutdown.
-    im.adopted = gpu::context_open();
-    if (!im.adopted && !gpu::open_context(env)) {
-        if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+    // The device's backend (RendererDesc::backend). A sokol one runs on the sokol context; D3D12, Vulkan and Recording
+    // make a device of their own and never touch the context.
+    const gpu::Backend backend = device_backend_of(desc.backend);
+    const bool onContext = is_sokol_backend(backend);
+    if (onContext && backend != gpu::built_sokol_backend()) {
+        if (error)
+            *error =
+                std::string("RendererDesc::backend asks for the ") + gpu::backend_name(backend) +
+                " backend, but this binary was built with " + gpu::backend_name(gpu::built_sokol_backend()) +
+                " (hint: leave it at GpuBackend::Default, the backend this build has; sokol builds one per binary)";
         impl_.reset();
         return false;
     }
-    // Gpu::init falls back to one sample where the device cannot multisample RGBA8.
-    std::string gerr;
-    if (!im.gpu.init(std::max(1, desc.sampleCount), &gerr)) {
-        if (error) *error = gerr;
+    std::unique_ptr<gpu::Device> device;
+    if (onContext) {
+        // A context that was already open is never this renderer's to close, whether the caller said so (adoptContext)
+        // or not (a player, a test or another Renderer opened it): only a context this call opens is closed by shutdown.
+        im.adopted = gpu::context_open();
+        if (!im.adopted && !gpu::open_context(env)) {
+            if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+            impl_.reset();
+            return false;
+        }
+    } else {
+        im.adopted = true;  // no sokol context of this renderer's: shutdown closes none
+        gpu::DeviceInit init;
+        init.environment.defaults = gpu::environment_defaults_of(env);
+        auto made = gpu::make_device(backend, init);
+        if (!made) {
+            if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
+            impl_.reset();
+            return false;
+        }
+        device = std::move(made.value());
+    }
+    // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's, D3D12 and Vulkan have no
+    // window path yet and say so.
+    auto fail = [&](const std::string& why) {
+        if (error) *error = why;
+        im.gpu.shutdown();
         if (!im.adopted) gpu::close_context();
         impl_.reset();
         return false;
+    };
+    // Gpu::init falls back to one sample where the device cannot multisample RGBA8.
+    std::string gerr;
+    if (!im.gpu.init(std::max(1, desc.sampleCount), &gerr, std::move(device))) return fail(gerr);
+    if (!desc.headless) {
+        gpu::SwapchainDesc sd;
+        sd.label = "window";
+        if (auto made = im.gpu.device().create_swapchain(sd); !made)
+            return fail("The renderer cannot draw into the window: " + made.error().to_string());
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     compute_->attach(&im.gpu, im.assets.get());
@@ -542,6 +605,7 @@ void Renderer::shutdown() {
         im.destroy_decal_atlas();
         destroy_target(im.gpu.device(), im.shadowTarget);
         im.free_retired_shadow_targets();
+        if (im.gpu.has_device()) im.gpu.device().destroy_swapchain();
         im.gpu.shutdown();
         if (!im.adopted)
             gpu::close_context();  // an adopted context stays open for close_context(): the player may still present
@@ -635,8 +699,19 @@ const char* Renderer::backend_name() {
 render::GpuInfo Renderer::gpu_info() {
     if (!impl_ || !impl_->gpu.has_device()) return {};  // no graphics device: backend "none"
     render::GpuInfo info = render::query_gpu_info(impl_->gpu.device());
-    info.backend = backend_name();
+    // The device's backend: a renderer on D3D12, Vulkan or Recording does not draw on the sokol context.
+    switch (impl_->gpu.device().backend()) {
+        case gpu::Backend::D3d12: info.backend = "d3d12"; break;
+        case gpu::Backend::Vulkan: info.backend = "vulkan"; break;
+        case gpu::Backend::Recording: info.backend = "dummy"; break;
+        default: info.backend = backend_name(); break;
+    }
     return info;
+}
+
+gpu::Device* RendererDeviceAccess::device(Renderer& renderer) {
+    if (!renderer.initialized() || !renderer.impl_->gpu.has_device()) return nullptr;
+    return &renderer.impl_->gpu.device();
 }
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }

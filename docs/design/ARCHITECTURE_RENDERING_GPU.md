@@ -25,7 +25,10 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - `gpu/types.h` is the vocabulary: handles, enums, descs, capabilities, pass and binding structs. No sokol type
   appears in it, so a D3D12 or Vulkan backend includes nothing of sokol.
 - `gpu/device.h` declares `Device` and `CommandList` (pure virtual), `DeviceInit`, `make_device(Backend, DeviceInit)`
-  and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build).
+  and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build). `make_device` makes
+  the built sokol backend, Recording, D3D12 (Windows; with the engine's pipeline cache file) and Vulkan (where
+  `FA_RENDER_VULKAN` is on, options at their defaults); `device_backend_compiled(b)` says which this binary can make,
+  and every other request is a teaching error that names the backend to ask for instead.
 - `gpu/sokol_device.h` holds `SokolDevice`, its immediate `SokolCommandList`, and the `to_sg` / `from_sg`
   conversions the call sites use while they move over.
 - M77-P1 (this page's first version) lands the interface and its implementations only: `Gpu` does not own a
@@ -179,8 +182,11 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
   value-initialised desc means what a zeroed sokol desc means.
 - Descs convert field by field (`to_sg(const BufferDesc&)` and the rest). Labels, shader sources and data ranges are
   borrowed for the call, never kept.
-- The generated shader headers return `sg_shader_desc`: `generated_shader_desc(name_shader_desc)` (gpu/sokol_shaders.h)
-  gives the `ShaderDesc` for `Device::make_shader`.
+- The generated shader headers return `sg_shader_desc`: `generated_shader_desc(device, name_shader_desc)`
+  (gpu/sokol_shaders.h) gives the `ShaderDesc` for `Device::make_shader` in the dialect of `device`: GLSL on GL,
+  GLSL ES on GLES3 and WebGL2, HLSL 5 on D3D11 and D3D12, the MSL of `DeviceInfo::metalTarget` on Metal, SPIR-V on
+  Vulkan, and on Recording the dialect of the open context (the built one when none is open). A header without that
+  dialect logs an error and gives an empty desc, which `make_shader` refuses.
 - `to_sg(const PassDesc&)` gives the `sg_pass` of a pass (the swapchain case included); a window pass is
   `PassDesc::for_swapchain(sc, device.environment_defaults())` (a test checks every field).
 - The conversions are declared in gpu/sokol_device.h, which only the sokol backend's files and the tests include.
@@ -273,9 +279,9 @@ a hint), and `timer_supported()` is false with a reason (the timed scopes are st
   unchanged; a converted file includes no `sokol_gfx.h`.
 - Handles keep sokol's ids during the move, so a converted function can hand a `gpu::Image` to one that still takes
   `sg_image` (`to_sg(h)`), and the reverse (`from_sg(img)`).
-- **M77.2 / M77.3** add `D3d12Device` and `VulkanDevice` behind the same interface; `make_device(Backend::D3d12)` and
-  `Backend::Vulkan` stop returning "not built yet". RecordingDevice's checks are the contract they implement: a frame
-  that RecordingDevice accepts must run on them.
+- **M77.2 / M77.3** add `D3d12Device` and `VulkanDevice` behind the same interface, and M77-P9b lets the renderer
+  draw through them (`RendererDesc::backend`, "The renderer on its backend" below). RecordingDevice's checks are the
+  contract they implement: a frame that RecordingDevice accepts must run on them.
 
 ## How the renderer reaches the device
 
@@ -374,6 +380,43 @@ backend the reflection names (hlsl register, msl index, wgsl and spir-v group an
 (shader_cache_sg.cpp) and `feature_env_from_sokol` (render_features_sg.cpp) are deleted: nothing called them. Draws
 bind the interface handles as they are; `draw_group` no longer converts its bindings twice. The files of this list
 call no `from_sg` any more; `to_sg` was left only in front of the sokol-only readbacks and storage-image helpers (gone in P5d2).
+
+## The renderer on its backend
+
+`RendererDesc::backend` (`GpuBackend`, fa/render/renderer.h) names the device the renderer draws through. `Default`
+(and the sokol backend this binary was built with) is what the renderer always did: `init()` opens or adopts the sokol
+context and `Gpu::init` makes `make_device(built_sokol_backend())` on it. `D3d12`, `Vulkan` and `Recording` make
+their device with `make_device(backend, init)` (the window environment's default formats in `init`) and hand it to
+`Gpu::init`; they never open, adopt or close the sokol context. Another sokol backend is an `init()` error that says
+which one the binary has. Every built-in program comes from `generated_shader_desc(device, ...)`, so each device
+gets its own dialect; `gpu_info().backend` names the device's backend ("d3d12", "vulkan", "dummy" for Recording).
+`UiPainter::create(Renderer&, error)` makes a painter that draws where the renderer draws: on D3D12, Vulkan and
+Recording the renderer's own device (not owned: destroy the painter before `Renderer::shutdown`); on the sokol backend
+a device of its own over the same context, as `UiPainter::create(error)` (the editor) makes it, since `Gpu` keeps its
+frame's list open between frames and a sokol device has one list at a time (the ids are shared, so it still shows the
+renderer's pictures).
+`Gpu::find_or_make` writes every vertex offset and stride out (`gpu::resolve_vertex_offsets`: sokol's rule, each
+buffer whose offsets are all 0 is packed on its own), so a backend that packs the whole layout at once reads the
+same attributes; vertex buffers say `usage.vertexBuffer`, and the lean 2D program binds only its texture and sampler.
+
+**The window path** (gpu/device.h, "the window: swapchain and present"): `create_swapchain(SwapchainDesc)` once
+(`Renderer::init` when not headless), `acquire_swapchain(windowFrame)` each frame for the `PassDesc::for_swapchain`
+pass of `Renderer::present`, `present()` after the frame's commit, `resize_swapchain(w, h)`, `destroy_swapchain()`
+(`Renderer::shutdown`), and `swapchain_format_supported(format, why)`, the HDR question `warm_step` asks before it
+makes the RGBA16F and RGB10A2 copies. The sokol devices answer it over sokol_app's swapchain (the window system made
+it and presents it: create and resize record, acquire hands the frame back, present does nothing; RGBA16F on Metal
+and D3D11, RGB10A2 on D3D11). The defaults in device.cpp are the answer of a backend without a window path (D3D12,
+Vulkan and Recording for now): every call fails with an error that says to draw offscreen (`RendererDesc::headless`)
+or pick the sokol backend, so a non-headless renderer on them fails `init()`.
+
+**Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
+which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
+configure, so turning `FA_BUILD_TESTS` on or off moves it): ON on Windows, whose player carries D3D11, D3D12 and
+Vulkan; on Linux, Android and macOS it follows `FA_BUILD_TESTS`, so the suite draws the renderer on lavapipe (the
+linux CI job) and MoltenVK while a release build (the players, the editor: tests off) carries no SPIR-V; OFF on iOS
+and the web. `ON` / `OFF` override it (the macOS CI job builds its tests with `OFF`, so its player-size step measures
+the player that ships). It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws a 2D and a 3D frame on
+Vulkan and on the platform's sokol backend and compares them within the golden limits.
 
 ## P5c: native_metal and the 2D painter
 

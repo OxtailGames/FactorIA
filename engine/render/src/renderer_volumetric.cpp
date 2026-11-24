@@ -252,8 +252,8 @@ bool VolumetricFx::ready(gpu::Device& device, Prog prog) {
     device_ = &device;
     const gpu::Shader s =
         prog == Prog::March
-            ? make_shader(device, gpu::generated_shader_desc(volumetric_march_shader_desc), "volumetric_march")
-            : make_shader(device, gpu::generated_shader_desc(volumetric_apply_shader_desc), "volumetric_apply");
+            ? make_shader(device, gpu::generated_shader_desc(device, volumetric_march_shader_desc), "volumetric_march")
+            : make_shader(device, gpu::generated_shader_desc(device, volumetric_apply_shader_desc), "volumetric_apply");
     if (device.state(s) != gpu::ResourceState::Valid) {
         if (s.id) device.destroy_shader(s);
         st = -1;

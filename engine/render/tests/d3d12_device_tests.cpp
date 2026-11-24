@@ -7,12 +7,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -1398,7 +1400,11 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     PassDesc window = PassDesc::for_swapchain(sc, dev->environment_defaults());
     window.label = "window";
     list.begin_pass(window);
-    CHECK(contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) comes in M77-P9"));
+    CHECK(contains(last_error(*dev),
+                   "pass 'window': a pass into the window (PassDesc::swapchain) on the D3D12 backend, "
+                   "which has no window path yet"));
+    CHECK(contains(last_error(*dev), "GpuBackend::Default"));
+    CHECK(!contains(last_error(*dev), "M77"));
     std::size_t before = dev->errors().size();
     list.set_pipeline(rgba8);  // inside a failed pass: skipped without another error
     list.draw(0, 3);
@@ -2076,7 +2082,7 @@ TEST_CASE("d3d12: a dropped timed frame gives its timer slot back") {
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
-TEST_CASE("d3d12: a scope whose timer slot was reused before it ended is not reported") {
+TEST_CASE("d3d12: a list open over the whole timer ring keeps its slot; its late scope is not reported") {
     auto dev = make_warp();
     if (!dev) return;
     std::string why;
@@ -2087,11 +2093,15 @@ TEST_CASE("d3d12: a scope whose timer slot was reused before it ended is not rep
     const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
     std::vector<double> frames;
     dev->timer_begin_frame();
+    const int staleSlot = dev->timer_current_slot();
+    REQUIRE(staleSlot >= 0);
     CommandList& stale = dev->begin_commands("stale");
     stale.begin_timed_scope("stale");
     dev->timer_end_frame();
-    for (int i = 0; i < 7; ++i) {  // more frames than the ring has slots: the stale scope's slot is taken again
+    for (int i = 0; i < 7; ++i) {  // more frames than the ring has slots: the open list's slot is never taken again
         dev->timer_begin_frame();
+        CHECK(dev->timer_current_slot() >= 0);
+        CHECK(dev->timer_current_slot() != staleSlot);
         dev->timer_end_frame();
         auto r = dev->wait_idle();
         REQUIRE_MESSAGE(r, r.error().to_string());
@@ -2119,6 +2129,460 @@ TEST_CASE("d3d12: a scope whose timer slot was reused before it ended is not rep
     REQUIRE(scopes.size() == 1);
     CHECK(scopes[0].name == "fresh");
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+namespace {
+
+// words[i] = words[i] * 2 + 1, for 64 words.
+constexpr const char* kTwiceCs = R"(
+RWByteAddressBuffer words : register(u0);
+[numthreads(64, 1, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    words.Store(id.x * 4, words.Load(id.x * 4) * 2 + 1);
+}
+)";
+
+// img[x, y] = (x * 32, y * 32, 0, 255) / 255, for 8x8 texels.
+constexpr const char* kGradientCs = R"(
+RWTexture2D<float4> img : register(u0);
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    img[id.xy] = float4(float(id.x * 32) / 255.0, float(id.y * 32) / 255.0, 0.0, 1.0);
+}
+)";
+
+// The texel under each pixel of t0.
+constexpr const char* kLoadFs = R"(
+Texture2D<float4> tex : register(t0);
+float4 main(float4 pos : SV_Position) : SV_Target0 { return tex.Load(int3(int2(pos.xy), 0)); }
+)";
+
+// Texel (0, 0) of the bindless table's entry fs_params.pick.x.
+constexpr const char* kBindlessFs = R"(
+Texture2D<float4> table[] : register(t0, space1);
+cbuffer fs_params : register(b0) { uint4 pick; };
+float4 main(float4 pos : SV_Position) : SV_Target0 { return table[pick.x].Load(int3(0, 0, 0)); }
+)";
+
+Pipeline make_compute_pipeline(D3d12Device& dev, const char* source, bool image, const char* label) {
+    ShaderDesc sd;
+    sd.computeFunc.source = source;
+    if (image) {
+        sd.views[0].storageImage.stage = ShaderStage::Compute;
+        sd.views[0].storageImage.imageType = ImageType::Tex2d;
+        sd.views[0].storageImage.accessFormat = PixelFormat::Rgba8;
+    } else {
+        sd.views[0].storageBuffer.stage = ShaderStage::Compute;
+        sd.views[0].storageBuffer.hlslRegisterU = 0;
+    }
+    sd.label = label;
+    const Shader shader = dev.make_shader(sd);
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = shader;
+    pd.label = label;
+    return dev.make_pipeline(pd);
+}
+
+// A storage buffer of 64 zero words that lists copy from, and its storage view.
+struct Words {
+    Buffer buffer{};
+    View view{};
+};
+
+Words make_words(D3d12Device& dev, const char* label) {
+    Words w;
+    w.buffer = make_storage_buffer(dev, std::vector<std::uint8_t>(64 * 4, 0), label);
+    ViewDesc vd;
+    vd.storageBuffer.buffer = w.buffer;
+    w.view = dev.make_view(vd);
+    return w;
+}
+
+void twice(CommandList& list, Pipeline pip, const Words& w) {
+    Bindings b;
+    b.views[0] = w.view;
+    list.begin_compute_pass("twice");
+    list.set_pipeline(pip);
+    list.set_bindings(b);
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+}
+
+std::vector<std::uint32_t> read_words(D3d12Device& dev, Buffer b) {
+    std::vector<std::uint8_t> raw;
+    auto r = dev.read_buffer(b, 0, 64 * 4, raw);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    std::vector<std::uint32_t> words(raw.size() / 4);
+    std::memcpy(words.data(), raw.data(), words.size() * 4);
+    return words;
+}
+
+QueueHandoff hand_buffer(Buffer b, QueueKind to) {
+    QueueHandoff h;
+    h.buffer = b;
+    h.to = to;
+    return h;
+}
+
+QueueHandoff hand_image(Image i, QueueKind to) {
+    QueueHandoff h;
+    h.image = i;
+    h.to = to;
+    return h;
+}
+
+}  // namespace
+
+TEST_CASE("d3d12: the compute and copy queues run lists of their kind; without them their lists run on another") {
+    auto dev = make_warp();
+    if (!dev) return;
+    CHECK(dev->features().multiThreadRecording);
+    CHECK(dev->features().bindless == (dev->bindless_descriptors() > 0));
+    CHECK(dev->features().asyncCompute);  // WARP makes compute and copy queues
+    CommandList& c = dev->begin_commands("compute", QueueKind::Compute);
+    CommandList& t = dev->begin_commands("transfer", QueueKind::Transfer);
+    CommandList& g = dev->begin_commands("graphics");
+    CHECK(c.queue() == QueueKind::Compute);
+    CHECK(t.queue() == QueueKind::Transfer);
+    CHECK(g.queue() == QueueKind::Graphics);
+    const SyncToken tc = dev->submit_token(c);
+    const SyncToken tt = dev->submit_token(t);
+    CHECK(tc.queue == QueueKind::Compute);
+    CHECK(tc.valid());
+    CHECK(tt.queue == QueueKind::Transfer);
+    dev->wait_list(g, tc);
+    dev->wait_list(g, tt);
+    dev->wait_queue(QueueKind::Graphics, tc);
+    const SyncToken tg = dev->submit_token(g);
+    CHECK(tg.queue == QueueKind::Graphics);
+    CHECK(tg.valid());
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+
+    // A token no submit_token returned is an error, and ignored.
+    CommandList& bad = dev->begin_commands("bad-wait");
+    dev->wait_list(bad, SyncToken{QueueKind::Compute, tc.value + 1000});
+    dev->submit(bad);
+    const std::string e = last_error(*dev);
+    CHECK_MESSAGE(contains(e, "which no submit_token() of this device returned"), e);
+    dev->commit();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+
+    D3d12Options single;
+    single.asyncQueues = false;
+    auto one = make_warp(single);
+    REQUIRE(one);
+    CHECK(!one->features().asyncCompute);
+    CommandList& c1 = one->begin_commands("compute", QueueKind::Compute);
+    CommandList& t1 = one->begin_commands("transfer", QueueKind::Transfer);
+    CHECK(c1.queue() == QueueKind::Graphics);
+    CHECK(t1.queue() == QueueKind::Graphics);
+    one->submit(c1);
+    one->submit(t1);
+    one->commit();
+    r = one->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(all_errors(*one).empty(), all_errors(*one));
+}
+
+TEST_CASE("d3d12: a buffer goes from graphics to compute and back with handoffs; without one the list is dropped") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Pipeline pip = make_compute_pipeline(*dev, kTwiceCs, false, "twice");
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Words w = make_words(*dev, "handed-words");
+    REQUIRE_MESSAGE(dev->state(w.view) == ResourceState::Valid, all_errors(*dev));
+
+    std::string step = "graphics -> compute -> graphics";
+    INFO("step: " << step);
+    CommandList& g0 = dev->begin_commands("hand-to-compute");
+    twice(g0, pip, w);  // 1
+    const std::array<QueueHandoff, 1> toCompute{hand_buffer(w.buffer, QueueKind::Compute)};
+    const SyncToken t0 = dev->submit_token(g0, toCompute);
+    CommandList& c = dev->begin_commands("compute-twice", QueueKind::Compute);
+    dev->wait_list(c, t0);
+    twice(c, pip, w);  // 3
+    twice(c, pip, w);  // 7
+    const std::array<QueueHandoff, 1> toGraphics{hand_buffer(w.buffer, QueueKind::Graphics)};
+    const SyncToken t1 = dev->submit_token(c, toGraphics);
+    CHECK(t1.queue == QueueKind::Compute);
+    CommandList& g1 = dev->begin_commands("graphics-again");
+    dev->wait_list(g1, t1);
+    twice(g1, pip, w);  // 15
+    dev->submit(g1);
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 15u));
+
+    step = "a compute list that uses a graphics buffer is dropped, naming the buffer and the fix";
+    CommandList& wrong = dev->begin_commands("no-handoff", QueueKind::Compute);
+    twice(wrong, pip, w);
+    dev->submit(wrong);
+    const std::string e = last_error(*dev);
+    CHECK_MESSAGE(contains(e, "buffer 'handed-words'"), e);
+    CHECK_MESSAGE(contains(e, "which the graphics queue owns"), e);
+    CHECK_MESSAGE(contains(e, "QueueHandoff{..., QueueKind::Compute}"), e);
+    dev->commit();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 15u));  // it did not run
+
+    step = "a handoff the consumer did not wait for is waited for, and reported";
+    dev->clear_messages();
+    CommandList& g2 = dev->begin_commands("hand-again");
+    (void)dev->submit_token(g2, toCompute);
+    CommandList& c2 = dev->begin_commands("forgot-to-wait", QueueKind::Compute);
+    twice(c2, pip, w);  // 31
+    dev->submit(c2);
+    const std::string missed = last_error(*dev);
+    CHECK_MESSAGE(contains(missed, "without waiting for that handoff's token"), missed);
+    dev->commit();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    // Read back while the compute queue owns it: the readback waits for that queue.
+    CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 31u));
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("d3d12: a texture written by a compute list is sampled by a graphics list after its handoff") {
+    auto dev = make_warp();
+    if (!dev) return;
+    const Pipeline gradient = make_compute_pipeline(*dev, kGradientCs, true, "gradient");
+    REQUIRE_MESSAGE(dev->state(gradient) == ResourceState::Valid, all_errors(*dev));
+    ShaderDesc sd;
+    sd.vertexFunc.source = kPlainVs;
+    sd.fragmentFunc.source = kLoadFs;
+    sd.views[0].texture.stage = ShaderStage::Fragment;
+    sd.views[0].texture.imageType = ImageType::Tex2d;
+    sd.views[0].texture.sampleType = ImageSampleType::UnfilterableFloat;
+    sd.label = "load";
+    const Pipeline load = dev->make_pipeline(render_desc(dev->make_shader(sd), PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(load) == ResourceState::Valid, all_errors(*dev));
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "compute-written";
+    const Image img = dev->make_image(id);
+    ViewDesc sv;
+    sv.storageImage.image = img;
+    ViewDesc tv;
+    tv.texture.image = img;
+    Bindings write;
+    write.views[0] = dev->make_view(sv);
+    Bindings read;
+    read.views[0] = dev->make_view(tv);
+    REQUIRE_MESSAGE(dev->state(read.views[0]) == ResourceState::Valid, all_errors(*dev));
+    const Target out = make_target(*dev, Attach::Color, 8, 8, PixelFormat::Rgba8);
+
+    for (int frame = 0; frame < 3; ++frame) {  // and back each frame, as a renderer's HiZ goes
+        INFO("frame " << frame);
+        CommandList& g0 = dev->begin_commands("hand-image-to-compute");
+        const std::array<QueueHandoff, 1> toCompute{hand_image(img, QueueKind::Compute)};
+        const SyncToken t0 = dev->submit_token(g0, toCompute);
+        CommandList& c = dev->begin_commands("gradient", QueueKind::Compute);
+        dev->wait_list(c, t0);
+        c.begin_compute_pass("gradient");
+        c.set_pipeline(gradient);
+        c.set_bindings(write);
+        c.dispatch(1, 1, 1);
+        c.end_pass();
+        const std::array<QueueHandoff, 1> toGraphics{hand_image(img, QueueKind::Graphics)};
+        const SyncToken t1 = dev->submit_token(c, toGraphics);
+        CommandList& g1 = dev->begin_commands("sample");
+        dev->wait_list(g1, t1);
+        g1.begin_pass(color_pass(out, PixelFormat::Rgba8, Color{0.0f, 0.0f, 1.0f, 1.0f}));
+        g1.set_pipeline(load);
+        g1.set_bindings(read);
+        g1.draw(0, 3);
+        g1.end_pass();
+        dev->submit(g1);
+        dev->commit();
+    }
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    const std::string bad = first_mismatch(read_rgba8(*dev, out.image, 8, 8), 8, 8, 0,
+                                           [](int x, int y) { return std::array<int, 4>{x * 32, y * 32, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: two threads record lists while the render thread destroys unrelated resources") {
+    // Robustness, not allowed use: docs/design/ARCHITECTURE_THREADS.md keeps resource creation and destruction on the
+    // render thread while other threads record. This checks that the deferred destruction of the backend (a resource
+    // lives until its frame is done) and the locks around the shared state survive that misuse without an error.
+    auto dev = make_warp();
+    if (!dev) return;
+    const Pipeline pip = make_compute_pipeline(*dev, kTwiceCs, false, "twice");
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Words a = make_words(*dev, "graphics-words");
+    const Words b = make_words(*dev, "compute-words");
+    CommandList& hand = dev->begin_commands("hand-b-to-compute");
+    const std::array<QueueHandoff, 1> toCompute{hand_buffer(b.buffer, QueueKind::Compute)};
+    const SyncToken handed = dev->submit_token(hand, toCompute);
+    // Unrelated resources (each a buffer, a texture and their views) the render thread destroys meanwhile.
+    std::vector<Words> spare;
+    std::vector<View> textures;
+    for (int i = 0; i < 48; ++i) {
+        spare.push_back(make_words(*dev, "spare"));
+        textures.push_back(make_texture(*dev, 2, 2, pattern(16, std::uint32_t(i))));
+    }
+    REQUIRE_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    constexpr int kLists = 8;  // per thread: words end at 2^8 - 1
+    std::array<std::vector<CommandList*>, 2> lists;
+    std::atomic<int> started{0};
+    auto record = [&](int who) {
+        started.fetch_add(1);
+        const Words& w = who == 0 ? a : b;
+        for (int i = 0; i < kLists; ++i) {
+            CommandList& l = dev->begin_commands(who == 0 ? "graphics-worker" : "compute-worker",
+                                                 who == 0 ? QueueKind::Graphics : QueueKind::Compute);
+            if (who == 1 && i == 0) dev->wait_list(l, handed);
+            twice(l, pip, w);
+            lists[std::size_t(who)].push_back(&l);
+        }
+    };
+    std::thread t0(record, 0);
+    std::thread t1(record, 1);
+    while (started.load() < 2) std::this_thread::yield();
+    for (std::size_t i = 0; i < spare.size(); ++i) {
+        dev->destroy_view(spare[i].view);
+        dev->destroy_buffer(spare[i].buffer);
+        dev->destroy_view(textures[i]);
+    }
+    t0.join();
+    t1.join();
+    for (const auto& per : lists)
+        for (CommandList* l : per) dev->submit(*l);  // a fixed order after the join
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    CHECK(read_words(*dev, a.buffer) == std::vector<std::uint32_t>(64, 255u));
+    CHECK(read_words(*dev, b.buffer) == std::vector<std::uint32_t>(64, 255u));
+}
+
+TEST_CASE("d3d12: every live texture view has its own bindless slot, which a shader reads and a new view reuses") {
+    auto dev = make_warp();
+    if (!dev) return;
+    if (!dev->features().bindless) {
+        MESSAGE("d3d12: skipped, resource binding tier 1 has no bindless table");
+        return;
+    }
+    const View red = make_texture(*dev, 1, 1, {255, 0, 0, 255});
+    const View green = make_texture(*dev, 1, 1, {0, 255, 0, 255});
+    const View blue = make_texture(*dev, 1, 1, {0, 0, 255, 255});
+    const std::uint32_t r = dev->bindless_index(red), g = dev->bindless_index(green), b = dev->bindless_index(blue);
+    CHECK(r != kNoBindlessIndex);
+    CHECK(g != kNoBindlessIndex);
+    CHECK(b != kNoBindlessIndex);
+    CHECK(r != g);
+    CHECK(g != b);
+    CHECK(r != b);
+    CHECK(r < dev->bindless_descriptors());
+    CHECK(dev->bindless_index(red) == r);  // never changes for a live view
+    const Words words = make_words(*dev, "not-a-texture");
+    CHECK(dev->bindless_index(words.view) == kNoBindlessIndex);
+    CHECK(dev->bindless_index(View{}) == kNoBindlessIndex);
+
+    ShaderDesc sd;
+    sd.vertexFunc.source = kPlainVs;
+    sd.fragmentFunc.source = kBindlessFs;
+    sd.uniformBlocks[0].stage = ShaderStage::Fragment;
+    sd.uniformBlocks[0].size = 16;
+    sd.label = "bindless";
+    const Pipeline pip = dev->make_pipeline(render_desc(dev->make_shader(sd), PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Target out = make_target(*dev, Attach::Color, 2, 2, PixelFormat::Rgba8);
+    auto draw_pick = [&](std::uint32_t index) {
+        const std::uint32_t pick[4] = {index, 0, 0, 0};
+        CommandList& l = dev->begin_commands("bindless-draw");
+        l.begin_pass(color_pass(out, PixelFormat::Rgba8, Color{}));
+        l.set_pipeline(pip);
+        l.set_uniforms(0, Range{pick, sizeof pick});
+        l.draw(0, 3);
+        l.end_pass();
+        submit_and_finish(*dev, l);
+        return read_rgba8(*dev, out.image, 2, 2);
+    };
+    auto all = [](int cr, int cg, int cb) { return [=](int, int) { return std::array<int, 4>{cr, cg, cb, 255}; }; };
+    std::string bad = first_mismatch(draw_pick(g), 2, 2, 0, all(0, 255, 0));
+    CHECK_MESSAGE(bad.empty(), bad);
+    bad = first_mismatch(draw_pick(b), 2, 2, 0, all(0, 0, 255));
+    CHECK_MESSAGE(bad.empty(), bad);
+
+    dev->destroy_view(green);
+    CHECK(dev->bindless_index(green) == kNoBindlessIndex);
+    for (int i = 0; i < kInflightFrames + 1; ++i) dev->commit();  // the slot goes back once its frames are done
+    auto w = dev->wait_idle();
+    REQUIRE_MESSAGE(w, w.error().to_string());
+    const View white = make_texture(*dev, 1, 1, {255, 255, 255, 255});
+    CHECK(dev->bindless_index(white) == g);
+    bad = first_mismatch(draw_pick(g), 2, 2, 0, all(255, 255, 255));
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a timed scope on a copy list is ignored; graphics and compute scopes are measured") {
+    auto dev = make_warp();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("d3d12: skipped, this queue cannot time: " << why);
+        return;
+    }
+    const Pipeline pip = make_compute_pipeline(*dev, kTwiceCs, false, "twice");
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const Words w = make_words(*dev, "timed-words");
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    std::vector<double> frames;
+    dev->timer_begin_frame();
+    CommandList& g = dev->begin_commands("graphics");
+    g.begin_timed_scope("graphics-scope");
+    g.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    g.end_pass();
+    g.end_timed_scope();
+    const std::array<QueueHandoff, 1> toTransfer{hand_buffer(w.buffer, QueueKind::Transfer)};
+    const SyncToken t0 = dev->submit_token(g, toTransfer);
+    CommandList& copy = dev->begin_commands("copy", QueueKind::Transfer);
+    REQUIRE(copy.queue() == QueueKind::Transfer);  // WARP has a copy queue
+    dev->wait_list(copy, t0);
+    copy.begin_timed_scope("copy-scope");
+    const std::vector<std::uint32_t> ones(64, 1u);
+    BufferWrite bw;
+    bw.buffer = w.buffer;
+    bw.data = Range{ones.data(), ones.size() * 4};
+    copy.write_buffer(bw);
+    copy.end_timed_scope();
+    const std::array<QueueHandoff, 1> toCompute{hand_buffer(w.buffer, QueueKind::Compute)};
+    const SyncToken t1 = dev->submit_token(copy, toCompute);
+    CommandList& c = dev->begin_commands("compute", QueueKind::Compute);
+    dev->wait_list(c, t1);
+    c.begin_timed_scope("compute-scope");
+    twice(c, pip, w);  // 3
+    c.end_timed_scope();
+    dev->submit(c);
+    dev->timer_end_frame();
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->timer_poll(frames);
+    CHECK(frames.size() == 1);
+    std::vector<std::string> names;
+    for (const Device::ScopeTime& s : dev->timer_last_scopes()) names.push_back(s.name);
+    CHECK(std::find(names.begin(), names.end(), "copy-scope") == names.end());
+    CHECK(std::find(names.begin(), names.end(), "graphics-scope") != names.end());
+    if (dev->compute_timestamp_frequency() > 0)
+        CHECK(std::find(names.begin(), names.end(), "compute-scope") != names.end());
+    CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 3u));
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
 #endif
