@@ -1641,7 +1641,12 @@ bool Engine::capture_region(Image& out, const Rect& region, double zoom, std::st
 
 bool Engine::capture_frame(Image& out, std::string* error) { return capture_scaled(out, impl_->heldScale, error); }
 
-bool Engine::hold_render_scale(double scale, std::string* error) {
+bool Engine::hold_render_scale(double scale, std::string* error) { return hold(scale, false, error); }
+
+// A scale held from outside (--render-scale, the video recorder: player false) is a size, not the player's option: it takes over from one the
+// player set before, so the quality does not multiply into a size. The player's option (window.renderScale: player true) is a scale the
+// upscaler's quality multiplies. One apply per call, and none when the value and the flag are as they were.
+bool Engine::hold(double scale, bool player, std::string* error) {
     Impl& I = *impl_;
     Image probe;
     if (!I.renderer) return capture_scaled(probe, scale, error);  // the same message as a screenshot
@@ -1653,13 +1658,10 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
             return capture_scaled(probe, scale, error);  // fails with the explanation
         }
     }
-    // A scale held from outside (--render-scale, the video recorder) is a size, not the player's option: it takes over from one the player
-    // set before (set_render_scale sets the flag again after this call), so the quality does not multiply into a size.
-    const bool wasPlayer = I.playerScale;
-    I.playerScale = false;
-    if (scale == I.heldScale && !wasPlayer) return true;
+    if (scale == I.heldScale && player == I.playerScale) return true;
     I.heldScale = scale;
-    I.apply_render_scale();  // a held scale that is not the player's option (--render-scale) is a size: no upscale stage
+    I.playerScale = player;
+    I.apply_render_scale();
     I.renderStale = true;
     return true;
 }
@@ -1865,10 +1867,7 @@ std::string Engine::set_render_scale(double scale) {
     std::string err;
     // The player's option, not a size: with the upscaler's quality it gives the render scale, below 1 the game is drawn smaller and brought
     // back to the design size, the HUD and UI drawn over it at that size (apply_render_scale), so a screenshot of it is the design size.
-    if (!hold_render_scale(scale, &err)) return err;
-    I.playerScale = true;
-    I.apply_render_scale();  // hold_render_scale does nothing when the value is the held one already, and the flag has changed
-    I.renderStale = true;
+    if (!hold(scale, true, &err)) return err;
     return std::string();
 }
 

@@ -240,6 +240,40 @@ TEST_CASE("hold_render_scale after the player's render scale is a held size: no 
     e.shutdown();
 }
 
+TEST_CASE("window.renderScale: the same value again, with a quality that is not native, recreates no target; a held "
+          "size and the "
+          "player's option in a row apply once each") {
+    TempProject p("samescale", "", "fit");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    REQUIRE(c.call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})")).ok);
+    const std::uint32_t first = e.renderer()->game_target_image_id();
+    eval(e, "window.renderScale = 0.75; 0");  // 0.75 x 0.5: the targets are made once, at their final size
+    const std::uint32_t scaled = e.renderer()->game_target_image_id();
+    CHECK(scaled != first);
+    CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
+    // A settings menu or a slider that assigns the value it already has: nothing is rebuilt (the temporal history would start again).
+    for (int i = 0; i < 3; ++i) {
+        eval(e, "window.renderScale = 0.75; 0");
+        CHECK(e.renderer()->game_target_image_id() == scaled);
+        CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
+    }
+    // A held size over the player's option, then the player's option again: each changes the size once, never through a size in between.
+    REQUIRE_MESSAGE(e.hold_render_scale(0.75, &err), err);
+    CHECK(e.renderer()->render_scale() == doctest::Approx(0.75f));
+    const std::uint32_t held = e.renderer()->game_target_image_id();
+    CHECK(held != scaled);
+    REQUIRE_MESSAGE(e.hold_render_scale(0.75, &err), err);
+    CHECK(e.renderer()->game_target_image_id() == held);
+    eval(e, "window.renderScale = 0.75; 0");
+    CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
+    CHECK(e.renderer()->upscale_stage());
+    e.shutdown();
+}
+
 namespace {
 
 std::string dump_of(const CommandResult& r) { return r.error.dump(); }
