@@ -850,8 +850,9 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M77.2 (L) D3D12 backend: descriptor heaps, pipeline state cache on disk, upload rings, resource barriers, debug layer
   in tests, WARP for CI.
 - M77.3 (L) Vulkan backend: Windows, Linux and Android, validation layers in tests, lavapipe for CI, pipeline cache.
-- M77.4 (M) Shaders: the shader tool emits DXIL and SPIR-V (with the M72 snippets), reflection kept for the material
-  inspector.
+- M77.4 (M) Shaders: the shader tool emits SPIR-V for Vulkan and the D3D12 backend consumes DXBC SM5.1 (the HLSL of
+  the D3D11 path, with the M72 snippets), reflection kept for the material inspector. DXIL (DXC, SM6) moves to M79.1,
+  which needs it for DXR.
 - M77.5 (M) Async compute and multi-threaded command recording on the M70 jobs, bindless where supported.
 - M77.6 (M) DirectStorage on Windows (GPU decompression of `game.pak` blocks) behind the M70 storage layer, and a
   backend choice in `project.json` and the launcher with automatic fallback.
@@ -869,7 +870,8 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 ## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
 
 - M79.1 (L) Acceleration structures: BLAS/TLAS for meshes (skinned refit, instances), on DXR (D3D12), Vulkan RT and
-  Metal RT, with `renderer.supports("raytracing")`.
+  Metal RT, with `renderer.supports("raytracing")`; the shader tool emits DXIL (DXC, SM6) for D3D12, which DXR needs
+  (moved from M77.4).
 - M79.2 (L) Ray-traced shadows (soft, area lights) and ambient occlusion.
 - M79.3 (L) Ray-traced reflections and translucency, falling back to M71.3/M73.3 per pixel.
 - M79.4 (L) Ray-traced global illumination (probes updated by rays, then per-pixel with denoising; DLSS Ray
