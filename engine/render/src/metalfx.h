@@ -13,7 +13,7 @@
 // without a wait of the CPU's own. Cost: one more commit (one more command buffer) per frame and one command buffer of the scaler.
 // docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
 // After `encode` that later buffer is OPEN and not committed. Anything that reads back through a command buffer of its own
-// (readback_rgba8, readback_rgba16f) MUST commit first: its buffer is queued behind the open one and would wait for it for ever.
+// (Device::read_image_rgba8, read_image_rgba16f) MUST commit first: its buffer is queued behind the open one and would wait for it for ever.
 // Gpu::committed() still says false after the split (the renderer's own note of "this frame was submitted" is made at the end of the
 // frame), so the renderer calls Gpu::note_work() after `encode` and a read back that asks Gpu::committed() commits for itself.
 //
@@ -120,7 +120,7 @@ public:
     // pass that drew `color` ended and before the first pass that reads `output`. It commits the frame so far (MetalNative::split_commit):
     // Gpu counts that commit through its listener; do not call Gpu::note_commit for it (the frame still has passes to come). The buffer
     // of those passes is taken and left open (it waits for the scaler on the GPU): anything that reads back through a command
-    // buffer of its own (readback_rgba8) must commit first or waits behind it for ever; Gpu::note_work() says so to the renderer.
+    // buffer of its own (Device::read_image_rgba8) must commit first or waits behind it for ever; Gpu::note_work() says so to the renderer.
     // Checks the images against the desc BEFORE it commits anything: false with `error` and no work done when an image is missing, of
     // another size or format, or MetalFX could not write the output.
     bool encode(gpu::Device& device, const Frame& frame, std::string* error);

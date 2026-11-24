@@ -248,7 +248,7 @@ The readers of the image: the temporal antialiasing and the temporal upscaler (r
 - **Warm-up.** `warm_step` builds the velocity variant of the prepass pipelines (plain, double sided, skinned when an Animator exists) while
   a loading screen is up when a camera has `temporalAAEnabled`, so the first frame of the effect does not compile them. The two quad-motion programs (velocity, reactive) are built the same way when the world has a sprite, shape, tile map or emitter.
 - **The probe.** `velocity_probe_pass` (tests and the debug view) reads the image with the debug view `prepass_view` mode 4, which is
-  **test-only**: it returns the raw RG16F values; the GL row flip of the read-back is the one of `readback_rgba8` (reasoned, not measured on GL).
+  **test-only**: it returns the raw RG16F values; the GL row flip of the read-back is the one of `Device::read_image_rgba8` (reasoned, not measured on GL).
 - **Cost.** With the image: 4 bytes per pixel of the prepass (RG16F) plus 48 bytes per drawn opaque instance per frame, one
   `unordered_map` entry per visible entity (a lookup per item per frame) and, per skinned entity, 192 texels x 16 bytes = 3 KB of previous
   palette uploaded each frame (a skin of 2 joints costs the same as one of 64: the palette is padded to 64), plus a copy of the current one kept

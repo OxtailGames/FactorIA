@@ -215,7 +215,7 @@ bool ProbeGpu::prepare_scratch(int slot, int resolution) {
         d.numMipmaps = 1;
         d.pixelFormat = format_;
         d.label = "probe-scratch";
-        s.image[i] = device.make_image(d);  // the cube fixes of render::make_cube_image are the device's
+        s.image[i] = device.make_image(d);  // the GL cube fixes are the device's (native_finish_image)
         s.tex[i] = texture_view(device, s.image[i], "probe-scratch");
         ok = valid(device, s.image[i]) && valid(device, s.tex[i]);
         for (int f = 0; ok && f < 6; ++f) {

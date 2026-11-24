@@ -453,7 +453,7 @@ bool LightAtlas::sync(gpu::Device& device, const Loader& load, const FailureFn& 
     d.pixelFormat = gpu::PixelFormat::Rgba16F;
     d.data.mipLevels[0] = {pixels.data(), pixels.size() * sizeof(std::uint16_t)};
     d.label = "light-atlas";
-    const gpu::Image image = device.make_image(d);  // through render::make_image and its per-backend fixes
+    const gpu::Image image = device.make_image(d);  // SokolDevice applies the per-backend fixes (native_finish_image)
     if (device.state(image) != gpu::ResourceState::Valid) {
         if (image.id) device.destroy_image(image);
         unsupported_ = true;
