@@ -663,16 +663,16 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
         if (auto up = it->find("upscaler"); up != it->end() && !up->is_null()) {
-            Result<render::UpscalerSettings> parsed =
+            Result<render::UpscalerSettings> upscalerSet =
                 render::parse_upscaler_settings(*up, at("/render/upscaler"), render::UpscalerSettings{});
-            if (!parsed.ok()) return parsed.error();
-            s.upscaler = parsed.value();
+            if (!upscalerSet.ok()) return upscalerSet.error();
+            s.upscaler = upscalerSet.value();
         }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
-            Result<render::DynamicResolutionSettings> parsed = render::parse_dynamic_resolution_settings(
+            Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
                 *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
-            if (!parsed.ok()) return parsed.error();
-            s.dynamicResolution = parsed.value();
+            if (!dynamicSet.ok()) return dynamicSet.error();
+            s.dynamicResolution = dynamicSet.value();
         }
         if (auto gp = it->find("graphicsPreset"); gp != it->end() && !gp->is_null()) {
             std::optional<render::GraphicsPreset> preset;
