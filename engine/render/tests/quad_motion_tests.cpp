@@ -747,8 +747,130 @@ TEST_CASE("quad motion: a capture of a camera with the temporal antialiasing on 
         return shot;
     };
     const Image off = shot_with(false);
+    CHECK_FALSE(RendererTestAccess::last_job_needs_velocity(o.r));
     const Image on = shot_with(true);
+    // A capture plans no post stack: it asks for no velocity, with the effect on as off.
+    CHECK_FALSE(RendererTestAccess::last_job_needs_velocity(o.r));
     REQUIRE(on.width == off.width);
     REQUIRE(on.height == off.height);
     CHECK(on.rgba == off.rgba);
+}
+
+TEST_CASE("quad motion: the velocity request of the temporal antialiasing is taken back by a frame that cannot resolve "
+          "(no history image), what something else asks for stays") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    for (const bool budget : {false, true}) {
+        INFO("history budget of 1 byte: " << budget);
+        Own o(g, false);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        World w;
+        Entity cam = make(w, "cam", {0, 0, 10});
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60;
+        c.clearColor = Color{0, 0, 0, 1};
+        Entity cube = make(w, "cube", {0, 0, 0});
+        w.add<MeshRenderer>(cube).mesh = "cube";
+        camera_post(w, cam).temporalAAEnabled = true;
+        // A budget no history fits in: the effect cannot run, so nothing reads a velocity (plan_job takes the request back: no
+        // prepass, no previous model, no quad-velocity pass). Without it the effect resolves and asks.
+        if (budget) RendererTestAccess::taa_set_budget(o.r, 1);
+        o.frame(w, 3);
+        CHECK(RendererTestAccess::taa_unavailable(o.r) == budget);
+        CHECK(RendererTestAccess::last_job_needs_velocity(o.r) == !budget);
+        // Another consumer of the velocity (the test hook here, as the debug view and the object motion blur) keeps its request.
+        RendererTestAccess::force_velocity(o.r, true);
+        o.frame(w, 1);
+        CHECK(RendererTestAccess::last_job_needs_velocity(o.r));
+    }
+}
+
+TEST_CASE(
+    "quad motion: a sprite whose scale goes to 0 and back falls back to its translation, with no NaN in the image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    add_camera2d(w, true);
+    const Entity s = add_sprite(w, "s", {0, 0, 0}, 80, Color{1, 1, 1, 1});
+    auto all_finite = [&](const Plane& v) {
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x)
+                if (!std::isfinite(v.r(x, y)) || !std::isfinite(v.g(x, y))) return false;
+        return true;
+    };
+    float x = 0;
+    for (int f = 1; f <= 4; ++f) {
+        x = 4.0f * float(f);
+        move_x(w, s, x);
+        o.frame(w);
+    }
+    // The matrix has no inverse on this frame (the sprite draws nothing).
+    x += 4.0f;
+    move_x(w, s, x);
+    w.get<Transform>(s)->scale = {0, 0, 1};
+    o.frame(w);
+    CHECK(all_finite(read_velocity(o)));
+    for (int f = 0; f < 2; ++f) {
+        x += 4.0f;
+        move_x(w, s, x);
+        w.get<Transform>(s)->scale = {1, 1, 1};
+        o.frame(w);
+        const Plane v = read_velocity(o);
+        CHECK(all_finite(v));
+        // Both frames after the zero scale (the frame before's matrix has no inverse on the first): the translation, 4 px of 320.
+        for (const Vec2 q : {Vec2{-22, 22}, Vec2{22, -22}}) {
+            const int px = px_x(x + q.x), py = px_y(q.y);
+            REQUIRE_FALSE(v.none(px, py));
+            CHECK(v.r(px, py) == doctest::Approx(-4.0f / float(kW)).scale(1.0).epsilon(0.02));
+            CHECK(std::fabs(v.g(px, py)) < 5.0e-4f);
+        }
+    }
+}
+
+TEST_CASE("quad motion: a floating-origin rebase while a sprite turns leaves the rotation's motion, with no jump from "
+          "the shift") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CleanAssets clean;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const Vec3 at{1000.0f, 0.0f, 0.0f};
+    const Entity cam = add_camera2d(w, true);
+    w.get<Transform>(cam)->position = at;
+    const Entity spin = add_sprite(w, "spin", at, 80, Color{1, 1, 1, 1});
+    const float step = 4.0f;
+    const float a = step * 3.14159265f / 180.0f;
+    for (int f = 1; f <= 8; ++f) {
+        if (f == 5) w.rebase(at);  // every local position moves by -at: the scene is now around the origin
+        w.get<Transform>(spin)->rotation.z = step * float(f);
+        o.frame(w);
+        if (f < 5) continue;
+        INFO("frame " << f << (f == 5 ? " (the one right after the rebase)" : ""));
+        const Plane v = read_velocity(o);
+        float biggest = 0.0f;
+        for (const Vec2 q : {Vec2{22, 22}, Vec2{-22, -22}}) {
+            const int x = px_x(q.x), y = px_y(q.y);
+            REQUIRE_FALSE(v.none(x, y));
+            const Vec2 now = pixel_centre(x, y);
+            const Vec2 before = {now.x * std::cos(-a) - now.y * std::sin(-a),
+                                 now.x * std::sin(-a) + now.y * std::cos(-a)};
+            const Vec2 want = expected_velocity(now, before);
+            CHECK(v.r(x, y) == doctest::Approx(want.x).scale(1.0).epsilon(0.05));
+            CHECK(v.g(x, y) == doctest::Approx(want.y).scale(1.0).epsilon(0.05));
+            // The rotation's own motion survives the rebase (a zero vector would pass the loose Approx above).
+            CHECK(v.r(x, y) * want.x > 0.0f);
+            CHECK(v.g(x, y) * want.y > 0.0f);
+            biggest = std::max(biggest, std::fabs(want.x));
+        }
+        CHECK(biggest > 0.004f);
+        // The centre did not jump by the 1000 px of the shift.
+        CHECK(std::fabs(v.r(px_x(0), px_y(0))) < 1.5e-3f);
+        CHECK(std::fabs(v.g(px_x(0), px_y(0))) < 1.5e-3f);
+    }
 }

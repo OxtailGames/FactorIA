@@ -763,13 +763,15 @@ void register_builtin_components(TypeRegistry& r) {
         .range(0, kMaxMeshInstances)
         .field(
             "reactive", &Sprite::reactive,
-            "-1..1 (default -1 = by blend): how much the temporal antialiasing and the temporal upscaler "
+            "-1..1: how much the temporal antialiasing and the temporal upscaler "
             "(PostProcess.temporalAAEnabled, render.upscaler \"temporal\") trust this sprite over their history, for a "
             "sprite that changes faster than its motion shows: a glowing or fading overlay, a world-space HUD element, "
             "a flash. Above 0 the sprite writes this value, times its alpha, into the reactive mask "
             "(PostProcess.temporalAAReactiveScale scales it) instead of its motion vector, so the resolve uses the "
             "current frame there. 0 = never reactive, an Additive sprite too (it then writes neither the mask nor a "
-            "vector: it is resolved like the rest of the picture and may leave a trail). -1 leaves it to the blend "
+            "vector: it is resolved like the rest of the picture and may leave a trail). Any negative value (the "
+            "default, "
+            "-1) leaves it to the blend "
             "mode: an Additive sprite counts as 1 (a glow has no velocity and would leave a trail), any other writes "
             "its motion vector. A sprite with a material of its own is "
             "marked by its quad's shape and texture alpha, not by what the material's discard or vertex() does. "

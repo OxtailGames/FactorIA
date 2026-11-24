@@ -194,6 +194,10 @@ struct Renderer::Impl {
     render::UpscaleImpl upscaleImpl = render::UpscaleImpl::Stretch;
     Target outTarget, outFilterTarget;
     bool outActive = false, outFilterActive = false;
+    // Consecutive frames the stage was inactive while its images existed (render_world): they are freed at kOutputIdleFrames, so a dynamic
+    // resolution or a render scale that crosses 1 every few frames does not make and free them again and again.
+    static constexpr int kOutputIdleFrames = 60;
+    int outputIdleFrames = 0;
     // The spatial upscaler (M76-P3b, render_upscale_spatial.h): its programs, and the upsampled picture between its two passes (made
     // only when both run: a render scale below 1 and a sharpness above 0).
     render::SpatialUpscaler spatial;
@@ -270,6 +274,9 @@ struct Renderer::Impl {
     // that ask: its model matrix of the frame before (`prev`) and of the last frame it was drawn (`cur`), with the postSerial of that
     // frame. An entity not drawn in the frame before, or new, has prev = cur: no motion of its own. origin_shifted moves both.
     bool forceVelocity = false;
+    // PostPlan::needsVelocity of the last job plan_job planned (RendererTestAccess::last_job_needs_velocity): what the job asked for, before
+    // the GPU is asked whether it can make the image.
+    bool lastJobNeedsVelocity = false;
     // RendererTestAccess::probe_camera: the entity bits of the only camera whose velocity and reactive images the probes copy (probeCameraOnly false = every camera, the last wins; the first entity's bits are 0).
     std::uint64_t probeCamera = 0;
     bool probeCameraOnly = false;

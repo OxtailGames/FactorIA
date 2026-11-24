@@ -901,6 +901,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The temporal upscalers also reproject with the motion of the objects (M76-P1a), where the GPU can make the image: asked before
     // cull_and_batch, which decides whether the draws collect their previous models.
     if (draws && upscaleTaa.on && !plan.view) ctx.postPlan.request_velocity();
+    lastJobNeedsVelocity = ctx.postPlan.needsVelocity;
     gather_meshes(ctx);
     collect_lights(ctx);
     collect_decals(ctx);
@@ -2056,7 +2057,7 @@ void Renderer::Impl::fill_quad_motion(DrawContext& ctx) {
         q.frame = postSerial;
         if (!useHistory) continue;
         it.motion = q.cur.translation() - q.prev.translation();
-        // R = Lprev * Lcur^-1 on the 3x3 parts; skipped (a translation) when the two have the same 3x3 or Lcur has no inverse.
+        // R = Lprev * Lcur^-1 on the 3x3 parts; skipped (a translation) when the two have the same 3x3 or either has no inverse.
         float lc[9], lp[9];
         float diff = 0.0f;
         for (int c = 0; c < 3; ++c)
@@ -2072,6 +2073,10 @@ void Renderer::Impl::fill_quad_motion(DrawContext& ctx) {
                     c02 = m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0);
         const float det = m(0, 0) * c00 + m(0, 1) * c01 + m(0, 2) * c02;
         if (!(std::fabs(det) > 1.0e-12f)) continue;
+        // The frame before's 3x3 with no inverse (a scale of 0 then) is a translation too: a vertex does not grow out of a point.
+        const float detPrev = lp[0] * (lp[4] * lp[8] - lp[7] * lp[5]) - lp[3] * (lp[1] * lp[8] - lp[7] * lp[2]) +
+                              lp[6] * (lp[1] * lp[5] - lp[4] * lp[2]);
+        if (!(std::fabs(detPrev) > 1.0e-12f)) continue;
         const float id = 1.0f / det;
         float inv[3][3];  // [row][col]
         inv[0][0] = c00 * id;
