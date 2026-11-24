@@ -46,7 +46,7 @@ const FormatInfo* format_info(sg_pixel_format f) {
     return nullptr;
 }
 
-const char* mtl_format_name(MTLPixelFormat f) {
+[[maybe_unused]] const char* mtl_format_name(MTLPixelFormat f) {
     for (const FormatInfo& i : kFormats)
         if (i.mtl == f) return i.name;
     return "another format";
@@ -61,38 +61,44 @@ std::string formats_list() {
     return s;
 }
 
-std::string os_version() {
+[[maybe_unused]] std::string os_version() {
     NSString* v = [[NSProcessInfo processInfo] operatingSystemVersionString];
     return v ? std::string([v UTF8String]) : std::string("this OS version");
 }
 
 // MetalFX is a system framework; this loads it (a no-op when it is loaded) and says whether it is there.
-bool framework_loaded() {
+[[maybe_unused]] bool framework_loaded() {
     if (NSClassFromString(@"MTLFXSpatialScalerDescriptor") != nil) return true;
     NSBundle* bundle = [NSBundle bundleWithPath:@"/System/Library/Frameworks/MetalFX.framework"];
     if (bundle == nil || ![bundle load]) return false;
     return NSClassFromString(@"MTLFXSpatialScalerDescriptor") != nil;
 }
 
-id<MTLDevice> metal_device() { return (__bridge id<MTLDevice>)sg_mtl_device(); }
+[[maybe_unused]] id<MTLDevice> metal_device() { return (__bridge id<MTLDevice>)sg_mtl_device(); }
 
-id<MTLTexture> texture_of(sg_image image) {
+[[maybe_unused]] id<MTLTexture> texture_of(sg_image image) {
     if (image.id == SG_INVALID_ID || sg_query_image_state(image) != SG_RESOURCESTATE_VALID) return nil;
     const sg_mtl_image_info info = sg_mtl_query_image_info(image);
     return (__bridge id<MTLTexture>)info.tex[info.active_slot];
 }
 
-// "" when MetalFX can be used for `kind` on this device; else why not and what to do.
-std::string unavailable(Kind kind, bool* spatialOk, bool* temporalOk) {
+// "" when MetalFX can be used for `kind` on `device`; else why not and what to do. `spatialOk` and `temporalOk` say what the device can do
+// (both false when MetalFX is not there at all).
+std::string unavailable(Kind kind, id<MTLDevice> device, bool* spatialOk, bool* temporalOk) {
     *spatialOk = *temporalOk = false;
 #if !defined(FA_HAVE_METALFX_SDK)
     (void)kind;
+    (void)device;
     return "this build was made with an SDK that has no MetalFX (Xcode 14 or later has it): build with a newer Xcode to use the "
            "MetalFX upscaler";
 #else
-    id<MTLDevice> device = metal_device();
     if (device == nil)
         return "MetalFX was asked before the graphics device exists: call it after the renderer is initialised";
+#if TARGET_OS_SIMULATOR
+    // Said before the framework is loaded: the simulator's GPU never has it, whatever the OS.
+    return "the iOS simulator has no MetalFX (it needs a real Apple GPU): test on a device, or use the engine's own spatial or "
+           "temporal upscaler";
+#else
     if (@available(macOS 13.0, iOS 16.0, *)) {
         if (!framework_loaded())
             return std::format("MetalFX is not on this system ({}): it comes with macOS 13 and iOS 16; update the OS or use the "
@@ -102,24 +108,33 @@ std::string unavailable(Kind kind, bool* spatialOk, bool* temporalOk) {
         Class tc = NSClassFromString(@"MTLFXTemporalScalerDescriptor");
         *spatialOk = sc != nil && [sc supportsDevice:device];
         *temporalOk = tc != nil && [tc supportsDevice:device];
-        if (*spatialOk && *temporalOk) return {};
         if ((kind == Kind::Spatial && *spatialOk) || (kind == Kind::Temporal && *temporalOk)) return {};
-#if TARGET_OS_SIMULATOR
-        return "the iOS simulator has no MetalFX (it needs a real Apple GPU): test on a device, or use the engine's own spatial or "
-               "temporal upscaler";
-#else
-        return std::format("the GPU \"{}\" does not support MetalFX (it needs an Apple silicon GPU, a recent AMD GPU or an Intel "
-                           "Mac with a supported GPU): use the engine's own spatial or temporal upscaler",
-                           std::string([[device name] UTF8String]));
-#endif
+        return std::format("the GPU \"{}\" does not support the {} MetalFX scaler (it needs an Apple silicon GPU, a recent AMD GPU or an "
+                           "Intel Mac with a supported GPU): use the engine's own spatial or temporal upscaler",
+                           std::string([[device name] UTF8String]), kind == Kind::Spatial ? "spatial" : "temporal");
     }
     return std::format("MetalFX needs macOS 13 or iOS 16 or later, this is {}: update the OS or use the engine's own spatial or "
                        "temporal upscaler",
                        os_version());
 #endif
+#endif
 }
 
 std::string size_text(int w, int h) { return std::format("{}x{}", w, h); }
+
+// What `device` can do, with the reason of what it cannot (a spatial scaler without a temporal one says so).
+Support support_of(id<MTLDevice> device) {
+    Support s;
+    bool spatialOk = false, temporalOk = false;
+    @autoreleasepool {
+        s.reason = unavailable(Kind::Spatial, device, &spatialOk, &temporalOk);
+        if (s.reason.empty() && !temporalOk) s.reason = unavailable(Kind::Temporal, device, &spatialOk, &temporalOk);
+    }
+    s.spatial = spatialOk;
+    s.temporal = temporalOk;
+    if (s.spatial && s.temporal) s.reason.clear();
+    return s;
+}
 
 }  // namespace
 
@@ -133,15 +148,19 @@ struct Scaler::Impl {
     id temporal = nil;
 };
 
-Support support() {
+Support support() { return support_of(metal_device()); }
+
+Support support_default_device() {
     Support s;
-    bool spatialOk = false, temporalOk = false;
     @autoreleasepool {
-        s.reason = unavailable(Kind::Spatial, &spatialOk, &temporalOk);
+#if defined(FA_HAVE_METALFX_SDK)
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        s = support_of(device);
+        if (device == nil) s.reason = "this Mac has no Metal GPU: use the engine's own spatial or temporal upscaler";
+#else
+        s = support_of(nil);
+#endif
     }
-    s.spatial = spatialOk;
-    s.temporal = temporalOk;
-    if (s.spatial && s.temporal) s.reason.clear();
     return s;
 }
 
@@ -191,7 +210,7 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
     bool spatialOk = false, temporalOk = false;
     std::string why;
     @autoreleasepool {
-        why = unavailable(desc.kind, &spatialOk, &temporalOk);
+        why = unavailable(desc.kind, metal_device(), &spatialOk, &temporalOk);
     }
     if (!why.empty()) return fail("metalfx: " + why);
 #if defined(FA_HAVE_METALFX_SDK)
@@ -341,6 +360,10 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 s.inputContentWidth = NSUInteger(d.inputWidth);
                 s.inputContentHeight = NSUInteger(d.inputHeight);
                 [s encodeToCommandBuffer:cmd];
+                // The command buffer holds the textures now: the scaler lets go of them, so a frame's images are not kept alive (nor
+                // a resized target's) until the next frame replaces them.
+                s.colorTexture = nil;
+                s.outputTexture = nil;
             } else {
                 id<MTLFXTemporalScaler> t = im.temporal;
                 t.colorTexture = colorTex;
@@ -357,9 +380,15 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 t.depthReversed = d.depthReversed ? YES : NO;
                 t.reset = (frame.reset || im.encoded == 0) ? YES : NO;
                 [t encodeToCommandBuffer:cmd];
+                t.colorTexture = nil;
+                t.depthTexture = nil;
+                t.motionTexture = nil;
+                t.outputTexture = nil;
             }
             [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) {
-                // Another thread. A scaler that fails leaves its output as it was: the picture shows it, the log says why.
+                // Another thread (Metal's completion queue). fa::log is safe to call from any thread (a mutex around its ring and its
+                // stderr line; its sinks must be thread-safe, log.h), and this block captures nothing of the scaler, which may be gone by
+                // now. A scaler that fails leaves its output as it was: the picture shows it, the log says why.
                 if (done.status == MTLCommandBufferStatusError)
                     FA_WARN("render", "MetalFX command buffer failed: {}",
                             done.error ? std::string([[done.error localizedDescription] UTF8String]) : std::string("unknown error"));

@@ -65,12 +65,14 @@ bool AppWindowControl::supports_monitors() const { return !app_monitors().empty(
 
 std::vector<WindowMonitor> AppWindowControl::monitors() const {
     std::vector<WindowMonitor> list;
-    for (const MonitorInfo& m : app_monitors()) list.push_back({m.name, m.width, m.height, m.primary, m.current});
+    for (const MonitorInfo& m : app_monitors())
+        list.push_back({m.name, m.width, m.height, m.primary, m.current, m.refreshHz});
     if (list.empty()) {  // phones, tablets, the web: the one display the window is on
         WindowMonitor one;
         one.name = "Display";
         display_size(one.width, one.height);
         one.primary = one.current = true;
+        one.refreshHz = app_display_refresh_hz();  // Android and iOS say; the web has no API for it (0)
         list.push_back(std::move(one));
     }
     return list;

@@ -690,20 +690,9 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 }
 
 // M76-P0: the rows of the shared API are planned until the packages that draw them land (motionVectors landed in P1a,
-// spatialUpscaler in P3b, temporalUpscaler in P4); temporalAA is the effect row of that name and has been drawn since M76-P2.
+// spatialUpscaler in P3b, temporalUpscaler in P4, metalfx in P5b); temporalAA is the effect row of that name and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
-    for (const char* name : {"metalfx"}) {
-        CAPTURE(name);
-        const int i = find_feature(name);
-        REQUIRE(i >= 0);
-        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
-        REQUIRE(feature_table()[std::size_t(i)].planned != nullptr);
-        CHECK(std::string(feature_table()[std::size_t(i)].planned) == "M76");
-        std::string why;
-        CHECK_FALSE(supported(full, name, &why));  // never claims what is not drawn
-        CHECK(why == "planned (M76)");
-    }
     // Dynamic resolution is drawn (M76-P6c): every GPU backend, no longer planned.
     {
         const int i = find_feature("dynamicResolution");
@@ -712,6 +701,29 @@ TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx 
         CHECK(feature_table()[std::size_t(i)].planned == nullptr);
         std::string whyDyn;
         CHECK(supported(full, "dynamicResolution", &whyDyn));
+    }
+    // MetalFX is drawn (M76-P5b): supported on Metal when the OS and the GPU have it (FeatureEnv::metalfx), with the reason when not.
+    {
+        const int i = find_feature("metalfx");
+        REQUIRE(i >= 0);
+        CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        FeatureEnv with = full;
+        with.metalfx = true;
+        CHECK(supported(with, "metalfx"));
+        FeatureEnv without = full;
+        without.metalfx = false;
+        std::string why;
+        CHECK_FALSE(supported(without, "metalfx", &why));
+        CHECK(why.find("MetalFX") != std::string::npos);
+        CHECK(why.find("planned") == std::string::npos);
+        without.metalfxWhy = "MetalFX is not on this GPU: use the temporal upscaler.";
+        CHECK_FALSE(supported(without, "metalfx", &why));
+        CHECK(why.find("not on this GPU") != std::string::npos);
+        // Never on another backend, whatever the flag says.
+        FeatureEnv gl = gpu(FeatureBackend::Gl, true, true, true, true);
+        gl.metalfx = true;
+        CHECK_FALSE(supported(gl, "metalfx"));
     }
     // The motion vectors are drawn since M76-P1a (the prepass writes them for a consumer: the debug view, the temporal antialiasing).
     const int mv = find_feature("motionVectors");

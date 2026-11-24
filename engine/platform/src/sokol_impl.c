@@ -189,11 +189,31 @@ typedef struct {
     RECT r;
     bool primary;
     char name[64];
+    double hz;
 } fa_win_mon;
 typedef struct {
     fa_win_mon m[16];
     int n;
 } fa_win_mons;
+
+// The refresh rate of monitor `h` in Hz: the frequency of its current display mode. Windows answers 0 or 1 for "the hardware's
+// default", which says nothing: 0 (unknown). It rounds the NTSC rates down to whole numbers (59.94 Hz is 59): a frequency one
+// below a multiple of 24 or 30 is taken as that multiple / 1.001.
+static double fa_win_monitor_hz(HMONITOR h) {
+    MONITORINFOEXW info;
+    DEVMODEW mode;
+    if (h == NULL) return 0.0;
+    memset(&info, 0, sizeof(info));
+    info.cbSize = sizeof(info);
+    if (!GetMonitorInfoW(h, (MONITORINFO*)&info)) return 0.0;
+    memset(&mode, 0, sizeof(mode));
+    mode.dmSize = sizeof(mode);
+    if (!EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode)) return 0.0;
+    if (mode.dmDisplayFrequency <= 1) return 0.0;
+    const DWORD next = mode.dmDisplayFrequency + 1;
+    if (next >= 24 && (next % 24 == 0 || next % 30 == 0)) return (double)next / 1.001;
+    return (double)mode.dmDisplayFrequency;
+}
 
 static BOOL CALLBACK fa_win_enum(HMONITOR h, HDC dc, LPRECT r, LPARAM param) {
     (void)dc;
@@ -214,6 +234,7 @@ static BOOL CALLBACK fa_win_enum(HMONITOR h, HDC dc, LPRECT r, LPARAM param) {
     const char* label = info.szDevice;
     if (EnumDisplayDevicesA(info.szDevice, 0, &dd, 0) && dd.DeviceString[0]) label = dd.DeviceString;
     snprintf(m->name, sizeof(m->name), "%s", label);
+    m->hz = fa_win_monitor_hz(h);
     return TRUE;
 }
 
@@ -240,8 +261,19 @@ typedef struct {
     int noutput;
     XID* outputs;
     int nmode;
-    void* modes;
+    struct fa_xrr_mode_info* modes;
 } fa_xrr_resources;
+// XRRModeInfo: the timings of one mode (its refresh rate is dotClock / (hTotal * vTotal)).
+typedef struct fa_xrr_mode_info {
+    XID id;
+    unsigned int width, height;
+    unsigned long dotClock;
+    unsigned int hSyncStart, hSyncEnd, hTotal, hSkew;
+    unsigned int vSyncStart, vSyncEnd, vTotal;
+    char* name;
+    unsigned int nameLength;
+    unsigned long modeFlags;
+} fa_xrr_mode_info;
 typedef struct {
     Time timestamp;
     int x, y;
@@ -275,7 +307,23 @@ typedef struct {
     int x, y, w, h;  // physical pixels
     bool primary;
     char name[64];
+    double hz;  // 0: unknown
 } fa_x11_mon;
+
+// The refresh rate of mode `id` of `res` in Hz, the way xrandr computes it (a double-scan mode draws each line twice, an
+// interlaced one half the lines per field). 0: no such mode, or no timings.
+static double fa_xrr_mode_hz(const fa_xrr_resources* res, XID id) {
+    for (int i = 0; i < res->nmode; i++) {
+        const fa_xrr_mode_info* m = &res->modes[i];
+        if (m->id != id) continue;
+        double v = (double)m->vTotal;
+        if (m->modeFlags & 0x20) v *= 2.0;  // RR_DoubleScan
+        if (m->modeFlags & 0x10) v /= 2.0;  // RR_Interlace
+        if (m->hTotal == 0 || v <= 0.0) return 0.0;
+        return (double)m->dotClock / ((double)m->hTotal * v);
+    }
+    return 0.0;
+}
 
 static void* fa_xrr_lib;
 static fa_xrr_resources* (*fa_XRRGetScreenResourcesCurrent)(Display*, Window);
@@ -325,6 +373,7 @@ static int fa_x11_collect(fa_x11_mon* out, int max) {
                         m->w = (int)c->width;
                         m->h = (int)c->height;
                         m->primary = res->outputs[i] == primary;
+                        m->hz = fa_xrr_mode_hz(res, c->mode);
                         snprintf(m->name, sizeof(m->name), "%s", o->name ? o->name : "Display");
                     }
                     if (c) fa_XRRFreeCrtcInfo(c);
@@ -340,6 +389,7 @@ static int fa_x11_collect(fa_x11_mon* out, int max) {
         out[0].w = DisplayWidth(_sapp.x11.display, _sapp.x11.screen);
         out[0].h = DisplayHeight(_sapp.x11.display, _sapp.x11.screen);
         out[0].primary = true;
+        out[0].hz = 0.0;
         snprintf(out[0].name, sizeof(out[0].name), "Display");
         return 1;
     }
@@ -367,6 +417,17 @@ static void fa_x11_window_centre(int* cx, int* cy) {
     *cx = rx + a.width / 2;
     *cy = ry + a.height / 2;
 }
+
+// The index in `list` of the monitor under the window's centre (0 when it is on none of them).
+static int fa_x11_current(const fa_x11_mon* list, int count) {
+    int cx, cy;
+    fa_x11_window_centre(&cx, &cy);
+    int current = 0;
+    for (int i = 0; i < count; i++) {
+        if (cx >= list[i].x && cx < list[i].x + list[i].w && cy >= list[i].y && cy < list[i].y + list[i].h) current = i;
+    }
+    return current;
+}
 #endif
 
 int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
@@ -386,18 +447,14 @@ int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
         out[n].h = (int)((m->r.bottom - m->r.top) / scale + 0.5f);
         out[n].primary = m->primary;
         out[n].current = m->h == here;
+        out[n].refresh_hz = m->hz;
     }
     return n;
 #elif defined(_SAPP_LINUX)
     fa_x11_mon list[16];
     const int count = fa_x11_collect(list, 16);
     const float scale = _sapp.x11.dpi / 96.0f;
-    int cx, cy;
-    fa_x11_window_centre(&cx, &cy);
-    int current = 0;
-    for (int i = 0; i < count; i++) {
-        if (cx >= list[i].x && cx < list[i].x + list[i].w && cy >= list[i].y && cy < list[i].y + list[i].h) current = i;
-    }
+    const int current = fa_x11_current(list, count);
     int n = 0;
     for (; n < count && n < max; n++) {
         memcpy(out[n].name, list[n].name, sizeof(out[n].name));
@@ -407,10 +464,26 @@ int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
         out[n].h = (int)(list[n].h / scale + 0.5f);
         out[n].primary = list[n].primary;
         out[n].current = n == current;
+        out[n].refresh_hz = list[n].hz;
     }
     return n;
 #else
     return 0;
+#endif
+}
+
+double fa_sapp_display_refresh_hz(void) {
+#if defined(_SAPP_WIN32)
+    if (_sapp.win32.hwnd == NULL) return 0.0;
+    return fa_win_monitor_hz(MonitorFromWindow(_sapp.win32.hwnd, MONITOR_DEFAULTTONEAREST));
+#elif defined(_SAPP_LINUX)
+    if (_sapp.x11.display == NULL || _sapp.x11.window == 0) return 0.0;
+    fa_x11_mon list[16];
+    const int count = fa_x11_collect(list, 16);
+    if (count <= 0) return 0.0;
+    return list[fa_x11_current(list, count)].hz;
+#else
+    return 0.0;  // the web has no API for it (the engine estimates it), Android asks through JNI (app.cpp)
 #endif
 }
 

@@ -10,6 +10,11 @@
 // the passes recorded after it (HUD, present) start a new sokol command buffer that the queue runs behind the MetalFX one. The queue
 // is in-order, so the upscaler reads this frame's colour and the later passes read this frame's output. Cost: one more sg_commit
 // per frame (one more command buffer) and one command buffer of the scaler. docs/design/ARCHITECTURE_RENDERING_POST.md, "MetalFX (M76)".
+// After the split Gpu::committed() still says false (the renderer's own note of "this frame was submitted" is made at the end of the
+// frame, not by the commit of encode): a read-back that follows commits once more, which is harmless (an empty commit).
+//
+// No MetalFX on the machine that runs the CI (a VM with a paravirtual GPU): the tests that need a scaler say so with a MESSAGE and
+// return, they never pass silently (the skip is in the test output and in the doctest report as a message).
 #pragma once
 
 #include <memory>
@@ -36,11 +41,19 @@ struct Support {
     bool spatial = false;
     bool temporal = false;
     // Empty when both are available. Else a sentence that says what is missing and what to do ("needs macOS 13 or iOS 16",
-    // "the iOS simulator has no MetalFX", "the OpenGL backend cannot use it: start without FA_GFX_BACKEND").
+    // "the iOS simulator has no MetalFX", "this build draws with OpenGL"). Also set when only one scaler is there: it names the other.
     std::string reason;
 };
+// True when the open sokol context draws with Metal (macOS, iOS or the iOS simulator). Needs sg_isvalid().
+inline bool on_metal() {
+    const sg_backend b = sg_query_backend();
+    return b == SG_BACKEND_METAL_MACOS || b == SG_BACKEND_METAL_IOS || b == SG_BACKEND_METAL_SIMULATOR;
+}
 // Cheap (a class lookup and two device questions); call it once graphics is up (the Metal device exists).
 Support support();
+// What the system's default Metal GPU can do, asked without a renderer or a sokol device (a headless run reports what a GPU here would
+// draw: Engine::upscaler_caps). The same answer as support() on a window drawn on that GPU; none on every backend that is not Metal.
+Support support_default_device();
 
 struct Desc {
     Kind kind = Kind::Spatial;

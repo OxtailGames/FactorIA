@@ -27,7 +27,7 @@ std::string unavailable_reason() {
                        "GPU), and this build draws with ") +
            backend_name() +
            ". Use the engine's own spatial or temporal upscaler, which work on every backend"
-           " (on a Mac, do not force another backend with FA_GFX_BACKEND).";
+           " (on a Mac, build without the CMake option -DFA_GFX_BACKEND=<another backend>).";
 }
 
 }  // namespace
@@ -41,6 +41,7 @@ Support support() {
     s.reason = unavailable_reason();
     return s;
 }
+Support support_default_device() { return support(); }
 
 Scaler::Scaler() : impl_(std::make_unique<Impl>()) {}
 Scaler::~Scaler() = default;

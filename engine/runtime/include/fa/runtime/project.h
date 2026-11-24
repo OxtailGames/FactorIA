@@ -126,7 +126,7 @@ struct ProjectSettings {
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
     // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
-    // window.upscaler. The renderer draws "stretch", "spatial" and "temporal"; metalfx reports what draws instead (effectiveMode).
+    // window.upscaler. The renderer draws "stretch", "spatial", "temporal" and "metalfx" (Apple, Metal only: where it is not available the next best draws and effectiveMode says which).
     render::UpscalerSettings upscaler;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.

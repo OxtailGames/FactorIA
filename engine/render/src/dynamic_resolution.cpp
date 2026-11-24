@@ -117,6 +117,27 @@ double dynamic_target_ms(const DynamicResolutionSettings& s, double refreshHz) {
     return 1000.0 / hz;
 }
 
+// ------------------------------------------------------------------------------------------- the refresh rate estimate --
+
+void RefreshRateEstimator::reset() { *this = RefreshRateEstimator{}; }
+
+bool RefreshRateEstimator::add(double intervalMs) {
+    if (done_) return false;
+    ++frames_;
+    if (frames_ > kSkipFrames && intervalMs > 0.0 && intervalMs <= kMaxSampleMs) samples_[count_++] = intervalMs;
+    if (count_ < kSamples && frames_ < kMaxFrames) return false;
+    done_ = true;
+    if (count_ == kSamples) {
+        double sorted[kSamples];
+        std::copy(samples_, samples_ + kSamples, sorted);
+        std::sort(sorted, sorted + kSamples);
+        const double median = (sorted[kSamples / 2 - 1] + sorted[kSamples / 2]) / 2.0;
+        const double hz = 1000.0 / median;
+        hz_ = hz >= 20.0 && hz <= 1000.0 ? hz : 0.0;
+    }
+    return true;
+}
+
 // ------------------------------------------------------------------------------------------------------------ the controller --
 
 float DynamicResolutionController::scale_of(int step) const {

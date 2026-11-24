@@ -255,8 +255,22 @@ TEST_CASE("temporal upscaler: the effective mode is temporal where it can be dra
     CHECK(render::effective_upscaler_mode(s, noTaa) == UpscalerMode::Spatial);
     s.mode = UpscalerMode::MetalFx;
     CHECK(render::effective_upscaler_mode(s, can) ==
-          UpscalerMode::Temporal);  // metalfx is not drawn yet: the next best
+          UpscalerMode::Temporal);  // this GPU has no MetalFX (caps.metalfx false): the next best
     CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);
+    // M76-P5b: with MetalFX the mode is itself; its temporal scaler has one history, so several cameras drop it as the temporal upscaler
+    // (to the engine's spatial upscaler), while a GPU with only its spatial scaler keeps it on every frame.
+    render::UpscalerCaps fx = can;
+    fx.metalfx = true;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::MetalFx);
+    render::UpscalerCaps fxSeveral = fx;
+    fxSeveral.multiCamera = true;
+    CHECK(render::effective_upscaler_mode(s, fxSeveral) == UpscalerMode::Spatial);
+    fxSeveral.metalfxTemporal = false;
+    CHECK(render::effective_upscaler_mode(s, fxSeveral) == UpscalerMode::MetalFx);
+    s.mode = UpscalerMode::Auto;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::MetalFx);
+    fx.pixelArt = true;
+    CHECK(render::effective_upscaler_mode(s, fx) == UpscalerMode::Stretch);
 }
 
 TEST_CASE("temporal upscaler: its plan uses the camera's TemporalAA fields, or the defaults, and its own history key") {

@@ -1017,7 +1017,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
-         "planned: metalfx (Metal only); drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution; "
+         "drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution, metalfx (Metal only: the reason "
+         "says when this OS or GPU lacks it); "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
@@ -1189,11 +1190,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
-         "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen) and "
-         "\"temporal\" (the camera is jittered and the frames accumulate in an output-size history; \"auto\" picks "
-         "it); "
+         "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen), "
+         "\"temporal\" (the camera is jittered and the frames accumulate in an output-size history) and \"metalfx\" "
+         "(Apple's MetalFX on the Metal backend, its temporal scaler on a jittered frame of one camera, its spatial "
+         "scaler where the GPU has only that one); \"auto\" picks the best of those. "
          "temporal draws as spatial on a frame of several cameras and where its history cannot be made, metalfx "
-         "draws as the best of those until its package lands, and a pixel-perfect "
+         "draws as temporal (then spatial) where this OS or GPU has no MetalFX or it failed (one warning in the log), "
+         "and a pixel-perfect "
          "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
          "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
          "at that size; at native quality the spatial mode is the sharpen alone (none at sharpness 0) and temporal "
@@ -1232,19 +1235,25 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
          "frames elsewhere) and "
          "moves a factor between `minScale` and `maxScale` so the frame time stays at `targetMs` (0 or null: one "
-         "refresh of the display, 60 Hz "
-         "where the platform cannot tell). The factor multiplies window.renderScale and the upscaler's quality scale "
+         "refresh of the display: the rate the OS reports for the monitor the window is on, else one estimated from "
+         "the time between presented frames, else 60 Hz; see refreshHz). The factor multiplies window.renderScale and "
+         "the upscaler's quality scale "
          "(never below 0.25), on a "
          "grid of 32 steps, at most twice a second. Off (the default) draws at the fixed render scale, exactly as "
          "before. With no argument it "
          "returns the setting; with any key it changes those and keeps the rest. Example: render.dynamic_resolution "
          "{\"enabled\":true,\"targetMs\":16.7,\"minScale\":0.6} The reasoning and the limits: docs/UPSCALING.md, "
          "\"Dynamic resolution\"." FA_COMMAND_DETAILS
-         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, changed}: scale "
-         "is the factor in force "
+         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, refreshHz, "
+         "refreshSource, changed}: scale is the factor in force "
          "(1 while off), frameMs the smoothed measured frame time (0 until measured), source what is measured "
          "(\"gpu\", \"interval\", "
-         "\"injected\", \"none\"). The renderer makes its images again only when the factor steps. The start value is "
+         "\"injected\", \"none\"). refreshHz is the display refresh rate a targetMs of 0 follows (rounded to 0.1 Hz, "
+         "reported while off too) and refreshSource where it comes from: \"platform\" (the OS: macOS and iOS "
+         "maximumFramesPerSecond, the Windows display mode, the Linux XRandR mode, Android Display.getRefreshRate), "
+         "\"estimated\" (the median time between presented frames, where the OS does not say: the web), \"default\" "
+         "(60: no window, as with graphics=false, vsync off, window.frameCap set, or the estimate still measuring). "
+         "The renderer makes its images again only when the factor steps. The start value is "
          "factoria.json "
          "\"render\": {\"dynamicResolution\": {...}}; window.dynamicResolution in scripts is the same setting. A wrong "
          "key or number fails "
@@ -1276,6 +1285,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             out["scale"] = std::round(double(st.scale) * 1000.0) / 1000.0;
             out["frameMs"] = std::round(st.frameMs * 10.0) / 10.0;
             out["source"] = std::string(st.source);
+            out["refreshHz"] = std::round(st.refreshHz * 10.0) / 10.0;
+            out["refreshSource"] = std::string(st.refreshSource);
             out["changed"] = changed;
             return out;
         });

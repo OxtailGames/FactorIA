@@ -45,6 +45,10 @@ struct FeatureEnv {
     int maxTextureSize = 0;
     int maxArrayLayers = 0;
     int maxArrayTextureSize = 0;
+    // metalfx: Apple's upscalers can run here (the Metal backend, an OS and a GPU that have them), and why not (metalfx::support()). Asked by
+    // feature_env_from_sokol on Metal only; a FeatureEnv made by hand says no.
+    bool metalfx = false;
+    std::string metalfxWhy;
 };
 
 // The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
@@ -69,7 +73,7 @@ struct FeatureDef {
     FeatureKind kind;
     unsigned backends;  // bit (1 << FeatureBackend) of every backend the feature can ever run on
     const char*
-        needs;  // "": nothing; "half", "r11g11b10", "depth", "compute", "float32", "half+depth": what the GPU must also report
+        needs;  // "": nothing; "half", "r11g11b10", "depth", "compute", "float32", "half+depth", "metalfx": what the GPU must also report
     const char*
         planned;  // nullptr: the engine draws/does it; else the milestone it is planned in ("M71"), and it answers false
     const char* doc;  // one sentence: what it is and what it costs
