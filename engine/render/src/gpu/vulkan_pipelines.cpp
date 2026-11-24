@@ -156,9 +156,7 @@ bool uses_src1(BlendFactor f) {
 
 // BlendOp's values are VkBlendOp's plus one (Add = 1 .. Max = 5), CompareFunc's VkCompareOp's plus one (Never = 1 ..
 // Always = 8), StencilOp's VkStencilOp's plus one (Keep = 1 .. DecrWrap = 8).
-VkBlendOp blend_op(BlendOp op) {
-    return op == BlendOp::Default ? VK_BLEND_OP_ADD : VkBlendOp(std::uint32_t(op) - 1u);
-}
+VkBlendOp blend_op(BlendOp op) { return op == BlendOp::Default ? VK_BLEND_OP_ADD : VkBlendOp(std::uint32_t(op) - 1u); }
 VkCompareOp compare_op(CompareFunc f) {
     return VkCompareOp(std::uint32_t(f == CompareFunc::Default ? CompareFunc::Always : f) - 1u);
 }
@@ -505,9 +503,8 @@ std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const Sh
     for (int i = 0; i < kMaxUniformBlocks; ++i)
         if (info.uniformSize[i] != 0) layout->uniformOrder[n++] = std::uint8_t(i);
     layout->uniformCount = n;
-    std::sort(layout->uniformOrder, layout->uniformOrder + n, [&](std::uint8_t a, std::uint8_t b) {
-        return layout->uniformBinding[a] < layout->uniformBinding[b];
-    });
+    std::sort(layout->uniformOrder, layout->uniformOrder + n,
+              [&](std::uint8_t a, std::uint8_t b) { return layout->uniformBinding[a] < layout->uniformBinding[b]; });
 
     for (std::size_t s = 0; s < 2; ++s) {
         std::sort(sets[s].begin(), sets[s].end(),
@@ -716,7 +713,8 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
         VkVertexInputBindingDescription d{};
         d.binding = std::uint32_t(b);
         d.stride = s;
-        d.inputRate = bl.stepFunc == VertexStep::PerInstance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
+        d.inputRate =
+            bl.stepFunc == VertexStep::PerInstance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
         out.bindings.push_back(d);
     }
 
@@ -749,8 +747,8 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
             return what + " cannot be multisampled on this GPU (hint: pixel_format_caps(format).msaa says which "
                           "formats can; sampleCount 1)";
         if (c.blend.enabled && !features.dualSourceBlending &&
-            (uses_src1(c.blend.srcFactorRgb) || uses_src1(c.blend.dstFactorRgb) ||
-             uses_src1(c.blend.srcFactorAlpha) || uses_src1(c.blend.dstFactorAlpha)))
+            (uses_src1(c.blend.srcFactorRgb) || uses_src1(c.blend.dstFactorRgb) || uses_src1(c.blend.srcFactorAlpha) ||
+             uses_src1(c.blend.dstFactorAlpha)))
             return what + " blends with a Src1 factor, and this GPU has no dual-source blending (hint: "
                           "Features::dualSourceBlending says where it has)";
         colorFormats[i] = f;
@@ -759,7 +757,8 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
         bt.blendEnable = c.blend.enabled ? VK_TRUE : VK_FALSE;
         // The factors of a target that does not blend are left at their defaults, so they do not make two targets
         // differ.
-        bt.srcColorBlendFactor = c.blend.enabled ? blend_factor(c.blend.srcFactorRgb, BlendFactor::One) : VK_BLEND_FACTOR_ONE;
+        bt.srcColorBlendFactor =
+            c.blend.enabled ? blend_factor(c.blend.srcFactorRgb, BlendFactor::One) : VK_BLEND_FACTOR_ONE;
         bt.dstColorBlendFactor =
             c.blend.enabled ? blend_factor(c.blend.dstFactorRgb, BlendFactor::Zero) : VK_BLEND_FACTOR_ZERO;
         bt.colorBlendOp = c.blend.enabled ? blend_op(c.blend.opRgb) : VK_BLEND_OP_ADD;
@@ -793,7 +792,8 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
         desc.depth.compare == CompareFunc::Default ? CompareFunc::Always : desc.depth.compare;
     VkPipelineDepthStencilStateCreateInfo& ds = out.depthStencil;
     ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    ds.depthTestEnable = hasDepth && (depthCompare != CompareFunc::Always || desc.depth.writeEnabled) ? VK_TRUE : VK_FALSE;
+    ds.depthTestEnable =
+        hasDepth && (depthCompare != CompareFunc::Always || desc.depth.writeEnabled) ? VK_TRUE : VK_FALSE;
     ds.depthWriteEnable = hasDepth && desc.depth.writeEnabled ? VK_TRUE : VK_FALSE;
     ds.depthCompareOp = compare_op(depthCompare);
     ds.stencilTestEnable = hasStencil && desc.stencil.enabled ? VK_TRUE : VK_FALSE;
@@ -888,7 +888,8 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
     // The pipeline's key: every value of the state but the pointers (the code and the layout are keyed by the caller).
     KeyText& k = out.key;
     for (const VkVertexInputBindingDescription& d : out.bindings)
-        for (std::uint64_t v : {std::uint64_t(d.binding), std::uint64_t(d.stride), std::uint64_t(d.inputRate)}) k.add(v);
+        for (std::uint64_t v : {std::uint64_t(d.binding), std::uint64_t(d.stride), std::uint64_t(d.inputRate)})
+            k.add(v);
     k.add("|");
     for (const VkVertexInputAttributeDescription& e : out.attributes)
         for (std::uint64_t v :
@@ -897,10 +898,10 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
     k.add("|");
     for (int i = 0; i < colorCount; ++i) {
         const VkPipelineColorBlendAttachmentState& bt = out.blends[i];
-        for (std::uint64_t v :
-             {std::uint64_t(bt.blendEnable), std::uint64_t(bt.srcColorBlendFactor), std::uint64_t(bt.dstColorBlendFactor),
-              std::uint64_t(bt.colorBlendOp), std::uint64_t(bt.srcAlphaBlendFactor), std::uint64_t(bt.dstAlphaBlendFactor),
-              std::uint64_t(bt.alphaBlendOp), std::uint64_t(bt.colorWriteMask)})
+        for (std::uint64_t v : {std::uint64_t(bt.blendEnable), std::uint64_t(bt.srcColorBlendFactor),
+                                std::uint64_t(bt.dstColorBlendFactor), std::uint64_t(bt.colorBlendOp),
+                                std::uint64_t(bt.srcAlphaBlendFactor), std::uint64_t(bt.dstAlphaBlendFactor),
+                                std::uint64_t(bt.alphaBlendOp), std::uint64_t(bt.colorWriteMask)})
             k.add(v);
     }
     k.add("|");
