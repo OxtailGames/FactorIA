@@ -562,7 +562,18 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gdeflate-vectors"
           FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 FA_GDEFLATE_VECTORS_DIR="$RUNNER_TEMP/gdeflate-vectors" \
             "$tests" "-tc=gdeflate: test vectors*,directstorage*"
-          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*"
+          # A runtime that loaded but refuses the WARP device (its D3D12 queue, the file or a request) is not a failure even
+          # with FA_DIRECTSTORAGE_REQUIRE=1 (WARP is not a GPU DirectStorage has to serve): the cases check the CPU
+          # fallback and say so in a MESSAGE, which becomes a warning on the run here, so that nobody reads it as covered.
+          log="$RUNNER_TEMP/d3d12-pack-reads.log"
+          status=0
+          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*" > "$log" 2>&1 || status=$?
+          cat "$log"
+          refused=$(tr -d '\r' < "$log" | grep -m1 -o "DirectStorage loaded but did not write this WARP device.*" || true)
+          if [ -n "$refused" ]; then
+            echo "::warning title=DirectStorage refused WARP::render's d3d12 pack reads checked the CPU fallback, not DirectStorage's writes: $refused"
+          fi
+          exit "$status"
 
       # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
       - name: Display resolution for the editor autotest
