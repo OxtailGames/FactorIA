@@ -131,14 +131,26 @@ public:
     // frame's. False (nothing drawn: `out` is untouched) when the shaders or the history are not available; the caller then stretches.
     bool upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out);
 
-    // True from the first failure (shader that did not compile, history the GPU or the budget refused) to release(): a camera then draws
-    // without TAA and without the jitter. ready() compiles the shaders on its first call (the renderer calls it before it jitters a camera).
+    // True from the first failure (shader that did not compile, history of a camera the GPU or the budget refused) to release() or the
+    // next forget_targets(): a camera then draws without TAA and without the jitter. ready() compiles the shaders on its first call (the
+    // renderer calls it before it jitters a camera).
     bool unavailable() const { return state_ < 0 || refused_; }
+    // The same for the temporal upscaler (M76-P4): a history of the output size that was refused stops the upscaler only, not the
+    // cameras that antialias themselves (they have their own, smaller, histories and their own flag).
+    bool upscale_unavailable() const { return state_ < 0 || upscaleRefused_; }
     bool ready();
+
+    // Makes (or keeps) the upscaler's history for an output of outW x outH now, before the frame is jittered for it: false when the budget or
+    // the GPU refuse it (logged once, upscale_unavailable() is then true), so the frame is drawn without the jitter and goes through the
+    // spatial upscaler instead of being drawn jittered and never resolved. Cheap when the history exists.
+    bool reserve_upscale(int outW, int outH);
+    // Tests: the bytes the histories of all the cameras and of the upscaler may take together (0: the default, 1 GB; 256 MB on wasm32).
+    void set_budget(std::uint64_t bytes) { budgetOverride_ = bytes; }
 
     // Frees the history of every camera that did not run a resolve in the frame before `serial` (a camera with another stack, a closed window).
     void sweep(std::uint64_t serial);
-    // Drops what a camera accumulated: its next frame shows its own picture (0: every camera). The editor calls it when the pipeline changes.
+    // Drops what a camera accumulated: its next frame shows its own picture (0: every camera). Nothing calls it today: the history restarts by
+    // itself when the plan says it does not hold (a cut, a scene, a shift of the origin, a size); it is the hook for a caller that knows better.
     void reset(std::uint64_t camKey = 0);
     // Tests and the debug output: the history images alive, whether the last frame of `camKey` blended with its history (false: it started
     // a new one), how often a history was started, and the format the histories use.
@@ -180,8 +192,10 @@ private:
     };
     sg_shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
-    int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
-    bool refused_ = false;
+    int state_ = 0;                // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
+    bool refused_ = false;         // a camera's history was refused (budget or GPU)
+    bool upscaleRefused_ = false;  // the temporal upscaler's was
+    std::uint64_t budgetOverride_ = 0;
     bool forceRgba8_ = false;
     bool warnedFormat_ = false;
     int resets_ = 0;

@@ -136,8 +136,6 @@ double mean_abs_err(const Image& a, const Image& b) {
     return sum / double(a.width * a.height);
 }
 
-}  // namespace
-
 // The sum of the squared horizontal differences: the steeper the edges, the bigger.
 double gradient_energy(const Image& img) {
     double e = 0.0;
@@ -161,6 +159,8 @@ int max_diff(const Image& a, const Image& b) {
         }
     return worst;
 }
+
+}  // namespace
 
 // A gray picture with a rotated rectangle whose edge is blurred (Shape2D.softness): something a sharpen has to work on.
 struct SoftPattern {

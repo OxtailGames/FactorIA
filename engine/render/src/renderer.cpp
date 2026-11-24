@@ -113,7 +113,9 @@ void DebugDraw::clear() {
 // The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on, the renderer draws that effect
 // (post_drawn_mask), the camera is one of the game's frame (`mainFrameCamera`: a CameraView, a render-target camera and a capture draw
 // no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
-// forced it (jitterForce).
+// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready()` compiles the two
+// programs the first time (a sokol resource creation, valid outside a pass), but only for a camera whose stack has TemporalAA that the
+// renderer draws, and on the thread that owns the GPU context (update and the frame run on it); a game without the effect never compiles them.
 int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     // M76-P4: the temporal upscaler jitters the frame's one camera by the sequence render() chose for the upscale ratio, whatever its stack.
     if (temporalPhases > 0 && mainFrameCamera) return std::min(temporalPhases, kJitterPhasesMax);
@@ -1246,8 +1248,25 @@ void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSi
 }
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }
+bool RendererTestAccess::taa_upscale_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.upscale_unavailable(); }
+void RendererTestAccess::taa_set_budget(Renderer& r, std::uint64_t bytes) {
+    if (r.impl_) r.impl_->taa.set_budget(bytes);
+}
 void RendererTestAccess::taa_force_rgba8(Renderer& r, bool force) {
     if (r.impl_) r.impl_->taa.force_rgba8(force);
+}
+render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
+    render::OutputTargetsInfo o;
+    if (!r.impl_) return o;
+    const Renderer::Impl& im = *r.impl_;
+    o.out = im.outTarget.valid();
+    o.outDepth = o.out && im.outTarget.depth.id != 0;
+    o.filter = im.outFilterTarget.valid();
+    o.spatial = im.spatialTarget.valid();
+    o.outW = im.outTarget.w;
+    o.outH = im.outTarget.h;
+    o.outSamples = im.outTarget.samples;
+    return o;
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {
@@ -1405,7 +1424,13 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalPhases = temporalBlocked ? 0 : wantedPhases;
     lastCams = collect_cameras(world);
     const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
-    if (wantedPhases > 0 && temporalPhases != (oneFullCamera ? wantedPhases : 0)) {
+    // The history of the output size is made before the cameras are jittered: a budget or a GPU that refuses it decides this frame (no jitter,
+    // the spatial upscaler), not the frame after a jittered picture that nothing resolves.
+    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH)) {
+        wantedPhases = 0;
+        mfxFrame = false;
+    }
+    if (temporalPhases != (oneFullCamera ? wantedPhases : 0)) {
         temporalPhases = oneFullCamera ? wantedPhases : 0;
         lastCams = collect_cameras(world);
     }
@@ -1460,24 +1485,14 @@ void Renderer::Impl::render(World& world, float dt) {
 
     // The upscale stage (M76-P3a) draws the screen-space items over the upscaled picture, at the output size, when no pass after them in the
     // old order (renderer_draw.cpp, build_graph) would have changed their pixels. The glyphs are rasterized for the size they are drawn at,
-    // so this is decided before the gather. The bloom is the only effect that reaches items drawn in the game image (bloomScreenSpace): the
-    // effects that put them over the bloom (bloomScreenSpace false, the scene-colour effects) or over the final pass leave them alone.
-    // The scene-colour effects are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
-    hudAtOutput = false;
-    if (upscale_active() && !lastCams.empty()) {
-        const CameraInfo& fc = lastCams.front();
-        const bool linearScene = world.settings().colorSpace == ColorSpace::Linear;
-        bool anyFinal = false;
-        for (const JobSpec& sp : specs)
-            anyFinal =
-                anyFinal ||
-                (sp.world &&
-                 make_post_plan(sp.cam, linearScene, forceEffects, world.frame(), renderScale, &fc).final_pass());
-        const bool glows = fc.bloom.enabled && fc.bloom.intensity > 0.0f && fc.bloom.screenSpace && !anyFinal;
-        hudAtOutput =
-            !glows && (!anyFinal || ensure_filter_target()) &&
-            ensure_output_target(outTarget, "output", anyFinal ? gpu.display_format() : gameTarget.format.color, true);
-    }
+    // so this is decided before the gather (decide_hud_at_output). The bloom is the only effect that reaches items drawn in the game image
+    // (bloomScreenSpace): the effects that put them over the bloom or over the final pass leave them alone, but the scene-colour effects
+    // are not known here, so a glowing HUD stays in the game image whatever the camera's other effects are.
+    hudAtOutput = decide_hud_at_output(world);
+    // A stage that is off keeps no output image: the pictures of a game that has the player's render scale back at 1 (or a window that
+    // grew to the render size) are freed here, once, instead of staying with the targets.
+    if (!upscale_active() && (outTarget.color.id || outFilterTarget.color.id || spatialTarget.color.id))
+        free_output_targets();
 
     std::vector<Frame> frames(specs.size());
     std::vector<Frame> targetFrames;        // one per Camera.renderTarget, in targetCams order
