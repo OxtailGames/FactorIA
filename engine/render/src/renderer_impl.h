@@ -90,9 +90,11 @@ struct Renderer::Impl {
     bool anyFrameRendered = false;
     int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
-    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same): destroy_targets keeps
-    // what does not depend on the render size (the cameras' adapted exposure, the CameraView and render-target images, the temporal
-    // upscaler's history at the output size) and frees the rest.
+    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same):
+    // destroy_targets keeps what does not depend on the render size (the cameras' adapted exposure, the temporal
+    // upscaler's history at the output size) and the slots of the CameraView and render-target images (view_image
+    // makes an image again only when its pixel size changes: a CameraView's size follows renderScale, so a step
+    // makes it again at its next draw; a render target's has its own size and survives) and frees the rest.
     bool scaleStepOnly = false;
     float renderBaseScale =
         1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
@@ -893,6 +895,8 @@ struct Renderer::Impl {
     }
     // GPU frame times the timer resolved while the renderer polled it for pass times, kept for take_gpu_ms().
     std::vector<double> gpuFrames;
+    std::vector<double>
+        testGpuFrames;  // GPU frame times a test injected; poll_gpu_frames hands them out as the timer's
     void
     poll_gpu_frames();  // reads the timer's answers into gpuFrames and, while the dynamic resolution asks, gpuFrameMs
     bool passHooksSet = false;      // begin_frame_graph() gave the graph its pass hooks

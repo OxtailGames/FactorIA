@@ -43,9 +43,13 @@ const std::vector<std::string>& upscaler_modes();
 const std::vector<std::string>& upscaler_qualities();
 
 // The settings of `json` (a parsed factoria.json). Missing keys are the defaults; a wrong value is an error naming its place.
-Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std::string& file = "factoria.json");
+// `round` (the editor's model, the default) rounds targetMs to tenths and minScale / maxScale to hundredths, the steps
+// of its sliders; the command project.graphics reads with `round` false and so never rewrites a number it was not asked
+// to.
+Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std::string& file = "factoria.json",
+                                                     bool round = true);
 // Reads <projectDir>/factoria.json.
-Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir);
+Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir, bool round = true);
 
 // Every problem of `s`, each with its pointer (empty = fine). Nothing is saved or changed.
 std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSettings& s);

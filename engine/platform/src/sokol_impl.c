@@ -196,9 +196,9 @@ typedef struct {
     int n;
 } fa_win_mons;
 
-// The refresh rate of monitor `h` in Hz: the frequency of its current display mode. Windows answers 0 or 1 for "the hardware's
-// default", which says nothing: 0 (unknown). It rounds the NTSC rates down to whole numbers (59.94 Hz is 59): a frequency one
-// below a multiple of 24 or 30 is taken as that multiple / 1.001.
+// The refresh rate of monitor `h` in Hz: the frequency of its current display mode. Windows answers 0 or 1 for "the
+// hardware's default", which says nothing: 0 (unknown). It rounds the NTSC rates down to whole numbers (59.94 Hz is
+// 59): a frequency one below a multiple of 24 or 30 is taken as that multiple / 1.001.
 static double fa_win_monitor_hz(HMONITOR h) {
     MONITORINFOEXW info;
     DEVMODEW mode;
@@ -310,8 +310,8 @@ typedef struct {
     double hz;  // 0: unknown
 } fa_x11_mon;
 
-// The refresh rate of mode `id` of `res` in Hz, the way xrandr computes it (a double-scan mode draws each line twice, an
-// interlaced one half the lines per field). 0: no such mode, or no timings.
+// The refresh rate of mode `id` of `res` in Hz, the way xrandr computes it (a double-scan mode draws each line twice,
+// an interlaced one half the lines per field). 0: no such mode, or no timings.
 static double fa_xrr_mode_hz(const fa_xrr_resources* res, XID id) {
     for (int i = 0; i < res->nmode; i++) {
         const fa_xrr_mode_info* m = &res->modes[i];
@@ -429,9 +429,9 @@ static int fa_x11_current(const fa_x11_mon* list, int count) {
     return current;
 }
 
-// The refresh rate of the mode in use under the window's centre (0: unknown). The engine asks every two seconds, so this reads only the
-// CRTCs (one XRandR resources query and one call per CRTC), not the whole monitor list with names, outputs and the primary's move. A
-// window on no CRTC gets the first one that shows something.
+// The refresh rate of the mode in use under the window's centre (0: unknown). The engine asks every two seconds, so
+// this reads only the CRTCs (one XRandR resources query and one call per CRTC), not the whole monitor list with
+// names, outputs and the primary's move. A window on no CRTC gets the first one that shows something.
 static double fa_x11_window_hz(void) {
     if (!fa_xrr_load()) return 0.0;
     fa_xrr_resources* res = fa_XRRGetScreenResourcesCurrent(_sapp.x11.display, _sapp.x11.root);
