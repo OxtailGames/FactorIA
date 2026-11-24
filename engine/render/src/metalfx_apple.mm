@@ -19,6 +19,10 @@
 #include <memory>
 #include <mutex>
 
+// engine/platform/src/sokol_impl_apple.m: sokol's command buffer for the passes recorded from now on (it makes one when there is none yet).
+// sokol hands out only the encoder of a pass, and the event waits below belong to a command buffer.
+extern "C" const void* fa_sg_mtl_command_buffer(void);
+
 namespace fa::render::metalfx {
 
 namespace {
@@ -148,11 +152,14 @@ struct CommandStatus {
 };
 
 struct Scaler::Impl {
-    std::shared_ptr<CommandStatus> status = std::make_shared<CommandStatus>();
+    std::shared_ptr<CommandStatus> status;  // made by the first encode (a scaler that never encodes allocates none)
     Desc desc;
     bool valid = false;
     int generation = 0;
     int encoded = 0;
+    // The order between the passes that draw the inputs, MetalFX and the passes that read its output (Scaler::encode). Values only grow.
+    id<MTLSharedEvent> event = nil;
+    uint64_t eventValue = 0;
     // id<MTLFXSpatialScaler> / id<MTLFXTemporalScaler>: typed `id` so that the members need no availability guard.
     id spatial = nil;
     id temporal = nil;
@@ -178,7 +185,9 @@ Scaler::Scaler() : impl_(std::make_unique<Impl>()) {}
 Scaler::~Scaler() { release(); }
 
 void Scaler::release() {
-    impl_->status = std::make_shared<CommandStatus>();  // a buffer still in flight reports to the old one
+    impl_->status.reset();  // a buffer still in flight reports to the old one (it holds its own reference); the next encode makes a new one
+    impl_->event = nil;     // the buffers in flight keep it alive
+    impl_->eventValue = 0;
     impl_->spatial = nil;
     impl_->temporal = nil;
     impl_->valid = false;
@@ -192,6 +201,7 @@ int Scaler::generation() const { return impl_->generation; }
 int Scaler::encoded() const { return impl_->encoded; }
 
 bool Scaler::command_failed(std::string* why) const {
+    if (!impl_->status) return false;
     CommandStatus& st = *impl_->status;
     if (!st.failed.load(std::memory_order_acquire)) return false;
     if (why) {
@@ -313,6 +323,11 @@ id<MTLTexture> checked_texture(sg_image image, const char* what, int w, int h, c
     return tex;
 }
 
+// The value of `event` is at least `value` (the GPU may have signalled it already, and may be about to signal more: never lower it).
+void signal_at_least(id<MTLSharedEvent> event, uint64_t value) {
+    if (event.signaledValue < value) event.signaledValue = value;
+}
+
 }  // namespace
 #endif
 
@@ -362,20 +377,28 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 if (!colorTex || !depthTex || !motionTex || !outputTex) return false;
             }
         }
-        // The split: the sokol passes so far (they wrote `color`) are submitted; the buffer made below goes on the queue behind
-        // them, and the sokol buffer of the passes after this call goes behind it. sokol hands out neither its command buffer
-        // nor a way to commit it other than sg_commit().
-        sg_commit();
-        // MetalFX does not wait for the passes that drew its inputs: queued right behind them it read the picture, the depth and the
-        // motion while the GPU was still writing them, and the output changed from run to run (the same frames hashed differently each
-        // time; with this wait, or a wait for each frame, they hash alike). An empty buffer behind them completes when they have, so the
-        // CPU waits here for the picture's passes (not for the scaler, nor for the passes drawn after it).
-        @autoreleasepool {
-            id<MTLCommandBuffer> fence = [(__bridge id<MTLCommandQueue>)sg_mtl_command_queue() commandBuffer];
-            fence.label = @"metalfx-inputs";
-            [fence commit];
-            [fence waitUntilCompleted];
+        // The split: the sokol passes so far (they wrote `color`, `depth` and `motion`) are submitted; the buffer made below goes on
+        // the queue behind them, and the sokol buffer of the passes after this call goes behind it. The order is made explicit on the
+        // GPU with one shared event (the CPU never waits for the GPU here): the sokol buffer of the earlier passes signals it, the
+        // MetalFX buffer waits for that and signals it again at its end, and the sokol buffer of the later passes waits for that.
+        // Both ends are needed in the code, one of them is the one that matters in the tests: frames queued without any of this
+        // hashed differently from run to run (the test "frames queued without waiting for the GPU", 8 runs of 8 failed), and taking
+        // sokol's buffer of the later passes here, which sokol would otherwise take at their first pass, made them hash alike. Why
+        // that one does it was not isolated (a CPU wait for either side, or a 30 ms sleep, also made them alike; draining the GPU at
+        // the start of each frame did not), so the test, not this comment, is what keeps it true.
+        if (im.event == nil) im.event = [metal_device() newSharedEvent];
+        id<MTLSharedEvent> event = im.event;
+        const uint64_t afterPasses = ++im.eventValue;
+        const uint64_t afterScaler = ++im.eventValue;
+        id<MTLCommandBuffer> before = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
+        if (before == nil) {
+            if (error) *error = "metalfx: sokol has no Metal command buffer (the device was lost?)";
+            return false;
         }
+        [before encodeSignalEvent:event value:afterPasses];
+        // A buffer that fails does not signal: the handler does it for the buffers that wait, so a failed frame cannot stall the queue.
+        [before addCompletedHandler:^(id<MTLCommandBuffer>) { signal_at_least(event, afterPasses); }];
+        sg_commit();
         @autoreleasepool {
             id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)sg_mtl_command_queue();
             id<MTLCommandBuffer> cmd = [queue commandBuffer];
@@ -384,6 +407,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 return false;
             }
             cmd.label = @"metalfx";
+            [cmd encodeWaitForEvent:event value:afterPasses];
             if (d.kind == Kind::Spatial) {
                 id<MTLFXSpatialScaler> s = im.spatial;
                 s.colorTexture = colorTex;
@@ -416,8 +440,10 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 t.motionTexture = nil;
                 t.outputTexture = nil;
             }
+            if (!im.status) im.status = std::make_shared<CommandStatus>();
             std::shared_ptr<CommandStatus> status = im.status;
             [cmd addCompletedHandler:^(id<MTLCommandBuffer> done) {
+                signal_at_least(event, afterScaler);  // a failed buffer does not signal: the later passes must not wait for ever
                 // Another thread (Metal's completion queue). The block captures the shared status, not the scaler, which may be gone by
                 // now. The first error is kept and flagged; Scaler::command_failed hands it to the renderer, which gives MetalFX up with
                 // its one warning (every later buffer of a failed scaler would fail the same way, so the later ones say nothing). A scaler
@@ -428,8 +454,12 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 status->why = done.error ? std::string([[done.error localizedDescription] UTF8String]) : std::string("unknown error");
                 status->failed.store(true, std::memory_order_release);  // after `why`: command_failed reads it when it sees the flag
             }];
+            [cmd encodeSignalEvent:event value:afterScaler];
             [cmd commit];
         }
+        // The sokol buffer of the passes after this call: it starts when MetalFX has written its output.
+        id<MTLCommandBuffer> after = (__bridge id<MTLCommandBuffer>)fa_sg_mtl_command_buffer();
+        if (after != nil) [after encodeWaitForEvent:event value:afterScaler];
         im.encoded += 1;
         return true;
     }

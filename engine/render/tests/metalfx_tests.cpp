@@ -128,6 +128,13 @@ std::vector<std::uint8_t> bilinear_up(const std::vector<std::uint8_t>& in, int i
     return out;
 }
 
+// A read back goes through a command buffer of its own: the frame's sokol buffer must be submitted first (Scaler::encode leaves one open
+// for the passes after it), or the read back waits behind it for ever.
+bool read_back(sg_image image, int w, int h, std::vector<std::uint8_t>& out, std::string* error) {
+    sg_commit();
+    return render::readback_rgba8(image, w, h, out, error);
+}
+
 }  // namespace
 
 TEST_CASE("metalfx: the support answer says what is missing") {
@@ -218,7 +225,7 @@ TEST_CASE(
     REQUIRE_MESSAGE(scaler.encode(f, &error), error);
     CHECK(scaler.encoded() == 1);
     std::vector<std::uint8_t> got;
-    REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+    REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
     const double err = mean_diff(got, reference, outW, outH, 4);
     const double errBilinear = mean_diff(got, bilinear_up(in, inW, inH, outW, outH), outW, outH, 4);
     // The picture a bilinear upscale gives and the scene itself sampled at the output size, within what MetalFX changes (it sharpens;
@@ -260,7 +267,7 @@ TEST_CASE(
     CHECK(!scaler.encode(f, &error));  // the 48x32 colour against a 24x16 scaler
     f.color = color2;
     REQUIRE_MESSAGE(scaler.encode(f, &error), error);
-    REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+    REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
     const double err2 = mean_diff(got, reference, outW, outH, 4);
     CHECK_MESSAGE(err2 < 0.03, "mean error of the 4x spatial upscale: " << std::round(err2 * 10000.0) / 10000.0);
 
@@ -334,7 +341,7 @@ TEST_CASE("metalfx: the temporal scaler with a jitter and no motion converges on
             f.reset = frame == 0;
             REQUIRE_MESSAGE(scaler.encode(f, &error), error);
             std::vector<std::uint8_t> got;
-            REQUIRE_MESSAGE(render::readback_rgba8(out.image, outW, outH, got, &error), error);
+            REQUIRE_MESSAGE(read_back(out.image, outW, outH, got, &error), error);
             const double e = mean_diff(got, reference, outW, outH, 4);
             if (frame == 0) first = e;
             if (frame == 15) err[run] = e;
@@ -439,7 +446,7 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     int wrong = 0;
     for (int i = 0; i < frames; ++i) {
         std::vector<std::uint8_t> px;
-        REQUIRE_MESSAGE(render::readback_rgba8(shown[std::size_t(i)].color, outW, outH, px, &error), error);
+        REQUIRE_MESSAGE(read_back(shown[std::size_t(i)].color, outW, outH, px, &error), error);
         const std::size_t centre = (std::size_t(outH / 2) * outW + outW / 2) * 4;
         const double v = double(px[centre]) / 255.0;
         if (std::abs(v - double(grey[std::size_t(i)])) > 0.03) {
@@ -548,6 +555,7 @@ void moving_pattern_errors(bool vertical, double err[3]) {
             std::vector<std::uint8_t> got;
             {
                 std::vector<float> gf;
+                sg_commit();  // the read back's own command buffer must not queue behind the open sokol one (see read_back)
                 REQUIRE_MESSAGE(render::readback_rgba16f(out.image, outW, outH, gf, &error), error);
                 got.resize(gf.size());
                 for (std::size_t k = 0; k < gf.size(); ++k)
