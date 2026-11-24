@@ -608,7 +608,8 @@ struct PackSource {
 
 // The texel region of one subresource that read_pack_to_image fills: mip `mip` of layer `layer` (array layer, cube
 // face, or depth slice of a 3D image), the rectangle (x, y, width, height). A compressed format's rectangle starts on a
-// 4x4 block and its size is whole blocks, or reaches the mip's edge.
+// 4x4 block and its size is whole blocks, or reaches the mip's edge (a mip smaller than a block, 2x2 say, is read with
+// its own width and height, and the read writes its whole block).
 struct PackImageRegion {
     int mip = 0, layer = 0;
     int x = 0, y = 0, width = 0, height = 0;
@@ -742,8 +743,13 @@ public:
     // The image read's range holds the region as D3D12's copyable footprint: its rows (of texels, or of 4x4 blocks)
     // 256-byte aligned apart, the last row unpadded (fa::detail::direct_texture_bytes). Each read takes a slot
     // (kPackReads in all): the ticket is invalid with ok() when every slot is busy. Until poll_pack_read says the read
-    // finished, the destination must not be used or destroyed (DirectStorage writes it from its own queue). The
-    // resource is left in the COMMON state, which the state tracking knows. Render thread only.
+    // finished, what DirectStorage writes from its own queue must not be used, and the resource must not be destroyed:
+    // a buffer read owns the whole buffer (DirectStorage's queue writes it in COMMON while it reads, so no other queue
+    // may touch any of it); an image read owns its subresource (mip `mip` of layer `layer`; of a 3D image the whole
+    // mip, every depth slice), not only the rectangle, since that subresource is in COMMON for the read. The image's
+    // other mips and layers may be sampled or written meanwhile, through views that leave the read's subresource out
+    // (the state tracking is per subresource; a view of every mip would move it out of COMMON). The resource is left in
+    // the COMMON state, which the state tracking knows. A lost device ends the read with an error. Render thread only.
     static constexpr int kPackReads = 64;
     Result<PackReadTicket> read_pack_to_buffer(const PackSource& src, Buffer buffer, std::size_t dstOffset);
     Result<PackReadTicket> read_pack_to_image(const PackSource& src, Image image, const PackImageRegion& region);

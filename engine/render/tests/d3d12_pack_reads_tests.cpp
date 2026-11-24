@@ -1,7 +1,8 @@
 // The D3D12 backend's pack reads into buffers and textures (src/gpu/d3d12_pack_reads_win32.cpp, M77-P11b2). On Windows
 // every case makes a WARP device with the debug layer. With the DirectStorage DLLs (`factoria setup directstorage`,
 // FA_DIRECTSTORAGE_DIR) the gdeflate cases check that DirectStorage wrote the resource; without them they check the CPU
-// fallback's bytes and say so (MESSAGE), or fail with FA_DIRECTSTORAGE_REQUIRE=1 (the Windows CI job). The fallback
+// fallback's bytes and say so (MESSAGE), or fail with FA_DIRECTSTORAGE_REQUIRE=1 (the Windows CI job). A runtime that
+// loaded but refuses the WARP device (its queue, the file or a request) is a MESSAGE even then. The fallback
 // cases (a pack in memory, an lz4 file, a texture region whose rows do not fill whole blocks) run everywhere D3D12 does.
 // Elsewhere one case checks the footprint the Windows texture case lays its pack out with.
 #include <doctest.h>
@@ -86,13 +87,29 @@ std::string layer_errors(D3d12Device& dev) {
     return s;
 }
 
-// True when a read that could go to DirectStorage did not: says why, and fails with FA_DIRECTSTORAGE_REQUIRE=1.
+// True when a read that could go to DirectStorage did not, and says why; the case then checks the CPU fallback's
+// bytes instead of DirectStorage's counters. FA_DIRECTSTORAGE_REQUIRE=1 (the Windows CI job) fails only when the
+// runtime itself is missing (the DLLs, the factory or its memory queue did not load): a runtime that loaded but did
+// not write this WARP device's resource (its D3D12 queue, the file or a request refused) is a MESSAGE, since WARP is not
+// a GPU DirectStorage has to serve.
 bool direct_missing(D3d12Device& dev) {
     const std::string why = dev.pack_reads_direct_why();
     if (why.empty()) return false;
-    const char* require = std::getenv("FA_DIRECTSTORAGE_REQUIRE");
-    if (require && std::string(require) == "1") FAIL("DirectStorage did not write the resource: " << why);
-    MESSAGE("DirectStorage not used (the CPU fallback was checked instead): " << why);
+    std::string runtimeWhy = "DirectStorage needs a 64-bit build";
+#if defined(_WIN64)
+    const auto available = fa::detail::direct_storage_available();
+    runtimeWhy = available.ok() ? std::string() : available.error().to_string();
+#endif
+    if (!runtimeWhy.empty()) {
+        const char* require = std::getenv("FA_DIRECTSTORAGE_REQUIRE");
+        if (require && std::string(require) == "1")
+            FAIL("DirectStorage did not write the resource, its runtime did not load: " << runtimeWhy);
+        MESSAGE("DirectStorage not used (the CPU fallback was checked instead): " << why);
+    } else {
+        MESSAGE("DirectStorage loaded but did not write this WARP device's resource (the CPU fallback was checked "
+                "instead): "
+                << why);
+    }
     return true;
 }
 
@@ -116,9 +133,9 @@ PackReadResult finish(D3d12Device& dev, PackReadTicket t) {
 }  // namespace
 
 TEST_CASE("d3d12 pack reads: a gdeflate range fills a buffer, whole blocks through DirectStorage") {
+    Scratch s;  // removed after the device, which may hold the pack's DirectStorage file open until it goes
     auto dev = make_warp();
     if (!dev) return;
-    Scratch s;
     const std::vector<std::uint8_t> data = text(std::size_t(4 * B + 1000), 1);
     fa::PackWriter w;
     REQUIRE(w.add_bytes("a/data.bin", data, fa::Codec::GDeflate).ok());
@@ -163,9 +180,9 @@ TEST_CASE("d3d12 pack reads: a gdeflate range fills a buffer, whole blocks throu
 }
 
 TEST_CASE("d3d12 pack reads: a gdeflate texture region fills an RGBA8 image through DirectStorage") {
+    Scratch s;  // removed after the device, which may hold the pack's DirectStorage file open until it goes
     auto dev = make_warp();
     if (!dev) return;
-    Scratch s;
     // 64x2048 RGBA8: rows of 256 bytes, so the copyable footprint has no padding and each block holds 1024 rows.
     const int width = 64, height = 2048;
     const std::vector<std::uint8_t> texels = text(std::size_t(width) * std::size_t(height) * 4, 2);
@@ -200,10 +217,39 @@ TEST_CASE("d3d12 pack reads: a gdeflate texture region fills an RGBA8 image thro
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
-TEST_CASE("d3d12 pack reads: a pack in memory, an lz4 file and a padded texture region take the CPU fallback") {
+TEST_CASE("d3d12 pack reads: the device closes a pack's DirectStorage file once the pack and its reads are gone") {
+    Scratch s;
     auto dev = make_warp();
     if (!dev) return;
-    Scratch s;
+    const std::vector<std::uint8_t> data = text(std::size_t(2 * B), 6);
+    fa::PackWriter w;
+    REQUIRE(w.add_bytes("a/data.bin", data, fa::Codec::GDeflate).ok());
+    REQUIRE(w.write(s.dir / "game.pak").ok());
+    auto opened = fa::PackReader::open(s.dir / "game.pak");
+    REQUIRE(opened.ok());
+    std::shared_ptr<const fa::PackReader> pack = std::move(opened.value());
+    BufferDesc bd;
+    bd.size = std::size_t(2 * B);
+    bd.usage.copySrc = true;
+    bd.usage.copyDst = true;
+    bd.label = "closes";
+    const Buffer buf = dev->make_buffer(bd);
+    REQUIRE(dev->state(buf) == ResourceState::Valid);
+    auto t = dev->read_pack_to_buffer(PackSource{pack, "a/data.bin", 0, 2 * B}, buf, 0);
+    REQUIRE_MESSAGE(t.ok(), (t.ok() ? "" : t.error().to_string()));
+    pack.reset();  // the read holds the pack now, and drops it when it is polled to its end
+    const PackReadResult r = finish(*dev, t.value());
+    CHECK(r.bytes == 2 * B);
+    // Nothing holds game.pak open any more, the device included: Windows lets it be deleted while the device lives.
+    std::error_code ec;
+    CHECK_MESSAGE(std::filesystem::remove(s.dir / "game.pak", ec), ec.message());
+    CHECK(dev->counters().packReadsInFlight == 0);
+}
+
+TEST_CASE("d3d12 pack reads: a pack in memory, an lz4 file and a padded texture region take the CPU fallback") {
+    Scratch s;  // removed after the device, which may hold the pack's DirectStorage file open until it goes
+    auto dev = make_warp();
+    if (!dev) return;
     const std::vector<std::uint8_t> data = text(std::size_t(2 * B + 300), 3);
     // 60x2048 RGBA8: 240-byte rows 256 bytes apart over two blocks, rows that do not fill whole blocks (the padding
     // after a block's last row is in no block): always the CPU.
@@ -271,9 +317,9 @@ TEST_CASE("d3d12 pack reads: a pack in memory, an lz4 file and a padded texture 
 }
 
 TEST_CASE("d3d12 pack reads: contradictions are teaching errors before any GPU work") {
+    Scratch s;  // removed after the device, which may hold the pack's DirectStorage file open until it goes
     auto dev = make_warp();
     if (!dev) return;
-    Scratch s;
     const std::vector<std::uint8_t> data = text(1000, 5);
     fa::PackWriter w;
     REQUIRE(w.add_bytes("a/data.bin", data, fa::Codec::GDeflate).ok());
