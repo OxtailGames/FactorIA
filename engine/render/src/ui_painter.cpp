@@ -79,10 +79,10 @@ UiPainterImpl::~UiPainterImpl() {
     device->destroy_shader(shader);
 }
 
-bool UiPainterImpl::grow(gpu::Buffer& buffer, std::size_t& capacity, std::size_t needed, Kind kind,
-                         const char* label) {
+bool UiPainterImpl::grow(gpu::Buffer& buffer, std::size_t& capacity, std::size_t needed, Kind kind, const char* label) {
     if (buffer.valid() && capacity >= needed) return true;
-    const std::size_t size = std::max(needed, capacity * 2);  // doubling: a growing UI makes a few buffers, not one a frame
+    const std::size_t size =
+        std::max(needed, capacity * 2);  // doubling: a growing UI makes a few buffers, not one a frame
     gpu::BufferDesc d;
     d.size = size;
     d.usage.writeTransient = true;
@@ -260,9 +260,9 @@ bool UiPainterImpl::upload(gpu::CommandList& list, const UiFrame& frame, std::st
         const UiDrawList& l = frame.lists[i];
         const std::size_t v = l.vertexCount > 0 ? std::size_t(l.vertexCount) : 0;
         if (vertices + v > kUiMaxVertices) {
-            set_error(error, "the UI frame has more than " + std::to_string(kUiMaxVertices) + " vertices: " +
-                                 std::to_string(frame.listCount - int(fit)) + " of " + std::to_string(frame.listCount) +
-                                 " draw lists are not drawn");
+            set_error(error, "the UI frame has more than " + std::to_string(kUiMaxVertices) +
+                                 " vertices: " + std::to_string(frame.listCount - int(fit)) + " of " +
+                                 std::to_string(frame.listCount) + " draw lists are not drawn");
             ok = false;
             break;
         }
@@ -273,7 +273,8 @@ bool UiPainterImpl::upload(gpu::CommandList& list, const UiFrame& frame, std::st
     if (fit == 0) return ok;
     if (!grow(vertexBuffer, vertexCapacity, vertices * kUiVertexBytes, Kind::Vertex, "ui2d_vertices") ||
         !grow(indexBuffer, indexCapacity, indexBytes, Kind::Index, "ui2d_indices")) {
-        set_error(error, "the 2D painter could not grow its vertex buffers to " + std::to_string(vertices) + " vertices");
+        set_error(error,
+                  "the 2D painter could not grow its vertex buffers to " + std::to_string(vertices) + " vertices");
         return false;
     }
     std::size_t vOff = 0;
@@ -353,7 +354,8 @@ void UiPainterImpl::draw(gpu::CommandList& list, const gpu::TargetFormat& format
                 boundVertexOffset = cmd.vertexOffset;
                 b.views[0] = gpu::View{cmd.view};
                 b.samplers[0] = cmd.nearest ? nearest : linear;
-                b.vertexBufferOffsets[0] = int(placed[i].vertexByteOffset + std::size_t(cmd.vertexOffset) * kUiVertexBytes);
+                b.vertexBufferOffsets[0] =
+                    int(placed[i].vertexByteOffset + std::size_t(cmd.vertexOffset) * kUiVertexBytes);
                 list.set_bindings(b);
             }
             list.set_scissor(x0, y0, x1 - x0, y1 - y0, true);
