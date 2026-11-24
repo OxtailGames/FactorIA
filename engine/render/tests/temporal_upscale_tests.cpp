@@ -350,6 +350,29 @@ TEST_CASE("temporal upscaler: the stage draws at the render size with the jitter
     CHECK(own.r.effective_upscaler_mode() == UpscalerMode::Temporal);
 }
 
+TEST_CASE(
+    "temporal upscaler: a history the budget refuses is the upscaler's own refusal: the stage goes on with the spatial "
+    "upscaler and the cameras' flag stays clear") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    RendererTestAccess::taa_set_budget(own.r, 1);  // smaller than any history image
+    own.upscale(0.5f);
+    own.frame(s.w, 4);
+    CHECK(RendererTestAccess::taa_upscale_unavailable(own.r));
+    CHECK_FALSE(RendererTestAccess::taa_unavailable(own.r));  // the cameras' temporal antialiasing was never refused
+    CHECK(RendererTestAccess::taa_images(own.r) == 0);
+    CHECK_FALSE(RendererTestAccess::upscale_used_history(own.r));
+    CHECK(RendererTestAccess::upscale_impl(own.r) != int(UpscaleImpl::Temporal));
+    CHECK(own.r.effective_upscaler_mode() != UpscalerMode::Temporal);
+    const Image img = own.capture();
+    CHECK(img.width == kOutW);  // the stage still brings the picture to the output size
+    CHECK(img.height == kOutH);
+    CHECK(has_pass(own.order(), "upscale"));
+}
+
 TEST_CASE("temporal upscaler: quality modes give their render sizes and phase counts, the picture is always the output "
           "size") {
     Gfx& g = gfx();

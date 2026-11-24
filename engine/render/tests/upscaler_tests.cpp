@@ -96,10 +96,13 @@ TEST_CASE("upscaler: plan_upscale_scale multiplies the player's scale by the qua
     CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
     CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
-    CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin)
-                    .stage);  // nothing to upscale or sharpen
+    // The temporal modes at scale 1 draw nothing, but a frame with several cameras makes them spatial (the sharpen): the renderer decides
+    // each frame whether the stage runs (Renderer::upscale_stage), so the flag is on.
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin).stage);
+    CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::MetalFx, kMin).stage);
     CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
 }
 

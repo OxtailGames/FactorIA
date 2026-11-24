@@ -61,6 +61,10 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
 - **The post stack sees a jittered image.** The history is resolved after the post stack, at the end, not before it as the antialiasing
   does: bloom, depth of field, motion blur and the other effects work on the jittered render-size image, and the resolve smooths what they
   leave. That is the price of one seam for every upscaler; thin bright details can shimmer through a strong bloom.
+- **Depth-based effects read a jittered prepass.** The prepass (depth, normals) is drawn with the jittered camera, but the effects that
+  read it (ambient occlusion, reflections, fog, depth of field, motion blur) rebuild positions with the unjittered matrices, so what they
+  compute is off by up to half a render-size pixel from one frame to the next: a faint shimmer on their edges that the resolve mostly
+  averages away. The same holds for the camera's own `TemporalAA`.
 - **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
   (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation, rotation and scale since the
   frame before, per corner) and a particle is marked in the reactive mask, so neither trails much; a change of the sprite's `size` or `region`
@@ -88,7 +92,9 @@ The game is drawn at `window.renderScale` (0.33 to 1, the player's option) times
 
 The upscale stage is on when that scale is below 1, or when the mode that draws is `spatial` and `sharpness` is above 0: at
 scale 1 it is then the sharpen alone (one pass at the window's size, an extra cost the `stretch` mode never has; set
-`sharpness` 0 for none). The `temporal` mode at scale 1 draws nothing extra (nothing to upscale; turn `temporalAAEnabled` on for antialiasing). The HUD, the UI and the debug text are drawn after the stage at the window's size, so text stays sharp
+`sharpness` 0 for none). The `temporal` and `metalfx` modes (so `auto`, where it picks one of them) at scale 1 draw nothing extra: there is nothing to
+upscale and no sharpen (turn `temporalAAEnabled` on for antialiasing), so a game on `auto` at `native` quality is drawn as `stretch`
+is. A frame with several cameras makes them `spatial` (the section on the temporal upscaler), and the sharpen then runs at scale 1 too. The HUD, the UI and the debug text are drawn after the stage at the window's size, so text stays sharp
 (unless a screen-space bloom would make them glow: docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", repository only, not in the binary).
 `game.render_stats` reports the size the game is drawn at (`width`, `height`) and the scale it used (`renderScale`);
 `window.upscaler.scale` is the quality's own scale. A size held from outside (`--render-scale` of the CLI, the video recorder, a
@@ -118,12 +124,16 @@ image the stage already needs and one more between the two passes (the same form
 is one pass of one read per pixel and no extra image. The first frame after turning the mode on compiles the two programs.
 If they cannot compile on a backend (logged once) the stage scales up with the plain copy, so the game is never left without a picture.
 
-| Backend | Spatial | Notes |
-|---|---|---|
-| OpenGL, GLES3, WebGL2 | yes | fragment passes with `texelFetch` |
-| D3D11 | yes | same |
-| Metal | yes | same; MetalFX is a separate mode |
-| No renderer (`graphics=false`) | nothing is drawn | `effectiveMode` is what a GPU would draw: `stretch` for pixel-perfect projects, else per the setting |
+| Backend | Spatial | Temporal | MetalFX | Notes |
+|---|---|---|---|---|
+| OpenGL, GLES3, WebGL2 | yes | yes | no | fragment passes with `texelFetch` (spatial); two fragment passes (temporal); without half-float targets the temporal history is 8 bits per channel |
+| D3D11 | yes | yes | no | same |
+| Metal | yes | yes | where the OS and the GPU have it (macOS 13, iOS 16) | `auto` picks MetalFX there, else temporal; the passes are the same ones |
+| No renderer (`graphics=false`) | nothing is drawn | nothing is drawn | nothing is drawn | `effectiveMode` is what a GPU would draw: `stretch` for pixel-perfect projects, else per the setting |
+
+A history that the GPU cannot make (the memory budget of the temporal histories, a window too large for it) draws the frames with the spatial
+upscaler instead, from the first one (the history is asked for before the camera is jittered), with one log line that names the size;
+`effectiveMode` says `spatial` until the window size or the render scale changes. The camera's own `TemporalAA` is not affected by that refusal.
 
 ## MetalFX (Apple GPUs)
 

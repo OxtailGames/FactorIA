@@ -371,6 +371,7 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 
 - **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).
+- **Motion vectors, jitter and temporal antialiasing** (M76: the velocity image, the camera jitter, the temporal passes' history, the texture LOD bias) are on the page [rendering, motion vectors and temporal antialiasing](ARCHITECTURE_RENDERING_TEMPORAL.md).
 
 ## Upscale stage (M76)
 
@@ -411,21 +412,29 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   drawn over its result, `hudAfterPost`), or no bloom at all. A bloom with `bloomScreenSpace` true and no final pass makes the HUD
   glow, so the HUD stays in the game image at the render resolution and is scaled up with it: a game's look does not change unless it
   opts in (`bloomScreenSpace` false for the sharp HUD). The glyphs are rasterized for the size they are drawn at, so `render_world`
-  decides it before the gather (`Impl::hudAtOutput`, which makes `Frame::screenScale` 1 instead of `renderScale`) from the first
-  camera's bloom and every camera's `make_post_plan(...).final_pass()`; the scene-colour effects (reflections, shafts, depth of field,
-  motion blur, volumetrics, subsurface, HDR custom passes) are not known there, so with a glowing bloom and one of them the HUD stays in
-  the game image too. `plan_job` repeats the check on the finished plans before it sets `DrawContext::hudOut`. The stage still runs in
-  the other case: `upscale` brings the image to the design size, and no `hud-over-upscale` pass exists.
+  decides it before the gather (`Impl::decide_hud_at_output`, which sets `Impl::hudAtOutput` and makes `Frame::screenScale` 1 instead of
+  `renderScale`). It looks at the cameras whose rectangle has a pixel (the ones `plan_job` plans; the first of them gives the bloom and
+  the colour filter), and counts a final pass or a colour filter only when the post program is ready (`gpu.post_ready()`), as `plan_job`
+  does. The scene-colour effects (reflections, shafts, depth of field, motion blur, volumetrics, subsurface, HDR custom passes) and a
+  custom pass after the tonemap are not known there: with a glowing bloom and one of them the HUD stays in the game image too, and the
+  other mismatch can only be the reverse (the answer here is yes and `plan_job`'s is no), which draws the glyphs at the output scale
+  into the game image, so they are oversampled and still right (the geometry is in design units). `plan_job` repeats the check on the
+  finished plans, with the items it gathered, before it sets `DrawContext::hudOut`. The stage still runs in the other case: `upscale`
+  brings the image to the design size, and no `hud-over-upscale` pass exists.
 - **Frame graph.** In the last main job (the one that owns the screen items, `plan.last`), after the post stack and the final
   pass: `upscale` (game image -> `outTarget`, the design size, 1 sample, the format of the game image or the display format after
   the final pass) and, when `hudOut`, `hud-over-upscale` (the HUD, drawn at `outTarget` size with `physW/physH` and
   the scale temporarily swapped to the output's and `renderScale` 1, so label and UI text are rastered at output size; a
   CameraView image keeps its size of design size * `renderScale`, so the render scale still saves that work). With a colour filter
   the HUD is drawn first and the filter after it (`output-color-filter`), so it covers the HUD like it does in the other paths. With
-  `hudOut` the screen items do not draw into the game image (no `hud-over-bloom` or `hud-over-post` pass is declared for them). `outTarget` is
-  made (with its depth) by `render_world`, for the format the picture has when it reaches the stage; when it cannot be made
-  the frame is drawn as without the stage: the HUD in the game image, shown at the render resolution (error logged). View and
-  capture jobs (`plan.view`) never use the stage.
+  `hudOut` the screen items do not draw into the game image (no `hud-over-bloom` or `hud-over-post` pass is declared for them), and a job
+  that has no world (the screen job of a split frame) has no main pass at all (`doMainPass = wantWorld`). `outTarget` is made in the format
+  the picture has when it reaches the stage (`Impl::ensure_hud_output`: `render_world` without a depth image, as the decision needs only
+  the format; `plan_job` with it, once there are items to draw, and the depth is kept after that), together with the render-resolution
+  `filterTarget` of a final pass and the `outFilterTarget` of a colour filter. When one cannot be made the frame is drawn as without the
+  stage's HUD: the items in the game image, shown at the render resolution (error logged). The glyphs of the 2D items and the UI are
+  rasterized at the output size and drawn with 1 sample (`outTarget` is not multisampled): the edges of a sprite or a panel are not
+  antialiased by MSAA there as they are in the game image, but they are drawn at the output size, which is finer. View and capture jobs (`plan.view`) never use the stage.
 - **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
   `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
   the design size and include the HUD.
@@ -454,7 +463,8 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   writes RGB). Not done: a mip bias for the textures (sokol samplers have none; it would need a per-frame uniform and a change at
   every `texture()` of `mesh_common.glsl`, terrain, foliage and the custom materials).
 - **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter, plus `spatialTarget` for the spatial
-  mode with a sharpen over a resize) while the stage applies; freed by
-  `set_upscale_stage(false)` and `destroy_targets`. The pipelines for the output formats are created the first time the stage
-  draws, so the first frame after turning it on can hitch once. If the output image cannot be created the stage is skipped for
-  that frame (error logged) and the HUD is not drawn in it.
+  mode with a sharpen over a resize) while the stage applies; freed by `set_upscale_stage(false)`, by the first frame that finds the
+  stage inactive (`render_world`: the render scale went back to 1, the window shrank to the render size) and by `destroy_targets`. The
+  pipelines for the output formats are created the first time the stage draws, so the first frame after turning it on can hitch once.
+  If the output image cannot be created the stage is skipped for that frame (error logged): the picture is shown at the render
+  resolution and the HUD stays in it, drawn as it is without the stage.

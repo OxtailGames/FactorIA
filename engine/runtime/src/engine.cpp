@@ -99,7 +99,8 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 // The one place that decides the render scale and the upscale stage (docs/UPSCALING.md, "The render scale"): the scale the renderer draws at
 // is window.renderScale (heldScale) times the scale of the upscaler's quality, never below the engine's 0.25 floor; the stage is on when
-// that is below 1 or the mode that really draws is spatial (its sharpen at scale 1; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
+// that is below 1 or the mode that really draws is not stretch (at scale 1 the renderer decides each frame, from the mode it draws then: the spatial
+// sharpen is the only thing to draw there; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
 // the video recorder: hold_render_scale without the player's option) is that size and no stage. The scale mode is told too: pixel art
 // keeps the plain nearest scaling (the effective mode is stretch there). The dynamic resolution's factor multiplies in here and nowhere else
 // (dynamic_factor is 1 while it is off, so nothing changes); the renderer is also told the scale without it, which its temporal history follows.
@@ -1640,19 +1641,27 @@ bool Engine::capture_region(Image& out, const Rect& region, double zoom, std::st
 
 bool Engine::capture_frame(Image& out, std::string* error) { return capture_scaled(out, impl_->heldScale, error); }
 
-bool Engine::hold_render_scale(double scale, std::string* error) {
+bool Engine::hold_render_scale(double scale, std::string* error) { return hold(scale, false, error); }
+
+// A scale held from outside (--render-scale, the video recorder: player false) is a size, not the player's option: it takes over from one the
+// player set before, so the quality does not multiply into a size. The player's option (window.renderScale: player true) is a scale the
+// upscaler's quality multiplies. One apply per call, and none when the value and the flag are as they were.
+bool Engine::hold(double scale, bool player, std::string* error) {
     Impl& I = *impl_;
     Image probe;
     if (!I.renderer) return capture_scaled(probe, scale, error);  // the same message as a screenshot
-    if (scale == I.heldScale) return true;
-    // Validate with the screenshot rules (range, 8192 px), without drawing.
-    constexpr double kMaxSide = 8192;
-    if (!(scale >= Renderer::kMinRenderScale && scale <= Renderer::kMaxRenderScale) ||
-        scale * std::max(I.renderer->target_width(), I.renderer->target_height()) > kMaxSide) {
-        return capture_scaled(probe, scale, error);  // fails with the explanation
+    if (scale != I.heldScale) {
+        // Validate with the screenshot rules (range, 8192 px), without drawing.
+        constexpr double kMaxSide = 8192;
+        if (!(scale >= Renderer::kMinRenderScale && scale <= Renderer::kMaxRenderScale) ||
+            scale * std::max(I.renderer->target_width(), I.renderer->target_height()) > kMaxSide) {
+            return capture_scaled(probe, scale, error);  // fails with the explanation
+        }
     }
+    if (scale == I.heldScale && player == I.playerScale) return true;
     I.heldScale = scale;
-    I.apply_render_scale();  // a held scale that is not the player's option (--render-scale) is a size: no upscale stage
+    I.playerScale = player;
+    I.apply_render_scale();
     I.renderStale = true;
     return true;
 }
@@ -1858,14 +1867,7 @@ std::string Engine::set_render_scale(double scale) {
     std::string err;
     // The player's option, not a size: with the upscaler's quality it gives the render scale, below 1 the game is drawn smaller and brought
     // back to the design size, the HUD and UI drawn over it at that size (apply_render_scale), so a screenshot of it is the design size.
-    const bool wasPlayer = I.playerScale;
-    I.playerScale = true;
-    if (!hold_render_scale(scale, &err)) {
-        I.playerScale = wasPlayer;
-        return err;
-    }
-    I.apply_render_scale();  // hold_render_scale does nothing when the value is the held one already
-    I.renderStale = true;
+    if (!hold(scale, true, &err)) return err;
     return std::string();
 }
 

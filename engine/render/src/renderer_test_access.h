@@ -45,6 +45,13 @@ struct Gi2dFieldInfo {
     bool irradianceReady = false, history = false, primed = false;
 };
 
+// The images of the upscale stage that live at the output size (M76 POL-UPSCALE): outTarget (the picture the screen-space items are drawn
+// over), its depth image, outFilterTarget (the colour filter after the items) and the spatial upscaler's target.
+struct OutputTargetsInfo {
+    bool out = false, outDepth = false, filter = false, spatial = false;
+    int outW = 0, outH = 0, outSamples = 0;
+};
+
 }  // namespace render
 
 struct RendererTestAccess {
@@ -97,7 +104,13 @@ struct RendererTestAccess {
     static int taa_resets(Renderer& r);
     static int taa_format(Renderer& r);
     static bool taa_unavailable(Renderer& r);
+    static bool
+    taa_upscale_unavailable(Renderer& r);  // the upscaler's history was refused (the cameras' flag is taa_unavailable)
+    static void taa_set_budget(Renderer& r,
+                               std::uint64_t bytes);  // the bytes the TAA histories may take together (0: the default)
     static void taa_force_rgba8(Renderer& r, bool force);
+    // M76 POL-UPSCALE: which of the output-size images the renderer holds now (valid, with their depth).
+    static render::OutputTargetsInfo output_targets(Renderer& r);
     // M76-P4: the temporal upscaler: the jitter phases the last frame asked of its camera (0: the frame was not jittered for it), the
     // implementation the last frame's upscale stage used (render::UpscaleImpl as an int), and whether its last resolve blended with the history.
     static int upscale_phases(Renderer& r);

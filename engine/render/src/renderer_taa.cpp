@@ -196,7 +196,8 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
     const std::uint64_t wanted = history_bytes(w, h, format);
     if (!slot) slot = std::make_shared<Slot>();
     destroy(*slot);
-    bool ok = used + wanted <= kBudgetBytes;
+    const std::uint64_t budget = budgetOverride_ ? budgetOverride_ : kBudgetBytes;
+    bool ok = used + wanted <= budget;
     for (int i = 0; i < 2 && ok; ++i) {
         TargetDesc d;
         d.label = i == 0 ? "taa-history-0" : "taa-history-1";
@@ -209,14 +210,22 @@ std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h,
     if (!ok) {
         destroy(*slot);
         slots_.erase(camKey);
-        refused_ = true;
-        FA_ERROR("render",
-                 "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the "
-                 "histories take at most "
-                 "{} MB, or the GPU refused the images). The game renders without it and without the camera jitter. "
-                 "Hint: lower the "
-                 "render scale or turn temporalAAEnabled off.",
-                 job, w, h, kBudgetBytes >> 20);
+        if (camKey == kUpscaleCamKey) {
+            upscaleRefused_ = true;
+            FA_ERROR(
+                "render",
+                "Temporal upscaler: it needs a history of {}x{} (the output size) and the renderer cannot hold it (the "
+                "histories take at most {} MB, or the GPU refused the images). The game is upscaled with the spatial "
+                "upscaler instead. Hint: lower the window size, or set render.upscaler mode to \"spatial\".",
+                w, h, budget >> 20);
+        } else {
+            refused_ = true;
+            FA_ERROR("render",
+                     "Temporal antialiasing: camera '{}' needs a history of {}x{} and the renderer cannot hold it (the "
+                     "histories take at most {} MB, or the GPU refused the images). The game renders without it and "
+                     "without the camera jitter. Hint: lower the render scale or turn temporalAAEnabled off.",
+                     job, w, h, budget >> 20);
+        }
         return nullptr;
     }
     slot->w = w;
@@ -266,6 +275,7 @@ void TaaFx::forget_targets(bool keepUpscale) {
         it = slots_.erase(it);
     }
     refused_ = false;
+    upscaleRefused_ = false;
 }
 
 void TaaFx::release() {
@@ -361,8 +371,18 @@ bool TaaFx::output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, 
     return true;
 }
 
+bool TaaFx::reserve_upscale(int outW, int outH, std::uint64_t serial) {
+    if (outW < 1 || outH < 1 || !ready() || upscaleRefused_) return false;
+    const std::shared_ptr<Slot> slot = slot_for(kUpscaleCamKey, outW, outH, pick_format(), "upscale");
+    if (!slot) return false;
+    // A history made now counts as planned in the frame that is about to be drawn: a sweep between this call and the resolve (the frame's end
+    // when no job resolved) must not free what was just reserved. `serial` is the postSerial of the frame before; the resolve sets its own.
+    slot->planned = std::max(slot->planned, serial);
+    return true;
+}
+
 bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {
-    if (!plan.on || !out.valid() || !in.color.id || !in.dummy.id || !ready() || refused_) return false;
+    if (!plan.on || !out.valid() || !in.color.id || !in.dummy.id || !ready() || upscaleRefused_) return false;
     in.outW = out.w;
     in.outH = out.h;
     const sg_pixel_format hf = pick_format();
@@ -404,11 +424,6 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     return output(gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
-// The pass callbacks capture a plan by value (a Mat4 inside): MSVC warns (C4324) about padded closures when a member is alignas(16).
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4324)
-#endif
 int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rectIn, int picW, int picH,
                       ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
                       const VelocityRef& velocity, const PrepassRef& reactive, sg_view dummy, int* drawCalls,
@@ -519,8 +534,5 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     });
     return declared;
 }
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
 
 }  // namespace fa::render
