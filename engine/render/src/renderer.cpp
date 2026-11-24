@@ -526,14 +526,31 @@ void Renderer::set_target_size(int width, int height) {
     impl_->shadowTargetFailed = false;  // a shadow map that could not be made is tried again after a resize
     impl_->create_targets(width, height);
 }
-void Renderer::set_render_scale(float scale) {
+void Renderer::set_render_scale(float scale, float baseScale) {
     if (!initialized()) return;
     if (!(scale >= kMinRenderScale)) scale = 1.0f;
     scale = std::min(scale, kMaxRenderScale);
+    if (!(baseScale >= kMinRenderScale)) baseScale = scale;  // 0 (and a NaN): no dynamic part
+    baseScale = std::min(baseScale, kMaxRenderScale);
+    const bool dynamicStep =
+        baseScale == impl_->renderBaseScale;  // only the dynamic part moved: the history of the upscaler lives on
+    impl_->renderBaseScale = baseScale;
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
     impl_->shadowTargetFailed = false;
+    impl_->keepUpscaleHistory = dynamicStep;
     impl_->create_targets(impl_->targetW, impl_->targetH);
+    impl_->keepUpscaleHistory = false;
+}
+void Renderer::set_gpu_frame_timing(bool on) {
+    if (!initialized()) return;
+    impl_->gpuFrameWanted = on;
+    if (!on) impl_->gpuFrameMs.clear();
+}
+void Renderer::take_gpu_frame_ms(std::vector<double>& out) {
+    if (!impl_ || impl_->gpuFrameMs.empty()) return;
+    out.insert(out.end(), impl_->gpuFrameMs.begin(), impl_->gpuFrameMs.end());
+    impl_->gpuFrameMs.clear();
 }
 void Renderer::set_upscale_stage(bool on) {
     if (!initialized() || impl_->upscaleStage == on) return;
@@ -1280,12 +1297,21 @@ void Renderer::Impl::render(World& world, float dt) {
     frameOutput = render::select_output(output(), float_display());
     frameAboveWhite = false;
     auto t0 = std::chrono::steady_clock::now();
-    if (Profiler::on()) {
+    if (Profiler::on() || gpuFrameWanted) {
         // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
+        const std::size_t before = gpuFrames.size();
         gpuTimer.poll(gpuFrames);
+        if (gpuFrameWanted) {  // the dynamic resolution reads the same results (a second list: take_gpu_ms() empties gpuFrames)
+            constexpr std::size_t kKeepFrames = 64;
+            gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
+                              gpuFrames.end());
+            if (gpuFrameMs.size() > kKeepFrames)
+                gpuFrameMs.erase(gpuFrameMs.begin(), gpuFrameMs.end() - std::ptrdiff_t(kKeepFrames));
+        }
         constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
         if (gpuFrames.size() > kKeepGpuFrames)
             gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
+        if (!Profiler::on()) gpuFrames.clear();  // only the dynamic resolution asked: nobody takes these
         gpuTimer.begin();
     } else {
         // Nothing is measured now: what an earlier run of the profiler left would show as the GPU time of this frame's
@@ -1322,6 +1348,10 @@ void Renderer::Impl::render(World& world, float dt) {
         outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
         if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
+        // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is made longer in steps of
+        // 4 phases, so it changes every few steps and the jitter of the frames before it stays valid for the history (the frame index goes on).
+        if (wantedPhases > 0 && renderScale != renderBaseScale)
+            wantedPhases = std::min((wantedPhases + 3) / 4 * 4, kJitterPhasesMax);
     }
     temporalPhases = temporalBlocked ? 0 : wantedPhases;
     lastCams = collect_cameras(world);

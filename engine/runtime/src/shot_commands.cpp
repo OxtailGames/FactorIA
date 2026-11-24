@@ -1017,8 +1017,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "2dLightCookies, 2dRimLight, 2dGeneratedNormals, 2dGlobalIllumination, 2dWater, spriteSceneColor, and the "
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
-         "planned: dynamicResolution; drawn: motionVectors, spatialUpscaler, temporalUpscaler, metalfx (Metal only: "
-         "the reason "
+         "drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution, metalfx (Metal only: the reason "
          "says when this OS or GPU lacks it); "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
@@ -1226,6 +1225,60 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             Json out = render::upscaler_to_json(now);
             out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
             out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
+            out["changed"] = changed;
+            return out;
+        });
+
+    I.commands.add(
+        {"render.dynamic_resolution",
+         "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
+         "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
+         "frames elsewhere) and "
+         "moves a factor between `minScale` and `maxScale` so the frame time stays at `targetMs` (0 or null: one "
+         "refresh of the display, 60 Hz "
+         "where the platform cannot tell). The factor multiplies window.renderScale and the upscaler's quality scale "
+         "(never below 0.25), on a "
+         "grid of 32 steps, at most twice a second. Off (the default) draws at the fixed render scale, exactly as "
+         "before. With no argument it "
+         "returns the setting; with any key it changes those and keeps the rest. Example: render.dynamic_resolution "
+         "{\"enabled\":true,\"targetMs\":16.7,\"minScale\":0.6} The reasoning and the limits: docs/UPSCALING.md, "
+         "\"Dynamic resolution\"." FA_COMMAND_DETAILS
+         "Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, changed}: scale "
+         "is the factor in force "
+         "(1 while off), frameMs the smoothed measured frame time (0 until measured), source what is measured "
+         "(\"gpu\", \"interval\", "
+         "\"injected\", \"none\"). The renderer makes its images again only when the factor steps. The start value is "
+         "factoria.json "
+         "\"render\": {\"dynamicResolution\": {...}}; window.dynamicResolution in scripts is the same setting. A wrong "
+         "key or number fails "
+         "with `invalid_argument`, the JSON pointer and the valid range, and changes nothing. Works with "
+         "graphics=false too (the value is "
+         "only remembered; a headless run measures no frame time). The factor is a measurement of this machine: it is "
+         "never part of the "
+         "simulation, a replay or a screenshot test's state.",
+         parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","description":"true turns the controller on; false (default) draws at the fixed render scale."},
+               "targetMs":{"type":["number","null"],"minimum":0,"maximum":100,"description":"The frame time to hold in ms (33.3 = 30 fps, 16.7 = 60 fps), 4..100; 0 or null follows the display's refresh rate."},
+               "minScale":{"type":"number","minimum":0.25,"maximum":1,"description":"The smallest share of the render size's width and height, 0.25..1 (default 0.5)."},
+               "maxScale":{"type":"number","minimum":0.25,"maximum":1,"description":"The largest share and where it starts, minScale..1 (default 1)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"enabled", "targetMs", "minScale", "maxScale"}, "render.dynamic_resolution");
+            const render::DynamicResolutionSettings before = I.self->dynamic_resolution();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_dynamic_resolution(a, "render.dynamic_resolution");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.dynamic_resolution with no argument to read the setting.");
+                changed = I.self->dynamic_resolution() != before;
+            }
+            Json out = render::dynamic_resolution_to_json(I.self->dynamic_resolution());
+            const render::DynamicResolutionState st = I.self->dynamic_resolution_state();
+            out["effectiveTargetMs"] = std::round(st.targetMs * 10.0) / 10.0;
+            out["scale"] = std::round(double(st.scale) * 1000.0) / 1000.0;
+            out["frameMs"] = std::round(st.frameMs * 10.0) / 10.0;
+            out["source"] = std::string(st.source);
             out["changed"] = changed;
             return out;
         });
@@ -1488,6 +1541,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.upscaler", capability_sets::changes_state()},
+                                                 {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},
                                                  {"render.material_cost", capability_sets::reads()},
