@@ -121,7 +121,7 @@ blocks and feed garbage (also run under ASan and UBSan while writing them).
 ### GDeflate (`gdeflate_codec.cpp`, M77)
 `Codec::GDeflate` (3 in the pack index) is the stream DirectStorage 1.1 decompresses on the GPU, written for the engine from
 the published description of the format (no code of the reference implementation, no dependency). The reader reads it on the
-CPU like any codec; the pack stores it so that the Windows DirectStorage reader (M77) can hand a block to the GPU as it is.
+CPU like any codec; on 64-bit Windows the pack reader hands its blocks to DirectStorage as they are ("DirectStorage" below).
 Levels 1 to 12 (0 = 6; a hash-chain match finder with lazy matching from level 4, deeper chains per level), all read by the
 same decoder.
 
@@ -155,7 +155,7 @@ What is implemented (`fa::compress` makes one stream per block; the pack's block
 - **Pack:** codec 3 needs no format version: a pack that holds gdeflate files is a version-2 pack, and an older FactorIA
   reports `codec 3 ... which this FactorIA does not know`. The writer picks it per file with `export.pack.codecs`, for all the
   files it would compress with `export.pack.codec = "gdeflate"` (docs/exporting/EXPORTING_DESKTOP.md), or, with `"auto"`, for a
-  Windows export with `export.pack.directStorage` on (default off; the reader that uses it arrives in M77).
+  Windows export with `export.pack.directStorage` on (default off; the reader that uses it is "DirectStorage" below).
 
 Tests (`engine/core/tests/test_gdeflate.cpp`): round trips of 0, 1, 64 KiB +/- 1, 256 KiB and more bytes of text, noise,
 zeros and structured data at several levels; the header and the table; the decoder against two tiles written by hand
@@ -163,7 +163,40 @@ zeros and structured data at several levels; the header and the table; the decod
 the pak (mapped, read, through `fs::mount_pack`); determinism; and a bench case that prints MB/s against lz4 and zstd.
 **Test vectors for the reference decoder:** the case "test vectors" pins the FNV-1a hash of eight inputs and of the streams
 this encoder writes for them, and with `FA_GDEFLATE_VECTORS_DIR=<dir>` writes `<name>.raw` and `<name>.gdef` for each. A
-Windows job (M77 P11b) runs the `.gdef` files through DirectStorage's own decompressor (CPU `IDStorageCompressionCodec`
-or the GPU path) and compares with the `.raw`; the reverse (its compressor, our decoder) is the same files written by
-`GDeflate::Compress` and read with `fa::decompress`. Until that job runs, bit-compatibility with the GPU decoder rests on the
-published description, not on a run of the reference.
+step of the Windows CI job runs the `.gdef` files through DirectStorage's own decompressor (its CPU
+`IDStorageCompressionCodec`, from the DLLs `factoria setup directstorage` installs) and compares with the `.raw`; the reverse
+(its compressor, our decoder) compresses each `.raw` with the same codec and reads the stream with `fa::decompress` (the case
+"test vectors decoded by DirectStorage's codec", Windows x64 only). Bit-compatibility with the GPU decoder itself is checked
+once reads go to GPU destinations (P11b2).
+
+### DirectStorage (`pack_direct_storage_win32.cpp`, M77)
+On 64-bit Windows, `PackReader` reads the blocks of a gdeflate file through Microsoft's DirectStorage runtime when its two
+DLLs are there; nothing changes for the callers (`fs::read_file`, `IoQueue`, `read_range` and the streaming readers all end
+in `decode_range`). Everything else, and every other platform, uses the CPU path.
+
+- **The runtime.** `dstoragecore.dll` and `dstorage.dll` (1.1 or newer, the 1.3.0 NuGet package `factoria setup
+  directstorage` installs) are loaded at run time with `LoadLibraryExW` from `FA_DIRECTSTORAGE_DIR` or, by default, the
+  executable's folder (a Windows release export with `export.pack.directStorage` copies them there); `FA_DIRECTSTORAGE=0`
+  turns the reader off. The engine declares the few COM interfaces it calls itself (`IDStorageFactory`, `IDStorageFile`,
+  `IDStorageQueue1`, `IDStorageStatusArray`, `IDStorageCompressionCodec`, with their IIDs and the layout of
+  `DSTORAGE_REQUEST`), so no SDK header is needed to build it and no DLL is needed to run it. One process-wide queue
+  (memory destinations, file source, capacity 256) serves every pack; it is created on the first gdeflate read and never
+  released.
+- **A read.** `pack_direct_plan.cpp` turns a range into one request per block (pure functions, tested on every platform):
+  whole blocks decompress straight into the caller's buffer, the partial first and last blocks into two scratch buffers and
+  are copied from there. The requests go in batches of at most 254 requests and 32 MiB of output; each batch ends with a
+  status-array entry and an event the reading thread waits on (with a log warning when it has waited 30 s). A raw block is
+  a plain read whose xxh32 is checked as on the CPU path; a compressed block is decompressed by DirectStorage from its stored
+  bytes, which never reach the engine, so its checksum is not checked on this path (a damaged stream is a failed request).
+  `PackReader::counters().directBlocks` counts the blocks read this way.
+- **Where it decompresses.** With memory destinations DirectStorage decompresses GDeflate on its own CPU worker threads, not
+  on the GPU; what it gives now is fewer copies and a queue that batches the file reads. Decompression on the GPU comes with
+  GPU destinations (buffers and textures, P11b2).
+- **Fallback.** Every failure falls back to the CPU path and never crashes: DLLs that are missing or too old, a queue or file
+  that cannot be created, a failed request or a raw block whose checksum is wrong. The first gdeflate read of a pack logs
+  once (`fs`, info) whether DirectStorage is used and, if not, why; a request that fails logs one warning, turns
+  DirectStorage off for that pack and the same read is redone on the CPU, whose checksums name the damaged block.
+- **Tests.** `engine/core/tests/test_pack_direct_storage.cpp`: the plan and the batches (every platform), and on Windows x64
+  a gdeflate pack with raw blocks inside, read whole and by ranges, mapped and not, through DirectStorage. Without the DLLs
+  the Windows cases are skipped; `FA_DIRECTSTORAGE_REQUIRE=1` makes them fail instead, which the Windows CI job sets in its
+  DirectStorage step (it installs the DLLs with `factoria setup directstorage` and runs these cases and the GDeflate vectors).

@@ -27,7 +27,17 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Export
 
-- **Game packs can hold GDeflate (M77, first part of DirectStorage):** `game.pak` blocks can now be compressed with `gdeflate`, the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU, written for the engine (`Codec::GDeflate`, levels 1 to 12; the decoder reads it on the CPU, about the ratio of zlib). Choose it with `export.pack.codecs` per extension or with the new `export.pack.codec` (`"auto"`, `"lz4"`, `"zstd"`, `"gdeflate"`; `"auto"` keeps today's choice). `export.pack.directStorage` (default false, read and saved now) makes a Windows export with `"auto"` pack as `gdeflate`; the DirectStorage reader arrives later in M77. The pack stays format version 2, but an older FactorIA cannot read a pack with gdeflate files. docs/design/ARCHITECTURE_FILES.md, "GDeflate".
+- **Game packs can hold GDeflate (M77, first part of DirectStorage):** `game.pak` blocks can now be compressed with `gdeflate`, the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU, written for the engine (`Codec::GDeflate`, levels 1 to 12; the decoder reads it on the CPU, about the ratio of zlib). Choose it with `export.pack.codecs` per extension or with the new `export.pack.codec` (`"auto"`, `"lz4"`, `"zstd"`, `"gdeflate"`; `"auto"` keeps today's choice). `export.pack.directStorage` (default false, read and saved now) makes a Windows export with `"auto"` pack as `gdeflate`; the DirectStorage reader is the next entry. The pack stays format version 2, but an older FactorIA cannot read a pack with gdeflate files. docs/design/ARCHITECTURE_FILES.md, "GDeflate".
+- **DirectStorage reads game.pak on Windows (M77):** on 64-bit Windows, the blocks of gdeflate files in `game.pak` are read through
+  Microsoft's DirectStorage when `dstorage.dll` and `dstoragecore.dll` lie next to the game (loaded at run time, 1.1 or newer; the engine
+  declares the interfaces it calls, no SDK is needed to build it). Whole blocks decompress straight into the caller's buffer, in batches
+  on one queue; nothing changes for `fs::read_file`, `IoQueue` or the streaming readers. With memory destinations DirectStorage
+  decompresses on its own CPU worker threads; decompression on the GPU comes with GPU destinations. Any failure (no DLLs, a runtime
+  older than 1.1, a failed request, a raw block with a wrong checksum) logs once and falls back to the CPU decoder, never a crash;
+  `FA_DIRECTSTORAGE=0` turns it off. New `factoria setup directstorage` downloads the NuGet package Microsoft.Direct3D.DirectStorage
+  1.3.0 (pinned SHA-256) and keeps the two x64 DLLs; a Windows `--release` export with `export.pack.directStorage` copies them next
+  to the executable, or warns to run that command and still succeeds. The Windows CI job checks the GDeflate test vectors against
+  DirectStorage's own codec both ways. docs/design/ARCHITECTURE_FILES.md, "DirectStorage".
 
 ## 0.36.0
 

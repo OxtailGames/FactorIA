@@ -10,6 +10,7 @@
 //   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
+//   setup_directstorage.cpp the DirectStorage DLLs a Windows export puts next to the game
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
 //   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
 #pragma once
@@ -164,6 +165,12 @@ SetupComponent ffmpeg_status(const SetupContext& ctx);
 SetupResult ffmpeg_install(const SetupContext& ctx, const SetupInstallOptions& options);
 // The install of one given binary entry (tests pass one whose hash matches their fake download; null = unsupported).
 SetupResult ffmpeg_install_binary(const SetupContext& ctx, const SetupInstallOptions& options, const FfmpegBinary* bin);
+
+SetupComponent directstorage_status(const SetupContext& ctx);
+SetupResult directstorage_install(const SetupContext& ctx, const SetupInstallOptions& options);
+// The install of one given package (tests pass one whose hash matches their fake download, and its `url`; "" = NuGet's).
+SetupResult directstorage_install_package(const SetupContext& ctx, const SetupInstallOptions& options,
+                                          const DirectStoragePackage& package, const std::string& url);
 
 SetupComponent vscode_status(const SetupContext& ctx);
 SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);

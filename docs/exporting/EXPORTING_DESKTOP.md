@@ -414,8 +414,14 @@ or `gdeflate`. `export.pack.codec` (default `"auto"`) sets the codec of every fi
 the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU; the engine decodes it on the CPU too
 (about the ratio of zlib, slower than lz4 and zstd), so a pack with it works everywhere, but a FactorIA older than this
 option cannot read it. With `"auto"`, a Windows export with `export.pack.directStorage: true` packs those files as
-`gdeflate`; `directStorage` (default `false`) is used by the DirectStorage reader, which arrives in M77, and changes nothing
-else yet. A wrong value is an error with its JSON pointer and a "did you mean".
+`gdeflate`. `directStorage` (default `false`) also makes a Windows `--release` export copy `dstorage.dll` and
+`dstoragecore.dll`, which `factoria setup directstorage` installs, next to the game's executable; the game then reads the
+blocks of its gdeflate files through Microsoft's DirectStorage (one queue that batches the reads; for now DirectStorage
+decompresses them on its own CPU threads, decompression on the GPU comes with GPU destinations in a later update). When the
+DLLs are not installed the export still succeeds, with a warning that says to run `factoria setup directstorage`, and the
+game decodes those files on the CPU; the game does the same, and logs why once, when the DLLs are missing, older than
+DirectStorage 1.1 or a read through them fails (`FA_DIRECTSTORAGE=0` turns it off; docs/design/ARCHITECTURE_FILES.md,
+"DirectStorage", repository only, not in the binary). A wrong value is an error with its JSON pointer and a "did you mean".
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
 editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`: what
 the engine and the scripts read after `factoria.json`, which is read by its full path and is not listed) and, per scene,

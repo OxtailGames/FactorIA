@@ -876,7 +876,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
             if (!b->is_boolean())
                 r.error("/export/pack/directStorage", "expected true or false, got " + describe_json_value(*b),
                         "Write \"directStorage\": true to let a Windows export pack with the codec DirectStorage "
-                        "decompresses on the GPU (it arrives in M77), or remove the key (the default, false).");
+                        "reads (gdeflate) and ship its DLLs, or remove the key (the default, false).");
             else
                 s.pack.directStorage = b->get<bool>();
         }
